@@ -1,3 +1,7 @@
+#![allow(clippy::type_complexity)]
+#![allow(clippy::too_many_arguments)]
+#![allow(clippy::collapsible_if)]
+#![deny(clippy::perf)]
 mod camera;
 mod interaction;
 mod inventory;
@@ -9,7 +13,6 @@ mod quest;
 mod smoke;
 mod ui;
 mod world;
-
 use bevy::prelude::*;
 
 #[derive(States, Default, Clone, Copy, Debug, PartialEq, Eq, Hash)]
