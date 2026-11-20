@@ -20,7 +20,8 @@ pub struct GameAssets {
     pub outpost: Handle<Gltf>,
     pub collision: Handle<Gltf>,
     pub core: Handle<Gltf>,
-    pub materials: BTreeMap<ItemKind, Handle<Gltf>>,
+    pub pickups: BTreeMap<ItemKind, Handle<Gltf>>,
+    pub worn: BTreeMap<ItemKind, Handle<Gltf>>,
 }
 #[derive(Component)]
 pub struct PendingScene;
@@ -38,9 +39,19 @@ fn load(mut commands: Commands, server: Res<AssetServer>) {
         outpost: server.load("models/outpost.glb"),
         collision: server.load("models/collision.glb"),
         core: server.load("models/core.glb"),
-        materials: ItemKind::MATERIALS
+        pickups: ItemKind::MATERIALS
             .into_iter()
+            .chain(ItemKind::GEAR)
             .map(|item| (item, server.load(format!("models/{}.glb", item.asset()))))
+            .collect(),
+        worn: ItemKind::GEAR
+            .into_iter()
+            .map(|item| {
+                (
+                    item,
+                    server.load(format!("models/{}_worn.glb", item.asset())),
+                )
+            })
             .collect(),
     });
 }
@@ -66,7 +77,8 @@ fn check(
         &assets.core,
     ]
     .into_iter()
-    .chain(assets.materials.values())
+    .chain(assets.pickups.values())
+    .chain(assets.worn.values())
     .collect::<Vec<_>>();
     for handle in &handles {
         let handle = *handle;
@@ -109,6 +121,15 @@ fn check(
     let model = gltfs.get(&assets.character).expect(
         "the character glTF must be present after all game models passed loading validation",
     );
+    for bone in ["spine", "head"] {
+        if !model.named_nodes.contains_key(bone) {
+            status.error = Some(format!(
+                "The player rig is missing equipment attachment bone {bone}"
+            ));
+            next.set(GameState::Failed);
+            return;
+        }
+    }
     let mut graph = AnimationGraph::new();
     let mut nodes = Vec::new();
     for name in ["Idle", "Walk", "Run", "Jump"] {

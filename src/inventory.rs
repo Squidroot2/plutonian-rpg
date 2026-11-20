@@ -16,13 +16,27 @@ pub enum ItemKind {
     Scrap,
     MethanePouch,
     BeaconCore,
+    FieldArmor,
+    ReinforcedArmor,
+    FieldHelmet,
+    ReinforcedHelmet,
 }
 impl ItemKind {
     pub const MATERIALS: [Self; 3] = [Self::Battery, Self::Scrap, Self::MethanePouch];
-    pub const ALL: [Self; 4] = [
+    pub const GEAR: [Self; 4] = [
+        Self::FieldArmor,
+        Self::ReinforcedArmor,
+        Self::FieldHelmet,
+        Self::ReinforcedHelmet,
+    ];
+    pub const ALL: [Self; 8] = [
         Self::Battery,
         Self::Scrap,
         Self::MethanePouch,
+        Self::FieldArmor,
+        Self::ReinforcedArmor,
+        Self::FieldHelmet,
+        Self::ReinforcedHelmet,
         Self::BeaconCore,
     ];
     pub fn name(self) -> &'static str {
@@ -31,6 +45,10 @@ impl ItemKind {
             Self::Scrap => "Scrap",
             Self::MethanePouch => "Methane pouch",
             Self::BeaconCore => "Beacon power core",
+            Self::FieldArmor => "Field armor",
+            Self::ReinforcedArmor => "Reinforced armor",
+            Self::FieldHelmet => "Field helmet",
+            Self::ReinforcedHelmet => "Reinforced helmet",
         }
     }
     pub fn asset(self) -> &'static str {
@@ -39,6 +57,10 @@ impl ItemKind {
             Self::Scrap => "scrap",
             Self::MethanePouch => "methane_pouch",
             Self::BeaconCore => "core",
+            Self::FieldArmor => "field_armor",
+            Self::ReinforcedArmor => "reinforced_armor",
+            Self::FieldHelmet => "field_helmet",
+            Self::ReinforcedHelmet => "reinforced_helmet",
         }
     }
     pub fn description(self) -> &'static str {
@@ -47,6 +69,10 @@ impl ItemKind {
             Self::Scrap => "Salvaged metal from the outpost's machines.",
             Self::MethanePouch => "A reinforced pouch of condensed methane.",
             Self::BeaconCore => "Quest item. Return this core to Nemi.",
+            Self::FieldArmor => "Light fitted plates used by outpost explorers.",
+            Self::ReinforcedArmor => "A reinforced cuirass for crossing the deep ice.",
+            Self::FieldHelmet => "An open-face helmet with space for sensory horns.",
+            Self::ReinforcedHelmet => "A reinforced helmet with luminous identification marks.",
         }
     }
 }
@@ -66,7 +92,7 @@ impl Inventory {
         self.0.insert(item, total);
         true
     }
-    fn remove(&mut self, item: ItemKind, quantity: u32) -> bool {
+    pub(crate) fn remove(&mut self, item: ItemKind, quantity: u32) -> bool {
         let count = self.count(item);
         if quantity == 0 || quantity > count {
             return false;
@@ -111,7 +137,7 @@ impl Plugin for InventoryPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Inventory>()
             .init_resource::<InventoryNotice>()
-            .add_observer(spawn_materials)
+            .add_observer(spawn_loot)
             .add_observer(drop_items)
             .add_systems(OnExit(GameState::Loading), ground_pickups);
     }
@@ -119,7 +145,7 @@ impl Plugin for InventoryPlugin {
 pub fn scene_ready(event: On<WorldInstanceReady>, mut commands: Commands) {
     commands.entity(event.entity).remove::<PendingScene>();
 }
-fn spawn_materials(
+fn spawn_loot(
     _: On<SpawnWorld>,
     mut commands: Commands,
     assets: Res<GameAssets>,
@@ -144,6 +170,20 @@ fn spawn_materials(
             }
         }
     }
+    for (item, position) in [
+        (ItemKind::FieldArmor, Vec3::new(-5.0, 2.0, -5.0)),
+        (ItemKind::FieldHelmet, Vec3::new(4.0, 2.0, -9.0)),
+        (ItemKind::ReinforcedArmor, Vec3::new(-3.0, 2.0, -115.0)),
+        (ItemKind::ReinforcedHelmet, Vec3::new(3.0, 2.0, -120.0)),
+    ] {
+        spawn_pickup(
+            &mut commands,
+            &assets,
+            &gltfs,
+            Pickup { item, quantity: 1 },
+            position,
+        );
+    }
 }
 pub fn spawn_pickup(
     commands: &mut Commands,
@@ -157,7 +197,7 @@ pub fn spawn_pickup(
             Name::new(pickup.item.name()),
             pickup,
             PendingScene,
-            WorldAssetRoot(gltfs.get(&assets.materials[&pickup.item]).expect("material glTF assets must remain loaded after validation so initial and dropped pickups can be spawned").scenes[0].clone()),
+            WorldAssetRoot(gltfs.get(&assets.pickups[&pickup.item]).expect("pickup glTF assets must remain loaded after validation so initial and dropped pickups can be spawned").scenes[0].clone()),
             Transform::from_translation(position),
         ))
         .observe(scene_ready);
@@ -181,7 +221,12 @@ pub fn find_drop_position(
     spatial: &SpatialQuery,
     player: Entity,
     transform: &Transform,
+    item: ItemKind,
 ) -> Option<Vec3> {
+    let size = item
+        .gear()
+        .map_or(Vec3::new(0.62, 0.6, 0.62), |gear| gear.pickup_size);
+    let shape = Collider::cuboid(size.x, size.y, size.z);
     let forward = transform.rotation * Vec3::Z;
     let right = transform.rotation * Vec3::X;
     let filter = SpatialQueryFilter::from_excluded_entities([player]);
@@ -201,14 +246,9 @@ pub fn find_drop_position(
         }
         let base = Vec3::new(origin.x, origin.y - hit.distance + 0.012, origin.z);
         // Prevent a drop through a wall or into a solid object. Pickups have no physics collider.
-        let center = base + Vec3::Y * 0.32;
+        let center = base + Vec3::Y * (size.y * 0.5 + 0.02);
         if !spatial
-            .shape_intersections(
-                &Collider::cuboid(0.62, 0.6, 0.62),
-                center,
-                Quat::IDENTITY,
-                &filter,
-            )
+            .shape_intersections(&shape, center, Quat::IDENTITY, &filter)
             .is_empty()
         {
             continue;
@@ -220,7 +260,7 @@ pub fn find_drop_position(
         };
         if spatial
             .cast_shape(
-                &Collider::sphere(0.22),
+                &shape,
                 start,
                 Quat::IDENTITY,
                 direction,
@@ -251,7 +291,7 @@ fn drop_items(
     let Ok((entity, transform)) = players.single() else {
         return;
     };
-    let placement = find_drop_position(&spatial, entity, transform);
+    let placement = find_drop_position(&spatial, entity, transform, request.item);
     if let Some(pickup) = inventory.drop_stack(request.item, request.quantity, placement) {
         spawn_pickup(
             &mut commands,

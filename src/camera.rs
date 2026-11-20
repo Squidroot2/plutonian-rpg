@@ -12,7 +12,7 @@ pub struct FollowCameraPlugin;
 pub struct Orbit {
     pub yaw: f32,
     pub(crate) pitch: f32,
-    distance: f32,
+    pub(crate) distance: f32,
 }
 impl Default for Orbit {
     fn default() -> Self {

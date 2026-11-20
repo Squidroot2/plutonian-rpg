@@ -91,7 +91,7 @@ pub(crate) fn drive(
     mut commands: Commands,
     mut exit: MessageWriter<AppExit>,
 ) {
-    if !inventory_smoke.done {
+    if !inventory_smoke.done || !inventory_smoke.equipment_ready || inventory_smoke.equipment_busy {
         return;
     }
     keys.reset_all();
@@ -206,6 +206,10 @@ pub(crate) fn drive(
         return;
     }
     if *quest == Quest::Complete {
+        assert!(
+            inventory_smoke.equipment_done,
+            "the equipment playthrough must finish before quest completion"
+        );
         assert_eq!(inventory.count(ItemKind::BeaconCore), 0);
         if smoke.completed_at.is_none() {
             commands

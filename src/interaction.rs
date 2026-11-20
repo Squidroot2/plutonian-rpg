@@ -317,7 +317,12 @@ mod tests {
         let player = app.world_mut().spawn_empty().id();
         let transform = Transform::from_xyz(0.0, 0.905, 0.0);
         let check = move |spatial: SpatialQuery| {
-            crate::inventory::find_drop_position(&spatial, player, &transform)
+            crate::inventory::find_drop_position(
+                &spatial,
+                player,
+                &transform,
+                crate::inventory::ItemKind::Battery,
+            )
         };
         assert!(
             app.world_mut()

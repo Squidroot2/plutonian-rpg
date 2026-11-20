@@ -1,5 +1,6 @@
 use crate::{
     GameState,
+    equipment::{EquipRequest, Equipment, EquipmentSlot, UnequipRequest},
     inventory::{DropRequest, Inventory, InventoryNotice, ItemKind},
 };
 use bevy::{
@@ -48,6 +49,8 @@ impl InventoryUiState {
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum InventoryAction {
     Select(ItemKind),
+    Equip,
+    Unequip(EquipmentSlot),
     Minus,
     Plus,
     Quantity,
@@ -55,9 +58,17 @@ pub enum InventoryAction {
     Close,
 }
 #[derive(Component)]
-struct InventoryScreen;
+pub(crate) struct InventoryScreen;
 #[derive(Component)]
 struct InventoryPanel;
+#[derive(Component)]
+struct BagList;
+#[derive(Component)]
+struct SlotText(EquipmentSlot);
+#[derive(Component)]
+struct DefenseText;
+#[derive(Component)]
+struct EquipLabel;
 #[derive(Component)]
 struct ItemLabel(ItemKind);
 #[derive(Component)]
@@ -98,8 +109,8 @@ fn button(action: InventoryAction) -> impl Bundle {
     (
         action,
         Node {
-            min_height: px(38),
-            padding: UiRect::axes(px(12), px(8)),
+            min_height: px(34),
+            padding: UiRect::axes(px(10), px(6)),
             justify_content: JustifyContent::Center,
             align_items: AlignItems::Center,
             flex_shrink: 0.0,
@@ -128,36 +139,78 @@ fn setup(mut commands: Commands) {
             screen
                 .spawn((
                     InventoryPanel,
-                    ScrollPosition::default(),
                     Node {
                         width: percent(92),
                         max_width: px(600),
                         max_height: percent(94),
-                        overflow: Overflow::scroll_y(),
-                        padding: UiRect::all(px(18)),
+                        padding: UiRect::all(px(16)),
                         flex_direction: FlexDirection::Column,
-                        row_gap: px(10),
+                        row_gap: px(8),
                         ..default()
                     },
                     BackgroundColor(Color::srgb(0.025, 0.055, 0.075)),
                 ))
                 .with_children(|panel| {
-                    panel.spawn((Text::new("INVENTORY"), font(25.0)));
-                    panel.spawn((EmptyText, Text::new("Your inventory is empty."), font(17.0)));
-                    for item in ItemKind::ALL {
+                    panel.spawn((Text::new("INVENTORY"), font(24.0)));
+                    panel.spawn((DefenseText, Text::default(), font(16.0)));
+                    for slot in EquipmentSlot::ALL {
                         panel
-                            .spawn(button(InventoryAction::Select(item)))
-                            .observe(action)
+                            .spawn(Node {
+                                align_items: AlignItems::Center,
+                                justify_content: JustifyContent::SpaceBetween,
+                                column_gap: px(10),
+                                flex_shrink: 0.0,
+                                ..default()
+                            })
                             .with_children(|row| {
-                                row.spawn((
-                                    ItemLabel(item),
-                                    Text::default(),
-                                    font(18.0),
-                                    Pickable::IGNORE,
-                                ));
+                                row.spawn((SlotText(slot), Text::default(), font(16.0)));
+                                row.spawn(button(InventoryAction::Unequip(slot)))
+                                    .observe(action)
+                                    .with_children(|b| {
+                                        b.spawn((
+                                            Text::new("Unequip"),
+                                            font(16.0),
+                                            Pickable::IGNORE,
+                                        ));
+                                    });
                             });
                     }
-                    panel.spawn((DetailText, Text::default(), font(16.0)));
+                    panel.spawn((Text::new("BAG"), font(16.0)));
+                    panel
+                        .spawn((
+                            BagList,
+                            ScrollPosition::default(),
+                            Node {
+                                height: px(160),
+                                min_height: px(56),
+                                overflow: Overflow::scroll_y(),
+                                flex_direction: FlexDirection::Column,
+                                row_gap: px(6),
+                                ..default()
+                            },
+                        ))
+                        .with_children(|bag| {
+                            bag.spawn((EmptyText, Text::new("Your bag is empty."), font(16.0)));
+                            for item in ItemKind::ALL {
+                                bag.spawn(button(InventoryAction::Select(item)))
+                                    .observe(action)
+                                    .with_children(|row| {
+                                        row.spawn((
+                                            ItemLabel(item),
+                                            Text::default(),
+                                            font(16.0),
+                                            Pickable::IGNORE,
+                                        ));
+                                    });
+                            }
+                        });
+                    panel.spawn((DetailText, Text::default(), font(14.0)));
+                    panel
+                        .spawn(button(InventoryAction::Equip))
+                        .observe(action)
+                        .with_children(|b| {
+                            b.spawn((EquipLabel, Text::new("Equip"), font(16.0), Pickable::IGNORE));
+                        });
                     panel
                         .spawn((
                             DropControls,
@@ -188,7 +241,7 @@ fn setup(mut commands: Commands) {
                                             } else {
                                                 42
                                             }),
-                                            min_height: px(38),
+                                            min_height: px(34),
                                             align_items: AlignItems::Center,
                                             justify_content: JustifyContent::Center,
                                             padding: UiRect::all(px(8)),
@@ -197,7 +250,7 @@ fn setup(mut commands: Commands) {
                                         node.observe(action).with_children(|child| {
                                             let mut text = child.spawn((
                                                 Text::new(label),
-                                                font(18.0),
+                                                font(16.0),
                                                 Pickable::IGNORE,
                                             ));
                                             if kind == InventoryAction::Quantity {
@@ -212,17 +265,17 @@ fn setup(mut commands: Commands) {
                                 .with_children(|b| {
                                     b.spawn((
                                         Text::new("Drop selected quantity"),
-                                        font(18.0),
+                                        font(16.0),
                                         Pickable::IGNORE,
                                     ));
                                 });
                         });
-                    panel.spawn((NoticeText, Text::default(), font(15.0)));
+                    panel.spawn((NoticeText, Text::default(), font(14.0)));
                     panel
                         .spawn(button(InventoryAction::Close))
                         .observe(action)
                         .with_children(|b| {
-                            b.spawn((Text::new("Close"), font(18.0), Pickable::IGNORE));
+                            b.spawn((Text::new("Close"), font(16.0), Pickable::IGNORE));
                         });
                 });
         });
@@ -231,7 +284,7 @@ fn open(
     mut ui: ResMut<InventoryUiState>,
     inventory: Res<Inventory>,
     mut notice: ResMut<InventoryNotice>,
-    mut panels: Query<&mut ScrollPosition, With<InventoryPanel>>,
+    mut panels: Query<&mut ScrollPosition, With<BagList>>,
 ) {
     if ui.selected.is_none_or(|item| inventory.count(item) == 0) {
         ui.selected = ItemKind::ALL
@@ -262,6 +315,7 @@ fn action(
     actions: Query<&InventoryAction>,
     state: Res<State<GameState>>,
     inventory: Res<Inventory>,
+    equipment: Res<Equipment>,
     mut ui: ResMut<InventoryUiState>,
     mut notice: ResMut<InventoryNotice>,
     mut next: ResMut<NextState<GameState>>,
@@ -279,6 +333,16 @@ fn action(
             ui.quantity = "1".into();
             ui.editing = false;
             notice.0.clear();
+        }
+        InventoryAction::Equip => {
+            if let Some(item) = ui.selected {
+                commands.trigger(EquipRequest(item));
+                ui.editing = false;
+            }
+        }
+        InventoryAction::Unequip(slot) if equipment.get(slot).is_some() => {
+            commands.trigger(UnequipRequest(slot));
+            ui.editing = false;
         }
         InventoryAction::Minus => ui.step(&inventory, -1),
         InventoryAction::Plus => ui.step(&inventory, 1),
@@ -303,7 +367,7 @@ fn edit_quantity(
     mut ui: ResMut<InventoryUiState>,
     inventory: Res<Inventory>,
     scroll: Res<AccumulatedMouseScroll>,
-    mut panels: Query<&mut ScrollPosition, With<InventoryPanel>>,
+    mut panels: Query<&mut ScrollPosition, With<BagList>>,
 ) {
     for mut panel in &mut panels {
         panel.0.y = (panel.0.y - scroll.delta.y * 30.0).max(0.0);
@@ -349,6 +413,7 @@ fn edit_quantity(
 }
 fn sync(
     inventory: Res<Inventory>,
+    equipment: Res<Equipment>,
     mut ui: ResMut<InventoryUiState>,
     notice: Res<InventoryNotice>,
     mut controls: Query<
@@ -373,6 +438,9 @@ fn sync(
         Query<&mut Text, With<DetailText>>,
         Query<&mut Text, With<AmountText>>,
         Query<&mut Text, With<NoticeText>>,
+        Query<(&SlotText, &mut Text)>,
+        Query<&mut Text, With<DefenseText>>,
+        Query<&mut Text, With<EquipLabel>>,
     )>,
 ) {
     if ui.selected.is_none_or(|item| inventory.count(item) == 0) {
@@ -416,9 +484,24 @@ fn sync(
                 Display::None
             };
         }
+        if *action == InventoryAction::Equip {
+            node.display = if ui.selected.is_some_and(|item| item.gear().is_some()) {
+                Display::Flex
+            } else {
+                Display::None
+            };
+        }
         let selected = matches!(action, InventoryAction::Select(item) if Some(*item) == ui.selected)
             || (*action == InventoryAction::Quantity && ui.editing);
-        let invalid = *action == InventoryAction::Drop && ui.amount(&inventory).is_none();
+        let invalid = match *action {
+            InventoryAction::Drop => ui.amount(&inventory).is_none(),
+            InventoryAction::Equip => ui.selected.is_none_or(|item| {
+                item.gear()
+                    .is_none_or(|gear| equipment.get(gear.slot) == Some(item))
+            }),
+            InventoryAction::Unequip(slot) => equipment.get(slot).is_none(),
+            _ => false,
+        };
         color.0 = if invalid {
             Color::srgb(0.065, 0.075, 0.08)
         } else if selected {
@@ -440,9 +523,19 @@ fn sync(
         );
     }
     for mut text in &mut texts.p1() {
-        **text = ui
-            .selected
-            .map_or(String::new(), |item| item.description().into());
+        **text = ui.selected.map_or(String::new(), |item| {
+            item.gear().map_or_else(
+                || item.description().into(),
+                |gear| {
+                    format!(
+                        "{} / Defense {}\n{}",
+                        gear.slot.name(),
+                        gear.defense,
+                        item.description()
+                    )
+                },
+            )
+        });
     }
     for mut text in &mut texts.p2() {
         **text = format!("{}{}", ui.quantity, if ui.editing { "_" } else { "" });
@@ -453,6 +546,35 @@ fn sync(
         } else {
             notice.0.clone()
         };
+    }
+    for (slot, mut text) in &mut texts.p4() {
+        **text = equipment.get(slot.0).map_or_else(
+            || format!("{}: Empty", slot.0.name()),
+            |item| {
+                format!(
+                    "{}: {} (+{})",
+                    slot.0.name(),
+                    item.name(),
+                    item.gear()
+                        .expect("only equipment items can occupy equipment slots")
+                        .defense
+                )
+            },
+        );
+    }
+    for mut text in &mut texts.p5() {
+        **text = format!("Total defense: {}", equipment.total_defense());
+    }
+    for mut text in &mut texts.p6() {
+        **text = if ui.selected.is_some_and(|item| {
+            item.gear()
+                .is_some_and(|gear| equipment.get(gear.slot) == Some(item))
+        }) {
+            "Equipped"
+        } else {
+            "Equip"
+        }
+        .into();
     }
 }
 #[cfg(test)]

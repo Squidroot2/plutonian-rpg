@@ -3,8 +3,10 @@ import bpy
 import math
 import random
 import sys
+import json
+import struct
 from pathlib import Path
-from mathutils import Vector
+from mathutils import Vector, Matrix, Quaternion
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
@@ -290,7 +292,104 @@ def items():
         save_export(name)
 
 
-if '--pillars' in sys.argv:
+GEAR_NAMES = ['field_armor', 'reinforced_armor', 'field_helmet', 'reinforced_helmet']
+
+
+def attachment_frames():
+    """Read the exported rig's actual rest frames; do not guess Blender bone axis conversion."""
+    data = (ROOT / 'assets/models/plutonian.glb').read_bytes()
+    document = json.loads(data[20:20+struct.unpack_from('<I', data, 12)[0]])
+    nodes = document['nodes']
+    parents = {child: i for i, node in enumerate(nodes) for child in node.get('children', [])}
+    def world(index):
+        node = nodes[index]
+        if 'matrix' in node:
+            matrix = Matrix([[node['matrix'][row+4*col] for col in range(4)] for row in range(4)])
+        else:
+            x,y,z,w = node.get('rotation', [0,0,0,1])
+            matrix = (Matrix.Translation(Vector(node.get('translation', [0,0,0]))) @
+                      Quaternion((w,x,y,z)).to_matrix().to_4x4() @
+                      Matrix.Diagonal((*node.get('scale', [1,1,1]),1)))
+        return world(parents[index]) @ matrix if index in parents else matrix
+    convert = Matrix.Rotation(-math.pi/2, 4, 'X')
+    result = {}
+    for bone in ['spine', 'head']:
+        index = next(i for i,node in enumerate(nodes) if node.get('name') == bone)
+        result[bone] = convert.inverted() @ world(index).inverted() @ convert
+    return result
+
+
+def export_equipment(name):
+    """Export bone-local worn geometry and a base-origin pickup from one editable source."""
+    export(name + '_worn')
+    bpy.context.view_layer.update()
+    objects = [obj for obj in bpy.context.scene.objects if obj.type == 'MESH']
+    matrices = {obj: obj.matrix_world.copy() for obj in objects}
+    corners = [obj.matrix_world @ Vector(corner) for obj in objects for corner in obj.bound_box]
+    low = Vector(tuple(min(p[axis] for p in corners) for axis in range(3)))
+    high = Vector(tuple(max(p[axis] for p in corners) for axis in range(3)))
+    offset = Vector((-(low.x+high.x)/2, -(low.y+high.y)/2, -low.z))
+    for obj in objects:
+        obj.matrix_world = Matrix.Translation(offset) @ matrices[obj]
+    bpy.context.view_layer.update()
+    export(name)
+    for obj in objects:
+        obj.matrix_world = matrices[obj]
+    bpy.context.view_layer.update()
+
+
+def equipment():
+    frames = attachment_frames()
+    for name in GEAR_NAMES:
+        reset()
+        reinforced = name.startswith('reinforced')
+        plate = material('Plutonian field plate', (.10,.19,.23), metal=.65)
+        edge = material('Basalt edging', (.025,.045,.065), metal=.3)
+        phosphor = material('Equipment identification', (.95,.43,.10) if reinforced else (.15,.8,.68), 2.4)
+        if name.endswith('armor'):
+            # Fitted cuirass over the mantle; no arm pieces to obstruct limb animation.
+            box('Chest plate', (0,-.31,1.0), (.54,.13,.51), plate)
+            box('Back plate', (0,.28,1.0), (.53,.12,.5), plate)
+            for side in [-1,1]:
+                box('Side plate', (side*.29,0,1.0), (.12,.55,.47), edge)
+                ico('Shoulder plate', (side*.3,0,1.24), (.11,.25,.085), plate, 2)
+            for z in [.88,1.0,1.12]:
+                box('Chest marking', (0,-.383,z), (.11,.025,.045), phosphor)
+            if reinforced:
+                for side in [-1,1]:
+                    ico('Reinforced shoulder', (side*.32,0,1.26), (.17,.29,.105), plate, 2)
+                    box('Outer brace', (side*.3,-.22,1.0), (.09,.22,.54), plate)
+                box('Sternum guard', (0,-.40,1.0), (.19,.055,.42), edge)
+                box('Guard marking', (0,-.433,1.07), (.08,.015,.15), phosphor)
+            bone = 'spine'
+        else:
+            # Open face and narrow crown: the large eyes and both sensory horns stay visible.
+            for side in [-1,1]:
+                box('Helmet side', (side*.39,0,1.65), (.08,.48,.4), plate)
+                box('Side identification', (side*.437,0,1.68), (.018,.2,.06), phosphor)
+            box('Helmet back', (0,.26,1.66), (.64,.1,.4), plate)
+            box('Brow guard', (0,-.26,1.81), (.73,.11,.1), edge)
+            box('Crown between horns', (0,0,1.9), (.37,.59,.075), plate)
+            box('Brow identification', (0,-.323,1.81), (.22,.015,.035), phosphor)
+            if reinforced:
+                for side in [-1,1]:
+                    box('Helmet reinforcement', (side*.438,.02,1.65), (.065,.42,.42), edge)
+                box('Rear reinforcement', (0,.325,1.67), (.57,.055,.35), edge)
+                box('Crown stripe', (0,0,1.947), (.09,.5,.025), phosphor)
+            bone = 'head'
+        bpy.context.view_layer.update()
+        for obj in list(bpy.context.scene.objects):
+            obj.matrix_world = frames[bone] @ obj.matrix_world
+        bpy.context.scene['equipment_bone'] = bone
+        bpy.context.scene['equipment_item'] = name
+        bpy.context.view_layer.update()
+        bpy.ops.wm.save_as_mainfile(filepath=str(ROOT / 'art' / f'{name}.blend'))
+        export_equipment(name)
+
+
+if '--equipment' in sys.argv:
+    equipment()
+elif '--pillars' in sys.argv:
     add_pillar_collision()
 elif '--items' in sys.argv:
     items()
@@ -310,13 +409,17 @@ elif '--ground' in sys.argv:
     bpy.context.view_layer.update()
     save_export('collision')
 elif '--export' in sys.argv:
-    for name in ['plutonian', 'outpost', 'collision', 'core', 'battery', 'scrap', 'methane_pouch']:
+    for name in ['plutonian', 'outpost', 'collision', 'core', 'battery', 'scrap', 'methane_pouch', *GEAR_NAMES]:
         bpy.ops.wm.open_mainfile(filepath=str(ROOT/'art'/f'{name}.blend'))
-        export(name)
+        if name in GEAR_NAMES:
+            export_equipment(name)
+        else:
+            export(name)
 else:
     character()
     world()
     collision_from_world()
     core()
     items()
+    equipment()
 print('Exported Plutonian RPG assets')

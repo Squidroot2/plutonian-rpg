@@ -26,6 +26,9 @@ pub struct InventorySmokePlugin;
 #[derive(Resource)]
 pub struct InventorySmoke {
     pub done: bool,
+    pub equipment_ready: bool,
+    pub equipment_busy: bool,
+    pub equipment_done: bool,
     pub context: Option<(Entity, Entity)>,
     phase: u8,
     collected: usize,
@@ -38,6 +41,9 @@ impl Plugin for InventorySmokePlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(InventorySmoke {
             done: false,
+            equipment_ready: false,
+            equipment_busy: true,
+            equipment_done: false,
             context: None,
             phase: 0,
             collected: 0,
@@ -86,13 +92,18 @@ pub(crate) fn click(
         count: 1,
     });
 }
-fn walk(keys: &mut ButtonInput<KeyCode>, orbit: &mut Orbit, position: Vec3, destination: Vec3) {
+pub(crate) fn walk(
+    keys: &mut ButtonInput<KeyCode>,
+    orbit: &mut Orbit,
+    position: Vec3,
+    destination: Vec3,
+) {
     let delta = (destination - position).with_y(0.0);
     orbit.yaw = (-delta.x).atan2(-delta.z);
     keys.press(KeyCode::KeyW);
     keys.press(KeyCode::ShiftLeft);
 }
-fn drive(
+pub(crate) fn drive(
     mut smoke: ResMut<InventorySmoke>,
     state: Res<State<GameState>>,
     time: Res<Time>,

@@ -4,6 +4,8 @@
 #![deny(clippy::perf)]
 #![deny(clippy::unwrap_used)]
 mod camera;
+mod equipment;
+mod equipment_smoke;
 mod interaction;
 mod inventory;
 mod inventory_smoke;
@@ -51,12 +53,17 @@ fn main() {
             camera::FollowCameraPlugin,
             quest::QuestPlugin,
             inventory::InventoryPlugin,
+            equipment::EquipmentPlugin,
             interaction::InteractionPlugin,
             inventory_ui::InventoryUiPlugin,
             ui::GameUiPlugin,
         ));
     if std::env::args().any(|arg| arg == "--smoke-test") {
-        app.add_plugins((smoke::SmokePlugin, inventory_smoke::InventorySmokePlugin));
+        app.add_plugins((
+            smoke::SmokePlugin,
+            inventory_smoke::InventorySmokePlugin,
+            equipment_smoke::EquipmentSmokePlugin,
+        ));
     }
     app.run();
 }
