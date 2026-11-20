@@ -47,8 +47,6 @@ fn setup(mut commands: Commands) {
             ..default()
         },
     ));
-    commands.spawn((Text::new("WASD  Move    SHIFT  Sprint    SPACE  Jump    MOUSE  Look    SCROLL  Zoom    E  Interact    ESC  Pause"),
-        text_style(14.0), Node { position_type: PositionType::Absolute, left: px(30), bottom: px(22), ..default() }));
     commands.spawn((
         StatusText,
         Text::new("Loading the ice shelf..."),
