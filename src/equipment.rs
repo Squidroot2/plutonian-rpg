@@ -13,19 +13,22 @@ use crate::{
 pub enum EquipmentSlot {
     Body,
     Helmet,
+    Weapon,
 }
 impl EquipmentSlot {
-    pub const ALL: [Self; 2] = [Self::Body, Self::Helmet];
+    pub const ALL: [Self; 3] = [Self::Body, Self::Helmet, Self::Weapon];
     pub fn name(self) -> &'static str {
         match self {
             Self::Body => "Body armor",
             Self::Helmet => "Helmet",
+            Self::Weapon => "Weapon",
         }
     }
     pub fn bone(self) -> &'static str {
         match self {
             Self::Body => "spine",
             Self::Helmet => "head",
+            Self::Weapon => "spear_grip",
         }
     }
 }
@@ -42,6 +45,7 @@ impl ItemKind {
             Self::ReinforcedArmor => (EquipmentSlot::Body, 5, Vec3::new(1.02, 0.8, 0.84)),
             Self::FieldHelmet => (EquipmentSlot::Helmet, 1, Vec3::new(0.9, 0.58, 0.72)),
             Self::ReinforcedHelmet => (EquipmentSlot::Helmet, 3, Vec3::new(1.0, 0.64, 0.8)),
+            Self::FieldSpear => (EquipmentSlot::Weapon, 0, Vec3::new(0.28, 0.23, 2.3)),
             _ => return None,
         };
         Some(GearDefinition {

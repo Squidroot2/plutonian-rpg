@@ -181,7 +181,7 @@ fn setup(mut commands: Commands) {
                             BagList,
                             ScrollPosition::default(),
                             Node {
-                                height: px(160),
+                                height: px(150),
                                 min_height: px(56),
                                 overflow: Overflow::scroll_y(),
                                 flex_direction: FlexDirection::Column,
@@ -527,12 +527,20 @@ fn sync(
             item.gear().map_or_else(
                 || item.description().into(),
                 |gear| {
-                    format!(
-                        "{} / Defense {}\n{}",
-                        gear.slot.name(),
-                        gear.defense,
-                        item.description()
-                    )
+                    if gear.slot == EquipmentSlot::Weapon {
+                        format!(
+                            "Two-handed weapon / Reach {:.1} m\n{}",
+                            crate::spear::REACH,
+                            item.description()
+                        )
+                    } else {
+                        format!(
+                            "{} / Defense {}\n{}",
+                            gear.slot.name(),
+                            gear.defense,
+                            item.description()
+                        )
+                    }
                 },
             )
         });
@@ -551,6 +559,9 @@ fn sync(
         **text = equipment.get(slot.0).map_or_else(
             || format!("{}: Empty", slot.0.name()),
             |item| {
+                if slot.0 == EquipmentSlot::Weapon {
+                    return format!("{}: {}", slot.0.name(), item.name());
+                }
                 format!(
                     "{}: {} (+{})",
                     slot.0.name(),

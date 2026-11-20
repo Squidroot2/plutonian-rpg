@@ -1,4 +1,8 @@
-use crate::{GameState, inventory::ItemKind, player::AnimationLibrary};
+use crate::{
+    GameState,
+    inventory::ItemKind,
+    player::{AnimationLibrary, CLIPS},
+};
 use bevy::{
     asset::{LoadState, RecursiveDependencyLoadState},
     gltf::Gltf,
@@ -20,6 +24,7 @@ pub struct GameAssets {
     pub outpost: Handle<Gltf>,
     pub collision: Handle<Gltf>,
     pub core: Handle<Gltf>,
+    pub dummy: Handle<Gltf>,
     pub pickups: BTreeMap<ItemKind, Handle<Gltf>>,
     pub worn: BTreeMap<ItemKind, Handle<Gltf>>,
 }
@@ -39,6 +44,7 @@ fn load(mut commands: Commands, server: Res<AssetServer>) {
         outpost: server.load("models/outpost.glb"),
         collision: server.load("models/collision.glb"),
         core: server.load("models/core.glb"),
+        dummy: server.load("models/practice_dummy.glb"),
         pickups: ItemKind::MATERIALS
             .into_iter()
             .chain(ItemKind::GEAR)
@@ -75,6 +81,7 @@ fn check(
         &assets.outpost,
         &assets.collision,
         &assets.core,
+        &assets.dummy,
     ]
     .into_iter()
     .chain(assets.pickups.values())
@@ -121,7 +128,8 @@ fn check(
     let model = gltfs.get(&assets.character).expect(
         "the character glTF must be present after all game models passed loading validation",
     );
-    for bone in ["spine", "head"] {
+    for slot in crate::equipment::EquipmentSlot::ALL {
+        let bone = slot.bone();
         if !model.named_nodes.contains_key(bone) {
             status.error = Some(format!(
                 "The player rig is missing equipment attachment bone {bone}"
@@ -132,7 +140,7 @@ fn check(
     }
     let mut graph = AnimationGraph::new();
     let mut nodes = Vec::new();
-    for name in ["Idle", "Walk", "Run", "Jump"] {
+    for name in CLIPS {
         let Some(clip) = model.named_animations.get(name) else {
             status.error = Some(format!("plutonian.glb is missing animation {name}"));
             next.set(GameState::Failed);
@@ -144,7 +152,7 @@ fn check(
         graph: graphs.add(graph),
         nodes: nodes
             .try_into()
-            .expect("Idle, Walk, Run, and Jump must produce exactly four animation graph nodes"),
+            .expect("each registered clip must produce one animation graph node"),
     });
     status.spawning = true;
     commands.trigger(crate::world::SpawnWorld);

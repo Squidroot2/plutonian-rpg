@@ -14,6 +14,8 @@ mod loading;
 mod player;
 mod quest;
 mod smoke;
+mod spear;
+mod spear_smoke;
 mod ui;
 mod world;
 use bevy::prelude::*;
@@ -54,6 +56,7 @@ fn main() {
             quest::QuestPlugin,
             inventory::InventoryPlugin,
             equipment::EquipmentPlugin,
+            spear::SpearPlugin,
             interaction::InteractionPlugin,
             inventory_ui::InventoryUiPlugin,
             ui::GameUiPlugin,
@@ -63,6 +66,7 @@ fn main() {
             smoke::SmokePlugin,
             inventory_smoke::InventorySmokePlugin,
             equipment_smoke::EquipmentSmokePlugin,
+            spear_smoke::SpearSmokePlugin,
         ));
     }
     app.run();

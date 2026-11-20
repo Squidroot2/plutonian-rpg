@@ -18,6 +18,7 @@ The first build compiles Bevy and its renderer and can take several minutes. Run
 | Mouse | Orbit camera |
 | Scroll | Adjust camera distance |
 | Left Shift | Sprint |
+| Left click | Thrust with an equipped spear |
 | Space | Jump (grounded only) |
 | E | Speak / collect a nearby item / dismiss dialogue |
 | Enter | Quest interaction / dismiss dialogue |
@@ -32,7 +33,7 @@ The playable route connects the outpost, an inclined ice shelf, and a shallow ca
 
 `src/` separates loading, world assembly, player movement/animation, camera, shared interactions, inventory, equipment, quests, and UI into plugins. Avian's kinematic move-and-slide controller runs at a fixed timestep with capsule ground detection and tuned low gravity. The camera uses a sphere cast to avoid passing through geometry. Interaction requires a nearby target with a clear line of sight. There are no save files or migrations.
 
-The first milestone includes one quest and one speaking NPC. Combat, survival, crafting, levelling, controller support, and persistent saves are deferred. This is fictional Pluto: terrain, illumination, and gravity favor the experience over physical accuracy. Assets are original, generated locally with the included Blender script; no external models or textures are required.
+The first milestone includes one quest and one speaking NPC. Enemy combat, survival, crafting, levelling, controller support, and persistent saves are deferred. This is fictional Pluto: terrain, illumination, and gravity favor the experience over physical accuracy. Assets are original, generated locally with the included Blender script; no external models or textures are required.
 
 ## Inventory
 
@@ -61,13 +62,17 @@ Slots show their equipped piece and defense, with a combined total above them. D
 
 Equipped models follow the player's animated spine and head bones; Nemi's appearance stays unchanged. Helmets have open faces and clearance for the alien's eyes and sensory horns.
 
+## Spear practice
+
+Find the field spear near the outpost spawn, pick it up with E, and equip it in the **Weapon** slot in inventory. Aim the camera at the practice dummy on the other side of the spawn and left click while grounded. The player carries the spear in both hands at the right hip, then turns toward the camera and thrusts up to 2.5 m. A hit makes the dummy flash and rock. The swing briefly locks movement, and a wall stops it before it can hit the dummy. Unequip the spear before dropping it.
+
 ## Blender workflow
 
 Blender 5.3 was used for the included editable sources in `art/`. Runtime exports are checked in under `assets/models/`, so Blender is not needed to play.
 
 | Source / export | Purpose |
 | --- | --- |
-| `plutonian` | Shared skinned character, with `Idle`, `Walk`, `Run`, and `Jump` actions |
+| `plutonian` | Shared skinned character, with base locomotion, spear carry, and `SpearThrust` actions |
 | `outpost` | Ice shelf, habitats, waystones, cavern, beacon tower, distant sky details |
 | `collision` | Simplified static geometry, hidden at runtime |
 | `core` | Collectible beacon power core |
@@ -80,7 +85,7 @@ To re-export **your edited `.blend` sources** without regenerating them:
 blender --background -noaudio --factory-startup --python-exit-code 1 --python scripts/assets.py -- --export
 ```
 
-To **rebuild all source art and exports from the procedural designs**, overwriting the eleven `.blend` sources:
+To **rebuild all source art and exports from the procedural designs**, overwriting the editable `.blend` sources:
 
 ```sh
 blender --background -noaudio --factory-startup --python-exit-code 1 --python scripts/assets.py
@@ -90,7 +95,9 @@ To regenerate only the three material models without replacing existing world or
 
 To regenerate only equipment, pass `-- --equipment`. This overwrites the four equipment sources and their eight exports while preserving character and map art. Each equipment `.blend` stores geometry in its attachment frame (`spine` for armor, `head` for helmets). The generator derives that frame from the exported character rig. `--export` produces the bone-local `_worn.glb` and automatically centers a second, base-origin pickup export from the same source geometry. Recheck fit after changing the character rig; avoid repositioning worn sources as if their origin were the player's feet.
 
-The scripts run in a separate background Blender process; a live MCP connection is not required. One Blender unit equals one meter. Author with Z up and the character facing -Y; glTF export converts to Bevy's Y-up coordinates, with the character facing +Z. Keep scale applied and keep the four animation names unchanged. Materials use Principled BSDF base color, roughness, metallic, and emission. Animation is exported as sampled actions. Keep visible environment edits and `collision.blend` aligned; collision does not regenerate from edited outpost sources during `--export`.
+Pass `-- --spear` to regenerate the field spear, practice dummy, and the character's spear carry and `SpearThrust` actions. The worn mesh uses the `spear_grip` attachment on the spine. Both arms follow its two grip points in the four spear carry clips and the thrust. The spear pose generator bends the upper arm and forearm around each elbow, with blended weights at the joint. Export the pickup flat on the ground using the same source, and keep the action's contact at frame 6 and recovery at frame 16 (24 fps).
+
+The scripts run in a separate background Blender process; a live MCP connection is not required. One Blender unit equals one meter. Author with Z up and the character facing -Y; glTF export converts to Bevy's Y-up coordinates, with the character facing +Z. Keep scale applied and keep the animation names unchanged. Materials use Principled BSDF base color, roughness, metallic, and emission. Animation is exported as sampled actions. Keep visible environment edits and `collision.blend` aligned; collision does not regenerate from edited outpost sources during `--export`.
 
 Trail pillar bodies (the `Waystone` meshes) are included in the hidden collision scene; their glowing lamps remain decorative. To add missing pillar bodies to an existing collision source without replacing other collision meshes, run the asset command with `-- --pillars`. Full procedural generation includes them automatically.
 
@@ -115,6 +122,6 @@ cargo run --locked -- --smoke-test
 python3 scripts/check_assets.py
 ```
 
-The desktop smoke test opens a real game window, collects all three materials, opens inventory with I, enters a quantity using keyboard events, and dispatches pointer clicks through the inventory UI observers to drop one battery and recollect it. It also collects both equipment sets, equips/swaps/unequips through inventory UI actions, drops and recollects armor, and checks that worn models follow the player bones through idle, walk, run, and jump animations. It checks a 640x704 inventory layout and character capsule collision against every pillar from four directions, then walks the beacon quest, checks the protected-core inventory screen and consumption, pause/resume, jumping, landing, and fall recovery. It writes `/tmp/plutonian-inventory.png`, `/tmp/plutonian-quest-inventory.png`, `/tmp/plutonian-outpost.png`, `/tmp/plutonian-cavern.png`, and `/tmp/plutonian-beacon.png`, plus equipment inventory and animation captures named `/tmp/plutonian-field-*` and `/tmp/plutonian-reinforced-*`. Success prints `SMOKE PASS` and exits; the test fails if the quest cannot complete within three minutes. Run it on an otherwise idle desktop without supplying additional mouse/keyboard input. Add `--smoke-fullscreen` after `--smoke-test` to check the layout across the full display.
+The desktop smoke test opens a real game window, collects all three materials, opens inventory with I, enters a quantity using keyboard events, and dispatches pointer clicks through the inventory UI observers to drop one battery and recollect it. It also collects and equips the spear, hits the dummy, misses when aiming away, and unequips, drops, and recollects the spear. It collects both armor sets, equips/swaps/unequips through inventory UI actions, drops and recollects armor, and checks that worn models follow the player bones through idle, walk, run, and jump animations. It checks a 640x704 inventory layout and character capsule collision against every pillar from four directions, then walks the beacon quest, checks the protected-core inventory screen and consumption, pause/resume, jumping, landing, and fall recovery. It writes `/tmp/plutonian-inventory.png`, `/tmp/plutonian-quest-inventory.png`, `/tmp/plutonian-outpost.png`, `/tmp/plutonian-cavern.png`, and `/tmp/plutonian-beacon.png`, plus equipment inventory and animation captures named `/tmp/plutonian-field-*` and `/tmp/plutonian-reinforced-*`. Success prints `SMOKE PASS` and exits; the test fails if the quest cannot complete within three minutes. Run it on an otherwise idle desktop without supplying additional mouse/keyboard input. Add `--smoke-fullscreen` after `--smoke-test` to check the layout across the full display.
 
 Manual acceptance: walk and sprint, jump and land, traverse the trail rise, push against habitat/cavern walls, orbit the camera near obstructions, try interacting out of range or through a wall, read/dismiss each dialogue, collect the core once, return to Nemi, confirm the lit beacon, pause/resume using keys and buttons, fall off the ice shelf, pick up materials on the trail and in the cavern, use the inventory quantity field and buttons, drop and recollect stacks near slopes and walls, equip and swap both gear sets, unequip/drop/recollect gear, inspect its fit during animation, and restart to confirm fresh quest, inventory, and equipment state. Automated checks cannot establish how comfortable the movement or composition feels.

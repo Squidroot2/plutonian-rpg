@@ -140,8 +140,190 @@ def character():
                 bone.keyframe_insert('location', frame=f, group=bone.name)
         rig.animation_data.action.use_fake_user = True
     rig.animation_data.action = None
-    bpy.context.scene.frame_set(1)
+    add_spear_animations(rig)
     save_export('plutonian')
+
+
+# Carry the shaft at the right hip. The alien's right is Blender -X.
+SPEAR_GRIP = (-.40, -.42, .84)
+SPEAR_HAND_SPACING = .23
+SPEAR_CARRY_ANGLE = math.radians(-16)
+
+
+def add_spear_joints(rig):
+    bpy.context.view_layer.objects.active = rig
+    bpy.ops.object.mode_set(mode='EDIT')
+    bones = rig.data.edit_bones
+    grip = bones.get('spear_grip') or bones.new('spear_grip')
+    grip.head = SPEAR_GRIP
+    grip.tail = Vector(SPEAR_GRIP) + Vector((0, 0, .15))
+    grip.parent = bones['spine']
+    for side in [-1, 1]:
+        forearm = bones.get(f'forearm{side}') or bones.new(f'forearm{side}')
+        forearm.head = (side*.39, 0, .92)
+        forearm.tail = (side*.42, -.02, .65)
+        forearm.parent = bones[f'arm{side}']
+    bpy.ops.object.mode_set(mode='OBJECT')
+    bpy.context.view_layer.update()
+
+    # Blend the original arm through the elbow. Unarmed clips still move both
+    # pieces together because the new joints inherit the original arm motion.
+    for obj in rig.children:
+        if obj.type != 'MESH':
+            continue
+        for side in [-1, 1]:
+            upper = obj.vertex_groups.get(f'arm{side}')
+            if upper is None:
+                continue
+            lower = obj.vertex_groups.get(f'forearm{side}') or obj.vertex_groups.new(name=f'forearm{side}')
+            if obj.name.startswith('Hand'):
+                lower.add(list(range(len(obj.data.vertices))), 1, 'REPLACE')
+                upper.remove(list(range(len(obj.data.vertices))))
+            elif obj.name.startswith('Arm'):
+                for vertex in obj.data.vertices:
+                    height = (obj.matrix_local @ vertex.co).z
+                    bend = min(1.0, max(0.0, (.985-height)/.13))
+                    upper.add([vertex.index], 1-bend, 'REPLACE')
+                    lower.add([vertex.index], bend, 'REPLACE')
+
+
+def bend_arm(rig, side, target):
+    arm = rig.pose.bones[f'arm{side}']
+    forearm = rig.pose.bones[f'forearm{side}']
+    shoulder = arm.bone.head_local
+    rest_elbow = forearm.bone.head_local
+    rest_hand = forearm.bone.tail_local
+    upper = rest_elbow - shoulder
+    lower = rest_hand - rest_elbow
+    # Bring the supporting shoulder forward to let the left arm reach across.
+    shoulder_offset = Vector((-.065, -.15, -.045)) if side == 1 else Vector((-.02, -.04, 0))
+    posed_shoulder = shoulder + shoulder_offset
+    reach = target - posed_shoulder
+    direction = reach.normalized()
+    # Keep a bend even at full extension. Both segments stretch by the same
+    # small amount so the wrist meets the grip without moving the shoulder.
+    stretch = max(1.0, reach.length / (.94 * (upper.length + lower.length)))
+    upper_length = upper.length * stretch
+    lower_length = lower.length * stretch
+    along = (upper_length**2 - lower_length**2 + reach.length_squared) / (2 * reach.length)
+    outward = Vector((side, -.58, .22))
+    pole = (outward - outward.dot(direction)*direction).normalized()
+    elbow = posed_shoulder + along*direction + math.sqrt(max(0, upper_length**2 - along**2))*pole
+
+    def posed_bone(bone, start, end, target_start, target_end):
+        rotation = (end-start).rotation_difference(target_end-target_start)
+        return (Matrix.Translation(target_start) @ rotation.to_matrix().to_4x4()
+                @ Matrix.Scale(stretch, 4) @ Matrix.Translation(-start)
+                @ bone.bone.matrix_local)
+
+    upper_pose = posed_bone(arm, shoulder, rest_elbow, posed_shoulder, elbow)
+    lower_pose = posed_bone(forearm, rest_elbow, rest_hand, elbow, target)
+    arm.rotation_mode = forearm.rotation_mode = 'XYZ'
+    arm.matrix_basis = arm.bone.matrix_local.inverted() @ upper_pose
+    forearm.matrix_basis = (forearm.bone.matrix_local.inverted() @ arm.bone.matrix_local
+                            @ upper_pose.inverted() @ lower_pose)
+    return arm, forearm
+
+
+def add_spear_animations(rig):
+    from bpy_extras.anim_utils import action_get_channelbag_for_slot
+
+    scene = bpy.context.scene
+    add_spear_joints(rig)
+
+    rig.animation_data_create()
+    rig.animation_data.action = None
+    for name in ['SpearIdle', 'SpearWalk', 'SpearRun', 'SpearJump', 'SpearThrust']:
+        previous = bpy.data.actions.get(name)
+        if previous is not None:
+            bpy.data.actions.remove(previous)
+
+    def set_grip(frame, advance=0.0, lift=0.0, yaw=SPEAR_CARRY_ANGLE, lean=0.0):
+        rear = Vector(SPEAR_GRIP) + Vector((0, -advance, lift))
+        grip = rig.pose.bones['spear_grip']
+        rest = grip.bone.matrix_local.to_3x3()
+        # Keep the shaft level while the chest pitches forward under it.
+        shaft_rotation = Matrix.Rotation(-lean, 3, 'X') @ Matrix.Rotation(yaw, 3, 'Z')
+        grip.location = rest.inverted() @ (rear - Vector(SPEAR_GRIP))
+        grip.rotation_mode = 'XYZ'
+        grip.rotation_euler = (rest.inverted() @ shaft_rotation @ rest).to_euler('XYZ')
+        for channel in ['location', 'rotation_euler']:
+            grip.keyframe_insert(channel, frame=frame, group=grip.name)
+        for side, spacing in [(-1, 0.0), (1, SPEAR_HAND_SPACING)]:
+            target = rear + shaft_rotation @ Vector((0, -spacing, 0))
+            for bone in bend_arm(rig, side, target):
+                for channel in ['location', 'rotation_euler', 'scale']:
+                    bone.keyframe_insert(channel, frame=frame, group=bone.name)
+
+    for base in ['Idle', 'Walk', 'Run', 'Jump']:
+        source = bpy.data.actions[base]
+        action = source.copy()
+        action.name = 'Spear' + base
+        action.use_fake_user = True
+        rig.animation_data.action = action
+        channelbag = action_get_channelbag_for_slot(action, rig.animation_data.action_slot)
+        for curve in list(channelbag.fcurves):
+            if curve.data_path.startswith(('pose.bones["arm1"]', 'pose.bones["arm-1"]')):
+                channelbag.fcurves.remove(curve)
+        # Both arms hold the same shaft-relative pose as their shared spine moves.
+        for frame in source.frame_range:
+            set_grip(frame)
+
+    action = bpy.data.actions.new('SpearThrust')
+    action.use_fake_user = True
+    rig.animation_data.action = action
+
+    def key_pitch(name, offset, pitch, frame):
+        bone = rig.pose.bones[name]
+        rest = bone.bone.matrix_local.to_3x3()
+        bone.location = rest.inverted() @ offset
+        bone.rotation_mode = 'XYZ'
+        rotation = Matrix.Rotation(pitch, 3, 'X')
+        bone.rotation_euler = (rest.inverted() @ rotation @ rest).to_euler('XYZ')
+        bone.keyframe_insert('location', frame=frame, group=name)
+        bone.keyframe_insert('rotation_euler', frame=frame, group=name)
+
+    # Chamber the spear with a step, drive it forward at contact, then reset.
+    # Columns after frame: grip advance/lift/yaw, chest drive/dip/lean,
+    # lead leg pitch/step lift, rear leg pitch. Angles are in degrees.
+    carry = (0, 0, math.degrees(SPEAR_CARRY_ANGLE), 0, 0, 0, 0, 0, 0)
+    contact = (.09, .155, 0, .01, .04, 11, -28, 0, 16)
+    poses = [
+        (0, *carry),
+        (2, -.15, .015, -17, -.045, .045, -4, -12, .075, 9),
+        (3, -.22, .02, -10, -.065, .07, -7, -21, .055, 16),
+        (6, *contact),
+        (7, *contact),
+        (11, -.04, .055, -12, -.015, .025, 3, -25, 0, 14),
+        (13, -.035, .012, -18, -.01, .01, 0, -12, .065, 7),
+        (16, *carry),
+    ]
+    for frame in range(17):
+        start, end = next((start, end) for start, end in zip(poses, poses[1:])
+                          if start[0] <= frame <= end[0])
+        blend = (frame - start[0]) / (end[0] - start[0])
+        blend = blend * blend * (3 - 2 * blend)
+        advance, lift, yaw, drive, dip, lean, lead, step_lift, rear = (
+            a + (b - a) * blend for a, b in zip(start[1:], end[1:])
+        )
+        lean = math.radians(lean)
+        key_pitch('spine', Vector((0, -drive, -dip)), lean, frame)
+        set_grip(frame, advance, lift, math.radians(yaw), lean)
+        for name, angle, foot_lift in [('leg1', lead, step_lift), ('leg-1', rear, 0)]:
+            pitch = math.radians(angle)
+            # Offset each leg by the change in its shoe's lowest point.
+            shoe_center = Matrix.Rotation(pitch, 3, 'X') @ Vector((0, -.09, -.60))
+            shoe_extent = math.hypot(.22 * math.sin(pitch), .10 * math.cos(pitch))
+            height = shoe_extent - shoe_center.z - .70 + foot_lift
+            key_pitch(name, Vector((0, 0, height)), pitch, frame)
+
+    rig.animation_data.action = None
+    scene.frame_set(1)
+    for bone in rig.pose.bones:
+        if bone.name.startswith('arm'):
+            bone.rotation_mode = 'XYZ'
+        bone.matrix_basis = Matrix.Identity(4)
+    bpy.context.view_layer.update()
 
 
 def world():
@@ -292,7 +474,7 @@ def items():
         save_export(name)
 
 
-GEAR_NAMES = ['field_armor', 'reinforced_armor', 'field_helmet', 'reinforced_helmet']
+GEAR_NAMES = ['field_armor', 'reinforced_armor', 'field_helmet', 'reinforced_helmet', 'field_spear']
 
 
 def attachment_frames():
@@ -313,7 +495,7 @@ def attachment_frames():
         return world(parents[index]) @ matrix if index in parents else matrix
     convert = Matrix.Rotation(-math.pi/2, 4, 'X')
     result = {}
-    for bone in ['spine', 'head']:
+    for bone in ['spine', 'head', 'spear_grip']:
         index = next(i for i,node in enumerate(nodes) if node.get('name') == bone)
         result[bone] = convert.inverted() @ world(index).inverted() @ convert
     return result
@@ -325,12 +507,19 @@ def export_equipment(name):
     bpy.context.view_layer.update()
     objects = [obj for obj in bpy.context.scene.objects if obj.type == 'MESH']
     matrices = {obj: obj.matrix_world.copy() for obj in objects}
+    # Convert the worn mesh to character space before grounding the pickup.
+    if name == 'field_spear':
+        frame = attachment_frames()['spear_grip'].inverted()
+        for obj in objects:
+            obj.matrix_world = frame @ matrices[obj]
+        bpy.context.view_layer.update()
+    placement = {obj: obj.matrix_world.copy() for obj in objects}
     corners = [obj.matrix_world @ Vector(corner) for obj in objects for corner in obj.bound_box]
     low = Vector(tuple(min(p[axis] for p in corners) for axis in range(3)))
     high = Vector(tuple(max(p[axis] for p in corners) for axis in range(3)))
     offset = Vector((-(low.x+high.x)/2, -(low.y+high.y)/2, -low.z))
     for obj in objects:
-        obj.matrix_world = Matrix.Translation(offset) @ matrices[obj]
+        obj.matrix_world = Matrix.Translation(offset) @ placement[obj]
     bpy.context.view_layer.update()
     export(name)
     for obj in objects:
@@ -341,6 +530,9 @@ def export_equipment(name):
 def equipment():
     frames = attachment_frames()
     for name in GEAR_NAMES:
+        if name == 'field_spear':
+            spear_model(frames['spear_grip'])
+            continue
         reset()
         reinforced = name.startswith('reinforced')
         plate = material('Plutonian field plate', (.10,.19,.23), metal=.65)
@@ -387,7 +579,62 @@ def equipment():
         export_equipment(name)
 
 
-if '--equipment' in sys.argv:
+def spear_model(frame):
+    reset()
+    shaft = material('Dark alloy shaft', (.13,.23,.26), metal=.65)
+    grip = material('Insulated grip', (.035,.055,.065))
+    blade = material('Pale ice alloy', (.32,.52,.57), metal=.75)
+    glow = material('Spear identification', (.12,.87,.7), emission=3)
+    x, rear, z = SPEAR_GRIP
+    box('Octagonal shaft core', (x,rear-.72,z), (.065,1.8,.061), shaft)
+    box('Rear hand wrap', (x,rear,z), (.094,.20,.088), grip)
+    box('Forward hand wrap', (x,rear-SPEAR_HAND_SPACING,z), (.094,.20,.088), grip)
+    box('End cap', (x,rear+.18,z), (.106,.085,.095), blade)
+    box('Glowing collar', (x,rear-1.57,z), (.115,.095,.096), glow)
+    point = cone('Spear point', (x,rear-1.755,z), .095, .38, blade)
+    point.rotation_euler.x = math.pi/2
+    point.scale.y = .64
+    bpy.context.view_layer.update()
+    for obj in bpy.context.scene.objects:
+        obj.matrix_world = frame @ obj.matrix_world
+    bpy.context.scene['equipment_bone'] = 'spear_grip'
+    bpy.context.view_layer.update()
+    bpy.ops.wm.save_as_mainfile(filepath=str(ROOT / 'art/field_spear.blend'))
+    export_equipment('field_spear')
+
+
+def practice_dummy():
+    reset()
+    stand = material('Training stand alloy', (.055,.12,.16), metal=.58)
+    pad = material('Woven target pad', (.34,.14,.085))
+    paint = material('Training target bands', (.95,.44,.11), emission=1.0)
+    box('Pedestal', (0,0,.075), (.72,.55,.15), stand)
+    box('Spring post', (0,0,.53), (.16,.16,.9), stand)
+    box('Target pad', (0,0,1.05), (.68,.32,.75), pad)
+    for side in [-1,1]:
+        for size, radius, y in [(0.04,.26,.175),(0.035,.16,.196),(0.028,.068,.216)]:
+            bpy.ops.mesh.primitive_torus_add(major_segments=16, minor_segments=6,
+                major_radius=radius, minor_radius=size, location=(0,side*y,1.04),
+                rotation=(math.pi/2,0,0))
+            finish('Target ring', paint, (1,1,1))
+    box('Top marker', (0,0,1.46), (.31,.33,.08), stand)
+    save_export('practice_dummy')
+
+
+def spear_assets():
+    bpy.context.preferences.filepaths.save_version = 0
+    bpy.context.preferences.filepaths.file_preview_type = 'NONE'
+    bpy.ops.wm.open_mainfile(filepath=str(ROOT / 'art/plutonian.blend'))
+    rig = next(obj for obj in bpy.context.scene.objects if obj.type == 'ARMATURE')
+    add_spear_animations(rig)
+    save_export('plutonian')
+    spear_model(attachment_frames()['spear_grip'])
+    practice_dummy()
+
+
+if '--spear' in sys.argv:
+    spear_assets()
+elif '--equipment' in sys.argv:
     equipment()
 elif '--pillars' in sys.argv:
     add_pillar_collision()
@@ -409,7 +656,7 @@ elif '--ground' in sys.argv:
     bpy.context.view_layer.update()
     save_export('collision')
 elif '--export' in sys.argv:
-    for name in ['plutonian', 'outpost', 'collision', 'core', 'battery', 'scrap', 'methane_pouch', *GEAR_NAMES]:
+    for name in ['plutonian', 'outpost', 'collision', 'core', 'battery', 'scrap', 'methane_pouch', 'practice_dummy', *GEAR_NAMES]:
         bpy.ops.wm.open_mainfile(filepath=str(ROOT/'art'/f'{name}.blend'))
         if name in GEAR_NAMES:
             export_equipment(name)
@@ -422,4 +669,5 @@ else:
     core()
     items()
     equipment()
+    practice_dummy()
 print('Exported Plutonian RPG assets')

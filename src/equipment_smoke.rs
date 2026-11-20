@@ -21,7 +21,7 @@ use std::time::Instant;
 
 pub struct EquipmentSmokePlugin;
 #[derive(Resource)]
-struct EquipmentSmoke {
+pub(crate) struct EquipmentSmoke {
     stage: u16,
     heavy: bool,
     timer: f32,
@@ -29,7 +29,7 @@ struct EquipmentSmoke {
     screen_size: Option<(Val, Val)>,
 }
 #[derive(SystemParam)]
-struct View<'w, 's> {
+pub(crate) struct View<'w, 's> {
     screen: Query<'w, 's, &'static mut Node, With<InventoryScreen>>,
     player: Query<'w, 's, (Entity, &'static Transform, &'static Player), With<Player>>,
     pickups: Query<'w, 's, (&'static Pickup, &'static Transform)>,
@@ -134,7 +134,8 @@ fn check_worn(view: &View, equipment: &Equipment, player: Entity) -> bool {
     }
     true
 }
-fn drive(
+pub(crate) fn drive(
+    spear_smoke: Res<crate::spear_smoke::SpearSmoke>,
     mut smoke: ResMut<EquipmentSmoke>,
     mut inventory_smoke: ResMut<InventorySmoke>,
     state: Res<State<GameState>>,
@@ -149,7 +150,7 @@ fn drive(
     mut commands: Commands,
     mut last_log: Local<f32>,
 ) {
-    if !inventory_smoke.done || inventory_smoke.equipment_done {
+    if !spear_smoke.done() || !inventory_smoke.done || inventory_smoke.equipment_done {
         return;
     }
     let Ok((player, transform, controller)) = view.player.single() else {

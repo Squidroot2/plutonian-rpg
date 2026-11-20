@@ -22,6 +22,7 @@ impl Plugin for PlayerPlugin {
                 Update,
                 (attach_animations, animate)
                     .chain()
+                    .after(crate::spear::SpearSystems)
                     .run_if(in_state(GameState::Playing)),
             );
     }
@@ -42,10 +43,24 @@ struct AnimatedActor {
     player: bool,
     current: usize,
 }
+pub const CLIPS: [&str; 9] = [
+    "Idle",
+    "Walk",
+    "Run",
+    "Jump",
+    "SpearIdle",
+    "SpearWalk",
+    "SpearRun",
+    "SpearJump",
+    "SpearThrust",
+];
+const SPEAR_LOCOMOTION_START: usize = 4;
+const SPEAR_THRUST_CLIP: usize = 8;
+
 #[derive(Resource)]
 pub struct AnimationLibrary {
     pub graph: Handle<AnimationGraph>,
-    pub nodes: [AnimationNodeIndex; 4],
+    pub nodes: [AnimationNodeIndex; CLIPS.len()],
 }
 #[derive(Resource, Default)]
 pub(crate) struct MovementInput {
@@ -79,6 +94,7 @@ fn movement(
     time: Res<Time>,
     orbit: Res<Orbit>,
     dialogue: Res<Dialogue>,
+    thrust: Res<crate::spear::Thrust>,
     mut input: ResMut<MovementInput>,
     spatial: SpatialQuery,
     mover: MoveAndSlide,
@@ -96,7 +112,7 @@ fn movement(
         );
         player.grounded = (!player.jumping || player.velocity.y <= 0.1)
             && ground.is_some_and(|h| h.normal1.y > 0.7);
-        let direction = if dialogue.text.is_some() {
+        let direction = if dialogue.text.is_some() || thrust.active() {
             Vec2::ZERO
         } else {
             input.direction
@@ -118,7 +134,7 @@ fn movement(
             player.jumping = false;
             player.velocity.y = -0.6;
         }
-        if input.jump && player.grounded && dialogue.text.is_none() {
+        if input.jump && player.grounded && dialogue.text.is_none() && !thrust.active() {
             player.velocity.y = 4.7;
             player.jumping = true;
             player.grounded = false;
@@ -183,6 +199,8 @@ fn attach_animations(
 }
 fn animate(
     library: Res<AnimationLibrary>,
+    thrust: Res<crate::spear::Thrust>,
+    equipment: Res<crate::equipment::Equipment>,
     players: Query<&Player>,
     mut animations: Query<(
         &mut AnimationPlayer,
@@ -193,7 +211,7 @@ fn animate(
     let Some(player) = players.iter().next() else {
         return;
     };
-    let desired = if !player.grounded {
+    let locomotion = if !player.grounded {
         3
     } else if player.velocity.xz().length_squared() < 0.1 {
         0
@@ -202,16 +220,35 @@ fn animate(
     } else {
         1
     };
+    let desired = if thrust.active() {
+        SPEAR_THRUST_CLIP
+    } else if equipment.get(crate::equipment::EquipmentSlot::Weapon)
+        == Some(crate::inventory::ItemKind::FieldSpear)
+    {
+        SPEAR_LOCOMOTION_START + locomotion
+    } else {
+        locomotion
+    };
     for (mut animation, mut transitions, mut actor) in &mut animations {
         let index = if actor.player { desired } else { 0 };
         if index != actor.current {
-            transitions
-                .play(
-                    &mut animation,
-                    library.nodes[index],
-                    Duration::from_millis(160),
-                )
-                .repeat();
+            if index == SPEAR_THRUST_CLIP {
+                transitions
+                    .play(&mut animation, library.nodes[index], Duration::ZERO)
+                    .replay();
+            } else {
+                // Do not blend free arm swings into the two-hand grip.
+                let changes_grip =
+                    (actor.current >= SPEAR_LOCOMOTION_START) != (index >= SPEAR_LOCOMOTION_START);
+                let blend = if changes_grip || actor.current == SPEAR_THRUST_CLIP {
+                    Duration::ZERO
+                } else {
+                    Duration::from_millis(160)
+                };
+                transitions
+                    .play(&mut animation, library.nodes[index], blend)
+                    .repeat();
+            }
             actor.current = index;
         }
     }
