@@ -37,23 +37,13 @@ fn text_style(size: f32) -> (TextFont, TextColor) {
 }
 fn setup(mut commands: Commands) {
     commands.spawn((
-        Text::new("PLUTONIAN\nT H E   L A S T   L I G H T"),
-        text_style(24.0),
-        Node {
-            position_type: PositionType::Absolute,
-            left: px(30),
-            top: px(24),
-            ..default()
-        },
-    ));
-    commands.spawn((
         Hud,
         Text::default(),
         text_style(18.0),
         Node {
             position_type: PositionType::Absolute,
             left: px(30),
-            top: px(112),
+            top: px(24),
             ..default()
         },
     ));
