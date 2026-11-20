@@ -122,7 +122,7 @@ pub(crate) fn drive(
     if *state.get() == GameState::Inventory && smoke.core_ui > 0 {
         assert_eq!(inventory.count(ItemKind::BeaconCore), 1);
         if smoke.core_ui == 1 {
-            let (window, camera) = inventory_smoke.context.unwrap();
+            let (window, camera) = inventory_smoke.context.expect("the completed inventory smoke phase must have recorded the window and camera before the quest UI check");
             crate::inventory_smoke::click(
                 &mut commands,
                 InventoryAction::Select(ItemKind::BeaconCore),
@@ -145,7 +145,9 @@ pub(crate) fn drive(
         return;
     }
     if *state.get() == GameState::Paused {
-        let position = smoke.pause_position.unwrap();
+        let position = smoke.pause_position.expect(
+            "the smoke test must record the player position before entering its pause check",
+        );
         assert!(
             position.distance(transform.translation) < 0.01,
             "player moved while paused"
@@ -207,7 +209,12 @@ pub(crate) fn drive(
                 .observe(save_to_disk("/tmp/plutonian-beacon.png"));
             smoke.completed_at = Some(now);
         }
-        if now - smoke.completed_at.unwrap() > 2.0 {
+        if now
+            - smoke.completed_at.expect(
+                "the completion timestamp must be initialized before checking the post-quest delay",
+            )
+            > 2.0
+        {
             assert!(
                 smoke.airborne && smoke.landed,
                 "jump did not leave the ground and land"

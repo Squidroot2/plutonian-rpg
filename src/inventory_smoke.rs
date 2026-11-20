@@ -73,7 +73,9 @@ pub(crate) fn click(
             PointerId::Mouse,
             Location {
                 target: NormalizedRenderTarget::Window(
-                    WindowRef::Entity(window).normalize(Some(window)).unwrap(),
+                    WindowRef::Entity(window)
+                        .normalize(Some(window))
+                        .expect("an explicit smoke-test window reference must always normalize"),
                 ),
                 position: Vec2::ZERO,
             },
@@ -127,8 +129,12 @@ fn drive(
     let Ok(transform) = player.single() else {
         return;
     };
-    let window = windows.single().unwrap();
-    let camera = cameras.single().unwrap();
+    let window = windows
+        .single()
+        .expect("the inventory smoke test requires exactly one game window");
+    let camera = cameras
+        .single()
+        .expect("the inventory smoke test requires exactly one follow camera");
     smoke.context = Some((window, camera));
     let now = time.elapsed_secs();
     match smoke.phase {

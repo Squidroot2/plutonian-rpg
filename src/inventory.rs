@@ -157,7 +157,7 @@ pub fn spawn_pickup(
             Name::new(pickup.item.name()),
             pickup,
             PendingScene,
-            WorldAssetRoot(gltfs.get(&assets.materials[&pickup.item]).unwrap().scenes[0].clone()),
+            WorldAssetRoot(gltfs.get(&assets.materials[&pickup.item]).expect("material glTF assets must remain loaded after validation so initial and dropped pickups can be spawned").scenes[0].clone()),
             Transform::from_translation(position),
         ))
         .observe(scene_ready);
@@ -253,7 +253,13 @@ fn drop_items(
     };
     let placement = find_drop_position(&spatial, entity, transform);
     if let Some(pickup) = inventory.drop_stack(request.item, request.quantity, placement) {
-        spawn_pickup(&mut commands, &assets, &gltfs, pickup, placement.unwrap());
+        spawn_pickup(
+            &mut commands,
+            &assets,
+            &gltfs,
+            pickup,
+            placement.expect("a successful drop_stack call requires an accepted world placement"),
+        );
         notice.0 = format!("Dropped {} x{}", request.item.name(), request.quantity);
     } else {
         notice.0 = if placement.is_none() {
@@ -274,13 +280,15 @@ mod tests {
         assert!(bag.add(ItemKind::Battery, 3));
         let stack = bag
             .drop_stack(ItemKind::Battery, 2, Some(Vec3::ZERO))
-            .unwrap();
+            .expect("dropping two of five batteries onto a valid position must return a stack");
         assert_eq!(bag.count(ItemKind::Battery), 3);
         assert_eq!(stack.quantity, 2);
         assert!(bag.add(stack.item, stack.quantity));
         assert_eq!(bag.count(ItemKind::Battery), 5);
         bag.drop_stack(ItemKind::Battery, 5, Some(Vec3::ZERO))
-            .unwrap();
+            .expect(
+                "dropping all five remaining batteries onto a valid position must return a stack",
+            );
         assert_eq!(bag.count(ItemKind::Battery), 0);
         assert!(bag.0.is_empty());
     }

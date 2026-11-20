@@ -243,7 +243,9 @@ mod tests {
         assert!(app.world().resource::<Nearby>().0.is_none());
         app.world_mut()
             .get_mut::<Transform>(item)
-            .unwrap()
+            .expect(
+                "an out-of-range pickup must remain spawned with its Transform after interaction",
+            )
             .translation
             .z = -2.0;
         let wall = app
@@ -317,7 +319,14 @@ mod tests {
         let check = move |spatial: SpatialQuery| {
             crate::inventory::find_drop_position(&spatial, player, &transform)
         };
-        assert!(app.world_mut().run_system_once(check).unwrap().is_none());
+        assert!(
+            app.world_mut()
+                .run_system_once(check)
+                .expect(
+                    "test_app must initialize the physics resources required to run the drop query"
+                )
+                .is_none()
+        );
         app.world_mut().spawn((
             RigidBody::Static,
             Collider::cuboid(20.0, 1.0, 20.0),
@@ -329,7 +338,7 @@ mod tests {
         let position = app
             .world_mut()
             .run_system_once(check)
-            .unwrap()
+            .expect("test_app must initialize the physics resources required to run the drop query")
             .expect("clear floor should allow dropping");
         assert!((position.y - 0.012).abs() < 0.001);
         for (position, size) in [
@@ -347,6 +356,13 @@ mod tests {
         for _ in 0..3 {
             app.update();
         }
-        assert!(app.world_mut().run_system_once(check).unwrap().is_none());
+        assert!(
+            app.world_mut()
+                .run_system_once(check)
+                .expect(
+                    "test_app must initialize the physics resources required to run the drop query"
+                )
+                .is_none()
+        );
     }
 }

@@ -106,7 +106,9 @@ fn check(
         next.set(GameState::Failed);
         return;
     }
-    let model = gltfs.get(&assets.character).unwrap();
+    let model = gltfs.get(&assets.character).expect(
+        "the character glTF must be present after all game models passed loading validation",
+    );
     let mut graph = AnimationGraph::new();
     let mut nodes = Vec::new();
     for name in ["Idle", "Walk", "Run", "Jump"] {
@@ -119,7 +121,9 @@ fn check(
     }
     commands.insert_resource(AnimationLibrary {
         graph: graphs.add(graph),
-        nodes: nodes.try_into().unwrap(),
+        nodes: nodes
+            .try_into()
+            .expect("Idle, Walk, Run, and Jump must produce exactly four animation graph nodes"),
     });
     status.spawning = true;
     commands.trigger(crate::world::SpawnWorld);

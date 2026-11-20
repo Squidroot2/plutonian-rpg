@@ -34,14 +34,28 @@ fn spawn_world(
         .spawn((
             Name::new("Outpost visuals"),
             PendingScene,
-            WorldAssetRoot(gltfs.get(&assets.outpost).unwrap().scenes[0].clone()),
+            WorldAssetRoot(
+                gltfs
+                    .get(&assets.outpost)
+                    .expect("the validated outpost glTF must remain loaded when spawning the world")
+                    .scenes[0]
+                    .clone(),
+            ),
         ))
         .observe(ready);
     commands
         .spawn((
             Name::new("Outpost collision"),
             PendingScene,
-            WorldAssetRoot(gltfs.get(&assets.collision).unwrap().scenes[0].clone()),
+            WorldAssetRoot(
+                gltfs
+                    .get(&assets.collision)
+                    .expect(
+                        "the validated collision glTF must remain loaded when spawning the world",
+                    )
+                    .scenes[0]
+                    .clone(),
+            ),
             RigidBody::Static,
             Visibility::Hidden,
             ColliderConstructorHierarchy::new(ColliderConstructor::TrimeshFromMesh),
@@ -53,7 +67,11 @@ fn spawn_world(
                 info!("Collision hierarchy ready");
             },
         );
-    let character = gltfs.get(&assets.character).unwrap().scenes[0].clone();
+    let character = gltfs
+        .get(&assets.character)
+        .expect("the validated character glTF must remain loaded when spawning the world")
+        .scenes[0]
+        .clone();
     commands
         .spawn((
             Name::new("Player"),
@@ -100,7 +118,15 @@ fn spawn_world(
             Name::new("Power core"),
             Target::Core,
             PendingScene,
-            WorldAssetRoot(gltfs.get(&assets.core).unwrap().scenes[0].clone()),
+            WorldAssetRoot(
+                gltfs
+                    .get(&assets.core)
+                    .expect(
+                        "the validated beacon core glTF must remain loaded when spawning the world",
+                    )
+                    .scenes[0]
+                    .clone(),
+            ),
             Transform::from_translation(CORE),
         ))
         .observe(ready);

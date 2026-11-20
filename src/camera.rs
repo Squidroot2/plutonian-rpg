@@ -113,7 +113,8 @@ fn follow(
         orbit.pitch.sin(),
         orbit.yaw.cos() * orbit.pitch.cos(),
     );
-    let direction = Dir3::new(offset).unwrap();
+    let direction = Dir3::new(offset)
+        .expect("finite orbit yaw and pitch must produce a nonzero camera direction");
     let hit = spatial.cast_shape(
         &Collider::sphere(0.18),
         pivot,
