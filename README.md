@@ -19,19 +19,30 @@ The first build compiles Bevy and its renderer and can take several minutes. Run
 | Scroll | Adjust camera distance |
 | Left Shift | Sprint |
 | Space | Jump (grounded only) |
-| E | Speak / collect / dismiss dialogue |
-| Enter | Interact / dismiss dialogue |
-| Escape | Dismiss dialogue, then pause / resume |
+| E | Speak / collect a nearby item / dismiss dialogue |
+| Enter | Quest interaction / dismiss dialogue |
+| I | Open / close inventory |
+| Escape | Close inventory / dismiss dialogue / pause or resume |
 
 The pause menu also has Resume and Quit to desktop buttons. Losing window focus pauses the game. Progress lasts for the current session; relaunching starts a fresh quest. Falling beyond the playable area returns you to the outpost without removing quest progress.
 
 ## World and implementation
 
-The playable route connects the outpost, an inclined ice shelf, and a shallow cavern. Follow the luminous waystones toward the cavern; the objective displays the distance to the current destination. The power core is carried as quest state and disappears from its plinth when collected. Returning it to Nemi lights the beacon and completes the quest. You can continue exploring afterward.
+The playable route connects the outpost, an inclined ice shelf, and a shallow cavern. Follow the luminous waystones toward the cavern; the objective displays the distance to the current destination. The power core appears in inventory as a protected quest item and disappears from its plinth when collected. Returning it to Nemi consumes the core, lights the beacon, and completes the quest. You can continue exploring afterward.
 
-`src/` separates loading, world assembly, player movement/animation, camera, quest interactions, and UI into plugins. Avian's kinematic move-and-slide controller runs at a fixed timestep with capsule ground detection and tuned low gravity. The camera uses a sphere cast to avoid passing through geometry. Interaction requires a nearby target with a clear line of sight. There are no save files or migrations.
+`src/` separates loading, world assembly, player movement/animation, camera, shared interactions, inventory, quests, and UI into plugins. Avian's kinematic move-and-slide controller runs at a fixed timestep with capsule ground detection and tuned low gravity. The camera uses a sphere cast to avoid passing through geometry. Interaction requires a nearby target with a clear line of sight. There are no save files or migrations.
 
-The first milestone includes one quest and one speaking NPC. Combat, survival, inventory screens, levelling, controller support, and persistent saves are deferred. This is fictional Pluto: terrain, illumination, and gravity favor the experience over physical accuracy. Assets are original, generated locally with the included Blender script; no external models or textures are required.
+The first milestone includes one quest and one speaking NPC. Combat, survival, crafting, equipment, levelling, controller support, and persistent saves are deferred. This is fictional Pluto: terrain, illumination, and gravity favor the experience over physical accuracy. Assets are original, generated locally with the included Blender script; no external models or textures are required.
+
+## Inventory
+
+E picks up the nearest eligible item within three meters and clear line of sight. E also speaks to Nemi and collects the quest core; one press performs one action. E or Enter dismisses an open conversation before any other interaction.
+
+Batteries, scrap, and methane pouches are scattered around the outpost, trail, and cavern: two of each material in each region, for 18 initial pickups. Pickups transfer their whole stack. Inventory starts empty, stacks by item type, and has no capacity limit. Materials have no crafting or consumption effects yet.
+
+Press I to open inventory. Gameplay, gravity, character animation, and camera controls pause while the panel is open, and the cursor becomes available. Select a material, click its quantity field to type an integer (or use the minus/plus buttons), then click **Drop selected quantity**. I, Escape, or Close returns to play. Scroll the panel if necessary in a short window. Inventory cannot open during dialogue or from the pause menu.
+
+Dropped quantities become one stationary world stack near the player and can be collected with E. Placement checks supporting ground, free space, and walls; a failed drop leaves the inventory unchanged. The beacon core is marked **Quest item** and cannot be dropped. All inventory, quest, and pickup changes last only for the current session; relaunching resets them.
 
 ## Blender workflow
 
@@ -43,6 +54,7 @@ Blender 5.3 was used for the included editable sources in `art/`. Runtime export
 | `outpost` | Ice shelf, habitats, waystones, cavern, beacon tower, distant sky details |
 | `collision` | Simplified static geometry, hidden at runtime |
 | `core` | Collectible beacon power core |
+| `battery`, `scrap`, `methane_pouch` | Ground-based material pickups |
 
 To re-export **your edited `.blend` sources** without regenerating them:
 
@@ -50,11 +62,13 @@ To re-export **your edited `.blend` sources** without regenerating them:
 blender --background -noaudio --factory-startup --python-exit-code 1 --python scripts/assets.py -- --export
 ```
 
-To **rebuild all source art and exports from the procedural designs**, overwriting the four `.blend` sources:
+To **rebuild all source art and exports from the procedural designs**, overwriting the seven `.blend` sources:
 
 ```sh
 blender --background -noaudio --factory-startup --python-exit-code 1 --python scripts/assets.py
 ```
+
+To regenerate only the three material models without replacing existing world or character art, pass `-- --items` to the asset command. This overwrites the material sources and exports. Pickup models use a base origin at zero height; keep their geometry within the 0.62 m placement footprint and 0.6 m height used by clearance queries.
 
 The scripts run in a separate background Blender process; a live MCP connection is not required. One Blender unit equals one meter. Author with Z up and the character facing -Y; glTF export converts to Bevy's Y-up coordinates, with the character facing +Z. Keep scale applied and keep the four animation names unchanged. Materials use Principled BSDF base color, roughness, metallic, and emission. Animation is exported as sampled actions. Keep visible environment edits and `collision.blend` aligned; collision does not regenerate from edited outpost sources during `--export`.
 
@@ -78,6 +92,6 @@ cargo run --locked -- --smoke-test
 python3 scripts/check_assets.py
 ```
 
-The desktop smoke test opens a real game window, drives keyboard input through the controller to complete the quest, checks pause/resume, and verifies jumping, landing, and fall recovery. It writes `/tmp/plutonian-outpost.png`, `/tmp/plutonian-cavern.png`, and `/tmp/plutonian-beacon.png`, prints `SMOKE PASS`, and exits on success; it fails if the quest cannot complete within three minutes. Run it on an otherwise idle desktop without supplying additional mouse/keyboard input.
+The desktop smoke test opens a real game window, collects all three materials, opens inventory with I, enters a quantity using keyboard events, and dispatches pointer clicks through the inventory UI observers to drop one battery and recollect it. It then walks the beacon quest, checks the protected-core inventory screen and consumption, pause/resume, jumping, landing, and fall recovery. It writes `/tmp/plutonian-inventory.png`, `/tmp/plutonian-quest-inventory.png`, `/tmp/plutonian-outpost.png`, `/tmp/plutonian-cavern.png`, and `/tmp/plutonian-beacon.png`, prints `SMOKE PASS`, and exits on success; it fails if the quest cannot complete within three minutes. Run it on an otherwise idle desktop without supplying additional mouse/keyboard input. Add `--smoke-fullscreen` after `--smoke-test` to check the layout across the full display.
 
-Manual acceptance: walk and sprint, jump and land, traverse the trail rise, push against habitat/cavern walls, orbit the camera near obstructions, try interacting out of range or through a wall, read/dismiss each dialogue, collect the core once, return to Nemi, confirm the lit beacon, pause/resume using keys and buttons, fall off the ice shelf, and restart to confirm a fresh quest. Automated checks cannot establish how comfortable the movement or composition feels.
+Manual acceptance: walk and sprint, jump and land, traverse the trail rise, push against habitat/cavern walls, orbit the camera near obstructions, try interacting out of range or through a wall, read/dismiss each dialogue, collect the core once, return to Nemi, confirm the lit beacon, pause/resume using keys and buttons, fall off the ice shelf, pick up materials on the trail and in the cavern, use the inventory quantity field and buttons, drop and recollect stacks near slopes and walls, and restart to confirm fresh quest and inventory state. Automated checks cannot establish how comfortable the movement or composition feels.

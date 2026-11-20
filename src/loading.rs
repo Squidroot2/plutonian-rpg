@@ -1,9 +1,10 @@
-use crate::{GameState, player::AnimationLibrary};
+use crate::{GameState, inventory::ItemKind, player::AnimationLibrary};
 use bevy::{
     asset::{LoadState, RecursiveDependencyLoadState},
     gltf::Gltf,
     prelude::*,
 };
+use std::collections::BTreeMap;
 
 pub struct LoadingPlugin;
 impl Plugin for LoadingPlugin {
@@ -19,12 +20,15 @@ pub struct GameAssets {
     pub outpost: Handle<Gltf>,
     pub collision: Handle<Gltf>,
     pub core: Handle<Gltf>,
+    pub materials: BTreeMap<ItemKind, Handle<Gltf>>,
 }
+#[derive(Component)]
+pub struct PendingScene;
+
 #[derive(Resource, Default)]
 pub struct LoadStatus {
     pub error: Option<String>,
     pub spawning: bool,
-    pub ready: usize,
     pub collision_ready: bool,
     pub started: Option<std::time::Instant>,
 }
@@ -34,6 +38,10 @@ fn load(mut commands: Commands, server: Res<AssetServer>) {
         outpost: server.load("models/outpost.glb"),
         collision: server.load("models/collision.glb"),
         core: server.load("models/core.glb"),
+        materials: ItemKind::MATERIALS
+            .into_iter()
+            .map(|item| (item, server.load(format!("models/{}.glb", item.asset()))))
+            .collect(),
     });
 }
 fn check(
@@ -44,18 +52,25 @@ fn check(
     mut graphs: ResMut<Assets<AnimationGraph>>,
     mut status: ResMut<LoadStatus>,
     mut next: ResMut<NextState<GameState>>,
+    pending: Query<(), With<PendingScene>>,
     colliders: Query<&avian3d::prelude::Collider, Without<crate::player::Player>>,
 ) {
     let started = *status.started.get_or_insert_with(std::time::Instant::now);
     if started.elapsed().as_secs() > 90 {
         status.error = Some("Timed out while loading or preparing the world".into());
     }
-    for handle in [
+    let handles = [
         &assets.character,
         &assets.outpost,
         &assets.collision,
         &assets.core,
-    ] {
+    ]
+    .into_iter()
+    .chain(assets.materials.values())
+    .collect::<Vec<_>>();
+    for handle in &handles {
+        let handle = *handle;
+
         if let Some(LoadState::Failed(error)) = server.get_load_state(handle.id()) {
             status.error = Some(format!("Could not load game assets: {error}"));
         }
@@ -71,20 +86,24 @@ fn check(
     }
     if status.spawning {
         // Scene-ready events alone do not guarantee physics constructors have finished.
-        if status.ready == 5 && status.collision_ready && colliders.iter().count() > 1 {
+        if pending.is_empty() && status.collision_ready && colliders.iter().count() > 1 {
             next.set(GameState::Playing);
         }
         return;
     }
-    if ![
-        &assets.character,
-        &assets.outpost,
-        &assets.collision,
-        &assets.core,
-    ]
-    .iter()
-    .all(|h| server.is_loaded_with_dependencies(h.id()))
+    if !handles
+        .iter()
+        .all(|h| server.is_loaded_with_dependencies(h.id()))
     {
+        return;
+    }
+    if handles.iter().any(|handle| {
+        gltfs
+            .get(*handle)
+            .is_none_or(|model| model.scenes.is_empty())
+    }) {
+        status.error = Some("A game model is missing its scene".into());
+        next.set(GameState::Failed);
         return;
     }
     let model = gltfs.get(&assets.character).unwrap();

@@ -62,10 +62,15 @@ fn look(
     motion: Res<AccumulatedMouseMotion>,
     scroll: Res<AccumulatedMouseScroll>,
     dialogue: Res<Dialogue>,
+    keys: Res<ButtonInput<KeyCode>>,
     windows: Query<&Window, With<PrimaryWindow>>,
     mut orbit: ResMut<Orbit>,
 ) {
-    if dialogue.text.is_some() || !windows.iter().any(|w| w.focused) {
+    if dialogue.text.is_some()
+        || keys.just_pressed(KeyCode::KeyI)
+        || keys.just_pressed(KeyCode::Escape)
+        || !windows.iter().any(|w| w.focused)
+    {
         return;
     }
     orbit.yaw -= motion.delta.x * 0.003;

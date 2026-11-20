@@ -241,7 +241,41 @@ def core():
     save_export('core')
 
 
-if '--ground' in sys.argv:
+def items():
+    """Build only material pickups, preserving existing world and character source art."""
+    for name in ['battery', 'scrap', 'methane_pouch']:
+        reset()
+        metal = material('Salvaged alloy', (.13,.2,.24), metal=.7)
+        dark = material('Insulated shell', (.035,.06,.07))
+        glow = material('Identification phosphor', (.12,.85,.62) if name == 'battery' else (.9,.45,.13), 2)
+        if name == 'battery':
+            box('Battery cell', (0,0,.22), (.27,.21,.4), metal)
+            for z in [.06,.39]:
+                box('Cell band', (0,0,z), (.3,.24,.06), dark)
+            box('Charge strip', (0,-.113,.25), (.12,.02,.2), glow)
+            cone('Terminal', (0,0,.46), .055,.08,metal,.055)
+        elif name == 'scrap':
+            for i in range(3):
+                part = box('Scrap plate', (0,(i-1)*.09,.045+i*.055), (.44-i*.05,.14,.07), metal)
+                part.rotation_euler.z = (i-1)*.45
+            box('Salvage marking', (0,-.15,.09), (.13,.025,.05), glow)
+        else:
+            pouch = material('Methane membrane', (.14,.3,.38), metal=.15)
+            ico('Methane pouch', (0,0,.22), (.25,.15,.22), pouch, 2)
+            cone('Sealed neck', (0,0,.44), .065,.12,metal,.05)
+            box('Seal', (0,0,.51), (.15,.1,.035), dark)
+            box('Pouch marking', (0,-.15,.23), (.12,.02,.09), glow)
+        bpy.context.view_layer.update()
+        bottom = min((o.matrix_world @ Vector(c)).z for o in bpy.context.scene.objects for c in o.bound_box)
+        for obj in bpy.context.scene.objects:
+            obj.location.z -= bottom
+        bpy.context.view_layer.update()
+        save_export(name)
+
+
+if '--items' in sys.argv:
+    items()
+elif '--ground' in sys.argv:
     # Repair existing sources without replacing authored meshes or materials.
     bpy.context.preferences.filepaths.save_version = 0
     bpy.context.preferences.filepaths.file_preview_type = 'NONE'
@@ -257,7 +291,7 @@ if '--ground' in sys.argv:
     bpy.context.view_layer.update()
     save_export('collision')
 elif '--export' in sys.argv:
-    for name in ['plutonian', 'outpost', 'collision', 'core']:
+    for name in ['plutonian', 'outpost', 'collision', 'core', 'battery', 'scrap', 'methane_pouch']:
         bpy.ops.wm.open_mainfile(filepath=str(ROOT/'art'/f'{name}.blend'))
         export(name)
 else:
@@ -265,4 +299,5 @@ else:
     world()
     collision_from_world()
     core()
+    items()
 print('Exported Plutonian RPG assets')

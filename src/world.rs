@@ -1,6 +1,6 @@
 use crate::{
     GameState,
-    loading::{GameAssets, LoadStatus},
+    loading::{GameAssets, LoadStatus, PendingScene},
     player::{ActorVisual, Player},
     quest::{Beacon, Target},
 };
@@ -20,10 +20,10 @@ impl Plugin for WorldPlugin {
             .add_systems(OnExit(GameState::Loading), ground_spawned_models);
     }
 }
-fn ready(_: On<WorldInstanceReady>, mut status: ResMut<LoadStatus>) {
-    status.ready += 1;
-    info!("World scene ready: {} / 5", status.ready);
+fn ready(event: On<WorldInstanceReady>, mut commands: Commands) {
+    commands.entity(event.entity).remove::<PendingScene>();
 }
+
 fn spawn_world(
     _: On<SpawnWorld>,
     mut commands: Commands,
@@ -33,12 +33,14 @@ fn spawn_world(
     commands
         .spawn((
             Name::new("Outpost visuals"),
+            PendingScene,
             WorldAssetRoot(gltfs.get(&assets.outpost).unwrap().scenes[0].clone()),
         ))
         .observe(ready);
     commands
         .spawn((
             Name::new("Outpost collision"),
+            PendingScene,
             WorldAssetRoot(gltfs.get(&assets.collision).unwrap().scenes[0].clone()),
             RigidBody::Static,
             Visibility::Hidden,
@@ -66,6 +68,7 @@ fn spawn_world(
             parent
                 .spawn((
                     ActorVisual { player: true },
+                    PendingScene,
                     WorldAssetRoot(character.clone()),
                     Transform::from_xyz(0.0, -0.9, 0.0),
                 ))
@@ -84,6 +87,7 @@ fn spawn_world(
             parent
                 .spawn((
                     ActorVisual { player: false },
+                    PendingScene,
                     WorldAssetRoot(character),
                     Transform::from_xyz(0.0, -0.9, 0.0)
                         .with_rotation(Quat::from_rotation_y(0.5))
@@ -95,6 +99,7 @@ fn spawn_world(
         .spawn((
             Name::new("Power core"),
             Target::Core,
+            PendingScene,
             WorldAssetRoot(gltfs.get(&assets.core).unwrap().scenes[0].clone()),
             Transform::from_translation(CORE),
         ))

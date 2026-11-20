@@ -1,4 +1,8 @@
 mod camera;
+mod interaction;
+mod inventory;
+mod inventory_smoke;
+mod inventory_ui;
 mod loading;
 mod player;
 mod quest;
@@ -14,6 +18,7 @@ pub enum GameState {
     Loading,
     Playing,
     Paused,
+    Inventory,
     Failed,
 }
 
@@ -41,10 +46,13 @@ fn main() {
             player::PlayerPlugin,
             camera::FollowCameraPlugin,
             quest::QuestPlugin,
+            inventory::InventoryPlugin,
+            interaction::InteractionPlugin,
+            inventory_ui::InventoryUiPlugin,
             ui::GameUiPlugin,
         ));
     if std::env::args().any(|arg| arg == "--smoke-test") {
-        app.add_plugins(smoke::SmokePlugin);
+        app.add_plugins((smoke::SmokePlugin, inventory_smoke::InventorySmokePlugin));
     }
     app.run();
 }

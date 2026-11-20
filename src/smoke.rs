@@ -2,6 +2,9 @@
 use crate::{
     GameState,
     camera::Orbit,
+    inventory::{Inventory, ItemKind},
+    inventory_smoke::InventorySmoke,
+    inventory_ui::InventoryAction,
     player::Player,
     quest::{Dialogue, Nearby, Quest},
     world::{CORE, KEEPER},
@@ -29,9 +32,19 @@ pub(crate) struct Smoke {
     fall_at: Option<f32>,
     paused: bool,
     pause_position: Option<Vec3>,
+    core_ui: u8,
 }
 impl Plugin for SmokePlugin {
     fn build(&self, app: &mut App) {
+        if std::env::args().any(|arg| arg == "--smoke-fullscreen") {
+            app.add_systems(Startup, |mut windows: Query<&mut Window>| {
+                for mut window in &mut windows {
+                    window.mode = bevy::window::WindowMode::BorderlessFullscreen(
+                        bevy::window::MonitorSelection::Current,
+                    );
+                }
+            });
+        }
         app.insert_resource(Smoke {
             start: Instant::now(),
             action_at: 0.0,
@@ -45,14 +58,21 @@ impl Plugin for SmokePlugin {
             fall_at: None,
             paused: false,
             pause_position: None,
+            core_ui: 0,
         })
         .add_systems(
             PreUpdate,
-            drive.after(InputSystems).before(crate::player::input),
+            drive
+                .after(InputSystems)
+                .before(crate::player::input)
+                .before(crate::ui::pause),
         );
     }
 }
-fn drive(
+pub(crate) fn drive(
+    inventory_smoke: Res<InventorySmoke>,
+    inventory: Res<Inventory>,
+    actions: Query<(Entity, &InventoryAction)>,
     mut last_debug: Local<f32>,
     mut smoke: ResMut<Smoke>,
     time: Res<Time>,
@@ -67,6 +87,9 @@ fn drive(
     mut commands: Commands,
     mut exit: MessageWriter<AppExit>,
 ) {
+    if !inventory_smoke.done {
+        return;
+    }
     keys.reset_all();
     assert!(
         smoke.start.elapsed().as_secs() < 180,
@@ -95,6 +118,31 @@ fn drive(
     }
     if smoke.airborne && controller.grounded {
         smoke.landed = true;
+    }
+    if *state.get() == GameState::Inventory && smoke.core_ui > 0 {
+        assert_eq!(inventory.count(ItemKind::BeaconCore), 1);
+        if smoke.core_ui == 1 {
+            let (window, camera) = inventory_smoke.context.unwrap();
+            crate::inventory_smoke::click(
+                &mut commands,
+                InventoryAction::Select(ItemKind::BeaconCore),
+                &actions,
+                window,
+                camera,
+            );
+            smoke.core_ui = 2;
+            smoke.action_at = now;
+        } else if smoke.core_ui == 2 && now - smoke.action_at > 0.4 {
+            commands
+                .spawn(Screenshot::primary_window())
+                .observe(save_to_disk("/tmp/plutonian-quest-inventory.png"));
+            smoke.core_ui = 3;
+            smoke.action_at = now;
+        } else if smoke.core_ui == 3 && now - smoke.action_at > 0.3 {
+            keys.press(KeyCode::KeyI);
+            smoke.core_ui = 4;
+        }
+        return;
     }
     if *state.get() == GameState::Paused {
         let position = smoke.pause_position.unwrap();
@@ -133,6 +181,7 @@ fn drive(
         smoke.action_at = now;
         info!("SMOKE: quest stage {:?}", *quest);
         if *quest == Quest::ReturnCore {
+            assert_eq!(inventory.count(ItemKind::BeaconCore), 1);
             commands
                 .spawn(Screenshot::primary_window())
                 .observe(save_to_disk("/tmp/plutonian-cavern.png"));
@@ -145,7 +194,13 @@ fn drive(
         }
         return;
     }
+    if *quest == Quest::ReturnCore && smoke.core_ui == 0 {
+        keys.press(KeyCode::KeyI);
+        smoke.core_ui = 1;
+        return;
+    }
     if *quest == Quest::Complete {
+        assert_eq!(inventory.count(ItemKind::BeaconCore), 0);
         if smoke.completed_at.is_none() {
             commands
                 .spawn(Screenshot::primary_window())

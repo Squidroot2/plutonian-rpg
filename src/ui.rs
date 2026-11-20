@@ -1,5 +1,6 @@
 use crate::{
     GameState,
+    interaction::{InteractionSystems, InteractionTarget},
     loading::LoadStatus,
     player::Player,
     quest::{Dialogue, Nearby, Quest, Target},
@@ -23,7 +24,8 @@ enum Action {
 impl Plugin for GameUiPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, setup)
-            .add_systems(Update, (pause, display).chain());
+            .add_systems(PreUpdate, pause.after(bevy::input::InputSystems))
+            .add_systems(Update, display.after(InteractionSystems));
     }
 }
 fn text_style(size: f32) -> (TextFont, TextColor) {
@@ -115,7 +117,7 @@ fn setup(mut commands: Commands) {
             }
         });
 }
-fn pause(
+pub(crate) fn pause(
     smoke: Option<Res<crate::smoke::Smoke>>,
     keys: Res<ButtonInput<KeyCode>>,
     state: Res<State<GameState>>,
@@ -125,6 +127,18 @@ fn pause(
 ) {
     if smoke.is_none() && *state.get() == GameState::Playing && windows.iter().any(|w| !w.focused) {
         next.set(GameState::Paused);
+    }
+    if keys.just_pressed(KeyCode::KeyI)
+        && *state.get() == GameState::Playing
+        && dialogue.text.is_none()
+    {
+        next.set(GameState::Inventory);
+    }
+    if *state.get() == GameState::Inventory
+        && keys.any_just_pressed([KeyCode::KeyI, KeyCode::Escape])
+    {
+        next.set(GameState::Playing);
+        return;
     }
     if keys.just_pressed(KeyCode::Escape) {
         match state.get() {
@@ -192,8 +206,11 @@ fn display(
             ),
             GameState::Playing if dialogue.text.is_none() => {
                 nearby.0.map_or(String::new(), |(_, target)| match target {
-                    Target::Keeper => "[E] Speak to Nemi".into(),
-                    Target::Core => "[E] Recover power core".into(),
+                    InteractionTarget::Quest(Target::Keeper) => "[E] Speak to Nemi".into(),
+                    InteractionTarget::Quest(Target::Core) => "[E] Recover power core".into(),
+                    InteractionTarget::Pickup(pickup) => {
+                        format!("[E] Pick up {} x{}", pickup.item.name(), pickup.quantity)
+                    }
                 })
             }
             _ => String::new(),

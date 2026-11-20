@@ -7,24 +7,16 @@ pub struct PlayerPlugin;
 impl Plugin for PlayerPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<MovementInput>()
+            .add_systems(OnEnter(GameState::Paused), freeze)
+            .add_systems(OnEnter(GameState::Inventory), freeze)
+            .add_systems(OnExit(GameState::Paused), resume)
+            .add_systems(OnExit(GameState::Inventory), resume)
             .add_systems(
-                OnEnter(GameState::Paused),
-                |mut players: Query<&mut AnimationPlayer>, mut input: ResMut<MovementInput>| {
-                    *input = MovementInput::default();
-                    for mut player in &mut players {
-                        player.pause_all();
-                    }
-                },
+                PreUpdate,
+                input
+                    .after(crate::ui::pause)
+                    .run_if(in_state(GameState::Playing)),
             )
-            .add_systems(
-                OnExit(GameState::Paused),
-                |mut players: Query<&mut AnimationPlayer>| {
-                    for mut player in &mut players {
-                        player.resume_all();
-                    }
-                },
-            )
-            .add_systems(PreUpdate, input.run_if(in_state(GameState::Playing)))
             .add_systems(FixedUpdate, movement.run_if(in_state(GameState::Playing)))
             .add_systems(
                 Update,
@@ -68,7 +60,10 @@ pub(crate) fn input(
 ) {
     input.direction = Vec2::ZERO;
     input.sprint = false;
-    if dialogue.text.is_some() {
+    if dialogue.text.is_some()
+        || keys.just_pressed(KeyCode::KeyI)
+        || keys.just_pressed(KeyCode::Escape)
+    {
         input.jump = false;
         return;
     }
@@ -219,5 +214,17 @@ fn animate(
                 .repeat();
             actor.current = index;
         }
+    }
+}
+
+fn freeze(mut players: Query<&mut AnimationPlayer>, mut input: ResMut<MovementInput>) {
+    *input = MovementInput::default();
+    for mut player in &mut players {
+        player.pause_all();
+    }
+}
+fn resume(mut players: Query<&mut AnimationPlayer>) {
+    for mut player in &mut players {
+        player.resume_all();
     }
 }

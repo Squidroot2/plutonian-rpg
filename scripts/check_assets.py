@@ -4,7 +4,7 @@ from pathlib import Path
 import struct
 
 root = Path(__file__).resolve().parents[1]
-for name in ['plutonian', 'outpost', 'collision', 'core']:
+for name in ['plutonian', 'outpost', 'collision', 'core', 'battery', 'scrap', 'methane_pouch']:
     source = root / 'art' / f'{name}.blend'
     path = root / 'assets' / 'models' / f'{name}.glb'
     assert source.is_file(), f'Missing Blender source: {source}'
