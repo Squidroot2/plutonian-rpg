@@ -164,6 +164,7 @@ fn spawn_lens(
 ) {
     commands.spawn((
         BeaconLens,
+        Beacon,
         Mesh3d(meshes.add(Sphere::new(0.65))),
         MeshMaterial3d(materials.add(StandardMaterial {
             base_color: Color::srgb(0.04, 0.1, 0.13),
