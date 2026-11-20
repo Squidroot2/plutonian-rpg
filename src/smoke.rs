@@ -15,7 +15,7 @@ use bevy::{
     prelude::*,
     render::view::screenshot::{Screenshot, save_to_disk},
 };
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 pub struct SmokePlugin;
 #[derive(Resource)]
@@ -45,6 +45,10 @@ impl Plugin for SmokePlugin {
                 }
             });
         }
+        app.add_systems(
+            OnEnter(GameState::Playing),
+            check_pillar_collision.run_if(run_once),
+        );
         app.insert_resource(Smoke {
             start: Instant::now(),
             action_at: 0.0,
@@ -242,18 +246,18 @@ pub(crate) fn drive(
         Quest::MeetKeeper => KEEPER,
         Quest::FindCore => {
             let points = [
-                Vec3::new(0.0, 0.0, -20.0),
-                Vec3::new(0.0, 0.0, -65.0),
-                Vec3::new(0.0, 0.0, -100.0),
+                Vec3::new(-3.2, 0.0, -20.0),
+                Vec3::new(-3.2, 0.0, -65.0),
+                Vec3::new(-3.2, 0.0, -100.0),
                 CORE + Vec3::Z * 2.3,
             ];
             points[smoke.waypoint.min(3)]
         }
         Quest::ReturnCore => {
             let points = [
-                Vec3::new(0.0, 0.0, -100.0),
-                Vec3::new(0.0, 0.0, -65.0),
-                Vec3::new(0.0, 0.0, -20.0),
+                Vec3::new(-3.2, 0.0, -100.0),
+                Vec3::new(-3.2, 0.0, -65.0),
+                Vec3::new(-3.2, 0.0, -20.0),
                 KEEPER,
             ];
             points[smoke.waypoint.min(3)]
@@ -283,4 +287,67 @@ pub(crate) fn drive(
         keys.press(KeyCode::Space);
         smoke.jumped = true;
     }
+}
+
+// Exercise the same capsule and move-and-slide path used by character movement
+// against every authored pillar, without changing the player's live position.
+fn check_pillar_collision(
+    nodes: Query<(&Name, &GlobalTransform)>,
+    parents: Query<&ChildOf>,
+    colliders: Query<Entity, With<avian3d::prelude::Collider>>,
+    players: Query<&avian3d::prelude::Collider, With<Player>>,
+    mover: avian3d::prelude::MoveAndSlide,
+) {
+    use avian3d::prelude::*;
+    let capsule = players
+        .single()
+        .expect("pillar collision checks require exactly one player capsule");
+    let mut pillars = std::collections::BTreeMap::new();
+    for (name, transform) in &nodes {
+        if name.as_str().starts_with("Waystone") && !name.as_str().starts_with("Waystone lamp") {
+            pillars.insert(name.as_str().to_owned(), transform.translation());
+        }
+    }
+    assert!(
+        !pillars.is_empty(),
+        "pillar collision checks require trail pillars in the loaded scene"
+    );
+    for (name, center) in &pillars {
+        // A few cave pillars sit against walls. Isolate each pillar's actual
+        // collider descendants so a wall cannot mask a missing pillar collider.
+        let excluded = colliders.iter().filter(|entity| {
+            !std::iter::once(*entity)
+                .chain(parents.iter_ancestors(*entity))
+                .any(|ancestor| {
+                    nodes
+                        .get(ancestor)
+                        .is_ok_and(|(ancestor_name, _)| ancestor_name.as_str() == name)
+                })
+        });
+        let filter = SpatialQueryFilter::from_excluded_entities(excluded);
+        for side in [Vec3::X, Vec3::NEG_X, Vec3::Z, Vec3::NEG_Z] {
+            // Pillar meshes are 2.8 m tall with their origin at the center;
+            // put the player's 0.895 m half-height capsule just above the base.
+            let start = *center + side * 2.0 - Vec3::Y * 0.455;
+            let output = mover.move_and_slide(
+                capsule,
+                start,
+                Quat::IDENTITY,
+                -side * 5.0,
+                Duration::from_secs(1),
+                &MoveAndSlideConfig::default(),
+                &filter,
+                |_| MoveAndSlideHitResponse::Accept,
+            );
+            let gap = (output.position - *center).dot(side);
+            assert!(
+                (0.5..1.0).contains(&gap),
+                "{name}: character capsule passed through or failed to approach the pillar from {side:?}; final gap {gap}"
+            );
+        }
+    }
+    info!(
+        "PILLAR COLLISION PASS: {} pillars block the character capsule from four directions",
+        pillars.len()
+    );
 }

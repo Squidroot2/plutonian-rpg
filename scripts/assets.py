@@ -224,10 +224,27 @@ def world():
 def collision_from_world():
     bpy.ops.wm.open_mainfile(filepath=str(ROOT/'art/outpost.blend'))
     prefixes = ('Ice shelf', 'Trail rise', 'Habitat ', 'Beacon foundation', 'Beacon spindle',
-                'Ice escarpment', 'Cavern ', 'Core plinth')
+                'Ice escarpment', 'Cavern ', 'Core plinth', 'Waystone')
     for o in list(bpy.data.objects):
-        if not o.name.startswith(prefixes):
+        if not o.name.startswith(prefixes) or o.name.startswith('Waystone lamp'):
             bpy.data.objects.remove(o, do_unlink=True)
+    save_export('collision')
+
+
+def add_pillar_collision():
+    """Add missing pillar bodies without replacing existing authored collision meshes."""
+    bpy.context.preferences.filepaths.save_version = 0
+    bpy.context.preferences.filepaths.file_preview_type = 'NONE'
+    bpy.ops.wm.open_mainfile(filepath=str(ROOT / 'art/collision.blend'))
+    existing = {obj.name for obj in bpy.context.scene.objects}
+    with bpy.data.libraries.load(str(ROOT / 'art/outpost.blend'), link=False) as (source, target):
+        target.objects = [name for name in source.objects
+                          if name.startswith('Waystone') and not name.startswith('Waystone lamp')
+                          and name not in existing]
+    for obj in target.objects:
+        bpy.context.scene.collection.objects.link(obj)
+    bpy.context.view_layer.update()
+    print(f'Added {len(target.objects)} pillar collision meshes')
     save_export('collision')
 
 
@@ -273,7 +290,9 @@ def items():
         save_export(name)
 
 
-if '--items' in sys.argv:
+if '--pillars' in sys.argv:
+    add_pillar_collision()
+elif '--items' in sys.argv:
     items()
 elif '--ground' in sys.argv:
     # Repair existing sources without replacing authored meshes or materials.
