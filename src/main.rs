@@ -36,7 +36,7 @@ fn main() {
         })
         .add_plugins(DefaultPlugins.set(WindowPlugin {
             primary_window: Some(Window {
-                title: "Plutonian — The Last Light".into(),
+                title: "The Plutonian".into(),
                 resolution: (1280, 800).into(),
                 ..default()
             }),
