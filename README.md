@@ -1,4 +1,4 @@
-# Plutonian — The Last Light
+# The Plutonian
 
 A third-person exploration RPG prototype built with Bevy 0.20 and Blender. You are a Plutonian returning to Nivalis, a small settlement whose crossing beacon has gone dark. Speak to Nemi, follow the blue waystones to the cavern, and bring its power core home.
 
