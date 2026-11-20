@@ -1,4 +1,5 @@
 use crate::{
+    GameState,
     loading::{GameAssets, LoadStatus},
     player::{ActorVisual, Player},
     quest::{Beacon, Target},
@@ -15,7 +16,8 @@ pub struct WorldPlugin;
 pub struct SpawnWorld;
 impl Plugin for WorldPlugin {
     fn build(&self, app: &mut App) {
-        app.add_observer(spawn_world);
+        app.add_observer(spawn_world)
+            .add_systems(OnExit(GameState::Loading), ground_spawned_models);
     }
 }
 fn ready(_: On<WorldInstanceReady>, mut status: ResMut<LoadStatus>) {
@@ -148,4 +150,43 @@ fn spawn_world(
     }
     // Visible beacon lens, independent of the authored unlit tower.
     commands.trigger(crate::quest::SpawnBeaconLens);
+}
+
+// Resolve support against the loaded collision scene once, before play starts.
+// Running this on resume would incorrectly teleport a player paused mid-jump.
+fn ground_spawned_models(
+    spatial: SpatialQuery,
+    mut actors: Query<
+        (Entity, &mut Transform, Option<&Target>),
+        (Or<(With<Player>, With<Target>)>, Without<Beacon>),
+    >,
+    mut beacons: Query<&mut Transform, With<Beacon>>,
+    nodes: Query<(&Name, &GlobalTransform)>,
+) {
+    for (entity, mut transform, target) in &mut actors {
+        let origin = transform.translation + Vec3::Y * 3.0;
+        if let Some(hit) = spatial.cast_ray(
+            origin,
+            Dir3::NEG_Y,
+            20.0,
+            true,
+            &SpatialQueryFilter::from_excluded_entities([entity]),
+        ) {
+            let support = origin.y - hit.distance;
+            let offset = match target {
+                Some(Target::Keeper) => 0.9,
+                Some(Target::Core) => 0.445,
+                None => 0.905,
+            };
+            transform.translation.y = support + offset;
+        }
+    }
+    if let Some((_, spindle)) = nodes
+        .iter()
+        .find(|(name, _)| name.as_str() == "Beacon spindle")
+    {
+        for mut transform in &mut beacons {
+            transform.translation = spindle.translation() + Vec3::Y * 3.5;
+        }
+    }
 }

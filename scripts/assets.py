@@ -7,6 +7,8 @@ from pathlib import Path
 from mathutils import Vector
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "scripts"))
+from grounding import ground_outpost
 random.seed(19)
 
 
@@ -215,6 +217,7 @@ def world():
         ico('Star', (x,y,z), (.10,.10,.10), stars)
     # A small distant Charon, away from the route.
     ico('Charon', (-72,100,65), (13,13,13), material('Charon rock', (.23,.26,.32)), 3)
+    ground_outpost()
     save_export('outpost')
 
 
@@ -238,7 +241,22 @@ def core():
     save_export('core')
 
 
-if '--export' in sys.argv:
+if '--ground' in sys.argv:
+    # Repair existing sources without replacing authored meshes or materials.
+    bpy.context.preferences.filepaths.save_version = 0
+    bpy.context.preferences.filepaths.file_preview_type = 'NONE'
+    bpy.ops.wm.open_mainfile(filepath=str(ROOT / 'art/outpost.blend'))
+    changes = ground_outpost()
+    save_export('outpost')
+    bpy.ops.wm.open_mainfile(filepath=str(ROOT / 'art/collision.blend'))
+    for obj in bpy.context.scene.objects:
+        if obj.name in changes:
+            matrix = obj.matrix_world.copy()
+            matrix.translation.z += changes[obj.name]
+            obj.matrix_world = matrix
+    bpy.context.view_layer.update()
+    save_export('collision')
+elif '--export' in sys.argv:
     for name in ['plutonian', 'outpost', 'collision', 'core']:
         bpy.ops.wm.open_mainfile(filepath=str(ROOT/'art'/f'{name}.blend'))
         export(name)

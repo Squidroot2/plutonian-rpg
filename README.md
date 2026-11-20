@@ -58,7 +58,15 @@ blender --background -noaudio --factory-startup --python-exit-code 1 --python sc
 
 The scripts run in a separate background Blender process; a live MCP connection is not required. One Blender unit equals one meter. Author with Z up and the character facing -Y; glTF export converts to Bevy's Y-up coordinates, with the character facing +Z. Keep scale applied and keep the four animation names unchanged. Materials use Principled BSDF base color, roughness, metallic, and emission. Animation is exported as sampled actions. Keep visible environment edits and `collision.blend` aligned; collision does not regenerate from edited outpost sources during `--export`.
 
-The authored environment contains the tower; Bevy owns its switchable lens and light, NPC/player placement, and the floating core placement. These placements live in the world plugin. Add collision meshes to `collision.blend` for solid additions. The loader waits for scene instantiation and collider construction, and reports missing assets, animation names, or load timeout on screen.
+The authored environment contains the tower; Bevy owns its switchable lens and light, NPC/player placement, and collectible placement. At the end of loading, the world plugin aligns the player and keeper to the collision surface and rests the core on its plinth. The beacon lens follows the authored spindle. Add collision meshes to `collision.blend` for solid additions. The loader waits for scene instantiation and collider construction, and reports missing assets, animation names, or load timeout on screen.
+
+Foundations follow the inclined ice shelf, with a 4 cm overlap to avoid gaps along sloping ground. To repair placements in existing outpost sources while preserving meshes and materials, run the asset command above with `-- --ground` instead of `-- --export`. This moves attached details and matching collision objects together. Full procedural generation applies the same grounding automatically.
+
+To check foundation contact and matching visual/collision transforms without changing sources:
+
+```sh
+blender --background -noaudio --factory-startup --python-exit-code 1 --python scripts/grounding.py
+```
 
 ## Verification
 
