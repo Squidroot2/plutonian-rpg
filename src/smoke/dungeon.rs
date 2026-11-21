@@ -12,7 +12,7 @@ use crate::{
         SWITCH_LOCAL,
     },
     enemy::{MeleePhase, MeleePursuit},
-    interaction::{InteractionTarget, Nearby, Target},
+    interaction::{INTERACT_HEIGHT, INTERACT_RANGE, InteractionTarget, Nearby, Target},
     inventory::{Inventory, ItemKind},
     loot_ui::LootAction,
     menu_ui::{MenuTab, PlayerMenu},
@@ -20,6 +20,8 @@ use crate::{
     quest::{Dialogue, LAST_LIGHT, OLD_RELAY, QuestAction, QuestJournal, QuestStatus},
     quest_ui::{QuestRow, QuestSelection},
     roach::Roach,
+    storage::{ChestId, ChestStorage},
+    storage_ui::{StorageAction, StorageSide, TransferAmount},
     world::WorldLayout,
     worm::{GROUND_OFFSET, Worm},
 };
@@ -32,9 +34,19 @@ pub(super) enum WorldCheck {
     Spawn,
     TentView(f64),
     TentPhoto(Entity),
+    InspectChest(ChestId),
+    TakeFromChest(ChestId),
+    StoreInChest(ChestId),
+    CloseChest(ChestId),
+    NextChest(ChestId),
     LeaveTent,
     OutpostPhoto(Entity),
+    OutsideChestWall,
+    BlockedChest,
     ReturnToTent,
+    InspectStoredChest,
+    CheckStoredChest,
+    LeaveStorage,
     InspectLocked,
     LockedNotice,
     OpenDiscoveredJournal,
@@ -96,19 +108,22 @@ pub(super) fn drive(
         Res<QuestSelection>,
         Query<(Entity, &QuestRow)>,
     ),
-    (gate, names, parents): (
+    (gate, names, parents, chests): (
         Query<Entity, With<ArchiveGate>>,
         Query<&Name>,
         Query<&ChildOf>,
+        Query<(&ChestId, &Transform), Without<Player>>,
     ),
     worms: Query<(Entity, &Transform, &MeleePursuit), (With<Worm>, Without<Player>)>,
     captures: Query<(), With<Screenshot>>,
-    (state, roaches, actions, window, camera): (
+    (state, roaches, actions, window, camera, storage, storage_actions): (
         Res<State<GameState>>,
         Query<(Entity, &Transform, Has<Dead>), (With<Roach>, Without<Player>)>,
         Query<(Entity, &LootAction)>,
         Query<Entity, With<Window>>,
         Query<Entity, With<FollowCamera>>,
+        Res<ChestStorage>,
+        Query<(Entity, &StorageAction)>,
     ),
     mut hits: MessageWriter<Hit>,
     spatial: SpatialQuery,
@@ -130,6 +145,17 @@ pub(super) fn drive(
         *last_log = now;
     }
     let ready = |target| matches!(nearby.0, Some((_, InteractionTarget::Dungeon(current))) if current == target);
+    let chest_ready = |chest| matches!(nearby.0, Some((_, InteractionTarget::Chest(current))) if current == chest);
+    let storage_open = *state.get() == GameState::Storage;
+    let click_storage = |commands: &mut Commands, action| {
+        click(
+            commands,
+            action,
+            &storage_actions,
+            window.single().expect("smoke window"),
+            camera.single().expect("player camera"),
+        );
+    };
     let walk_to = |keys: &mut ButtonInput<KeyCode>, orbit: &mut Orbit, destination: Vec3| {
         if position.xz().distance(destination.xz()) < 0.28 {
             true
@@ -225,17 +251,117 @@ pub(super) fn drive(
             *phase = WorldCheck::TentPhoto(capture(&mut commands, "starting-tent"));
         }
         WorldCheck::TentPhoto(photo) if captures.get(photo).is_err() => {
-            *phase = WorldCheck::LeaveTent;
+            *phase = WorldCheck::InspectChest(ChestId::Gear);
         }
-        WorldCheck::LeaveTent => {
-            if position.x < 5.55 && controller.grounded {
-                orbit.yaw = -std::f32::consts::FRAC_PI_2;
-                *phase = WorldCheck::OutpostPhoto(capture(&mut commands, "outpost"));
+        WorldCheck::InspectChest(chest) if chest_ready(chest) => {
+            keys.press(KeyCode::KeyE);
+            *phase = WorldCheck::TakeFromChest(chest);
+        }
+        WorldCheck::TakeFromChest(chest) if storage_open => {
+            let (item, initial_count, _) = chest_stack(chest);
+            assert_eq!(storage.get(chest).count(item), initial_count);
+            let amount = if initial_count > 1 {
+                TransferAmount::Stack
             } else {
-                keys.press(KeyCode::KeyW);
-            }
+                TransferAmount::One
+            };
+            click_storage(
+                &mut commands,
+                StorageAction::Transfer(StorageSide::Chest, item, amount),
+            );
+            *phase = WorldCheck::StoreInChest(chest);
         }
+        WorldCheck::StoreInChest(chest) => {
+            let (item, initial_count, amount) = chest_stack(chest);
+            assert_eq!(storage.get(chest).count(item), 0);
+            assert_eq!(inventory.count(item), initial_count);
+            click_storage(
+                &mut commands,
+                StorageAction::Transfer(StorageSide::Backpack, item, amount),
+            );
+            *phase = WorldCheck::CloseChest(chest);
+        }
+        WorldCheck::CloseChest(chest) => {
+            let (item, initial_count, amount) = chest_stack(chest);
+            let stored_count = if amount == TransferAmount::Stack {
+                initial_count
+            } else {
+                1
+            };
+            assert_eq!(storage.get(chest).count(item), stored_count);
+            assert_eq!(inventory.count(item), initial_count - stored_count);
+            if chest == ChestId::Lamp {
+                keys.press(KeyCode::Escape);
+            } else {
+                click_storage(&mut commands, StorageAction::Close);
+            }
+            *phase = WorldCheck::NextChest(chest);
+        }
+        WorldCheck::NextChest(chest) if !storage_open => match chest {
+            ChestId::Gear => {
+                fixture(
+                    &mut controller,
+                    &mut dodge,
+                    &mut transform,
+                    Vec3::new(8.3, 0.0, -2.55),
+                );
+                *phase = WorldCheck::InspectChest(ChestId::Supply);
+            }
+            ChestId::Supply => {
+                fixture(
+                    &mut controller,
+                    &mut dodge,
+                    &mut transform,
+                    Vec3::new(8.0, 0.0, -3.55),
+                );
+                *phase = WorldCheck::InspectChest(ChestId::Lamp);
+            }
+            ChestId::Lamp => {
+                controller.respawn(
+                    &mut dodge,
+                    &mut transform,
+                    WorldLayout::Outpost.initial_spawn(),
+                );
+                *phase = WorldCheck::LeaveTent;
+            }
+        },
+        WorldCheck::LeaveTent if position.x < 5.55 && controller.grounded => {
+            orbit.yaw = -std::f32::consts::FRAC_PI_2;
+            *phase = WorldCheck::OutpostPhoto(capture(&mut commands, "outpost"));
+        }
+        WorldCheck::LeaveTent => keys.press(KeyCode::KeyW),
         WorldCheck::OutpostPhoto(photo) if captures.get(photo).is_err() => {
+            fixture(
+                &mut controller,
+                &mut dodge,
+                &mut transform,
+                Vec3::new(9.43, 0.0, 1.0),
+            );
+            *phase = WorldCheck::OutsideChestWall;
+        }
+        WorldCheck::OutsideChestWall if controller.grounded => {
+            let (_, chest) = chests
+                .iter()
+                .find(|(id, _)| **id == ChestId::Gear)
+                .expect("gear chest anchor");
+            assert!(
+                (position + Vec3::Y * INTERACT_HEIGHT).distance(chest.translation) < INTERACT_RANGE
+            );
+            assert!(
+                !matches!(nearby.0, Some((_, InteractionTarget::Chest(_)))),
+                "the tent wall must block storage interaction"
+            );
+            keys.press(KeyCode::KeyE);
+            *phase = WorldCheck::BlockedChest;
+        }
+        WorldCheck::BlockedChest => {
+            assert!(!storage_open);
+            fixture(
+                &mut controller,
+                &mut dodge,
+                &mut transform,
+                WorldLayout::Outpost.initial_spawn().with_x(5.35),
+            );
             orbit.yaw = std::f32::consts::FRAC_PI_2;
             *phase = WorldCheck::ReturnToTent;
         }
@@ -247,12 +373,32 @@ pub(super) fn drive(
                 &mut controller,
                 &mut dodge,
                 &mut transform,
+                Vec3::new(8.0, 0.0, -3.55),
+            );
+            *phase = WorldCheck::InspectStoredChest;
+        }
+        WorldCheck::ReturnToTent => keys.press(KeyCode::KeyS),
+        WorldCheck::InspectStoredChest if chest_ready(ChestId::Lamp) => {
+            keys.press(KeyCode::KeyE);
+            *phase = WorldCheck::CheckStoredChest;
+        }
+        WorldCheck::CheckStoredChest if storage_open => {
+            assert_eq!(storage.get(ChestId::Lamp).count(ItemKind::Battery), 1);
+            assert_eq!(inventory.count(ItemKind::Battery), 1);
+            capture(&mut commands, "tent-storage");
+            *phase = WorldCheck::LeaveStorage;
+        }
+        WorldCheck::LeaveStorage if storage_open && captures.is_empty() => {
+            click_storage(&mut commands, StorageAction::Close);
+        }
+        WorldCheck::LeaveStorage if !storage_open => {
+            fixture(
+                &mut controller,
+                &mut dodge,
+                &mut transform,
                 HATCH + Vec3::Z * 1.35,
             );
             *phase = WorldCheck::InspectLocked;
-        }
-        WorldCheck::ReturnToTent => {
-            keys.press(KeyCode::KeyS);
         }
         WorldCheck::InspectLocked if ready(DungeonTarget::Hatch) => {
             keys.press(KeyCode::KeyE);
@@ -535,13 +681,22 @@ pub(super) fn drive(
         WorldCheck::Recover if controller.area == Area::Surface && controller.grounded => {
             assert!(position.xz().distance(WorldLayout::Outpost.start().xz()) < 0.1);
             assert!(quest.is_complete(OLD_RELAY) && progress.gate_open());
+            assert_eq!(storage.get(ChestId::Lamp).count(ItemKind::Battery), 1);
             info!(
-                "WORLD SMOKE PASS: starting tent, shipped map, pillars, and Old Relay exploration verified in {:.2}s",
+                "WORLD SMOKE PASS: starting tent storage, shipped map, pillars, and Old Relay exploration verified in {:.2}s",
                 run.0.elapsed().as_secs_f64()
             );
             exit.write(AppExit::Success);
         }
         _ => {}
+    }
+}
+
+fn chest_stack(chest: ChestId) -> (ItemKind, u32, TransferAmount) {
+    match chest {
+        ChestId::Gear => (ItemKind::FieldHelmet, 1, TransferAmount::One),
+        ChestId::Supply => (ItemKind::Scrap, 2, TransferAmount::Stack),
+        ChestId::Lamp => (ItemKind::Battery, 2, TransferAmount::One),
     }
 }
 

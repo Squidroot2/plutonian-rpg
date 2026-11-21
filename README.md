@@ -29,7 +29,7 @@ Choose **Start Game** on the title screen to load Nivalis. Click a button or sel
 | Left click | Thrust with an equipped spear, aiming with the camera through impact |
 | Space | Jump (grounded only) |
 | Left Ctrl | Dodge hop in the WASD direction, or backward with no movement input (grounded only) |
-| E | Speak / collect a nearby item / dismiss dialogue |
+| E | Speak / collect a nearby item / open storage / dismiss dialogue |
 | Enter | Quest interaction / dismiss dialogue |
 | I | Open or switch to Inventory / close the player menu from Inventory |
 | Q | Open the drop quantity prompt for the selected item in Inventory |
@@ -70,11 +70,17 @@ Select the Inventory tab or press I to jump straight to it. Each row shows the o
 
 Select a row and click **Drop** at the bottom of Inventory or press Q to open the quantity prompt. Type a number or use the minus and plus buttons. Click **Confirm drop** or press Enter to drop that amount. Escape or **Cancel** dismisses the prompt. For equipped gear, the prompt counts only spare copies in the bag.
 
-Dropped quantities become one stationary world stack near the player and can be collected with E. Placement checks supporting ground, free space, and walls; a failed drop leaves the inventory unchanged. The beacon core is marked **Quest item** and cannot be dropped. All inventory, quest, and pickup changes last only for the current session; relaunching resets them.
+Dropped quantities become one stationary world stack near the player and can be collected with E. Placement checks supporting ground, free space, and walls; a failed drop leaves the inventory unchanged. The beacon core is marked **Quest item** and cannot be dropped. Inventory, quest, pickup, and chest contents reset when you relaunch the game.
+
+### Tent storage
+
+Press E near one of the three chests in the starting tent. Use **Store 1** or **Store stack** on a backpack item, and **Take 1** or **Take stack** on a chest item. Close the panel with **Close** or Escape. Each chest holds its own stacks. Stored items add no carried weight, and the contents stay where you left them when you return from exploring or respawn.
+
+The Lamp chest starts with two batteries and two methane pouches. The Supply chest holds two scrap and field armor, and the Gear chest holds a field helmet. You can also store the beacon power core. Take it back out before turning it in. Unequip worn gear to move it from your backpack into storage.
 
 ## Equipment
 
-Armor and helmets are world pickups collected with E. Start with empty equipment slots and find the field set near the outpost and the reinforced set inside the cavern.
+Start with empty equipment slots. Find the field armor and helmet in the tent chests and pick up the reinforced set with E inside the cavern.
 
 | Item | Slot | Defense |
 | --- | --- | ---: |
@@ -178,7 +184,7 @@ python3 scripts/check_assets.py
 Run the desktop checks on an idle graphical desktop without supplying mouse or keyboard input. Add `--windowed` to a smoke command to run it in a window.
 
 - `--smoke-test` starts a standalone arena with nearby materials, equipment, a practice dummy, and the keeper and core. It checks tab switching, live physics while the menu is open, inventory quantities, equipped rows, and the drop prompt, both weapons' hits and misses, a worm pursuit, dodge, bite, and defeat, armor swaps and attachment during movement, the 640×704 player-menu layout, wall collision, pause/resume, and fall recovery. The short beacon interaction verifies that the core is protected in the bag, consumed on turn-in, and lights the beacon. The run prints `SMOKE PASS` and its duration, or fails within 60 seconds with the current phase.
-- `--smoke-world` loads the shipped outpost, walks out of and back into the starting tent, verifies the worms start grounded, checks the route past the worms, and checks that every authored pillar blocks the movement capsule from four directions. It then checks the locked hatch, beacon turn-in, gate, archive discovery, return and reentry, and fall recovery. It prints `WORLD SMOKE PASS` on success.
+- `--smoke-world` loads the shipped outpost, checks transfers in all three tent chests, and walks out of and back into the tent to verify stored contents. It also verifies the worms start grounded, checks the route past the worms, and checks that every authored pillar blocks the movement capsule from four directions. It then checks the locked hatch, beacon turn-in, gate, archive discovery, return and reentry, and fall recovery. It prints `WORLD SMOKE PASS` on success.
 - `--smoke-nemi` checks spear damage, fleeing and returning, the failed quest entry, Nemi’s collapse, and opening the relay by installing the core at the beacon. It prints `NEMI SMOKE PASS` on success.
 
 The checks save screenshots in `/tmp/plutonian-*.png`, including the arena, outpost, inventory, beacon, and weapon and armor poses.

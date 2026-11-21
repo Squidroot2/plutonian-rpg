@@ -8,6 +8,7 @@ use crate::{
     nemi::Nemi,
     player::Player,
     quest::{Dialogue, LAST_LIGHT, QuestAction, QuestJournal},
+    storage::ChestId,
 };
 use avian3d::prelude::*;
 use bevy::prelude::*;
@@ -24,6 +25,7 @@ pub enum InteractionTarget {
     Pickup(Pickup),
     Dungeon(DungeonTarget),
     Corpse,
+    Chest(ChestId),
 }
 #[derive(Component)]
 pub(crate) struct CorpseLoot {
@@ -46,6 +48,9 @@ pub(crate) const INTERACT_HEIGHT: f32 = 0.45;
 #[derive(Resource, Default)]
 pub(crate) struct LootTarget(pub(crate) Option<Entity>);
 
+#[derive(Resource, Default)]
+pub(crate) struct ActiveChest(pub(crate) Option<Entity>);
+
 #[derive(Resource, Default, PartialEq, Eq)]
 pub struct Nearby(pub Option<(Entity, InteractionTarget)>);
 #[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -56,6 +61,7 @@ impl Plugin for InteractionPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Nearby>()
             .init_resource::<LootTarget>()
+            .init_resource::<ActiveChest>()
             .add_systems(
                 Update,
                 (find_target, interact)
@@ -77,12 +83,14 @@ fn find_target(
             Option<&CorpseLoot>,
             Has<Dead>,
             Option<&Nemi>,
+            Option<&ChestId>,
         ),
         Or<(
             With<Target>,
             With<Pickup>,
             With<DungeonTarget>,
             With<CorpseLoot>,
+            With<ChestId>,
         )>,
     >,
     quest: Res<QuestJournal>,
@@ -102,7 +110,7 @@ fn find_target(
     let mut selected = None;
     let origin = transform.translation + Vec3::Y * INTERACT_HEIGHT;
     let mut closest = INTERACT_RANGE;
-    for (entity, transform, target, pickup, dungeon, corpse, dead, nemi) in &targets {
+    for (entity, transform, target, pickup, dungeon, corpse, dead, nemi, chest) in &targets {
         let (interaction, point) = if let Some(target) = target {
             let available = match target {
                 Target::Keeper => !dead && nemi.is_none_or(Nemi::can_talk),
@@ -142,6 +150,8 @@ fn find_target(
             .is_some_and(|loot| dead && loot.area == player.area && loot.stack.is_some())
         {
             (InteractionTarget::Corpse, transform.translation)
+        } else if let Some(&chest) = chest.filter(|_| player.area == Area::Surface) {
+            (InteractionTarget::Chest(chest), transform.translation)
         } else {
             continue;
         };
@@ -150,24 +160,33 @@ fn find_target(
         if distance >= closest {
             continue;
         }
-        let Ok(direction) = Dir3::new(delta) else {
-            continue;
-        };
-        if spatial
-            .cast_ray(
-                origin,
-                direction,
-                distance,
-                true,
-                &SpatialQueryFilter::from_excluded_entities([player_entity, entity]),
-            )
-            .is_none()
-        {
+        if unobstructed(&spatial, origin, delta, distance, player_entity, entity) {
             closest = distance;
             selected = Some((entity, interaction));
         }
     }
     nearby.set_if_neq(Nearby(selected));
+}
+
+pub(crate) fn unobstructed(
+    spatial: &SpatialQuery,
+    origin: Vec3,
+    delta: Vec3,
+    distance: f32,
+    player: Entity,
+    target: Entity,
+) -> bool {
+    Dir3::new(delta).is_ok_and(|direction| {
+        spatial
+            .cast_ray(
+                origin,
+                direction,
+                distance,
+                true,
+                &SpatialQueryFilter::from_excluded_entities([player, target]),
+            )
+            .is_none()
+    })
 }
 fn interact(
     keys: Res<ButtonInput<KeyCode>>,
@@ -180,6 +199,7 @@ fn interact(
     pickups: Query<&Pickup>,
     keepers: Query<&Nemi, Without<Dead>>,
     mut loot: ResMut<LootTarget>,
+    mut chest: ResMut<ActiveChest>,
     mut next: ResMut<NextState<GameState>>,
     log: Option<Res<PlayerMenu>>,
 ) {
@@ -235,6 +255,12 @@ fn interact(
                 loot.0 = Some(entity);
                 next.set(GameState::Looting);
             }
+            InteractionTarget::Chest(_)
+                if interact_pressed && matches!(*next, NextState::Unchanged) =>
+            {
+                chest.0 = Some(entity);
+                next.set(GameState::Storage);
+            }
             _ => (),
         }
     }
@@ -271,9 +297,13 @@ fn speak_to_nemi(quest: &mut QuestJournal, inventory: &mut Inventory) -> &'stati
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{
+        storage::{ChestStorage, StoragePlugin},
+        storage_ui::{StorageAction, StorageSide, StorageUiPlugin, TransferAmount},
+    };
     use bevy::{
-        asset::AssetPlugin, mesh::MeshPlugin, state::app::StatesPlugin, time::TimeUpdateStrategy,
-        transform::TransformPlugin,
+        asset::AssetPlugin, input::mouse::AccumulatedMouseScroll, mesh::MeshPlugin,
+        state::app::StatesPlugin, time::TimeUpdateStrategy, transform::TransformPlugin,
     };
     use std::time::Duration;
     #[test]
@@ -282,9 +312,13 @@ mod tests {
         let mut inventory = Inventory::default();
         speak_to_nemi(&mut journal, &mut inventory);
         journal.record(QuestAction::RecoveredCore);
+        assert!(inventory.add(ItemKind::BeaconCore, 1));
+        let mut chest = ChestStorage::default();
+        let supplies = chest.get_mut(ChestId::Supply);
+        assert!(inventory.transfer_to(supplies, ItemKind::BeaconCore, 1));
         speak_to_nemi(&mut journal, &mut inventory);
         assert!(journal.expects(QuestAction::ReturnedCore));
-        assert!(inventory.add(ItemKind::BeaconCore, 1));
+        assert!(supplies.transfer_to(&mut inventory, ItemKind::BeaconCore, 1));
         speak_to_nemi(&mut journal, &mut inventory);
         assert!(journal.is_complete(LAST_LIGHT));
         assert_eq!(inventory.count(ItemKind::BeaconCore), 0);
@@ -328,7 +362,13 @@ mod tests {
         .init_resource::<Keybinds>()
         .init_resource::<PlayerMenu>()
         .init_resource::<ButtonInput<KeyCode>>()
-        .add_plugins((InteractionPlugin, crate::loot_ui::LootUiPlugin));
+        .init_resource::<AccumulatedMouseScroll>()
+        .add_plugins((
+            InteractionPlugin,
+            crate::loot_ui::LootUiPlugin,
+            StoragePlugin,
+            StorageUiPlugin,
+        ));
         app.world_mut()
             .resource_mut::<NextState<GameState>>()
             .set(GameState::Playing);
@@ -350,6 +390,77 @@ mod tests {
             .resource_mut::<ButtonInput<KeyCode>>()
             .reset_all();
         app.update();
+    }
+
+    #[test]
+    fn each_chest_keeps_its_own_contents_and_does_not_restock_on_reopen() {
+        let mut app = test_app();
+        let world = app.world_mut();
+        let window = world.spawn_empty().id();
+        let camera = world.spawn_empty().id();
+        let lamp = world
+            .spawn((ChestId::Lamp, Transform::from_xyz(0.0, 0.0, -1.0)))
+            .id();
+        let gear = world
+            .spawn((ChestId::Gear, Transform::from_xyz(0.0, 0.0, -2.0)))
+            .id();
+        let click = |app: &mut App, action| {
+            let world = app.world_mut();
+            let button = world
+                .query::<(Entity, &StorageAction)>()
+                .iter(world)
+                .find(|(_, current)| **current == action)
+                .expect("storage action")
+                .0;
+            world.trigger(crate::smoke::pointer_click(button, window, camera));
+        };
+        let take =
+            StorageAction::Transfer(StorageSide::Chest, ItemKind::Battery, TransferAmount::Stack);
+        let store = StorageAction::Transfer(
+            StorageSide::Backpack,
+            ItemKind::Battery,
+            TransferAmount::One,
+        );
+
+        press_interact(&mut app);
+        assert_eq!(app.world().resource::<ActiveChest>().0, Some(lamp));
+        click(&mut app, take);
+        click(&mut app, take);
+        assert_eq!(
+            app.world().resource::<Inventory>().count(ItemKind::Battery),
+            2
+        );
+        assert_eq!(
+            app.world()
+                .resource::<ChestStorage>()
+                .get(ChestId::Lamp)
+                .count(ItemKind::Battery),
+            0
+        );
+        click(&mut app, StorageAction::Close);
+        app.update();
+        assert_eq!(app.world().resource::<ActiveChest>().0, None);
+        press_interact(&mut app);
+        click(&mut app, take);
+        assert_eq!(
+            app.world().resource::<Inventory>().count(ItemKind::Battery),
+            2
+        );
+        click(&mut app, StorageAction::Close);
+        app.update();
+
+        app.world_mut()
+            .get_mut::<Transform>(lamp)
+            .expect("lamp position")
+            .translation
+            .z = -4.0;
+        press_interact(&mut app);
+        assert_eq!(app.world().resource::<ActiveChest>().0, Some(gear));
+        click(&mut app, store);
+        let storage = app.world().resource::<ChestStorage>();
+        assert_eq!(storage.get(ChestId::Gear).count(ItemKind::Battery), 1);
+        assert_eq!(storage.get(ChestId::Gear).count(ItemKind::FieldHelmet), 1);
+        assert_eq!(storage.get(ChestId::Lamp).count(ItemKind::Battery), 0);
     }
 
     #[test]

@@ -155,6 +155,21 @@ impl Inventory {
         }
         true
     }
+    pub(crate) fn transfer_to(
+        &mut self,
+        destination: &mut Self,
+        item: ItemKind,
+        quantity: u32,
+    ) -> bool {
+        if quantity > self.count(item) || !destination.add(item, quantity) {
+            return false;
+        }
+        assert!(
+            self.remove(item, quantity),
+            "the source stack was validated"
+        );
+        true
+    }
     pub fn consume_core(&mut self) -> bool {
         self.remove(ItemKind::BeaconCore, 1)
     }
@@ -237,8 +252,6 @@ fn spawn_loot(
     for (item, position) in [
         (ItemKind::FieldSpear, Vec3::new(6.0, 2.0, 5.0)),
         (ItemKind::Trident, Vec3::new(1.5, 2.0, 5.0)),
-        (ItemKind::FieldArmor, Vec3::new(-5.0, 2.0, -5.0)),
-        (ItemKind::FieldHelmet, Vec3::new(4.0, 2.0, -9.0)),
         (ItemKind::ReinforcedArmor, Vec3::new(-3.0, 2.0, -115.0)),
         (ItemKind::ReinforcedHelmet, Vec3::new(3.0, 2.0, -120.0)),
     ] {
@@ -383,6 +396,39 @@ fn drop_items(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn storage_transfers_every_item_kind_in_both_directions() {
+        let mut backpack = Inventory::default();
+        let mut chest = Inventory::default();
+        for item in ItemKind::ALL {
+            assert!(backpack.add(item, 1));
+            assert!(backpack.transfer_to(&mut chest, item, 1));
+            assert_eq!(backpack.count(item), 0);
+            assert_eq!(chest.count(item), 1);
+            assert!(chest.transfer_to(&mut backpack, item, 1));
+            assert_eq!(backpack.count(item), 1);
+            assert_eq!(chest.count(item), 0);
+        }
+    }
+
+    #[test]
+    fn rejected_storage_transfers_leave_both_inventories_intact() {
+        let mut source = Inventory::default();
+        let mut destination = Inventory::default();
+        assert!(source.add(ItemKind::Scrap, 2));
+        assert!(destination.add(ItemKind::Scrap, u32::MAX - 1));
+        for quantity in [0, 2, 3] {
+            assert!(!source.transfer_to(&mut destination, ItemKind::Scrap, quantity));
+            assert_eq!(source.count(ItemKind::Scrap), 2);
+            assert_eq!(destination.count(ItemKind::Scrap), u32::MAX - 1);
+        }
+        assert!(source.add(ItemKind::BeaconCore, 1));
+        assert!(destination.add(ItemKind::BeaconCore, 1));
+        assert!(!source.transfer_to(&mut destination, ItemKind::BeaconCore, 1));
+        assert_eq!(source.count(ItemKind::BeaconCore), 1);
+        assert_eq!(destination.count(ItemKind::BeaconCore), 1);
+    }
     #[test]
     fn stacks_and_partial_full_drops_conserve_items() {
         let mut bag = Inventory::default();

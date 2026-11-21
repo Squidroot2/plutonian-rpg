@@ -112,7 +112,7 @@ struct Page(MenuTab);
 #[derive(Component)]
 struct ScrollPane(MenuTab);
 
-const PANEL: Color = Color::srgb(0.025, 0.055, 0.075);
+pub(crate) const PANEL: Color = Color::srgb(0.025, 0.055, 0.075);
 const PANE: Color = Color::srgb(0.018, 0.038, 0.052);
 pub(crate) const BUTTON: Color = Color::srgb(0.055, 0.105, 0.14);
 pub(crate) const SELECTED: Color = Color::srgb(0.11, 0.26, 0.31);
@@ -140,8 +140,11 @@ pub(crate) fn column() -> Node {
 }
 
 pub(crate) fn scroll_pane(tab: MenuTab, width: Val) -> impl Bundle {
+    (ScrollPane(tab), scrollable_pane(width))
+}
+
+pub(crate) fn scrollable_pane(width: Val) -> impl Bundle {
     (
-        ScrollPane(tab),
         ScrollPosition::default(),
         RelativeCursorPosition::default(),
         Node {
@@ -334,10 +337,20 @@ fn scroll(
 ) {
     if wheel.delta.y != 0.0 {
         for (pane, cursor, mut position) in &mut panes {
-            if menu.accepts(pane.0) && cursor.cursor_over() {
-                position.0.y = (position.0.y - wheel.delta.y * 32.0).max(0.0);
+            if menu.accepts(pane.0) {
+                scroll_hovered(wheel.delta.y, cursor, &mut position);
             }
         }
+    }
+}
+
+pub(crate) fn scroll_hovered(
+    delta: f32,
+    cursor: &RelativeCursorPosition,
+    position: &mut ScrollPosition,
+) {
+    if cursor.cursor_over() {
+        position.0.y = (position.0.y - delta * 32.0).max(0.0);
     }
 }
 

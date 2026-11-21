@@ -26,6 +26,8 @@ mod roach;
 mod settings;
 mod smoke;
 mod spear;
+mod storage;
+mod storage_ui;
 mod title;
 mod ui;
 mod world;
@@ -41,6 +43,7 @@ pub enum GameState {
     Playing,
     Paused,
     Looting,
+    Storage,
     Failed,
 }
 
@@ -102,6 +105,8 @@ fn main() {
             ui::GameUiPlugin,
             quest_ui::QuestUiPlugin,
             menu_ui::PlayerMenuPlugin,
+            storage::StoragePlugin,
+            storage_ui::StorageUiPlugin,
         ))
         .add_plugins((
             combat::CombatPlugin,

@@ -192,7 +192,10 @@ impl Plugin for SmokePlugin {
                     .before(crate::player::input)
                     .before(crate::ui::pause)
                     .run_if(|state: Res<State<GameState>>| {
-                        matches!(state.get(), GameState::Playing | GameState::Looting)
+                        matches!(
+                            state.get(),
+                            GameState::Playing | GameState::Looting | GameState::Storage
+                        )
                     }),
             );
         }
