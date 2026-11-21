@@ -1,9 +1,10 @@
 use crate::{
     GameState,
+    combat_feedback::CombatFeedback,
     equipment::Equipment,
     inventory::scene_ready,
     loading::{GameAssets, PendingScene},
-    player::Player,
+    player::{BiteOutcome, Player},
     quest::Dialogue,
     spear::{SpearHit, SpearSystems, Thrust},
     world::{SpawnWorld, WorldLayout},
@@ -88,6 +89,9 @@ struct WormPlayback {
 }
 
 pub struct WormPlugin;
+#[derive(SystemSet, Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(crate) struct WormSystems;
+
 impl Plugin for WormPlugin {
     fn build(&self, app: &mut App) {
         app.add_observer(spawn_encounters)
@@ -103,6 +107,7 @@ impl Plugin for WormPlugin {
                 (receive_hits, animate, light_hits)
                     .chain()
                     .after(SpearSystems)
+                    .in_set(WormSystems)
                     .run_if(in_state(GameState::Playing)),
             );
     }
@@ -219,6 +224,7 @@ fn step(
     layout: Res<WorldLayout>,
     equipment: Res<Equipment>,
     mut thrust: ResMut<Thrust>,
+    mut feedback: MessageWriter<CombatFeedback>,
     spatial: SpatialQuery,
     mover: MoveAndSlide,
     actors: Query<Entity, Or<(With<Player>, With<Worm>)>>,
@@ -249,12 +255,15 @@ fn step(
         let to_target = target - position;
         let sight = SpatialQueryFilter::from_excluded_entities([entity, player_entity]);
         if matches!(worm.phase, WormPhase::Windup(_) | WormPhase::Recovery(_)) {
-            if worm.phase.tick_attack(delta)
-                && bite_contact(&spatial, &sight, &transform, target)
-                && player.vitality.bite(equipment.total_defense())
-            {
-                player.respawn(&mut player_transform, layout.start());
-                thrust.cancel();
+            if worm.phase.tick_attack(delta) && bite_contact(&spatial, &sight, &transform, target) {
+                let outcome = player.vitality.bite(equipment.total_defense());
+                if outcome != BiteOutcome::Protected {
+                    feedback.write(CombatFeedback::PlayerHurt);
+                }
+                if outcome == BiteOutcome::Defeated {
+                    player.respawn(&mut player_transform, layout.start());
+                    thrust.cancel();
+                }
             }
             continue;
         }
@@ -348,11 +357,12 @@ fn bite_contact(
 
 fn receive_hits(
     mut hits: MessageReader<SpearHit>,
+    mut feedback: MessageWriter<CombatFeedback>,
     mut worms: Query<&mut Worm>,
     mut commands: Commands,
 ) {
-    for &SpearHit(entity) in hits.read() {
-        let Ok(mut worm) = worms.get_mut(entity) else {
+    for &hit in hits.read() {
+        let Ok(mut worm) = worms.get_mut(hit.entity) else {
             continue;
         };
         if worm.hp == 0 {
@@ -360,9 +370,10 @@ fn receive_hits(
         }
         worm.hp = worm.hp.saturating_sub(THRUST_DAMAGE);
         worm.flash = 0.16;
+        feedback.write(hit.impact());
         if worm.hp == 0 {
             worm.phase = WormPhase::Collapsing(COLLAPSE);
-            commands.entity(entity).remove::<Collider>();
+            commands.entity(hit.entity).remove::<Collider>();
         }
     }
 }
@@ -482,6 +493,7 @@ mod tests {
         .init_resource::<Equipment>()
         .init_resource::<Thrust>()
         .add_message::<SpearHit>()
+        .add_message::<CombatFeedback>()
         .add_plugins(WormPlugin);
         app.finish();
         app.cleanup();
@@ -528,6 +540,47 @@ mod tests {
             app.update();
         }
         assert_eq!(check(&mut app), [false; 5]);
+    }
+
+    #[test]
+    fn simultaneous_bites_produce_one_damage_pulse() {
+        let mut app = test_app();
+        let world = app.world_mut();
+        let player = world
+            .spawn((Player::default(), Transform::from_xyz(0.0, 0.9, 1.2)))
+            .id();
+        for x in [-0.1, 0.1] {
+            world.spawn((
+                Worm {
+                    hp: 30,
+                    phase: WormPhase::Windup(0.001),
+                    home: Vec3::ZERO,
+                    moving: false,
+                    flash: 0.0,
+                },
+                Transform::from_xyz(x, GROUND_OFFSET, 0.0),
+            ));
+        }
+        world
+            .resource_mut::<NextState<GameState>>()
+            .set(GameState::Playing);
+        let mut events = world
+            .resource::<Messages<CombatFeedback>>()
+            .get_cursor_current();
+        let mut pulses = 0;
+        for _ in 0..5 {
+            app.update();
+            pulses += events
+                .read(app.world().resource::<Messages<CombatFeedback>>())
+                .filter(|&&feedback| feedback == CombatFeedback::PlayerHurt)
+                .count();
+        }
+        let player = app
+            .world()
+            .get::<Player>(player)
+            .expect("the player must survive the bites");
+        assert_eq!(player.vitality.health, 80);
+        assert_eq!(pulses, 1, "protection must suppress the second pulse");
     }
 
     #[test]
@@ -581,9 +634,22 @@ mod tests {
             );
         }
         app.world_mut().resource_mut::<Dialogue>().text = None;
+        let mut events = app
+            .world()
+            .resource::<Messages<CombatFeedback>>()
+            .get_cursor_current();
+        let mut pulses = 0;
         for _ in 0..10 {
             app.update();
+            pulses += events
+                .read(app.world().resource::<Messages<CombatFeedback>>())
+                .filter(|&&feedback| feedback == CombatFeedback::PlayerHurt)
+                .count();
         }
+        assert_eq!(
+            pulses, 1,
+            "a lethal bite must produce one pulse through respawn"
+        );
 
         let world = app.world();
         assert_eq!(
@@ -609,18 +675,18 @@ mod tests {
     #[test]
     fn bites_respect_armor_damage_floor_and_protection() {
         let mut vitality = crate::player::Vitality::default();
-        assert!(!vitality.bite(8));
+        assert_eq!(vitality.bite(8), BiteOutcome::Damaged);
         assert_eq!(vitality.health, 88);
-        assert!(!vitality.bite(0));
+        assert_eq!(vitality.bite(0), BiteOutcome::Protected);
         assert_eq!(
             vitality.health, 88,
             "a second bite during protection does no damage"
         );
         vitality.tick(0.75);
-        assert!(!vitality.bite(0));
+        assert_eq!(vitality.bite(0), BiteOutcome::Damaged);
         assert_eq!(vitality.health, 68);
         vitality.tick(0.75);
-        assert!(!vitality.bite(u16::MAX));
+        assert_eq!(vitality.bite(u16::MAX), BiteOutcome::Damaged);
         assert_eq!(vitality.health, 67);
     }
 }

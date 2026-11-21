@@ -95,7 +95,7 @@ fn cursor(
         options.visible = !grab;
     }
 }
-fn follow(
+pub(crate) fn follow(
     orbit: Res<Orbit>,
     spatial: SpatialQuery,
     player: Query<(Entity, &Transform), With<Player>>,

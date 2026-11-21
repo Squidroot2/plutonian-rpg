@@ -4,6 +4,7 @@ use bevy::{gltf::Gltf, prelude::*, window::PrimaryWindow};
 use crate::{
     GameState,
     camera::Orbit,
+    combat_feedback::CombatFeedback,
     equipment::Equipment,
     interaction::InteractionSystems,
     inventory::scene_ready,
@@ -23,8 +24,21 @@ const REACTION_DURATION: f32 = 0.42;
 #[derive(SystemSet, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct SpearSystems;
 
-#[derive(Message)]
-pub(crate) struct SpearHit(pub Entity);
+#[derive(Clone, Copy, Debug, Message, PartialEq)]
+pub(crate) struct SpearHit {
+    pub(crate) entity: Entity,
+    point: Vec3,
+    normal: Vec3,
+}
+
+impl SpearHit {
+    pub(crate) fn impact(self) -> CombatFeedback {
+        CombatFeedback::Impact {
+            position: self.point,
+            normal: self.normal,
+        }
+    }
+}
 
 pub struct SpearPlugin;
 impl Plugin for SpearPlugin {
@@ -176,9 +190,9 @@ fn attack(
         let facing = swing.facing;
         transform.rotation = facing;
         if thrust.advance(time.delta_secs())
-            && let Some(target) = thrust_contact(&spatial, entity, transform.translation, facing)
+            && let Some(hit) = thrust_contact(&spatial, entity, transform.translation, facing)
         {
-            hits.write(SpearHit(target));
+            hits.write(hit);
         }
     } else {
         let facing = Quat::from_rotation_y(orbit.yaw + std::f32::consts::PI);
@@ -193,10 +207,15 @@ fn attack(
     }
 }
 
-fn mark_dummy_hits(mut hits: MessageReader<SpearHit>, mut dummies: Query<&mut PracticeDummy>) {
-    for &SpearHit(entity) in hits.read() {
-        if let Ok(mut dummy) = dummies.get_mut(entity) {
+fn mark_dummy_hits(
+    mut hits: MessageReader<SpearHit>,
+    mut dummies: Query<&mut PracticeDummy>,
+    mut feedback: MessageWriter<CombatFeedback>,
+) {
+    for &hit in hits.read() {
+        if let Ok(mut dummy) = dummies.get_mut(hit.entity) {
             dummy.remaining = REACTION_DURATION;
+            feedback.write(hit.impact());
         }
     }
 }
@@ -206,7 +225,7 @@ fn thrust_contact(
     player: Entity,
     position: Vec3,
     facing: Quat,
-) -> Option<Entity> {
+) -> Option<SpearHit> {
     let direction = Dir3::new(facing * Vec3::Z).ok()?;
     // Match the shaft's offset in the two-handed thrust pose.
     let origin = position + facing * Vec3::new(GRIP_SIDE, GRIP_HEIGHT, 0.0);
@@ -216,10 +235,17 @@ fn thrust_contact(
             origin,
             Quat::IDENTITY,
             direction,
-            &ShapeCastConfig::from_max_distance(REACH),
+            &ShapeCastConfig {
+                compute_contact_on_penetration: true,
+                ..ShapeCastConfig::from_max_distance(REACH)
+            },
             &SpatialQueryFilter::from_excluded_entities([player]),
         )
-        .map(|hit| hit.entity)
+        .map(|hit| SpearHit {
+            entity: hit.entity,
+            point: hit.point1,
+            normal: hit.normal1,
+        })
 }
 
 fn react(
@@ -307,6 +333,7 @@ mod tests {
         .init_resource::<Equipment>()
         .init_resource::<Orbit>()
         .init_resource::<ButtonInput<MouseButton>>()
+        .add_message::<CombatFeedback>()
         .add_plugins(SpearPlugin);
         app.finish();
         app.cleanup();
@@ -341,7 +368,13 @@ mod tests {
                 thrust_contact(&spatial, player, Vec3::ZERO, Quat::IDENTITY)
             })
             .expect("physics resources must be initialized for the thrust cast");
-        assert_eq!(hit, Some(dummy), "the cast must ignore the player collider");
+        let hit = hit.expect("the cast must ignore the player collider and reach the dummy");
+        assert_eq!(hit.entity, dummy);
+        assert!(
+            (hit.point.z - 2.125).abs() < 0.02,
+            "impact must lie on the dummy's front face"
+        );
+        assert!(hit.normal.dot(Vec3::NEG_Z) > 0.98);
         let misses = app
             .world_mut()
             .run_system_once(move |spatial: SpatialQuery| {
@@ -375,9 +408,88 @@ mod tests {
             })
             .expect("the thrust must query the updated world collision tree");
         assert_eq!(
-            hit,
+            hit.map(|contact| contact.entity),
             Some(wall),
             "the caster must stop at the wall before the dummy"
+        );
+    }
+
+    #[test]
+    fn only_a_landed_thrust_emits_one_impact() {
+        let mut app = test_app();
+        let world = app.world_mut();
+        world.spawn((
+            PrimaryWindow,
+            Window {
+                focused: true,
+                ..default()
+            },
+        ));
+        let mut player = Player::default();
+        player.grounded = true;
+        world.spawn((player, Transform::default()));
+        world.spawn((
+            PracticeDummy::default(),
+            RigidBody::Static,
+            Collider::cuboid(0.72, 1.5, 0.55),
+            Transform::from_xyz(GRIP_SIDE, 0.0, 2.4),
+        ));
+        let mut bag = crate::inventory::Inventory::default();
+        assert!(bag.add(ItemKind::FieldSpear, 1));
+        assert_eq!(
+            world
+                .resource_mut::<Equipment>()
+                .equip(&mut bag, ItemKind::FieldSpear),
+            Ok(true)
+        );
+        world
+            .resource_mut::<NextState<GameState>>()
+            .set(GameState::Playing);
+        for _ in 0..3 {
+            app.update();
+        }
+
+        fn swing(app: &mut App, camera_yaw: f32) -> Vec<CombatFeedback> {
+            app.world_mut().resource_mut::<Orbit>().yaw = camera_yaw;
+            let mut hits = app
+                .world()
+                .resource::<Messages<CombatFeedback>>()
+                .get_cursor_current();
+            let mut feedback = Vec::new();
+            let mut input = app.world_mut().resource_mut::<ButtonInput<MouseButton>>();
+            input.reset_all();
+            input.press(MouseButton::Left);
+            for _ in 0..40 {
+                app.update();
+                app.world_mut()
+                    .resource_mut::<ButtonInput<MouseButton>>()
+                    .clear_just_pressed(MouseButton::Left);
+                feedback.extend(
+                    hits.read(app.world().resource::<Messages<CombatFeedback>>())
+                        .copied(),
+                );
+            }
+            feedback
+        }
+
+        let forward_yaw = -std::f32::consts::PI;
+        assert!(matches!(
+            swing(&mut app, forward_yaw).as_slice(),
+            [CombatFeedback::Impact { .. }]
+        ));
+        assert!(swing(&mut app, 0.0).is_empty());
+
+        app.world_mut().spawn((
+            RigidBody::Static,
+            Collider::cuboid(2.0, 2.0, 0.2),
+            Transform::from_xyz(0.0, 0.0, 1.4),
+        ));
+        for _ in 0..3 {
+            app.update();
+        }
+        assert!(
+            swing(&mut app, forward_yaw).is_empty(),
+            "terrain must stop feedback along with the thrust"
         );
     }
 

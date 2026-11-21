@@ -49,6 +49,13 @@ impl Player {
 
 pub(crate) const MAX_HEALTH: u16 = 100;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum BiteOutcome {
+    Protected,
+    Damaged,
+    Defeated,
+}
+
 pub(crate) struct Vitality {
     pub(crate) health: u16,
     protection: f32,
@@ -66,10 +73,9 @@ impl Vitality {
         self.protection = (self.protection - delta).max(0.0);
     }
 
-    /// Return whether this bite defeated the player and requires a respawn.
-    pub(crate) fn bite(&mut self, defense: u16) -> bool {
+    pub(crate) fn bite(&mut self, defense: u16) -> BiteOutcome {
         if self.protection > 0.0 {
-            return false;
+            return BiteOutcome::Protected;
         }
         self.protection = 0.75;
         self.health = self
@@ -77,9 +83,9 @@ impl Vitality {
             .saturating_sub(20_u16.saturating_sub(defense).max(1));
         if self.health == 0 {
             self.health = MAX_HEALTH;
-            true
+            BiteOutcome::Defeated
         } else {
-            false
+            BiteOutcome::Damaged
         }
     }
 }

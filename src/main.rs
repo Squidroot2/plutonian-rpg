@@ -4,6 +4,7 @@
 #![deny(clippy::perf)]
 #![deny(clippy::unwrap_used)]
 mod camera;
+mod combat_feedback;
 mod dungeon;
 mod equipment;
 mod interaction;
@@ -64,7 +65,8 @@ fn main() {
             inventory_ui::InventoryUiPlugin,
             title::TitlePlugin,
             ui::GameUiPlugin,
-        ));
+        ))
+        .add_plugins(combat_feedback::CombatFeedbackPlugin);
     let args: Vec<_> = std::env::args().skip(1).collect();
     let arena = args.iter().any(|arg| arg == "--smoke-test");
     let world = args.iter().any(|arg| arg == "--smoke-world");

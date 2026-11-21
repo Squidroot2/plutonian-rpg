@@ -1,6 +1,7 @@
 use super::{capture, inventory::walk, spear::SpearSmoke};
 use crate::{
     camera::Orbit,
+    combat_feedback::{AttackImpact, BitePulse},
     loading::GameAssets,
     player::Player,
     spear::{GRIP_SIDE, Thrust},
@@ -18,7 +19,9 @@ pub(super) enum Encounter {
         captured: bool,
     },
     TakeBite,
-    Fight,
+    Fight {
+        captured: bool,
+    },
     Collapse {
         captured: bool,
     },
@@ -86,6 +89,10 @@ pub(super) fn fight(
     player: Query<(&Player, &Transform)>,
     worms: Query<(&Worm, &Transform, Option<&Collider>)>,
     thrust: Res<Thrust>,
+    feedback: (
+        Query<&Visibility, With<BitePulse>>,
+        Query<(), With<AttackImpact>>,
+    ),
     mut orbit: ResMut<Orbit>,
     mut keys: ResMut<ButtonInput<KeyCode>>,
     mut mouse: ResMut<ButtonInput<MouseButton>>,
@@ -95,6 +102,7 @@ pub(super) fn fight(
         return;
     }
     let (controller, transform) = player.single().expect("worm smoke requires a player");
+    let (pulse, impacts) = feedback;
     if matches!(*phase, Encounter::Spawn) {
         let fight_position = Vec3::new(9.5, 0.0, 0.0);
         if transform.translation.xz().distance(fight_position.xz()) > 0.2 {
@@ -155,6 +163,11 @@ pub(super) fn fight(
                     controller.vitality.health, 100,
                     "backpedaling must evade the bite"
                 );
+                assert_eq!(
+                    pulse.single().ok(),
+                    Some(&Visibility::Hidden),
+                    "a dodged attack must leave the screen clear"
+                );
                 *phase = Encounter::TakeBite;
             }
         }
@@ -163,12 +176,27 @@ pub(super) fn fight(
                 controller.vitality.health, 80,
                 "one unarmored bite must deal 20 damage"
             );
+            assert_eq!(
+                pulse.single().ok(),
+                Some(&Visibility::Visible),
+                "an accepted bite must show the screen pulse"
+            );
             assert!(matches!(worm.phase, WormPhase::Recovery(_)));
             orbit.yaw = 1.05;
             capture(&mut commands, "worm-bite");
-            *phase = Encounter::Fight;
+            *phase = Encounter::Fight { captured: false };
         }
-        Encounter::Fight if worm.hp == 0 => {
+        Encounter::Fight { captured: false } if worm.hp == 20 => {
+            assert_eq!(
+                impacts.iter().count(),
+                1,
+                "one worm hit must spawn one impact"
+            );
+            orbit.yaw += 0.74;
+            capture(&mut commands, "worm-hit");
+            *phase = Encounter::Fight { captured: true };
+        }
+        Encounter::Fight { .. } if worm.hp == 0 => {
             assert!(
                 collider.is_none(),
                 "the collapsed worm must release its collider"
@@ -176,7 +204,7 @@ pub(super) fn fight(
             orbit.yaw = 1.05;
             *phase = Encounter::Collapse { captured: false };
         }
-        Encounter::Fight if !thrust.active() && controller.grounded => {
+        Encounter::Fight { .. } if !thrust.active() && controller.grounded => {
             let delta = (enemy.translation - transform.translation).with_y(0.0);
             // Aim slightly to the right of the center to align the offset shaft.
             let offset = (-GRIP_SIDE / delta.length()).clamp(0.0, 1.0).asin();

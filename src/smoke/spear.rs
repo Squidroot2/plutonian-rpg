@@ -5,6 +5,7 @@ use super::inventory::{InventorySmoke, click, walk};
 use crate::{
     GameState,
     camera::Orbit,
+    combat_feedback::AttackImpact,
     equipment::{Equipment, EquipmentSlot, WornEquipment},
     interaction::{InteractionTarget, Nearby},
     inventory::{Inventory, ItemKind, Pickup},
@@ -82,9 +83,10 @@ fn drive(
     nearby: Res<Nearby>,
     thrust: Res<Thrust>,
     player: Query<(&Transform, &Player)>,
-    (dummy, captures): (
+    (dummy, captures, impacts): (
         Query<(&PracticeDummy, &Transform)>,
         Query<(), With<Screenshot>>,
+        Query<&Transform, With<AttackImpact>>,
     ),
     pickups: Query<(&Pickup, &Transform)>,
     worn: Query<&WornEquipment, Without<PendingScene>>,
@@ -206,6 +208,10 @@ fn drive(
         }
         SpearSmoke::Chamber | SpearSmoke::Impact if dummy.remaining > 0.0 => {
             assert!(thrust.active());
+            let impact = impacts
+                .single()
+                .expect("each landed dummy hit must spawn one impact");
+            assert!(impact.translation.distance(dummy_transform.translation) < 0.85);
             capture(&mut commands, "hit");
             *smoke = SpearSmoke::Recovery;
         }
@@ -228,6 +234,10 @@ fn drive(
             }
         }
         SpearSmoke::Recovery if !thrust.active() && dummy.remaining == 0.0 => {
+            assert!(
+                impacts.is_empty(),
+                "the impact must expire after its brief flash"
+            );
             orbit.yaw = std::f32::consts::PI;
             *screenshot = Some(capture(&mut commands, "carry"));
             *smoke = SpearSmoke::CaptureCarry;
@@ -245,6 +255,10 @@ fn drive(
         }
         SpearSmoke::Miss => {
             assert_eq!(dummy.remaining, 0.0, "aiming away must miss the dummy");
+            assert!(
+                impacts.is_empty(),
+                "a missed thrust must not spawn an impact"
+            );
             if !thrust.active() {
                 if *testing_trident {
                     *smoke = SpearSmoke::WormEncounter;
