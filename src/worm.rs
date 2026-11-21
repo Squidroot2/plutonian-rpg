@@ -195,7 +195,7 @@ pub(crate) fn spawn(
 
 fn ground_encounters(
     spatial: SpatialQuery,
-    actors: Query<Entity, Or<(With<Player>, With<Worm>)>>,
+    actors: Query<Entity, Or<(With<Player>, With<Worm>, With<crate::roach::Roach>)>>,
     mut worms: Query<(&mut Worm, &mut Transform)>,
 ) {
     let filter = SpatialQueryFilter::from_excluded_entities(actors.iter());
@@ -283,7 +283,7 @@ fn move_worms(
     time: Res<Time<Fixed>>,
     spatial: SpatialQuery,
     mover: MoveAndSlide,
-    actors: Query<Entity, Or<(With<Player>, With<Worm>)>>,
+    actors: Query<Entity, Or<(With<Player>, With<Worm>, With<crate::roach::Roach>)>>,
     mut worms: Query<(Entity, &mut Transform, &Collider, &mut WormMotion), Without<Dead>>,
 ) {
     let delta = time.delta_secs();

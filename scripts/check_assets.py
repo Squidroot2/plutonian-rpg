@@ -9,7 +9,7 @@ documents = {}
 gear_names = ['field_armor', 'reinforced_armor', 'field_helmet', 'reinforced_helmet', 'field_spear', 'trident']
 directional_walks = {'WalkBack', 'StrafeLeft', 'StrafeRight', 'WalkForwardLeft',
                      'WalkForwardRight', 'WalkBackLeft', 'WalkBackRight'}
-for name in ['plutonian', 'outpost', 'collision', 'core', 'battery', 'scrap', 'methane_pouch', 'large_boulder', 'practice_dummy', 'ice_worm', 'old_relay', 'old_relay_collision', *gear_names, *[name+'_worn' for name in gear_names]]:
+for name in ['plutonian', 'outpost', 'collision', 'core', 'battery', 'scrap', 'methane_pouch', 'large_boulder', 'practice_dummy', 'ice_worm', 'relay_roach', 'old_relay', 'old_relay_collision', *gear_names, *[name+'_worn' for name in gear_names]]:
     source_name = name.removesuffix('_worn')
     source = root / 'art' / f'{source_name}.blend'
     path = root / 'assets' / 'models' / f'{name}.glb'
@@ -39,6 +39,10 @@ for name in ['plutonian', 'outpost', 'collision', 'core', 'battery', 'scrap', 'm
         thrust = animations['SpearThrust']
         duration = max(document['accessors'][sampler['input']]['max'][0] for sampler in thrust['samplers'])
         assert abs(duration-16/24) < .001, 'SpearThrust duration must match the in-game recovery'
+
+    if name == 'relay_roach':
+        assert document.get('skins'), 'Roach must be skinned'
+        assert {clip['name'] for clip in document['animations']} == {'RoachIdle', 'RoachCrawl', 'RoachBite', 'RoachDeath'}
 
     if name == 'ice_worm':
         durations = {'WormIdle': 2.0, 'WormCrawl': .9, 'WormBite': 1.4, 'WormDeath': .7}

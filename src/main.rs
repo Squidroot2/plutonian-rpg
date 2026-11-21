@@ -15,6 +15,7 @@ mod inventory_ui;
 mod loading;
 mod player;
 mod quest;
+mod roach;
 mod settings;
 mod smoke;
 mod spear;
@@ -88,6 +89,7 @@ fn main() {
             combat::CombatPlugin,
             combat_feedback::CombatFeedbackPlugin,
             settings::SettingsPlugin,
+            roach::RoachPlugin,
         ));
     if arena || world {
         app.add_plugins(smoke::SmokePlugin { arena });

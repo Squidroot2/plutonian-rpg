@@ -799,6 +799,74 @@ def ice_worm():
     save_export('ice_worm')
 
 
+
+def relay_roach():
+    reset()
+    scene = bpy.context.scene
+    scene.render.fps = 60
+    shell = material('Roach carapace', (.18, .12, .09), metal=.25)
+    dark = material('Roach limbs', (.065, .045, .035))
+    eye = material('Amber eyes', (1, .38, .08), 3)
+    bpy.ops.object.armature_add()
+    rig = bpy.context.object
+    rig.name = 'RoachRig'
+    bpy.ops.object.mode_set(mode='EDIT')
+    bones = rig.data.edit_bones
+    bones.remove(bones[0])
+    root = bones.new('Body')
+    root.head, root.tail = (0,0,0), (0,0,.2)
+    for side in [-1, 1]:
+        for index in range(3):
+            bone = bones.new(f'Leg{side}_{index}')
+            bone.head = (side*.35, (index-1)*.3, 0)
+            bone.tail = (side*.75, (index-1)*.42, -.25)
+            bone.parent = root
+    bpy.ops.object.mode_set(mode='OBJECT')
+    def skin(obj, name):
+        group = obj.vertex_groups.new(name=name)
+        group.add(list(range(len(obj.data.vertices))), 1, 'REPLACE')
+        obj.modifiers.new('Skeleton', 'ARMATURE').object = rig
+        obj.parent = rig
+    skin(ico('Armored abdomen', (0,.15,.02), (.48,.68,.24), shell, 2), 'Body')
+    skin(ico('Head', (0,-.50,-.02), (.29,.25,.18), dark, 2), 'Body')
+    for side in [-1, 1]:
+        skin(ico('Eye', (side*.20,-.68,.02), (.07,.05,.06), eye), 'Body')
+        antenna = cone('Antenna', (side*.23,-.85,.20), .018,.65,dark)
+        antenna.rotation_euler.x = -.8
+        antenna.rotation_euler.y = side*.3
+        skin(antenna, 'Body')
+        for index in range(3):
+            limb = ico('Leg', (side*.57,(index-1)*.35,-.16), (.30,.055,.055), dark)
+            limb.rotation_euler.y = side*.45
+            skin(limb, f'Leg{side}_{index}')
+    for name, frames in [('RoachIdle', 120), ('RoachCrawl', 36), ('RoachBite', 72), ('RoachDeath', 42)]:
+        rig.animation_data_create()
+        action = bpy.data.actions.new(name)
+        action.use_fake_user = True
+        rig.animation_data.action = action
+        for frame in range(frames+1):
+            phase = frame / frames * math.tau
+            for bone in rig.pose.bones:
+                bone.rotation_mode = 'XYZ'
+                bone.rotation_euler = (0,0,0)
+                bone.location = (0,0,0)
+                if bone.name.startswith('Leg') and name in ('RoachIdle', 'RoachCrawl'):
+                    side = -1 if '-1' in bone.name else 1
+                    index = int(bone.name[-1])
+                    bone.rotation_euler.z = math.sin(phase + index*math.pi + (side+1)*math.pi/2) * (.35 if name == 'RoachCrawl' else .025)
+                if bone.name == 'Body' and name == 'RoachBite':
+                    bone.rotation_euler.x = -.4 * max(0, 1-abs(frame-24)/24)
+                if bone.name == 'Body' and name == 'RoachDeath':
+                    bone.rotation_euler.y = math.pi * frame / frames
+                bone.keyframe_insert('location', frame=frame, group=bone.name)
+                bone.keyframe_insert('rotation_euler', frame=frame, group=bone.name)
+    rig.animation_data.action = None
+    scene.frame_set(0)
+    for bone in rig.pose.bones:
+        bone.matrix_basis = Matrix.Identity(4)
+    save_export('relay_roach')
+
+
 def old_relay():
     reset()
     rock = material('Relay basalt', (.092, .148, .19))
@@ -922,6 +990,8 @@ def spear_assets():
 
 if '--relay' in sys.argv:
     old_relay()
+elif '--roach' in sys.argv:
+    relay_roach()
 elif '--worm' in sys.argv:
     ice_worm()
 elif '--spear' in sys.argv:
@@ -958,7 +1028,7 @@ elif '--ground' in sys.argv:
     bpy.context.view_layer.update()
     save_export('collision')
 elif '--export' in sys.argv:
-    for name in ['plutonian', 'outpost', 'collision', 'core', 'battery', 'scrap', 'methane_pouch', 'large_boulder', 'practice_dummy', 'ice_worm', 'old_relay', 'old_relay_collision', *GEAR_NAMES]:
+    for name in ['plutonian', 'outpost', 'collision', 'core', 'battery', 'scrap', 'methane_pouch', 'large_boulder', 'practice_dummy', 'ice_worm', 'relay_roach', 'old_relay', 'old_relay_collision', *GEAR_NAMES]:
         bpy.ops.wm.open_mainfile(filepath=str(ROOT/'art'/f'{name}.blend'))
         if name in GEAR_NAMES:
             export_equipment(name)
@@ -974,5 +1044,6 @@ else:
     equipment()
     practice_dummy()
     ice_worm()
+    relay_roach()
     old_relay()
 print('Exported Plutonian RPG assets')

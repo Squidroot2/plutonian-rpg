@@ -5,6 +5,7 @@ use crate::{
     loading::{GameAssets, LoadStatus, PendingScene},
     player::{Dodge, MovementInput, Player},
     quest::{Dialogue, Quest},
+    roach,
     spear::Thrust,
     world::SpawnWorld,
     worm,
@@ -275,6 +276,12 @@ fn spawn_relay(
         ));
     }
 
+    roach::spawn(
+        &mut commands,
+        &assets,
+        &models,
+        ORIGIN + Vec3::new(7.0, 1.2, -12.5),
+    );
     for offset in [Vec3::new(-3.5, 1.2, -10.5), Vec3::new(3.65, 1.2, -24.0)] {
         worm::spawn(&mut commands, &assets, &models, ORIGIN + offset);
     }

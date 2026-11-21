@@ -83,13 +83,13 @@ Two ice worms roam beside the trail and a third waits near the cavern entrance. 
 
 ## The Old Relay
 
-After you restore the beacon, look for the round hatch southwest of Nemi. Use E to enter. Follow the amber lamps to the maintenance switch, then go through the raised gate to discover the archive survey log. Two ice worms patrol the relay. Use the hatch in the vestibule to return to Nivalis. Gate progress and the discovery stay with you for the session.
+After you restore the beacon, look for the round hatch southwest of Nemi. Use E to enter. Follow the amber lamps to the maintenance switch, then go through the raised gate to discover the archive survey log. Two ice worms and a fast, biting relay roach patrol the relay. Use the hatch in the vestibule to return to Nivalis. Gate progress and the discovery stay with you for the session.
 
 ## Blender workflow
 
 Pass `-- --relay` to the asset command to regenerate the Old Relay source and collision files. The paired GLBs are `old_relay` and `old_relay_collision`.
 
-Pass `-- --worm` to the asset command to regenerate only the ice worm source and its four animation clips.
+Pass `-- --worm` to the asset command to regenerate the ice worm source and its four animation clips. Pass `-- --roach` to regenerate the relay roach source and animations.
 
 The title screen uses a render of the outpost. To refresh it after editing the scenery, run `blender --background -noaudio art/outpost.blend --python scripts/render_title.py`.
 

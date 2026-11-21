@@ -2,6 +2,7 @@ use crate::{
     GameState,
     inventory::ItemKind,
     player::{AnimationLibrary, CLIPS},
+    roach::{self, RoachAnimations},
     world::WorldLayout,
     worm::{self, WormAnimations},
 };
@@ -28,6 +29,7 @@ pub struct GameAssets {
     pub core: Handle<Gltf>,
     pub dummy: Handle<Gltf>,
     pub worm: Handle<Gltf>,
+    pub roach: Handle<Gltf>,
     pub pickups: BTreeMap<ItemKind, Handle<Gltf>>,
     pub worn: BTreeMap<ItemKind, Handle<Gltf>>,
 }
@@ -60,6 +62,7 @@ fn load(mut commands: Commands, server: Res<AssetServer>, layout: Res<WorldLayou
         core: server.load("models/core.glb"),
         dummy: server.load("models/practice_dummy.glb"),
         worm: server.load("models/ice_worm.glb"),
+        roach: server.load("models/relay_roach.glb"),
         pickups: ItemKind::ALL
             .into_iter()
             .filter(|&item| item != ItemKind::BeaconCore)
@@ -93,17 +96,23 @@ fn check(
     if started.elapsed().as_secs() > 90 {
         status.error = Some("Timed out while loading or preparing the world".into());
     }
-    let handles = [&assets.character, &assets.core, &assets.dummy, &assets.worm]
-        .into_iter()
-        .chain(
-            assets
-                .outpost
-                .iter()
-                .chain(assets.relay.iter())
-                .flat_map(|(outpost, collision)| [outpost, collision]),
-        )
-        .chain(assets.pickups.values())
-        .chain(assets.worn.values());
+    let handles = [
+        &assets.character,
+        &assets.core,
+        &assets.dummy,
+        &assets.worm,
+        &assets.roach,
+    ]
+    .into_iter()
+    .chain(
+        assets
+            .outpost
+            .iter()
+            .chain(assets.relay.iter())
+            .flat_map(|(outpost, collision)| [outpost, collision]),
+    )
+    .chain(assets.pickups.values())
+    .chain(assets.worn.values());
     for handle in handles.clone() {
         if let Some(LoadState::Failed(error)) = server.get_load_state(handle.id()) {
             status.error = Some(format!("Could not load game assets: {error}"));
@@ -172,17 +181,24 @@ fn check(
     let worm_model = gltfs
         .get(&assets.worm)
         .expect("the ice worm glTF must be present after loading validation");
+    let roach_model = gltfs
+        .get(&assets.roach)
+        .expect("the roach glTF must be present after loading validation");
     let graphs_and_nodes = animation_graph(model, CLIPS, "plutonian.glb").and_then(|player| {
-        animation_graph(worm_model, worm::CLIPS, "ice_worm.glb").map(|worm| (player, worm))
+        animation_graph(worm_model, worm::CLIPS, "ice_worm.glb").and_then(|worm| {
+            animation_graph(roach_model, roach::CLIPS, "relay_roach.glb")
+                .map(|roach| (player, worm, roach))
+        })
     });
-    let ((player_graph, player_nodes), (worm_graph, worm_nodes)) = match graphs_and_nodes {
-        Ok(result) => result,
-        Err(error) => {
-            status.error = Some(error);
-            next.set(GameState::Failed);
-            return;
-        }
-    };
+    let ((player_graph, player_nodes), (worm_graph, worm_nodes), (roach_graph, roach_nodes)) =
+        match graphs_and_nodes {
+            Ok(result) => result,
+            Err(error) => {
+                status.error = Some(error);
+                next.set(GameState::Failed);
+                return;
+            }
+        };
     commands.insert_resource(AnimationLibrary {
         graph: graphs.add(player_graph),
         nodes: player_nodes,
@@ -190,6 +206,10 @@ fn check(
     commands.insert_resource(WormAnimations {
         graph: graphs.add(worm_graph),
         nodes: worm_nodes,
+    });
+    commands.insert_resource(RoachAnimations {
+        graph: graphs.add(roach_graph),
+        nodes: roach_nodes,
     });
     status.spawning = true;
     commands.trigger(crate::world::SpawnWorld);
