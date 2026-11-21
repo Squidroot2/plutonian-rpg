@@ -79,7 +79,7 @@ Find the field spear and trident near the outpost spawn, pick either up with E, 
 
 ## Ice worms
 
-Two ice worms roam beside the trail and a third waits near the cavern entrance. Watch for the worm to rear up, move out of its bite, then thrust during its recovery. Three hits with either weapon defeat a worm. A bite deals 20 damage before armor, and defeat returns you to the outpost at full health with your quest, inventory, and equipment intact. After five seconds without taking damage, you recover 10 health per second. The health bar fades away when you reach full health. Defeated worms stay gone for the session.
+Two ice worms roam beside the trail and a third waits near the cavern entrance. Watch for the worm to rear up, move out of its bite, then thrust during its recovery. Three hits with either weapon defeat a worm. A bite deals 20 damage before armor, and defeat returns you to the outpost at full health with your quest, inventory, and equipment intact. After five seconds without taking damage, you recover 10 health per second. The health bar fades away when you reach full health. Defeated worms and relay roaches leave corpses for the rest of the session. Press E near an unlooted corpse to open its loot panel and take its meat. Meat stacks in the backpack and can be dropped.
 
 ## The Old Relay
 
@@ -102,6 +102,7 @@ Blender 5.3 was used for the included editable sources in `art/`. Runtime export
 | `collision` | Simplified static geometry, hidden at runtime |
 | `core` | Collectible beacon power core |
 | `battery`, `scrap`, `methane_pouch` | Ground-based material pickups |
+| `worm_meat`, `roach_meat` | Corpse loot pickup models for dropped meat |
 | `field_armor`, `reinforced_armor`, `field_helmet`, `reinforced_helmet` | Equipment sources, each exporting pickup and `_worn` GLBs |
 | `field_spear`, `trident` | Weapons sharing the spear animations, each exporting pickup and `_worn` GLBs |
 
@@ -118,6 +119,8 @@ blender --background -noaudio --factory-startup --python-exit-code 1 --python sc
 ```
 
 To regenerate only the three material models without replacing existing world or character art, pass `-- --items` to the asset command. This overwrites the material sources and exports. Pickup models use a base origin at zero height; material models use a 0.62 m square placement footprint and 0.6 m height. Equipment uses its larger per-item bounds from `ItemKind::gear()` in `src/equipment.rs`; `scripts/check_assets.py` verifies the exported geometry fits those bounds.
+
+Pass `-- --meat` to regenerate the two meat pickup models.
 
 Pass `-- --locomotion` to regenerate the player's backpedal, strafe, and diagonal actions in `art/plutonian.blend` and re-export `assets/models/plutonian.glb`.
 

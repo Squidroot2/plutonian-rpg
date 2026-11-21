@@ -258,7 +258,7 @@ pub(crate) fn pause(
         match state.get() {
             GameState::Playing if dialogue.text.is_some() => dialogue.text = None,
             GameState::Playing => next.set(GameState::Paused),
-            GameState::Paused => next.set(GameState::Playing),
+            GameState::Paused | GameState::Looting => next.set(GameState::Playing),
             _ => (),
         }
     }
@@ -366,7 +366,7 @@ fn refresh_compass(
     };
     let visible = matches!(
         state.get(),
-        GameState::Playing | GameState::Inventory | GameState::Paused
+        GameState::Playing | GameState::Inventory | GameState::Paused | GameState::Looting
     );
     visibility.set_if_neq(if visible {
         Visibility::Inherited
@@ -413,7 +413,7 @@ fn refresh_health(
         return;
     };
     match state.get() {
-        GameState::Playing | GameState::Inventory | GameState::Paused => {
+        GameState::Playing | GameState::Inventory | GameState::Paused | GameState::Looting => {
             if health.current() < health.maximum() {
                 *opacity = 1.0;
             } else if *state.get() == GameState::Playing {
@@ -478,6 +478,7 @@ fn refresh_prompt(
                     InteractionTarget::Pickup(pickup) => {
                         format!("Pick up {} x{}", pickup.item.name(), pickup.quantity)
                     }
+                    InteractionTarget::Corpse => "Loot corpse".into(),
                     InteractionTarget::Dungeon(target) => match target {
                         DungeonTarget::Hatch if !DungeonProgress::hatch_unlocked(*quest) => {
                             "Inspect the sealed hatch".into()

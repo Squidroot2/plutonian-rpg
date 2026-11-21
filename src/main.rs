@@ -13,6 +13,7 @@ mod interaction;
 mod inventory;
 mod inventory_ui;
 mod loading;
+mod loot_ui;
 mod player;
 mod quest;
 mod roach;
@@ -34,6 +35,7 @@ pub enum GameState {
     Playing,
     Paused,
     Inventory,
+    Looting,
     Failed,
 }
 
@@ -90,6 +92,7 @@ fn main() {
             combat_feedback::CombatFeedbackPlugin,
             settings::SettingsPlugin,
             roach::RoachPlugin,
+            loot_ui::LootUiPlugin,
         ));
     if arena || world {
         app.add_plugins(smoke::SmokePlugin { arena });

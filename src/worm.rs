@@ -1,8 +1,10 @@
 use crate::{
     GameState,
-    combat::{CombatSystems, Dead, DeathLifetime, Health, Hit, HitReaction, RemoveColliderOnDeath},
+    combat::{CombatSystems, Dead, Health, Hit, HitReaction, RemoveColliderOnDeath},
     combat_feedback::DeathAnimation,
-    inventory::scene_ready,
+    dungeon::Area,
+    interaction::CorpseLoot,
+    inventory::{ItemKind, scene_ready},
     loading::{GameAssets, PendingScene},
     player::Player,
     quest::Dialogue,
@@ -25,7 +27,6 @@ const CHASE_SPEED: f32 = 2.4;
 const BITE_RANGE: f32 = 1.5;
 const WINDUP: f32 = 0.55;
 const RECOVERY: f32 = 0.85;
-const COLLAPSE: f32 = 0.70;
 const BITE_DAMAGE: u16 = 20;
 
 #[derive(Resource)]
@@ -124,7 +125,7 @@ fn spawn_encounters(
 ) {
     if *layout == WorldLayout::Outpost {
         for home in HOMES {
-            spawn(&mut commands, &assets, &models, home);
+            spawn(&mut commands, &assets, &models, home, Area::Surface);
         }
     }
 }
@@ -134,6 +135,7 @@ pub(crate) fn spawn(
     assets: &GameAssets,
     models: &Assets<Gltf>,
     home: Vec3,
+    area: Area,
 ) -> Entity {
     let scene = models
         .get(&assets.worm)
@@ -167,7 +169,7 @@ pub(crate) fn spawn(
             Health::new(30),
             WormMotion::default(),
             HitReaction::new(0.16),
-            DeathLifetime(COLLAPSE),
+            CorpseLoot::new(ItemKind::WormMeat, area),
             RemoveColliderOnDeath,
             Visibility::default(),
             Transform::from_translation(home),

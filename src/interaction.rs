@@ -1,8 +1,9 @@
 use crate::{
     GameState,
+    combat::Dead,
     controls::{Control, Keybinds},
-    dungeon::{DungeonTarget, UseDungeonTarget},
-    inventory::{Inventory, Pickup},
+    dungeon::{Area, DungeonTarget, UseDungeonTarget},
+    inventory::{Inventory, ItemKind, Pickup},
     player::Player,
     quest::{Dialogue, Quest},
 };
@@ -19,7 +20,29 @@ pub enum InteractionTarget {
     Quest(Target),
     Pickup(Pickup),
     Dungeon(DungeonTarget),
+    Corpse,
 }
+#[derive(Component)]
+pub(crate) struct CorpseLoot {
+    pub(crate) stack: Option<Pickup>,
+    pub(crate) area: Area,
+}
+
+impl CorpseLoot {
+    pub(crate) fn new(item: ItemKind, area: Area) -> Self {
+        Self {
+            stack: Some(Pickup { item, quantity: 1 }),
+            area,
+        }
+    }
+}
+
+pub(crate) const INTERACT_RANGE: f32 = 3.0;
+pub(crate) const INTERACT_HEIGHT: f32 = 0.45;
+
+#[derive(Resource, Default)]
+pub(crate) struct LootTarget(pub(crate) Option<Entity>);
+
 #[derive(Resource, Default, PartialEq, Eq)]
 pub struct Nearby(pub Option<(Entity, InteractionTarget)>);
 #[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -28,13 +51,15 @@ pub struct InteractionSystems;
 pub struct InteractionPlugin;
 impl Plugin for InteractionPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<Nearby>().add_systems(
-            Update,
-            (find_target, interact)
-                .chain()
-                .in_set(InteractionSystems)
-                .run_if(in_state(GameState::Playing)),
-        );
+        app.init_resource::<Nearby>()
+            .init_resource::<LootTarget>()
+            .add_systems(
+                Update,
+                (find_target, interact)
+                    .chain()
+                    .in_set(InteractionSystems)
+                    .run_if(in_state(GameState::Playing)),
+            );
     }
 }
 fn find_target(
@@ -46,8 +71,15 @@ fn find_target(
             Option<&Target>,
             Option<&Pickup>,
             Option<&DungeonTarget>,
+            Option<&CorpseLoot>,
+            Has<Dead>,
         ),
-        Or<(With<Target>, With<Pickup>, With<DungeonTarget>)>,
+        Or<(
+            With<Target>,
+            With<Pickup>,
+            With<DungeonTarget>,
+            With<CorpseLoot>,
+        )>,
     >,
     quest: Res<Quest>,
     dialogue: Res<Dialogue>,
@@ -63,9 +95,9 @@ fn find_target(
         return;
     };
     let mut selected = None;
-    let origin = transform.translation + Vec3::Y * 0.45;
-    let mut closest = 3.0;
-    for (entity, transform, target, pickup, dungeon) in &targets {
+    let origin = transform.translation + Vec3::Y * INTERACT_HEIGHT;
+    let mut closest = INTERACT_RANGE;
+    for (entity, transform, target, pickup, dungeon, corpse, dead) in &targets {
         let (interaction, point) = if let Some(target) = target {
             if *target == Target::Core && *quest != Quest::FindCore {
                 continue;
@@ -96,6 +128,10 @@ fn find_target(
                 InteractionTarget::Dungeon(dungeon),
                 transform.translation + Vec3::Y * height,
             )
+        } else if corpse
+            .is_some_and(|loot| dead && loot.area == player.area && loot.stack.is_some())
+        {
+            (InteractionTarget::Corpse, transform.translation)
         } else {
             continue;
         };
@@ -132,6 +168,8 @@ fn interact(
     mut inventory: ResMut<Inventory>,
     mut commands: Commands,
     pickups: Query<&Pickup>,
+    mut loot: ResMut<LootTarget>,
+    mut next: ResMut<NextState<GameState>>,
 ) {
     let interact_pressed = bindings.just_pressed(Control::Interact, &keys);
     if !interact_pressed && !keys.just_pressed(KeyCode::Enter) {
@@ -161,6 +199,12 @@ fn interact(
                 }
             }
             InteractionTarget::Dungeon(target) => commands.trigger(UseDungeonTarget(target)),
+            InteractionTarget::Corpse
+                if interact_pressed && matches!(*next, NextState::Unchanged) =>
+            {
+                loot.0 = Some(entity);
+                next.set(GameState::Looting);
+            }
             _ => (),
         }
     }
@@ -193,7 +237,7 @@ mod tests {
         .init_resource::<Inventory>()
         .init_resource::<Keybinds>()
         .init_resource::<ButtonInput<KeyCode>>()
-        .add_plugins(InteractionPlugin);
+        .add_plugins((InteractionPlugin, crate::loot_ui::LootUiPlugin));
         app.world_mut()
             .resource_mut::<NextState<GameState>>()
             .set(GameState::Playing);
@@ -206,6 +250,156 @@ mod tests {
         }
         app
     }
+    fn press_interact(app: &mut App) {
+        let mut input = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
+        input.reset_all();
+        input.press(KeyCode::KeyE);
+        app.update();
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .reset_all();
+        app.update();
+    }
+
+    #[test]
+    fn only_dead_unobstructed_corpses_in_the_same_area_and_in_range_are_targeted() {
+        let mut app = test_app();
+        let corpse = app
+            .world_mut()
+            .spawn((
+                Name::new("Ice worm"),
+                Transform::from_xyz(0.0, 0.0, -2.0),
+                CorpseLoot::new(ItemKind::WormMeat, Area::Surface),
+            ))
+            .id();
+
+        press_interact(&mut app);
+        assert!(app.world().resource::<Nearby>().0.is_none());
+
+        app.world_mut().entity_mut(corpse).insert(Dead);
+        app.world_mut()
+            .get_mut::<CorpseLoot>(corpse)
+            .expect("loot")
+            .area = Area::OldRelay;
+        press_interact(&mut app);
+        assert!(app.world().resource::<Nearby>().0.is_none());
+
+        app.world_mut()
+            .get_mut::<CorpseLoot>(corpse)
+            .expect("loot")
+            .area = Area::Surface;
+        app.world_mut()
+            .get_mut::<Transform>(corpse)
+            .expect("position")
+            .translation
+            .z = -4.0;
+        press_interact(&mut app);
+        assert!(app.world().resource::<Nearby>().0.is_none());
+
+        app.world_mut()
+            .get_mut::<Transform>(corpse)
+            .expect("position")
+            .translation
+            .z = -2.0;
+        let wall = app
+            .world_mut()
+            .spawn((
+                RigidBody::Static,
+                Collider::cuboid(3.0, 3.0, 0.2),
+                Transform::from_xyz(0.0, 0.0, -1.0),
+            ))
+            .id();
+        for _ in 0..3 {
+            app.update();
+        }
+        press_interact(&mut app);
+        assert!(app.world().resource::<Nearby>().0.is_none());
+
+        app.world_mut().despawn(wall);
+        for _ in 0..3 {
+            app.update();
+        }
+        assert_eq!(
+            app.world().resource::<Nearby>().0,
+            Some((corpse, InteractionTarget::Corpse))
+        );
+    }
+
+    #[test]
+    fn loot_panel_transfers_each_corpse_stack_once_and_keeps_the_body() {
+        use crate::{loot_ui::LootAction, smoke::pointer_click};
+
+        let mut app = test_app();
+        let window = app.world_mut().spawn_empty().id();
+        let camera = app.world_mut().spawn_empty().id();
+        let click = |app: &mut App, action| {
+            let world = app.world_mut();
+            let button = world
+                .query::<(Entity, &LootAction)>()
+                .iter(world)
+                .find(|(_, current)| **current == action)
+                .expect("loot action")
+                .0;
+            world.trigger(pointer_click(button, window, camera));
+        };
+        for item in [ItemKind::WormMeat, ItemKind::RoachMeat] {
+            let corpse = app
+                .world_mut()
+                .spawn((
+                    Dead,
+                    Name::new(item.name()),
+                    Transform::from_xyz(0.0, 0.0, -2.0),
+                    CorpseLoot::new(item, Area::Surface),
+                ))
+                .id();
+
+            press_interact(&mut app);
+            assert_eq!(
+                *app.world().resource::<State<GameState>>().get(),
+                GameState::Looting
+            );
+            click(&mut app, LootAction::Close);
+            app.update();
+            assert_eq!(app.world().resource::<Inventory>().count(item), 0);
+
+            press_interact(&mut app);
+            // A full stack must leave the loot available for a later attempt.
+            assert!(
+                app.world_mut()
+                    .resource_mut::<Inventory>()
+                    .add(item, u32::MAX)
+            );
+            click(&mut app, LootAction::Take);
+            assert!(
+                app.world()
+                    .get::<CorpseLoot>(corpse)
+                    .expect("loot")
+                    .stack
+                    .is_some()
+            );
+            assert!(
+                app.world_mut()
+                    .resource_mut::<Inventory>()
+                    .remove(item, u32::MAX)
+            );
+
+            click(&mut app, LootAction::Take);
+            assert_eq!(app.world().resource::<Inventory>().count(item), 1);
+            assert!(
+                app.world()
+                    .get::<CorpseLoot>(corpse)
+                    .expect("corpse remains")
+                    .stack
+                    .is_none()
+            );
+            click(&mut app, LootAction::Close);
+            app.update();
+            press_interact(&mut app);
+            assert!(app.world().resource::<Nearby>().0.is_none());
+            assert_eq!(app.world().resource::<Inventory>().count(item), 1);
+        }
+    }
+
     #[test]
     fn one_press_performs_one_interaction_and_dialogue_dismissal_takes_precedence() {
         let mut app = test_app();

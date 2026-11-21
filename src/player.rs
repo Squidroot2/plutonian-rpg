@@ -21,8 +21,10 @@ impl Plugin for PlayerPlugin {
         app.init_resource::<MovementInput>()
             .add_systems(OnEnter(GameState::Paused), freeze)
             .add_systems(OnEnter(GameState::Inventory), freeze)
+            .add_systems(OnEnter(GameState::Looting), freeze)
             .add_systems(OnExit(GameState::Paused), resume)
             .add_systems(OnExit(GameState::Inventory), resume)
+            .add_systems(OnExit(GameState::Looting), resume)
             .add_systems(
                 PreUpdate,
                 input

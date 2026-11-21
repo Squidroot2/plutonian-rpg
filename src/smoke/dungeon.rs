@@ -1,16 +1,22 @@
 //! Exercise the shipped relay with the real movement controller and interact input.
-use super::{SmokeRun, capture, inventory::walk};
+use super::{
+    SmokeRun, capture,
+    inventory::{click, walk},
+};
 use crate::{
-    camera::Orbit,
-    combat::Health,
+    GameState,
+    camera::{FollowCamera, Orbit},
+    combat::{Dead, Health, Hit},
     dungeon::{
         ArchiveGate, Area, DungeonProgress, DungeonTarget, GATE_LOCAL, HATCH, LOG_LOCAL, ORIGIN,
         SWITCH_LOCAL,
     },
     interaction::{InteractionTarget, Nearby, Target},
     inventory::{Inventory, ItemKind},
+    loot_ui::LootAction,
     player::{Dodge, Player},
     quest::{Dialogue, Quest},
+    roach::Roach,
     world::WorldLayout,
     worm::{GROUND_OFFSET, Worm, WormPhase},
 };
@@ -31,6 +37,9 @@ pub(super) enum WorldCheck {
     LureWorm,
     DodgeWorm(u16),
     Junction,
+    ApproachRoach,
+    TakeRoachMeat,
+    CloseRoachLoot,
     Switch,
     GateRises,
     ReturnToJunction,
@@ -51,14 +60,17 @@ pub(super) fn drive(
     run: Res<SmokeRun>,
     mut phase: ResMut<WorldCheck>,
     mut last_log: Local<f64>,
-    mut player: Query<(
-        Entity,
-        &mut Player,
-        &mut Dodge,
-        &mut Transform,
-        &Collider,
-        &Health,
-    )>,
+    mut player: Query<
+        (
+            Entity,
+            &mut Player,
+            &mut Dodge,
+            &mut Transform,
+            &Collider,
+            &Health,
+        ),
+        With<Player>,
+    >,
     (mut quest, mut inventory, dialogue, nearby): (
         ResMut<Quest>,
         ResMut<Inventory>,
@@ -69,6 +81,14 @@ pub(super) fn drive(
     gate: Query<Entity, With<ArchiveGate>>,
     worms: Query<(Entity, &Transform, &Worm), Without<Player>>,
     captures: Query<(), With<Screenshot>>,
+    (state, roaches, actions, window, camera): (
+        Res<State<GameState>>,
+        Query<(Entity, &Transform, Has<Dead>), (With<Roach>, Without<Player>)>,
+        Query<(Entity, &LootAction)>,
+        Query<Entity, With<Window>>,
+        Query<Entity, With<FollowCamera>>,
+    ),
+    mut hits: MessageWriter<Hit>,
     spatial: SpatialQuery,
     mut orbit: ResMut<Orbit>,
     mut keys: ResMut<ButtonInput<KeyCode>>,
@@ -255,10 +275,43 @@ pub(super) fn drive(
         }
         WorldCheck::Junction => {
             if walk_to(&mut keys, &mut orbit, junction) {
-                *phase = WorldCheck::Switch;
+                let (roach, _, _) = roaches.single().expect("Old Relay roach");
+                hits.write(Hit {
+                    source: entity,
+                    target: roach,
+                    damage: 20,
+                    contact: None,
+                });
+                *phase = WorldCheck::ApproachRoach;
             }
         }
-        WorldCheck::Switch => {
+        WorldCheck::ApproachRoach => {
+            let (roach, corpse, dead) = roaches.single().expect("persistent Old Relay roach");
+            assert!(dead);
+            if nearby.0 == Some((roach, InteractionTarget::Corpse)) {
+                keys.press(KeyCode::KeyE);
+                *phase = WorldCheck::TakeRoachMeat;
+            } else {
+                walk_to(&mut keys, &mut orbit, corpse.translation);
+            }
+        }
+        WorldCheck::TakeRoachMeat if *state.get() == GameState::Looting => {
+            assert_eq!(inventory.count(ItemKind::RoachMeat), 0);
+            click(
+                &mut commands,
+                LootAction::Take,
+                &actions,
+                window.single().expect("smoke window"),
+                camera.single().expect("player camera"),
+            );
+            *phase = WorldCheck::CloseRoachLoot;
+        }
+        WorldCheck::CloseRoachLoot => {
+            assert_eq!(inventory.count(ItemKind::RoachMeat), 1);
+            keys.press(KeyCode::Escape);
+            *phase = WorldCheck::Switch;
+        }
+        WorldCheck::Switch if *state.get() == GameState::Playing => {
             if ready(DungeonTarget::Switch) {
                 keys.press(KeyCode::KeyE);
                 *phase = WorldCheck::GateRises;
@@ -339,6 +392,13 @@ pub(super) fn drive(
         WorldCheck::Revisited if controller.grounded => {
             assert_eq!(controller.area, Area::OldRelay);
             assert!(progress.explored && progress.gate_open());
+            assert!(
+                roaches
+                    .single()
+                    .expect("the roach corpse persists across area changes")
+                    .2
+            );
+            assert_eq!(inventory.count(ItemKind::RoachMeat), 1);
             assert_eq!(
                 passage_hit(),
                 None,

@@ -2,6 +2,8 @@
 mod dungeon;
 mod equipment;
 mod inventory;
+#[cfg(test)]
+pub(crate) use inventory::pointer_click;
 mod spear;
 mod worm;
 
@@ -170,7 +172,9 @@ impl Plugin for SmokePlugin {
                     .after(InputSystems)
                     .before(crate::player::input)
                     .before(crate::ui::pause)
-                    .run_if(in_state(GameState::Playing)),
+                    .run_if(|state: Res<State<GameState>>| {
+                        matches!(state.get(), GameState::Playing | GameState::Looting)
+                    }),
             );
         }
     }

@@ -24,6 +24,8 @@ pub enum ItemKind {
     FieldSpear,
     Trident,
     LargeBoulder,
+    WormMeat,
+    RoachMeat,
 }
 impl ItemKind {
     pub const MATERIALS: [Self; 3] = [Self::Battery, Self::Scrap, Self::MethanePouch];
@@ -35,7 +37,7 @@ impl ItemKind {
         Self::FieldSpear,
         Self::Trident,
     ];
-    pub const ALL: [Self; 11] = [
+    pub const ALL: [Self; 13] = [
         Self::Battery,
         Self::Scrap,
         Self::MethanePouch,
@@ -47,6 +49,8 @@ impl ItemKind {
         Self::Trident,
         Self::BeaconCore,
         Self::LargeBoulder,
+        Self::WormMeat,
+        Self::RoachMeat,
     ];
     pub fn name(self) -> &'static str {
         match self {
@@ -57,6 +61,8 @@ impl ItemKind {
             Self::FieldSpear => "Field spear",
             Self::Trident => "Trident",
             Self::LargeBoulder => "Large Boulder",
+            Self::WormMeat => "Worm meat",
+            Self::RoachMeat => "Roach meat",
             Self::FieldArmor => "Field armor",
             Self::ReinforcedArmor => "Reinforced armor",
             Self::FieldHelmet => "Field helmet",
@@ -72,6 +78,8 @@ impl ItemKind {
             Self::FieldSpear => "field_spear",
             Self::Trident => "trident",
             Self::LargeBoulder => "large_boulder",
+            Self::WormMeat => "worm_meat",
+            Self::RoachMeat => "roach_meat",
             Self::FieldArmor => "field_armor",
             Self::ReinforcedArmor => "reinforced_armor",
             Self::FieldHelmet => "field_helmet",
@@ -80,7 +88,7 @@ impl ItemKind {
     }
     pub fn weight(self) -> u64 {
         match self {
-            Self::Battery | Self::MethanePouch => 1,
+            Self::Battery | Self::MethanePouch | Self::WormMeat | Self::RoachMeat => 1,
             Self::Scrap | Self::FieldHelmet => 2,
             Self::FieldSpear | Self::ReinforcedHelmet => 3,
             Self::Trident => 4,
@@ -93,6 +101,8 @@ impl ItemKind {
     pub fn description(self) -> &'static str {
         match self {
             Self::LargeBoulder => "A dense chunk of icebound rock.",
+            Self::WormMeat => "A cut of meat from an ice worm.",
+            Self::RoachMeat => "A piece of relay roach meat with shell attached.",
             Self::Battery => "A sealed cell holding a little warmth and charge.",
             Self::Scrap => "Salvaged metal from the outpost's machines.",
             Self::MethanePouch => "A reinforced pouch of condensed methane.",

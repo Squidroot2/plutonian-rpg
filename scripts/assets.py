@@ -534,6 +534,27 @@ def items():
         save_export(name)
 
 
+MEAT_NAMES = ['worm_meat', 'roach_meat']
+
+
+def meat_pickups():
+    reset()
+    flesh = material('Worm flesh', (.32, .09, .20))
+    skin = material('Worm skin', (.14, .07, .14))
+    for y, width in [(-.14, .15), (0, .17), (.14, .15)]:
+        ico('Worm cut', (0, y, .082), (width, .093, .082), flesh, 2)
+    ico('Ribbed skin', (0, 0, .071), (.177, .20, .07), skin, 2)
+    save_export('worm_meat')
+
+    reset()
+    flesh = material('Roach flesh', (.57, .29, .11))
+    shell = material('Roach shell', (.23, .091, .032), metal=.15)
+    ico('Roach cut', (0, 0, .073), (.19, .23, .073), flesh, 2)
+    for y, width in [(-.10, .15), (0, .20), (.10, .15)]:
+        ico('Shell plate', (0, y, .12), (width, .067, .049), shell, 2)
+    save_export('roach_meat')
+
+
 def large_boulder():
     reset()
     stone = material('Icebound rock', (.16, .21, .25), metal=.12)
@@ -1010,6 +1031,8 @@ elif '--pillars' in sys.argv:
     add_pillar_collision()
 elif '--boulder' in sys.argv:
     large_boulder()
+elif '--meat' in sys.argv:
+    meat_pickups()
 elif '--items' in sys.argv:
     items()
 elif '--ground' in sys.argv:
@@ -1028,7 +1051,7 @@ elif '--ground' in sys.argv:
     bpy.context.view_layer.update()
     save_export('collision')
 elif '--export' in sys.argv:
-    for name in ['plutonian', 'outpost', 'collision', 'core', 'battery', 'scrap', 'methane_pouch', 'large_boulder', 'practice_dummy', 'ice_worm', 'relay_roach', 'old_relay', 'old_relay_collision', *GEAR_NAMES]:
+    for name in ['plutonian', 'outpost', 'collision', 'core', 'battery', 'scrap', 'methane_pouch', 'large_boulder', 'practice_dummy', 'ice_worm', 'relay_roach', 'old_relay', 'old_relay_collision', *MEAT_NAMES, *GEAR_NAMES]:
         bpy.ops.wm.open_mainfile(filepath=str(ROOT/'art'/f'{name}.blend'))
         if name in GEAR_NAMES:
             export_equipment(name)
@@ -1040,6 +1063,7 @@ else:
     collision_from_world()
     core()
     items()
+    meat_pickups()
     large_boulder()
     equipment()
     practice_dummy()

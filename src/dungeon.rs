@@ -281,9 +281,16 @@ fn spawn_relay(
         &assets,
         &models,
         ORIGIN + Vec3::new(7.0, 1.2, -12.5),
+        Area::OldRelay,
     );
     for offset in [Vec3::new(-3.5, 1.2, -10.5), Vec3::new(3.65, 1.2, -24.0)] {
-        worm::spawn(&mut commands, &assets, &models, ORIGIN + offset);
+        worm::spawn(
+            &mut commands,
+            &assets,
+            &models,
+            ORIGIN + offset,
+            Area::OldRelay,
+        );
     }
 }
 

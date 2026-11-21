@@ -7,9 +7,10 @@ import struct
 root = Path(__file__).resolve().parents[1]
 documents = {}
 gear_names = ['field_armor', 'reinforced_armor', 'field_helmet', 'reinforced_helmet', 'field_spear', 'trident']
+meat_names = ['worm_meat', 'roach_meat']
 directional_walks = {'WalkBack', 'StrafeLeft', 'StrafeRight', 'WalkForwardLeft',
                      'WalkForwardRight', 'WalkBackLeft', 'WalkBackRight'}
-for name in ['plutonian', 'outpost', 'collision', 'core', 'battery', 'scrap', 'methane_pouch', 'large_boulder', 'practice_dummy', 'ice_worm', 'relay_roach', 'old_relay', 'old_relay_collision', *gear_names, *[name+'_worn' for name in gear_names]]:
+for name in ['plutonian', 'outpost', 'collision', 'core', 'battery', 'scrap', 'methane_pouch', 'large_boulder', 'practice_dummy', 'ice_worm', 'relay_roach', 'old_relay', 'old_relay_collision', *meat_names, *gear_names, *[name+'_worn' for name in gear_names]]:
     source_name = name.removesuffix('_worn')
     source = root / 'art' / f'{source_name}.blend'
     path = root / 'assets' / 'models' / f'{name}.glb'
@@ -137,6 +138,13 @@ for name in gear_names:
     assert all(high[i]-low[i] <= limits[name][i]+.001 for i in range(3)), f'{name}: pickup exceeds drop clearance: {low}, {high}'
     assert len(documents[name]['meshes']) == len(documents[name+'_worn']['meshes']), f'{name}: worn and pickup geometry must be exported together'
     print(f'{name}: grounded pickup bounds and worn export OK')
+
+
+for name in meat_names:
+    low, high = mesh_bounds(documents[name])
+    assert abs(low[1]) < .001, f'{name}: pickup must have a base origin'
+    assert all(abs(low[i]+high[i]) < .001 for i in [0,2]), f'{name}: pickup must be centered horizontally'
+    assert all(high[i]-low[i] <= limit for i, limit in enumerate([.62, .6, .62])), f'{name}: pickup exceeds drop clearance'
 
 
 # Reconstruct each sampled pose in spine space and check both hand centers

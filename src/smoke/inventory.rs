@@ -59,19 +59,23 @@ impl Plugin for InventorySmokePlugin {
         );
     }
 }
-pub(crate) fn click(
+pub(crate) fn click<T: Component + PartialEq>(
     commands: &mut Commands,
-    action: InventoryAction,
-    actions: &Query<(Entity, &InventoryAction)>,
+    action: T,
+    actions: &Query<(Entity, &T)>,
     window: Entity,
     camera: Entity,
 ) {
     let entity = actions
         .iter()
         .find(|(_, kind)| **kind == action)
-        .expect("missing inventory UI action")
+        .expect("missing smoke test UI action")
         .0;
-    commands.trigger(PointerClick {
+    commands.trigger(pointer_click(entity, window, camera));
+}
+
+pub(crate) fn pointer_click(entity: Entity, window: Entity, camera: Entity) -> PointerClick {
+    PointerClick {
         entity,
         pointer: Pointer::new(
             PointerId::Mouse,
@@ -88,7 +92,7 @@ pub(crate) fn click(
         hit: HitData::new(camera, 0.0, None, None),
         duration: Duration::from_millis(50),
         count: 1,
-    });
+    }
 }
 pub(crate) fn walk(
     keys: &mut ButtonInput<KeyCode>,

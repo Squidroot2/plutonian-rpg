@@ -1,9 +1,18 @@
-use super::{capture, inventory::walk, spear::SpearSmoke};
+use super::{
+    capture,
+    inventory::{click, walk},
+    spear::SpearSmoke,
+};
 use crate::{
-    camera::Orbit,
-    combat::{DeathLifetime, Health},
+    GameState,
+    camera::{FollowCamera, Orbit},
+    combat::{Dead, Health},
     combat_feedback::{AttackImpact, BitePulse},
+    dungeon::Area,
+    interaction::{InteractionTarget, Nearby},
+    inventory::{Inventory, ItemKind},
     loading::GameAssets,
+    loot_ui::LootAction,
     player::{DODGE_KEY, Player},
     spear::{GRIP_SIDE, Thrust},
     ui::{HealthBar, HealthBarFill},
@@ -25,8 +34,12 @@ pub(super) enum Encounter {
         captured: bool,
     },
     Collapse {
+        elapsed: f32,
         captured: bool,
     },
+    Loot,
+    CloseLoot,
+    Finish,
 }
 
 pub(super) fn check_outpost_sites(
@@ -89,14 +102,19 @@ pub(super) fn fight(
     assets: Option<Res<GameAssets>>,
     models: Res<Assets<Gltf>>,
     player: Query<(&Player, &Transform, &Health)>,
-    worms: Query<(
-        &Worm,
-        &Transform,
-        &Health,
-        &DeathLifetime,
-        Option<&Collider>,
-    )>,
+    worms: Query<(&Worm, &Transform, &Health, Has<Dead>, Option<&Collider>)>,
     thrust: Res<Thrust>,
+    (state, time, nearby, bag): (
+        Res<State<GameState>>,
+        Res<Time>,
+        Res<Nearby>,
+        Res<Inventory>,
+    ),
+    (actions, window, camera): (
+        Query<(Entity, &LootAction)>,
+        Query<Entity, With<Window>>,
+        Query<Entity, With<FollowCamera>>,
+    ),
     health_bar: Query<&Node, With<HealthBarFill>>,
     bar_visibility: Query<&Visibility, With<HealthBar>>,
     feedback: (
@@ -126,23 +144,16 @@ pub(super) fn fight(
             &assets.expect("the loaded smoke arena must provide the worm asset"),
             &models,
             home,
+            Area::Surface,
         );
         *phase = Encounter::Pursuit(home);
         orbit.yaw = 0.0;
         orbit.distance = 3.8;
         return;
     }
-    let Ok((worm, enemy, worm_health, corpse, collider)) = worms.single() else {
-        if matches!(*phase, Encounter::Collapse { .. }) {
-            info!(
-                "WORM SMOKE PASS: pursued, telegraphed a bite, missed a dodge, landed one bite, and died to the trident"
-            );
-            orbit.pitch = 0.22;
-            keys.press(KeyCode::KeyI);
-            *smoke = SpearSmoke::Unequip;
-        }
-        return;
-    };
+    let (worm, enemy, worm_health, dead, collider) = worms
+        .single()
+        .expect("the encounter worm must remain spawned");
     match *phase {
         Encounter::Pursuit(home) if matches!(worm.phase, WormPhase::Windup(_)) => {
             assert!(
@@ -222,7 +233,10 @@ pub(super) fn fight(
                 "the collapsed worm must release its collider"
             );
             orbit.yaw = 1.05;
-            *phase = Encounter::Collapse { captured: false };
+            *phase = Encounter::Collapse {
+                elapsed: 0.0,
+                captured: false,
+            };
         }
         Encounter::Fight { .. } if !thrust.active() && controller.grounded => {
             let delta = (enemy.translation - transform.translation).with_y(0.0);
@@ -231,9 +245,54 @@ pub(super) fn fight(
             orbit.yaw = delta.x.atan2(delta.z) + offset - std::f32::consts::PI;
             mouse.press(MouseButton::Left);
         }
-        Encounter::Collapse { captured: false } if corpse.0 < 0.33 => {
-            capture(&mut commands, "worm-collapse");
-            *phase = Encounter::Collapse { captured: true };
+        Encounter::Collapse {
+            elapsed,
+            mut captured,
+        } => {
+            let elapsed = elapsed + time.delta_secs();
+            if !captured && elapsed >= 0.37 {
+                capture(&mut commands, "worm-collapse");
+                captured = true;
+            }
+            if elapsed >= 0.90 && matches!(nearby.0, Some((_, InteractionTarget::Corpse))) {
+                assert!(dead && collider.is_none());
+                keys.press(KeyCode::KeyE);
+                *phase = Encounter::Loot;
+            } else {
+                if elapsed >= 0.90 {
+                    walk(
+                        &mut keys,
+                        &mut orbit,
+                        transform.translation,
+                        enemy.translation,
+                    );
+                }
+                *phase = Encounter::Collapse { elapsed, captured };
+            }
+        }
+        Encounter::Loot if *state.get() == GameState::Looting => {
+            assert_eq!(bag.count(ItemKind::WormMeat), 0);
+            capture(&mut commands, "worm-loot");
+            click(
+                &mut commands,
+                LootAction::Take,
+                &actions,
+                window.single().expect("smoke window"),
+                camera.single().expect("player camera"),
+            );
+            *phase = Encounter::CloseLoot;
+        }
+        Encounter::CloseLoot => {
+            assert_eq!(bag.count(ItemKind::WormMeat), 1);
+            keys.press(KeyCode::Escape);
+            *phase = Encounter::Finish;
+        }
+        Encounter::Finish if *state.get() == GameState::Playing => {
+            assert!(dead && collider.is_none());
+            info!("WORM SMOKE PASS: dodged, fought, and looted a persistent corpse");
+            orbit.pitch = 0.22;
+            keys.press(KeyCode::KeyI);
+            *smoke = SpearSmoke::Unequip;
         }
         _ => {}
     }
