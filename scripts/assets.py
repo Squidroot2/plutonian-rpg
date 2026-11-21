@@ -425,8 +425,10 @@ TENT_SOLID = 'Starting tent solid '
 
 def starting_tent():
     """Build the west-facing shelter on the ice east of the courtyard."""
-    canvas = material('Shelter slate canvas', (.105, .165, .19))
-    lining = material('Shelter insulated lining', (.29, .27, .21))
+    ceramic = bpy.data.materials['Ceramic shell']
+    basalt = bpy.data.materials['Basalt']
+    amber = bpy.data.materials['Amber habitation']
+    lining = material('Shelter ceramic lining', (.19, .225, .24), metal=.2)
     frame = material('Shelter graphite frame', (.065, .092, .108), metal=.5)
     floor = material('Shelter rubber decking', (.12, .14, .15))
     stripe = material('Shelter aisle edging', (.32, .23, .105))
@@ -434,11 +436,16 @@ def starting_tent():
     blanket = material('Shelter rust wool', (.40, .135, .065))
     pillow = material('Shelter wool pillow', (.38, .37, .30))
     crate = material('Shelter enamel green', (.13, .23, .205), metal=.25)
-    amber = material('Shelter lantern glass', (1, .53, .18), 4)
-    cyan = material('Shelter entrance marker', (.12, .74, .8), 2)
 
     # Local X follows the aisle. The floor surface is Z = 0 in this frame.
     origin = Vector((10, 3, -.825))
+    base_radius = 3.6
+    shoulder_radius = 2.98
+    shoulder_height = 3.28
+    crown_radius = 1.52
+    crown_height = 4.55
+    wall_thickness = .16
+    corner = math.sqrt(2) - 1
 
     def block(name, location, dimensions, mat):
         return box('Starting tent ' + name, origin + Vector(location), dimensions, mat)
@@ -453,57 +460,118 @@ def starting_tent():
         obj.data.materials.append(mat)
         return obj
 
-    def panel(name, x_min, x_max, section, mat):
-        # Extrude a counterclockwise cross section through the wall or roof depth.
-        count = len(section)
-        vertices = [(x, y, z) for x in (x_min, x_max) for y, z in section]
-        faces = [tuple(reversed(range(count))), tuple(range(count, count * 2))]
+    def shell_panel(name, outside, inside, outer, inner=None):
+        count = len(outside)
+        faces = [tuple(range(count)), tuple(reversed(range(count, count * 2)))]
         for index in range(count):
             following = (index + 1) % count
-            faces.append((index, following, following + count, index + count))
-        return mesh(TENT_SOLID + name, vertices, faces, mat)
+            faces.append((index, index + count, following + count, following))
+        obj = mesh(TENT_SOLID + name, outside + inside, faces, outer)
+        if inner is not None:
+            obj.data.materials.append(inner)
+            obj.data.polygons[1].material_index = 1
 
-    block('solid deck', (0, 0, -.09), (7.2, 5.5, .18), floor)
+    def octagon(radius, z):
+        bevel = radius * corner
+        return [Vector((x, y, z)) for x, y in [
+            (-radius, -bevel), (-bevel, -radius), (bevel, -radius), (radius, -bevel),
+            (radius, bevel), (bevel, radius), (-bevel, radius), (-radius, bevel),
+        ]]
+
+    def radius_at(height):
+        return base_radius + (shoulder_radius - base_radius) * height / shoulder_height
+
+    def facet(edge, low, high, inset=0):
+        bottom = octagon(radius_at(low) - inset, low)
+        top = octagon(radius_at(high) - inset, high)
+        following = (edge + 1) % len(bottom)
+        return [bottom[edge], bottom[following], top[following], top[edge]]
+
+    def beam(name, start, end, width, mat):
+        direction = end - start
+        obj = block(name, (start + end) / 2, (width, width, direction.length + .035), mat)
+        obj.rotation_mode = 'QUATERNION'
+        obj.rotation_quaternion = direction.to_track_quat('Z', 'Y')
+
+    shell_panel('deck', octagon(base_radius, 0), octagon(base_radius, -.18), floor)
     mesh(TENT_SOLID + 'threshold ramp',
          [(-4.23, -.78, -.22), (-3.58, -.78, -.22), (-3.58, .78, -.22), (-4.23, .78, -.22),
           (-4.23, -.78, -.15), (-3.58, -.78, 0), (-3.58, .78, 0), (-4.23, .78, -.15)],
          [(3, 2, 1, 0), (4, 5, 6, 7), (0, 1, 5, 4), (1, 2, 6, 5),
           (2, 3, 7, 6), (3, 0, 4, 7)], frame)
+    for edge in range(7):
+        name = 'rear wall' if edge == 3 else 'sidewall'
+        shell_panel(name, facet(edge, 0, shoulder_height),
+                    facet(edge, 0, shoulder_height, wall_thickness), ceramic, lining)
+
+    # The western facet is split around a walk-through hatch with clipped corners.
+    jamb = .86
+    opening_top = 2.46
+    opening_shoulder = 1.92
+    opening_corner = .61
+
+    def hatch_point(y, height, inset=0):
+        return Vector((-radius_at(height) + inset, y, height))
+
     for side in (-1, 1):
-        block('solid sidewall', (0, side*2.72, 1.24), (7.2, .16, 2.56), lining)
-        block('sidewall canvas', (0, side*2.801, 1.28), (7.25, .035, 2.5), canvas)
-        block('toe rail', (0, side*2.625, .17), (7.16, .055, .33), frame)
-        block('solid entrance wall', (-3.52, side*1.73, 1.17), (.16, 1.96, 2.34), lining)
-        block('entrance canvas', (-3.611, side*1.73, 1.17), (.03, 1.96, 2.34), canvas)
-        block('entry upright', (-3.61, side*.79, 1.16), (.13, .075, 2.32), frame)
-        block('entry light', (-3.689, side*.85, 1.85), (.035, .065, .56), cyan)
-        block('interior entry light', (-3.429, side*.82, 1.85), (.025, .045, .42), cyan)
+        outline = [(jamb, 0), (base_radius*corner, 0),
+                   (shoulder_radius*corner, shoulder_height), (opening_corner, shoulder_height),
+                   (opening_corner, opening_top), (jamb, opening_shoulder)]
+        if side > 0:
+            outline.reverse()
+        shell_panel('hatch jamb',
+                    [hatch_point(side*y, z) for y, z in outline],
+                    [hatch_point(side*y, z, wall_thickness) for y, z in outline], ceramic, lining)
         block('aisle stripe', (-.05, side*.65, .007), (6.94, .042, .012), stripe)
 
-    block('solid rear wall', (3.52, 0, 1.20), (.16, 5.36, 2.4), lining)
-    block('rear canvas', (3.611, 0, 1.20), (.03, 5.36, 2.4), canvas)
-    gable = [(-2.8, 2.33), (2.8, 2.33), (2.8, 2.48), (0, 3.39), (-2.8, 2.48)]
-    panel('front gable', -3.6, -3.44, gable, canvas)
-    panel('rear gable', 3.44, 3.6, gable, canvas)
-    roof = panel('roof', -3.72, 3.72,
-                 [(-2.89, 2.43), (0, 3.36), (2.89, 2.43),
-                  (2.89, 2.54), (0, 3.48), (-2.89, 2.54)], canvas)
-    roof.data.materials.append(lining)
-    for index in (2, 3):
-        roof.data.polygons[index].material_index = 1
-    for x in (-3.52, -1.76, 0, 1.76, 3.52):
-        for side in (-1, 1):
-            block('rib upright', (x, side*2.6, 1.24), (.09, .09, 2.48), frame)
-            rib = block('roof rib', (x, side*1.33, 2.89), (.085, 2.84, .085), frame)
-            rib.rotation_euler.x = -side*math.atan(.325)
+    lintel = [(opening_corner, opening_top), (-opening_corner, opening_top),
+              (-opening_corner, shoulder_height), (opening_corner, shoulder_height)]
+    shell_panel('hatch lintel',
+                [hatch_point(y, z) for y, z in lintel],
+                [hatch_point(y, z, wall_thickness) for y, z in lintel], ceramic, lining)
+    surround = [(-.94, .02), (-.94, 1.94), (-.66, 2.53),
+                (.66, 2.53), (.94, 1.94), (.94, .02)]
+    for inset in (-.065, wall_thickness + .065):
+        for (y0, z0), (y1, z1) in zip(surround, surround[1:]):
+            start, end = hatch_point(y0, z0, inset), hatch_point(y1, z1, inset)
+            beam('hatch frame', start, end, .17, basalt)
+            if z0 > .02 and z1 > .02:
+                lip = Vector((math.copysign(.091, inset), 0, 0))
+                beam('hatch amber inlay', start.lerp(end, .12) + lip,
+                     start.lerp(end, .88) + lip, .047, amber)
 
-    bpy.ops.mesh.primitive_cylinder_add(vertices=16, radius=1, depth=1,
-                                       location=origin + Vector((-3.72, 0, 2.46)))
-    flap = finish('Starting tent rolled flap', canvas, (.12, .12, 1.78))
-    flap.rotation_euler.x = math.pi / 2
-    for side in (-1, 1):
-        strap = block('flap strap', (-3.73, side*.65, 2.46), (.253, .09, .248), frame)
-        strap.rotation_euler.y = .28
+    # A basalt collar and faceted cap echo the other shelters around the beacon.
+    roof_base = octagon(shoulder_radius + .23, shoulder_height - .08)
+    roof_top = octagon(crown_radius, crown_height)
+    roof_inside = octagon(shoulder_radius - wall_thickness, shoulder_height - .12)
+    roof_top_inside = octagon(crown_radius, crown_height - .17)
+    for edge in range(8):
+        following = (edge + 1) % 8
+        shell_panel('roof facet',
+                    [roof_base[edge], roof_base[following], roof_top[following], roof_top[edge]],
+                    [roof_inside[edge], roof_inside[following],
+                     roof_top_inside[following], roof_top_inside[edge]], basalt, lining)
+        beam('roof collar', roof_base[edge], roof_base[following], .18, frame)
+    shell_panel('roof crown', roof_top, roof_top_inside, basalt, lining)
+
+    inner_base = octagon(base_radius - wall_thickness - .035, .1)
+    inner_shoulder = octagon(shoulder_radius - wall_thickness - .035, shoulder_height - .08)
+    for edge in range(8):
+        beam('interior rib', inner_base[edge], inner_shoulder[edge], .11, frame)
+        beam('vault rib', inner_shoulder[edge], roof_top_inside[edge], .085, frame)
+
+    # Amber viewports sit on the two angled facets beside the entrance.
+    for edge, center in ((0, .32), (6, .68)):
+        for inset, mat, width, low, high in [
+            (-.025, basalt, .22, 1.92, 2.34), (-.043, amber, .16, 2.0, 2.26),
+            (wall_thickness + .025, basalt, .22, 1.92, 2.34),
+            (wall_thickness + .043, amber, .16, 2.0, 2.26),
+        ]:
+            a, b, c, d = facet(edge, low, high, inset)
+            vertices = [a.lerp(b, center-width), a.lerp(b, center+width),
+                        d.lerp(c, center+width), d.lerp(c, center-width)]
+            face = (3, 2, 1, 0) if inset > 0 else (0, 1, 2, 3)
+            mesh('Starting tent viewport', vertices, [face], mat)
 
     # The large furnishings have matching collision bodies. Small details sit on top.
     block('solid cot base', (-.55, 1.72, .19), (2.5, 1.19, .38), frame)
@@ -516,20 +584,23 @@ def starting_tent():
     for x in (-1.55, .45):
         block('cot frame trim', (x, 1.12, .28), (.09, .05, .23), stripe)
 
-    for x, y, width, depth, height in [(-2.3, 1.88, .75, .66, .58),
-                                       (-1.85, -1.85, 1.2, .81, .67),
+    lamp_x, lamp_y = -2.16, 1.75
+    for x, y, width, depth, height in [(lamp_x, lamp_y, .75, .66, .58),
+                                       (-1.85, -1.69, 1.2, .81, .67),
                                        (-.57, -2.02, .9, .73, .45)]:
         block('solid supply crate', (x, y, height/2), (width, depth, height), crate)
         block('crate lid', (x, y, height-.046), (width+.05, depth+.05, .09), frame)
         for side in (-1, 1):
             block('crate latch', (x+side*width*.27, y-math.copysign(depth/2, y),
                                   height-.105), (.09, .05, .12), stripe)
-    block('lantern base', (-2.3, 1.88, .628), (.31, .29, .096), frame)
-    block('lantern glass', (-2.3, 1.88, .79), (.20, .18, .26), amber)
-    block('lantern hood', (-2.3, 1.88, .945), (.31, .29, .08), frame)
-    for x in (-2.42, -2.18):
-        for y in (1.77, 1.99):
-            block('lantern cage', (x, y, .79), (.026, .026, .28), frame)
+    cone('Starting tent heat lamp base', origin + Vector((lamp_x, lamp_y, .64)),
+         .16, .12, basalt, .09)
+    ico('Starting tent heat lamp crystal', origin + Vector((lamp_x, lamp_y, .85)),
+        (.11, .11, .20), amber)
+    for angle in (0, math.tau / 3, 2 * math.tau / 3):
+        x, y = math.cos(angle), math.sin(angle)
+        beam('heat lamp guard', Vector((lamp_x + x*.14, lamp_y + y*.14, .66)),
+             Vector((lamp_x + x*.18, lamp_y + y*.18, .96)), .039, frame)
 
 
 def world():
