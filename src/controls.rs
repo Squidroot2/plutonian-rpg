@@ -11,11 +11,12 @@ pub(crate) enum Control {
     Dodge,
     Interact,
     Inventory,
+    Drop,
     Attack,
 }
 
 impl Control {
-    pub(crate) const ALL: [Self; 10] = [
+    pub(crate) const ALL: [Self; 11] = [
         Self::Forward,
         Self::Backward,
         Self::Left,
@@ -25,6 +26,7 @@ impl Control {
         Self::Dodge,
         Self::Interact,
         Self::Inventory,
+        Self::Drop,
         Self::Attack,
     ];
 
@@ -39,6 +41,7 @@ impl Control {
             Self::Dodge => "Dodge",
             Self::Interact => "Interact",
             Self::Inventory => "Inventory",
+            Self::Drop => "Drop item",
             Self::Attack => "Attack",
         }
     }
@@ -94,6 +97,7 @@ impl Default for Keybinds {
             (Control::Dodge, crate::player::DODGE_KEY),
             (Control::Interact, KeyE),
             (Control::Inventory, KeyI),
+            (Control::Drop, KeyQ),
         ];
         for (control, key) in keys {
             bindings[control as usize] = Binding::Key(key);

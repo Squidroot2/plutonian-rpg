@@ -385,8 +385,8 @@ fn drive(
         }
         ArenaStep::SwitchToCharacter => {
             assert!(
-                menu.is_on(MenuTab::Inventory),
-                "Tab must reopen the tab used by the previous inventory checks"
+                menu.is_on(MenuTab::Equipment),
+                "Tab must reopen Equipment after the gear checks"
             );
             let (window, camera) = inventory_smoke.context.expect("smoke UI context");
             click(&mut commands, MenuTab::Character, &tabs, window, camera);
@@ -508,6 +508,10 @@ fn drive(
             *step = ArenaStep::CloseCore;
         }
         ArenaStep::CloseCore => {
+            assert!(
+                !ui.drop_is_open(),
+                "a protected item cannot open the drop prompt"
+            );
             assert_eq!(inventory.count(ItemKind::BeaconCore), 1);
             *core_checked = true;
             keys.press(KeyCode::KeyI);

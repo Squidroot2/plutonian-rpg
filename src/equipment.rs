@@ -150,7 +150,7 @@ fn equip(
     assets: Option<Res<AssetServer>>,
     mut commands: Commands,
 ) {
-    if *state.get() != GameState::Playing || !menu.accepts(MenuTab::Inventory) {
+    if *state.get() != GameState::Playing || !menu.accepts(MenuTab::Equipment) {
         return;
     }
     notice.0 = match equipment.equip(&mut bag, request.0) {
@@ -186,7 +186,7 @@ fn unequip(
     assets: Option<Res<AssetServer>>,
     mut commands: Commands,
 ) {
-    if *state.get() != GameState::Playing || !menu.accepts(MenuTab::Inventory) {
+    if *state.get() != GameState::Playing || !menu.accepts(MenuTab::Equipment) {
         return;
     }
     notice.0 = match equipment.unequip(&mut bag, request.0) {
@@ -357,7 +357,7 @@ mod tests {
         );
     }
     #[test]
-    fn requests_only_change_equipment_while_inventory_is_open() {
+    fn requests_only_change_equipment_while_equipment_is_open() {
         use bevy::state::app::StatesPlugin;
         let mut app = App::new();
         app.add_plugins((MinimalPlugins, StatesPlugin))
@@ -390,7 +390,7 @@ mod tests {
         );
         app.world_mut()
             .resource_mut::<PlayerMenu>()
-            .show(MenuTab::Inventory);
+            .show(MenuTab::Equipment);
         app.world_mut().trigger(EquipRequest(ItemKind::FieldArmor));
         assert_eq!(
             app.world().resource::<Equipment>().get(EquipmentSlot::Body),
@@ -398,7 +398,7 @@ mod tests {
         );
         app.world_mut()
             .resource_mut::<PlayerMenu>()
-            .show(MenuTab::Character);
+            .show(MenuTab::Inventory);
         app.world_mut().trigger(UnequipRequest(EquipmentSlot::Body));
         assert_eq!(
             app.world().resource::<Equipment>().get(EquipmentSlot::Body),
@@ -412,7 +412,7 @@ mod tests {
         );
         app.world_mut()
             .resource_mut::<PlayerMenu>()
-            .show(MenuTab::Inventory);
+            .show(MenuTab::Equipment);
         app.world_mut().trigger(UnequipRequest(EquipmentSlot::Body));
         assert_eq!(
             app.world().resource::<Equipment>().get(EquipmentSlot::Body),

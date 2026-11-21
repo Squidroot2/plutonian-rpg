@@ -1,4 +1,5 @@
 use crate::{
+    controls::{Control, Keybinds},
     equipment::{EquipRequest, Equipment, EquipmentSlot, UnequipRequest},
     inventory::{
         CARRY_CAPACITY, DropRequest, IMMOBILE_WEIGHT, Inventory, InventoryNotice, ItemKind,
@@ -15,167 +16,320 @@ use bevy::{
 };
 
 pub struct InventoryUiPlugin;
+
 #[derive(Resource, Default)]
 pub struct InventoryUiState {
     pub selected: Option<ItemKind>,
     pub quantity: String,
+    gear: Option<ItemKind>,
+    drop_open: bool,
     editing: bool,
     replace: bool,
 }
+
 impl InventoryUiState {
     pub fn amount(&self, inventory: &Inventory) -> Option<u32> {
-        let item = self.selected?;
-        if item == ItemKind::BeaconCore {
-            return None;
-        }
+        let available = available_to_drop(self.selected?, inventory);
         self.quantity
             .parse::<u32>()
             .ok()
-            .filter(|n| *n > 0 && *n <= inventory.count(item))
+            .filter(|n| *n > 0 && *n <= available)
     }
+
+    pub(crate) fn cancel_drop(&mut self) -> bool {
+        if !self.drop_open {
+            return false;
+        }
+        self.drop_open = false;
+        self.editing = false;
+        self.replace = false;
+        true
+    }
+
+    pub(crate) fn drop_is_open(&self) -> bool {
+        self.drop_open
+    }
+
+    fn open_drop(&mut self, inventory: &Inventory) {
+        if !self.drop_open
+            && self
+                .selected
+                .is_some_and(|item| available_to_drop(item, inventory) > 0)
+        {
+            self.drop_open = true;
+            self.quantity = "1".into();
+            self.editing = true;
+            self.replace = true;
+        }
+    }
+
     fn step(&mut self, inventory: &Inventory, direction: i32) {
-        let Some(item) = self.selected else {
-            return;
-        };
-        let max = inventory.count(item);
+        let Some(item) = self.selected else { return };
+        let max = available_to_drop(item, inventory);
         if max == 0 {
             return;
         }
         let amount = self.quantity.parse::<u32>().unwrap_or(1);
-        self.quantity = (amount as i64 + direction as i64)
-            .clamp(1, max as i64)
+        self.quantity = (i64::from(amount) + i64::from(direction))
+            .clamp(1, i64::from(max))
             .to_string();
         self.editing = false;
     }
 }
+
+fn available_to_drop(item: ItemKind, inventory: &Inventory) -> u32 {
+    if item == ItemKind::BeaconCore {
+        0
+    } else {
+        inventory.count(item)
+    }
+}
+
+fn equipped(item: ItemKind, equipment: &Equipment) -> bool {
+    item.gear()
+        .is_some_and(|gear| equipment.get(gear.slot) == Some(item))
+}
+
+fn owned(item: ItemKind, inventory: &Inventory, equipment: &Equipment) -> u64 {
+    u64::from(inventory.count(item)) + u64::from(equipped(item, equipment))
+}
+
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum InventoryAction {
     Select(ItemKind),
+    SelectGear(ItemKind),
     Equip,
     Unequip(EquipmentSlot),
     Minus,
     Plus,
     Quantity,
     Drop,
+    ConfirmDrop,
+    CancelDrop,
 }
+
+impl InventoryAction {
+    fn tab(self) -> MenuTab {
+        match self {
+            Self::SelectGear(_) | Self::Equip | Self::Unequip(_) => MenuTab::Equipment,
+            _ => MenuTab::Inventory,
+        }
+    }
+}
+
 #[derive(Component)]
-struct SlotText(EquipmentSlot);
+enum PanelText {
+    ItemQuantity(ItemKind),
+    ItemWeight(ItemKind),
+    ItemStatus(ItemKind),
+    Gear(ItemKind),
+    Slot(EquipmentSlot),
+    Defense,
+    Load,
+    Detail,
+    Amount,
+    DropLabel,
+    DropTitle,
+    Notice(MenuTab),
+}
+
 #[derive(Component)]
-struct DefenseText;
-#[derive(Component)]
-struct EquipLabel;
-#[derive(Component)]
-struct ItemLabel(ItemKind);
-#[derive(Component)]
-struct ItemTitle;
-#[derive(Component)]
-struct DetailText;
-#[derive(Component)]
-struct AmountText;
-#[derive(Component)]
-struct NoticeText;
-#[derive(Component)]
-struct EmptyText;
+struct EmptyList(MenuTab);
 #[derive(Component)]
 struct DropControls;
 
 impl Plugin for InventoryUiPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<InventoryUiState>()
-            .add_systems(
-                Update,
-                (edit_quantity, sync)
-                    .chain()
-                    .run_if(|menu: Res<PlayerMenu>| menu.is_on(MenuTab::Inventory)),
-            )
-            .add_systems(Last, blur_quantity.after(menu_ui::close));
+            .add_systems(Update, (edit_quantity, sync).chain())
+            .add_systems(Last, dismiss_prompt.after(menu_ui::close));
     }
 }
 
-fn action_button(parent: &mut ChildSpawnerCommands, kind: InventoryAction, label: &str) {
+fn action_button(parent: &mut ChildSpawnerCommands, kind: InventoryAction, label: impl Bundle) {
     parent
         .spawn((kind, menu_ui::button()))
         .observe(action)
-        .with_child((Text::new(label), font(16.0), Pickable::IGNORE));
+        .with_child((label, font(16.0), Pickable::IGNORE));
+}
+
+fn table_cells(row: &mut ChildSpawnerCommands, cells: [(Text, Option<PanelText>); 4]) {
+    for ((cell, kind), width) in cells.into_iter().zip([43.0, 15.0, 21.0, 21.0]) {
+        let mut entity = row.spawn((
+            cell,
+            font(16.0),
+            Pickable::IGNORE,
+            Node {
+                width: percent(width),
+                min_width: px(0),
+                ..default()
+            },
+        ));
+        if let Some(kind) = kind {
+            entity.insert(kind);
+        }
+    }
 }
 
 pub(crate) fn spawn(page: &mut ChildSpawnerCommands) {
-    page.spawn(scroll_pane(MenuTab::Inventory, percent(32)))
-        .with_children(|bag| {
-            bag.spawn((Text::new("Bag"), font(19.0)));
-            bag.spawn((EmptyText, Text::new("Your bag is empty."), font(16.0)));
-            for item in ItemKind::ALL {
-                bag.spawn((InventoryAction::Select(item), menu_ui::button()))
-                    .observe(action)
-                    .with_child((
-                        ItemLabel(item),
-                        Text::default(),
-                        font(16.0),
-                        Pickable::IGNORE,
-                    ));
-            }
-        });
-    page.spawn(scroll_pane(MenuTab::Inventory, percent(68)))
-        .with_children(|details| {
-            details.spawn((ItemTitle, Text::default(), font(23.0)));
-            details.spawn((DetailText, Text::default(), font(17.0)));
-            details
-                .spawn((InventoryAction::Equip, menu_ui::button()))
-                .observe(action)
-                .with_child((EquipLabel, Text::new("Equip"), font(16.0), Pickable::IGNORE));
-            details
-                .spawn((
-                    DropControls,
-                    Node {
-                        flex_shrink: 0.0,
-                        ..column()
-                    },
-                ))
-                .with_children(|controls| {
-                    controls.spawn((Text::new("Quantity to drop"), font(16.0)));
-                    controls
-                        .spawn(Node {
-                            column_gap: px(8),
-                            ..default()
-                        })
-                        .with_children(|quantity| {
-                            action_button(quantity, InventoryAction::Minus, "-");
-                            quantity
-                                .spawn((InventoryAction::Quantity, menu_ui::button()))
-                                .insert(Node {
-                                    min_width: px(96),
-                                    min_height: px(34),
-                                    justify_content: JustifyContent::Center,
-                                    align_items: AlignItems::Center,
-                                    padding: UiRect::axes(px(8), px(6)),
-                                    ..default()
-                                })
-                                .observe(action)
-                                .with_child((
-                                    AmountText,
-                                    Text::new("1"),
-                                    font(16.0),
-                                    Pickable::IGNORE,
-                                ));
-                            action_button(quantity, InventoryAction::Plus, "+");
+    page.spawn(Node {
+        width: percent(100),
+        ..column()
+    })
+    .with_children(|panel| {
+        panel
+            .spawn(Node {
+                padding: UiRect::horizontal(px(24)),
+                flex_shrink: 0.0,
+                ..default()
+            })
+            .with_children(|row| {
+                table_cells(
+                    row,
+                    ["Item", "Qty", "Weight", "Status"].map(|label| (Text::new(label), None)),
+                )
+            });
+        panel
+            .spawn(scroll_pane(MenuTab::Inventory, percent(100)))
+            .insert(Node {
+                flex_grow: 1.0,
+                min_height: px(0),
+                padding: UiRect::all(px(12)),
+                overflow: Overflow::scroll_y(),
+                ..column()
+            })
+            .with_children(|bag| {
+                bag.spawn((
+                    EmptyList(MenuTab::Inventory),
+                    Text::new("Your inventory is empty."),
+                    font(16.0),
+                ));
+                for item in ItemKind::ALL {
+                    bag.spawn((InventoryAction::Select(item), menu_ui::button()))
+                        .observe(action)
+                        .with_children(|row| {
+                            table_cells(
+                                row,
+                                [
+                                    (Text::new(item.name()), None),
+                                    (Text::default(), Some(PanelText::ItemQuantity(item))),
+                                    (Text::default(), Some(PanelText::ItemWeight(item))),
+                                    (Text::default(), Some(PanelText::ItemStatus(item))),
+                                ],
+                            )
                         });
-                    action_button(controls, InventoryAction::Drop, "Drop selected quantity");
-                });
-            details.spawn((NoticeText, Text::default(), font(14.0)));
+                }
+            });
+        panel.spawn((
+            PanelText::Detail,
+            Text::default(),
+            font(15.0),
+            Node {
+                flex_shrink: 0.0,
+                ..default()
+            },
+        ));
+        panel
+            .spawn((
+                DropControls,
+                Node {
+                    display: Display::None,
+                    flex_shrink: 0.0,
+                    ..column()
+                },
+            ))
+            .with_children(|prompt| {
+                prompt.spawn((PanelText::DropTitle, Text::default(), font(17.0)));
+                prompt
+                    .spawn(Node {
+                        column_gap: px(8),
+                        row_gap: px(6),
+                        flex_wrap: FlexWrap::Wrap,
+                        ..default()
+                    })
+                    .with_children(|quantity| {
+                        action_button(quantity, InventoryAction::Minus, Text::new("-"));
+                        quantity
+                            .spawn((InventoryAction::Quantity, menu_ui::button()))
+                            .insert(Node {
+                                min_width: px(96),
+                                min_height: px(34),
+                                align_items: AlignItems::Center,
+                                justify_content: JustifyContent::Center,
+                                ..default()
+                            })
+                            .observe(action)
+                            .with_child((
+                                PanelText::Amount,
+                                Text::default(),
+                                font(16.0),
+                                Pickable::IGNORE,
+                            ));
+                        action_button(quantity, InventoryAction::Plus, Text::new("+"));
+                        action_button(
+                            quantity,
+                            InventoryAction::ConfirmDrop,
+                            Text::new("Confirm drop"),
+                        );
+                        action_button(quantity, InventoryAction::CancelDrop, Text::new("Cancel"));
+                    });
+            });
+        panel.spawn((
+            PanelText::Notice(MenuTab::Inventory),
+            Text::default(),
+            font(14.0),
+        ));
+        panel
+            .spawn(Node {
+                align_items: AlignItems::Center,
+                justify_content: JustifyContent::SpaceBetween,
+                flex_shrink: 0.0,
+                ..default()
+            })
+            .with_children(|footer| {
+                footer.spawn((PanelText::Load, Text::default(), font(16.0)));
+                action_button(
+                    footer,
+                    InventoryAction::Drop,
+                    (PanelText::DropLabel, Text::default()),
+                );
+            });
+    });
+}
+
+pub(crate) fn spawn_equipment(page: &mut ChildSpawnerCommands) {
+    page.spawn(scroll_pane(MenuTab::Equipment, percent(38)))
+        .with_children(|list| {
+            list.spawn((Text::new("Available gear"), font(19.0)));
+            list.spawn((
+                EmptyList(MenuTab::Equipment),
+                Text::new("No gear in your bag."),
+                font(16.0),
+            ));
+            for item in ItemKind::GEAR {
+                action_button(
+                    list,
+                    InventoryAction::SelectGear(item),
+                    (PanelText::Gear(item), Text::default()),
+                );
+            }
+            action_button(list, InventoryAction::Equip, Text::new("Equip selected"));
+        });
+    page.spawn(scroll_pane(MenuTab::Equipment, percent(62)))
+        .with_children(|details| {
             details.spawn((Text::new("Equipped"), font(19.0)));
-            details.spawn((DefenseText, Text::default(), font(16.0)));
+            details.spawn((PanelText::Defense, Text::default(), font(16.0)));
             for slot in EquipmentSlot::ALL {
                 details
                     .spawn(Node {
                         align_items: AlignItems::Center,
-                        justify_content: JustifyContent::SpaceBetween,
                         column_gap: px(8),
                         flex_shrink: 0.0,
                         ..default()
                     })
                     .with_children(|row| {
                         row.spawn((
-                            SlotText(slot),
+                            PanelText::Slot(slot),
                             Text::default(),
                             font(16.0),
                             Node {
@@ -184,24 +338,27 @@ pub(crate) fn spawn(page: &mut ChildSpawnerCommands) {
                                 ..default()
                             },
                         ));
-                        action_button(row, InventoryAction::Unequip(slot), "Unequip");
+                        action_button(row, InventoryAction::Unequip(slot), Text::new("Unequip"));
                     });
             }
+            details.spawn((
+                PanelText::Notice(MenuTab::Equipment),
+                Text::default(),
+                font(14.0),
+            ));
         });
 }
 
-fn blur_quantity(
+fn dismiss_prompt(
     menu: Res<PlayerMenu>,
     mut ui: ResMut<InventoryUiState>,
     mut notice: ResMut<InventoryNotice>,
 ) {
-    if menu.is_changed() && !menu.is_on(MenuTab::Inventory) {
-        if ui.editing {
-            ui.editing = false;
-        }
-        if !notice.0.is_empty() {
-            notice.0.clear();
-        }
+    if !menu.is_on(MenuTab::Inventory) && ui.drop_is_open() {
+        ui.cancel_drop();
+    }
+    if !menu.is_open() && !notice.0.is_empty() {
+        notice.0.clear();
     }
 }
 
@@ -215,65 +372,83 @@ fn action(
     mut notice: ResMut<InventoryNotice>,
     mut commands: Commands,
 ) {
-    if !menu.accepts(MenuTab::Inventory) || click.button != PointerButton::Primary {
-        return;
-    }
-    let Ok(action) = actions.get(click.entity) else {
+    let Ok(&action) = actions.get(click.entity) else {
         return;
     };
-    match *action {
-        InventoryAction::Select(item) if inventory.count(item) > 0 => {
+    if !menu.accepts(action.tab()) || click.button != PointerButton::Primary {
+        return;
+    }
+    match action {
+        InventoryAction::Select(item) if owned(item, &inventory, &equipment) > 0 => {
             ui.selected = Some(item);
-            ui.quantity = "1".into();
-            ui.editing = false;
+            ui.cancel_drop();
+            notice.0.clear();
+        }
+        InventoryAction::SelectGear(item)
+            if inventory.count(item) > 0 && !equipped(item, &equipment) =>
+        {
+            ui.gear = Some(item);
             notice.0.clear();
         }
         InventoryAction::Equip => {
-            if let Some(item) = ui.selected {
+            if let Some(item) = ui.gear.filter(|item| !equipped(*item, &equipment)) {
                 commands.trigger(EquipRequest(item));
-                ui.editing = false;
             }
         }
         InventoryAction::Unequip(slot) if equipment.get(slot).is_some() => {
             commands.trigger(UnequipRequest(slot));
-            ui.editing = false;
         }
-        InventoryAction::Minus => ui.step(&inventory, -1),
-        InventoryAction::Plus => ui.step(&inventory, 1),
-        InventoryAction::Quantity => {
+        InventoryAction::Drop => ui.open_drop(&inventory),
+        InventoryAction::CancelDrop => {
+            ui.cancel_drop();
+        }
+        InventoryAction::ConfirmDrop => confirm_drop(&mut ui, &inventory, &mut commands),
+        InventoryAction::Minus if ui.drop_is_open() => ui.step(&inventory, -1),
+        InventoryAction::Plus if ui.drop_is_open() => ui.step(&inventory, 1),
+        InventoryAction::Quantity if ui.drop_is_open() => {
             ui.editing = true;
             ui.replace = true;
-        }
-        InventoryAction::Drop => {
-            if let (Some(item), Some(quantity)) = (ui.selected, ui.amount(&inventory)) {
-                ui.editing = false;
-                commands.trigger(DropRequest { item, quantity });
-            } else {
-                notice.0 = "Choose a quantity from 1 to the available count.".into();
-            }
         }
         _ => (),
     }
 }
+
+fn confirm_drop(ui: &mut InventoryUiState, inventory: &Inventory, commands: &mut Commands) {
+    if ui.drop_is_open()
+        && let (Some(item), Some(quantity)) = (ui.selected, ui.amount(inventory))
+    {
+        ui.cancel_drop();
+        commands.trigger(DropRequest { item, quantity });
+    }
+}
+
 fn edit_quantity(
     mut events: MessageReader<KeyboardInput>,
     mut ui: ResMut<InventoryUiState>,
     inventory: Res<Inventory>,
     menu: Res<PlayerMenu>,
+    keys: Res<ButtonInput<KeyCode>>,
+    bindings: Res<Keybinds>,
+    mut commands: Commands,
 ) {
-    if !menu.accepts(MenuTab::Inventory) {
+    if !menu.accepts(MenuTab::Inventory) || keys.just_pressed(KeyCode::Escape) {
+        events.clear();
+        return;
+    }
+    if bindings.just_pressed(Control::Drop, &keys) {
+        ui.open_drop(&inventory);
         events.clear();
         return;
     }
     for event in events.read() {
-        if event.state != ButtonState::Pressed
-            || !ui.editing
-            || ui.selected == Some(ItemKind::BeaconCore)
-        {
+        if event.state != ButtonState::Pressed || !ui.drop_is_open() {
             continue;
         }
         match &event.logical_key {
-            Key::Backspace => {
+            Key::Enter if !event.repeat => confirm_drop(&mut ui, &inventory, &mut commands),
+            Key::ArrowUp => ui.step(&inventory, 1),
+            Key::ArrowDown => ui.step(&inventory, -1),
+            Key::Backspace if ui.editing => {
                 if ui.replace {
                     ui.quantity.clear();
                 } else {
@@ -281,126 +456,99 @@ fn edit_quantity(
                 }
                 ui.replace = false;
             }
-            Key::Delete => {
+            Key::Delete if ui.editing => {
                 ui.quantity.clear();
                 ui.replace = false;
             }
-            Key::Enter => ui.editing = false,
-            Key::ArrowUp => ui.step(&inventory, 1),
-            Key::ArrowDown => ui.step(&inventory, -1),
-            _ => {
-                if let Some(text) = &event.text {
-                    if text.chars().all(|c| c.is_ascii_digit()) {
-                        if ui.replace {
-                            ui.quantity.clear();
-                            ui.replace = false;
-                        }
-                        if ui.quantity.len() + text.len() <= 10 {
-                            ui.quantity.push_str(text);
-                        }
+            _ if ui.editing => {
+                if let Some(text) = &event.text
+                    && text.chars().all(|c| c.is_ascii_digit())
+                {
+                    if ui.replace {
+                        ui.quantity.clear();
+                    }
+                    ui.replace = false;
+                    if ui.quantity.len() + text.len() <= 10 {
+                        ui.quantity.push_str(text);
                     }
                 }
             }
+            _ => (),
         }
     }
 }
+
 fn sync(
     inventory: Res<Inventory>,
     equipment: Res<Equipment>,
     mut ui: ResMut<InventoryUiState>,
     notice: Res<InventoryNotice>,
-    mut controls: Query<
-        &mut Node,
-        (
-            With<DropControls>,
-            Without<InventoryAction>,
-            Without<EmptyText>,
-        ),
-    >,
-    mut buttons: Query<(&InventoryAction, &mut Node, &mut BackgroundColor), Without<EmptyText>>,
-    mut empty: Query<
-        &mut Node,
-        (
-            With<EmptyText>,
-            Without<InventoryAction>,
-            Without<DropControls>,
-        ),
-    >,
-    mut texts: ParamSet<(
-        Query<(&ItemLabel, &mut Text)>,
-        Query<&mut Text, With<DetailText>>,
-        Query<&mut Text, With<AmountText>>,
-        Query<&mut Text, With<NoticeText>>,
-        Query<(&SlotText, &mut Text)>,
-        Query<&mut Text, With<DefenseText>>,
-        Query<&mut Text, With<EquipLabel>>,
-        Query<&mut Text, With<ItemTitle>>,
+    bindings: Res<Keybinds>,
+    menu: Res<PlayerMenu>,
+    mut nodes: ParamSet<(
+        Query<&mut Node, With<DropControls>>,
+        Query<(&InventoryAction, &mut Node, &mut BackgroundColor)>,
+        Query<(&EmptyList, &mut Node)>,
     )>,
+    mut texts: Query<(&PanelText, &mut Text)>,
 ) {
-    if !(inventory.is_changed() || equipment.is_changed() || ui.is_changed() || notice.is_changed())
+    if !menu.is_open()
+        || !(menu.is_changed()
+            || inventory.is_changed()
+            || equipment.is_changed()
+            || ui.is_changed()
+            || notice.is_changed()
+            || bindings.is_changed())
     {
         return;
     }
-    if ui.selected.is_none_or(|item| inventory.count(item) == 0) {
+    if ui
+        .selected
+        .is_none_or(|item| owned(item, &inventory, &equipment) == 0)
+    {
         ui.selected = ItemKind::ALL
             .into_iter()
-            .find(|item| inventory.count(*item) > 0);
-        ui.quantity = "1".into();
-        ui.editing = false;
+            .find(|&item| owned(item, &inventory, &equipment) > 0);
+        ui.cancel_drop();
     }
-    if inventory.is_changed()
-        && let Some(item) = ui.selected
+    if ui
+        .gear
+        .is_none_or(|item| inventory.count(item) == 0 || equipped(item, &equipment))
     {
-        if ui
-            .quantity
-            .parse::<u32>()
-            .is_ok_and(|n| n > inventory.count(item))
-        {
-            ui.quantity = inventory.count(item).to_string();
-        }
+        ui.gear = ItemKind::GEAR
+            .into_iter()
+            .find(|&item| inventory.count(item) > 0 && !equipped(item, &equipment));
     }
-    let droppable = ui.selected.is_some_and(|item| item != ItemKind::BeaconCore);
-    for mut node in &mut controls {
-        node.display = if droppable {
-            Display::Flex
-        } else {
-            Display::None
-        };
+    let droppable = ui
+        .selected
+        .is_some_and(|item| available_to_drop(item, &inventory) > 0);
+    if !droppable {
+        ui.cancel_drop();
     }
-    for mut node in &mut empty {
-        node.display = if ui.selected.is_none() {
-            Display::Flex
-        } else {
-            Display::None
-        };
+    for mut node in &mut nodes.p0() {
+        node.display = display(ui.drop_is_open());
     }
-    for (action, mut node, mut color) in &mut buttons {
-        if let InventoryAction::Select(item) = action {
-            node.display = if inventory.count(*item) > 0 {
-                Display::Flex
-            } else {
-                Display::None
-            };
-        }
-        if *action == InventoryAction::Equip {
-            node.display = if ui.selected.is_some_and(|item| item.gear().is_some()) {
-                Display::Flex
-            } else {
-                Display::None
-            };
-        }
-        let selected = matches!(action, InventoryAction::Select(item) if Some(*item) == ui.selected)
-            || (*action == InventoryAction::Quantity && ui.editing);
-        let invalid = match *action {
-            InventoryAction::Drop => ui.amount(&inventory).is_none(),
-            InventoryAction::Equip => ui.selected.is_none_or(|item| {
-                item.gear()
-                    .is_none_or(|gear| equipment.get(gear.slot) == Some(item))
-            }),
-            InventoryAction::Unequip(slot) => equipment.get(slot).is_none(),
-            _ => false,
+    for (action, mut node, mut color) in &mut nodes.p1() {
+        let (shown, selected, disabled) = match *action {
+            InventoryAction::Select(item) => (
+                owned(item, &inventory, &equipment) > 0,
+                Some(item) == ui.selected,
+                false,
+            ),
+            InventoryAction::SelectGear(item) => (
+                inventory.count(item) > 0,
+                Some(item) == ui.gear,
+                equipped(item, &equipment),
+            ),
+            InventoryAction::Equip => (ui.gear.is_some(), false, false),
+            InventoryAction::Unequip(slot) => (true, false, equipment.get(slot).is_none()),
+            InventoryAction::Drop => (true, false, !droppable),
+            InventoryAction::ConfirmDrop => (true, false, ui.amount(&inventory).is_none()),
+            InventoryAction::Quantity => (true, ui.editing, false),
+            _ => (true, false, false),
         };
-        color.0 = if invalid {
+        node.display = display(shown);
+        color.0 = if disabled {
             DISABLED
         } else if selected {
             SELECTED
@@ -408,121 +556,129 @@ fn sync(
             BUTTON
         };
     }
-    for (label, mut text) in &mut texts.p0() {
-        **text = format!(
-            "{}  x{}{}",
-            label.0.name(),
-            inventory.count(label.0),
-            if label.0 == ItemKind::BeaconCore {
-                "  / Quest item"
-            } else {
-                ""
-            }
-        );
-    }
-    for mut text in &mut texts.p7() {
-        **text = ui.selected.map_or("", ItemKind::name).into();
-    }
-    for mut text in &mut texts.p1() {
-        **text = ui.selected.map_or(String::new(), |item| {
-            let description = item.gear().map_or_else(
-                || item.description().into(),
-                |gear| {
-                    if gear.slot == EquipmentSlot::Weapon {
-                        format!(
-                            "Two-handed weapon / Reach {:.1} m\n{}",
-                            crate::spear::REACH,
-                            item.description()
-                        )
-                    } else {
-                        format!(
-                            "{} / Defense {}\n{}",
-                            gear.slot.name(),
-                            gear.defense,
-                            item.description()
-                        )
-                    }
-                },
-            );
-            format!("{} kg each\n{description}", item.weight())
+    for (kind, mut node) in &mut nodes.p2() {
+        node.display = display(match kind.0 {
+            MenuTab::Inventory => ui.selected.is_none(),
+            _ => !ItemKind::GEAR
+                .into_iter()
+                .any(|item| inventory.count(item) > 0),
         });
     }
-    for mut text in &mut texts.p2() {
-        **text = format!("{}{}", ui.quantity, if ui.editing { "_" } else { "" });
-    }
-    for mut text in &mut texts.p3() {
-        **text = if droppable && ui.amount(&inventory).is_none() {
-            "Enter a quantity from 1 to the available count.".into()
-        } else {
-            notice.0.clone()
-        };
-    }
-    for (slot, mut text) in &mut texts.p4() {
-        **text = equipment.get(slot.0).map_or_else(
-            || format!("{}: Empty", slot.0.name()),
-            |item| {
-                if slot.0 == EquipmentSlot::Weapon {
-                    return format!("{}: {}", slot.0.name(), item.name());
-                }
+    let weight = inventory.carried_weight(&equipment);
+    let load_status = if weight > IMMOBILE_WEIGHT {
+        " / Cannot move"
+    } else if weight > CARRY_CAPACITY {
+        " / Walking only"
+    } else {
+        ""
+    };
+    for (kind, mut text) in &mut texts {
+        **text = match *kind {
+            PanelText::ItemQuantity(item) => owned(item, &inventory, &equipment).to_string(),
+            PanelText::ItemWeight(item) => {
+                format!("{} kg", item.weight() * owned(item, &inventory, &equipment))
+            }
+            PanelText::ItemStatus(item) if equipped(item, &equipment) => "Equipped".into(),
+            PanelText::ItemStatus(ItemKind::BeaconCore) => "Quest item".into(),
+            PanelText::ItemStatus(_) => String::new(),
+            PanelText::Gear(item) => format!("{}  x{}", item.name(), inventory.count(item)),
+            PanelText::Slot(slot) => slot_label(slot, &equipment),
+            PanelText::Defense => format!("Defense {}", equipment.total_defense()),
+            PanelText::Load => format!("Load {weight}/{CARRY_CAPACITY} kg{load_status}"),
+            PanelText::Detail => ui.selected.map_or_else(String::new, item_detail),
+            PanelText::Amount => format!("{}{}", ui.quantity, if ui.editing { "_" } else { "" }),
+            PanelText::DropLabel => format!("Drop [{}]", bindings.get(Control::Drop).label()),
+            PanelText::DropTitle => ui.selected.map_or(String::new(), |item| {
                 format!(
-                    "{}: {} (+{})",
-                    slot.0.name(),
+                    "Quantity to drop for {} (up to {})",
                     item.name(),
-                    item.gear()
-                        .expect("only equipment items can occupy equipment slots")
-                        .defense
+                    available_to_drop(item, &inventory)
                 )
-            },
-        );
-    }
-    for mut text in &mut texts.p5() {
-        let weight = inventory.carried_weight(&equipment);
-        let status = if weight > IMMOBILE_WEIGHT {
-            " / Cannot move"
-        } else if weight > CARRY_CAPACITY {
-            " / Walking only"
-        } else {
-            ""
+            }),
+            PanelText::Notice(tab) if menu.is_on(tab) => {
+                if ui.drop_is_open() && ui.amount(&inventory).is_none() {
+                    "Enter a quantity from 1 to the available count.".into()
+                } else {
+                    notice.0.clone()
+                }
+            }
+            PanelText::Notice(_) => String::new(),
         };
-        **text = format!(
-            "Defense {}  /  Load {weight}/{CARRY_CAPACITY} kg{status}",
-            equipment.total_defense()
-        );
-    }
-    for mut text in &mut texts.p6() {
-        **text = if ui.selected.is_some_and(|item| {
-            item.gear()
-                .is_some_and(|gear| equipment.get(gear.slot) == Some(item))
-        }) {
-            "Equipped"
-        } else {
-            "Equip"
-        }
-        .into();
     }
 }
+
+fn display(shown: bool) -> Display {
+    if shown { Display::Flex } else { Display::None }
+}
+
+fn item_detail(item: ItemKind) -> String {
+    let weight = item.weight();
+    let description = item.description();
+    match item.gear() {
+        Some(gear) if gear.slot == EquipmentSlot::Weapon => {
+            format!(
+                "{weight} kg each / Reach {:.1} m / {description}",
+                crate::spear::REACH
+            )
+        }
+        Some(gear) => format!(
+            "{weight} kg each / Defense {} / {description}",
+            gear.defense
+        ),
+        None => format!("{weight} kg each / {description}"),
+    }
+}
+
+fn slot_label(slot: EquipmentSlot, equipment: &Equipment) -> String {
+    equipment.get(slot).map_or_else(
+        || format!("{}: Empty", slot.name()),
+        |item| {
+            let gear = item.gear().expect("only gear can occupy equipment slots");
+            if slot == EquipmentSlot::Weapon {
+                format!("{}: {}", slot.name(), item.name())
+            } else {
+                format!("{}: {} (+{})", slot.name(), item.name(), gear.defense)
+            }
+        },
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
     #[test]
-    fn quantity_field_requires_a_positive_available_integer() {
+    fn quantity_prompt_validates_spares_and_protects_equipped_copies_and_the_core() {
         let mut inventory = Inventory::default();
-        inventory.add(ItemKind::Battery, 3);
+        let mut equipment = Equipment::default();
+        inventory.add(ItemKind::FieldArmor, 3);
+        equipment
+            .equip(&mut inventory, ItemKind::FieldArmor)
+            .expect("fixture armor");
         let mut ui = InventoryUiState {
-            selected: Some(ItemKind::Battery),
+            selected: Some(ItemKind::FieldArmor),
             ..default()
         };
-        for text in ["", "0", "4", "-1", "1.5", "4294967296"] {
+        assert_eq!(owned(ItemKind::FieldArmor, &inventory, &equipment), 3);
+        assert!(equipped(ItemKind::FieldArmor, &equipment));
+        assert!(!ui.drop_is_open());
+        ui.open_drop(&inventory);
+        for text in ["", "0", "3", "-1", "1.5", "4294967296"] {
             ui.quantity = text.into();
             assert_eq!(ui.amount(&inventory), None);
         }
-        ui.quantity = "2".into();
+        ui.quantity = "1".into();
+        ui.step(&inventory, 1);
         assert_eq!(ui.amount(&inventory), Some(2));
-        ui.step(&inventory, 1);
-        assert_eq!(ui.amount(&inventory), Some(3));
-        ui.step(&inventory, 1);
-        assert_eq!(ui.amount(&inventory), Some(3));
+        assert!(ui.cancel_drop());
+        assert!(inventory.remove(ItemKind::FieldArmor, 2));
+        ui.open_drop(&inventory);
+        assert!(!ui.drop_is_open());
+        assert_eq!(owned(ItemKind::FieldArmor, &inventory, &equipment), 1);
+        inventory.add(ItemKind::BeaconCore, 1);
         ui.selected = Some(ItemKind::BeaconCore);
+        ui.open_drop(&inventory);
+        assert!(!ui.drop_is_open());
         assert_eq!(ui.amount(&inventory), None);
     }
 }

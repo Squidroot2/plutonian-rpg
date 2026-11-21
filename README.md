@@ -32,6 +32,7 @@ Choose **Start Game** on the title screen to load Nivalis. Click a button or sel
 | E | Speak / collect a nearby item / dismiss dialogue |
 | Enter | Quest interaction / dismiss dialogue |
 | I | Open or switch to Inventory / close the player menu from Inventory |
+| Q | Open the drop quantity prompt for the selected item in Inventory |
 | Tab | Open the last player-menu tab / close the menu |
 | Escape | Close the player menu / dismiss dialogue / pause or resume |
 
@@ -47,7 +48,7 @@ The game includes The Last Light, the Old Relay quest and dungeon, and one speak
 
 ## Player menu
 
-Press Tab during gameplay to open the player menu. Choose **Quest**, **Inventory**, or **Character**. The menu remembers your last tab for the session and starts on Quest. Tab, Escape, and Close return control to the player. The cursor is available while the menu is open, and the world keeps running. Character shows placeholder data.
+Press Tab during gameplay to open the player menu. Choose **Quest**, **Inventory**, **Equipment**, or **Character**. The menu remembers your last tab for the session and starts on Quest. Tab, Escape, and Close return control to the player. The cursor is available while the menu is open, and the world keeps running. Character shows placeholder data.
 
 ### Quest
 
@@ -65,7 +66,9 @@ E picks up the nearest eligible item within three meters and clear line of sight
 
 Batteries, scrap, and methane pouches are scattered around the outpost, trail, and cavern: two of each material in each region, for 18 initial pickups. Pickups transfer their whole stack. Inventory starts empty, stacks by item type, and has no capacity limit. Materials have no crafting or consumption effects yet.
 
-Select the Inventory tab or press I to jump straight to it. Select an item in the bag, click its quantity field to type an integer or use the minus/plus buttons, then click **Drop selected quantity**. Scroll over the bag or item details to move through each pane. The item detail pane also holds equipment slots and gear actions.
+Select the Inventory tab or press I to jump straight to it. Each row shows the owned quantity and total weight. Equipped gear appears with an **Equipped** status and counts toward the row totals. Select a row to see its per-unit weight and details.
+
+Select a row and click **Drop** at the bottom of Inventory or press Q to open the quantity prompt. Type a number or use the minus and plus buttons. Click **Confirm drop** or press Enter to drop that amount. Escape or **Cancel** dismisses the prompt. For equipped gear, the prompt counts only spare copies in the bag.
 
 Dropped quantities become one stationary world stack near the player and can be collected with E. Placement checks supporting ground, free space, and walls; a failed drop leaves the inventory unchanged. The beacon core is marked **Quest item** and cannot be dropped. All inventory, quest, and pickup changes last only for the current session; relaunching resets them.
 
@@ -80,7 +83,7 @@ Armor and helmets are world pickups collected with E. Start with empty equipment
 | Field helmet | Helmet | 1 |
 | Reinforced helmet | Helmet | 3 |
 
-Open inventory with I, select a gear item from the bag, and click **Equip**. Equipping moves one copy into its matching slot; swapping returns the previous piece to the bag. Click **Unequip** beside a slot to return the worn item before dropping it. Additional bag copies can be dropped without affecting the worn copy. Identical gear stacks in the bag; equipping the same type again is a no-op.
+Open the **Equipment** tab, select an available gear item, and click **Equip selected**. Equipping moves one copy into its matching slot; swapping returns the previous piece to the bag. Click **Unequip** beside a slot to return the worn item before dropping it. Additional bag copies can be dropped without affecting the worn copy. Identical gear stacks in the bag; equipping the same type again is a no-op.
 
 Slots show their equipped piece and defense, with a combined total above them. Each point of defense reduces bite damage by one, to a minimum of one. Equipment survives fall recovery and resets on application restart.
 
@@ -88,7 +91,7 @@ Equipped models follow the player's animated spine and head bones; Nemi's appear
 
 ## Spear practice
 
-Find the field spear and trident near the outpost spawn, pick either up with E, and equip it in the **Weapon** slot in inventory. Aim the camera at the practice dummy on the other side of the spawn and left click while grounded. Both weapons use the same two-handed grip at the right hip and thrust up to 2.5 m. A hit makes the dummy flash and rock. The thrust briefly locks movement, and a wall stops it before it can hit the dummy. Unequip the weapon before dropping it.
+Find the field spear and trident near the outpost spawn, pick either up with E, and equip it in the **Weapon** slot on the Equipment tab. Aim the camera at the practice dummy on the other side of the spawn and left click while grounded. Both weapons use the same two-handed grip at the right hip and thrust up to 2.5 m. A hit makes the dummy flash and rock. The thrust briefly locks movement, and a wall stops it before it can hit the dummy. Unequip the weapon before dropping it.
 
 ## Ice worms
 
@@ -172,7 +175,7 @@ python3 scripts/check_assets.py
 
 Run the desktop checks on an idle graphical desktop without supplying mouse or keyboard input. Add `--windowed` to a smoke command to run it in a window.
 
-- `--smoke-test` starts a standalone arena with nearby materials, equipment, a practice dummy, and the keeper and core. It checks tab switching, live physics while the menu is open, inventory quantities and drops, both weapons' hits and misses, a worm pursuit, dodge, bite, and defeat, armor swaps and attachment during movement, the 640×704 player-menu layout, wall collision, pause/resume, and fall recovery. The short beacon interaction verifies that the core is protected in the bag, consumed on turn-in, and lights the beacon. The run prints `SMOKE PASS` and its duration, or fails within 60 seconds with the current phase.
+- `--smoke-test` starts a standalone arena with nearby materials, equipment, a practice dummy, and the keeper and core. It checks tab switching, live physics while the menu is open, inventory quantities, equipped rows, and the drop prompt, both weapons' hits and misses, a worm pursuit, dodge, bite, and defeat, armor swaps and attachment during movement, the 640×704 player-menu layout, wall collision, pause/resume, and fall recovery. The short beacon interaction verifies that the core is protected in the bag, consumed on turn-in, and lights the beacon. The run prints `SMOKE PASS` and its duration, or fails within 60 seconds with the current phase.
 - `--smoke-world` loads the shipped outpost, verifies the player and worms start grounded, checks the route past the worms, and checks that every authored pillar blocks the movement capsule from four directions. It then checks the locked hatch, beacon turn-in, gate, archive discovery, return and reentry, and fall recovery. It prints `WORLD SMOKE PASS` on success.
 - `--smoke-nemi` checks spear damage, fleeing and returning, the failed quest entry, Nemi’s collapse, and opening the relay by installing the core at the beacon. It prints `NEMI SMOKE PASS` on success.
 

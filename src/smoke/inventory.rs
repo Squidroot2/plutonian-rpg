@@ -216,9 +216,22 @@ pub(crate) fn drive(
             }
         }
         4 => {
+            assert!(!ui.drop_is_open(), "the quantity prompt must start hidden");
+            keys.press(KeyCode::KeyQ);
+            smoke.phase = 41;
+        }
+        41 => {
+            assert!(ui.drop_is_open(), "Q must open the quantity prompt");
+            assert_eq!(inventory.count(ItemKind::Battery), 2);
+            keys.press(KeyCode::Escape);
+            smoke.phase = 42;
+        }
+        42 => {
+            assert!(menu.is_on(MenuTab::Inventory));
+            assert!(!ui.drop_is_open());
             click(
                 &mut commands,
-                InventoryAction::Quantity,
+                InventoryAction::Drop,
                 &actions,
                 window,
                 camera,
@@ -226,6 +239,7 @@ pub(crate) fn drive(
             smoke.phase = 5;
         }
         5 => {
+            assert!(ui.drop_is_open(), "the footer button must open the prompt");
             keyboard.write(KeyboardInput {
                 key_code: KeyCode::Digit2,
                 logical_key: Key::Character("2".into()),
@@ -252,7 +266,7 @@ pub(crate) fn drive(
             smoke.screenshot = Some(super::capture(&mut commands, "inventory"));
             click(
                 &mut commands,
-                InventoryAction::Drop,
+                InventoryAction::ConfirmDrop,
                 &actions,
                 window,
                 camera,

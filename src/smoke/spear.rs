@@ -36,8 +36,10 @@ pub enum SpearSmoke {
     Miss,
     WormEncounter,
     Unequip,
+    SwitchToDrop,
     SelectDrop,
     Drop,
+    ConfirmDrop,
     CloseBag,
     Recollect,
     Done,
@@ -94,7 +96,7 @@ fn drive(
     ),
     pickups: Query<(&Pickup, &Transform)>,
     worn: Query<&WornEquipment, Without<PendingScene>>,
-    actions: Query<(Entity, &InventoryAction)>,
+    (actions, tabs): (Query<(Entity, &InventoryAction)>, Query<(Entity, &MenuTab)>),
     (mut keys, mut buttons, mut orbit): (
         ResMut<ButtonInput<KeyCode>>,
         ResMut<ButtonInput<MouseButton>>,
@@ -164,9 +166,12 @@ fn drive(
             }
         }
         SpearSmoke::Select if menu.is_on(MenuTab::Inventory) => {
+            click(&mut commands, MenuTab::Equipment, &tabs, window, camera);
+        }
+        SpearSmoke::Select if menu.is_on(MenuTab::Equipment) => {
             click(
                 &mut commands,
-                InventoryAction::Select(weapon),
+                InventoryAction::SelectGear(weapon),
                 &actions,
                 window,
                 camera,
@@ -192,7 +197,7 @@ fn drive(
         SpearSmoke::CaptureInventory
             if screenshot.is_some_and(|entity| captures.get(entity).is_err()) =>
         {
-            keys.press(KeyCode::KeyI);
+            keys.press(KeyCode::Tab);
             *smoke = SpearSmoke::Approach;
         }
         SpearSmoke::Approach if *state.get() == GameState::Playing && !menu.is_open() => {
@@ -283,6 +288,9 @@ fn drive(
             }
         }
         SpearSmoke::Unequip if menu.is_on(MenuTab::Inventory) => {
+            click(&mut commands, MenuTab::Equipment, &tabs, window, camera);
+        }
+        SpearSmoke::Unequip if menu.is_on(MenuTab::Equipment) => {
             click(
                 &mut commands,
                 InventoryAction::Unequip(EquipmentSlot::Weapon),
@@ -290,9 +298,13 @@ fn drive(
                 window,
                 camera,
             );
+            *smoke = SpearSmoke::SwitchToDrop;
+        }
+        SpearSmoke::SwitchToDrop => {
+            click(&mut commands, MenuTab::Inventory, &tabs, window, camera);
             *smoke = SpearSmoke::SelectDrop;
         }
-        SpearSmoke::SelectDrop => {
+        SpearSmoke::SelectDrop if menu.is_on(MenuTab::Inventory) => {
             assert_eq!(inventory.count(weapon), 1);
             click(
                 &mut commands,
@@ -307,6 +319,16 @@ fn drive(
             click(
                 &mut commands,
                 InventoryAction::Drop,
+                &actions,
+                window,
+                camera,
+            );
+            *smoke = SpearSmoke::ConfirmDrop;
+        }
+        SpearSmoke::ConfirmDrop => {
+            click(
+                &mut commands,
+                InventoryAction::ConfirmDrop,
                 &actions,
                 window,
                 camera,

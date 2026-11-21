@@ -223,6 +223,7 @@ pub(crate) fn pause(
     windows: Query<&Window, With<PrimaryWindow>>,
     settings: Option<Res<SettingsMenu>>,
     log: Option<ResMut<PlayerMenu>>,
+    drop_prompt: Option<ResMut<crate::inventory_ui::InventoryUiState>>,
 ) {
     if settings.is_some_and(|menu| menu.is_open()) {
         return;
@@ -238,6 +239,12 @@ pub(crate) fn pause(
         let tab = keys.just_pressed(KeyCode::Tab);
         let inventory = bindings.just_pressed(Control::Inventory, &keys);
         let escape = keys.just_pressed(KeyCode::Escape);
+        if escape
+            && menu.is_on(crate::menu_ui::MenuTab::Inventory)
+            && drop_prompt.is_some_and(|mut ui| ui.cancel_drop())
+        {
+            return;
+        }
         if ((tab || inventory || escape) && menu.shortcuts(tab, inventory, escape))
             || menu.is_open()
         {

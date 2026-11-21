@@ -12,16 +12,23 @@ pub(crate) enum MenuTab {
     #[default]
     Quest,
     Inventory,
+    Equipment,
     Character,
 }
 
 impl MenuTab {
-    const ALL: [Self; 3] = [Self::Quest, Self::Inventory, Self::Character];
+    const ALL: [Self; 4] = [
+        Self::Quest,
+        Self::Inventory,
+        Self::Equipment,
+        Self::Character,
+    ];
 
     fn label(self) -> &'static str {
         match self {
             Self::Quest => "Quest",
             Self::Inventory => "Inventory",
+            Self::Equipment => "Equipment",
             Self::Character => "Character",
         }
     }
@@ -186,6 +193,8 @@ fn setup(mut commands: Commands) {
                             justify_content: JustifyContent::SpaceBetween,
                             align_items: AlignItems::Center,
                             column_gap: px(8),
+                            row_gap: px(6),
+                            flex_wrap: FlexWrap::Wrap,
                             flex_shrink: 0.0,
                             ..default()
                         })
@@ -193,6 +202,7 @@ fn setup(mut commands: Commands) {
                             header
                                 .spawn(Node {
                                     column_gap: px(6),
+                                    flex_wrap: FlexWrap::Wrap,
                                     ..default()
                                 })
                                 .with_children(|tabs| {
@@ -232,6 +242,7 @@ fn setup(mut commands: Commands) {
                                 .with_children(|page| match tab {
                                     MenuTab::Quest => quest_ui::spawn(page),
                                     MenuTab::Inventory => inventory_ui::spawn(page),
+                                    MenuTab::Equipment => inventory_ui::spawn_equipment(page),
                                     MenuTab::Character => character(page),
                                 });
                             }

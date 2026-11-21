@@ -32,6 +32,10 @@ pub(crate) struct View<'w, 's> {
     player: Query<'w, 's, (Entity, &'static Transform, &'static Player), With<Player>>,
     pickups: Query<'w, 's, (&'static Pickup, &'static Transform)>,
     actions: Query<'w, 's, (Entity, &'static InventoryAction)>,
+    tabs: Query<'w, 's, (Entity, &'static MenuTab)>,
+    inventory_rows:
+        Query<'w, 's, (&'static InventoryAction, &'static Children), Without<PlayerMenuScreen>>,
+    text: Query<'w, 's, &'static Text>,
     worn: Query<
         'w,
         's,
@@ -220,7 +224,16 @@ pub(crate) fn drive(
             }
         }
         2 if menu.is_on(MenuTab::Inventory) => {
-            click!(InventoryAction::Select(ItemKind::FieldArmor));
+            click(
+                &mut commands,
+                MenuTab::Equipment,
+                &view.tabs,
+                window,
+                camera,
+            );
+        }
+        2 if menu.is_on(MenuTab::Equipment) => {
+            click!(InventoryAction::SelectGear(ItemKind::FieldArmor));
             smoke.stage = 3;
         }
         3 => {
@@ -232,7 +245,7 @@ pub(crate) fn drive(
                 equipment.get(EquipmentSlot::Body),
                 Some(ItemKind::FieldArmor)
             );
-            click!(InventoryAction::Select(ItemKind::FieldHelmet));
+            click!(InventoryAction::SelectGear(ItemKind::FieldHelmet));
             smoke.stage = 5;
         }
         5 => {
@@ -241,6 +254,18 @@ pub(crate) fn drive(
         }
         6 if check_worn(&view, &equipment, player) => {
             assert_eq!(equipment.total_defense(), 3);
+            assert_eq!(bag.count(ItemKind::FieldArmor), 0);
+            let (_, cells) = view
+                .inventory_rows
+                .iter()
+                .find(|(action, _)| **action == InventoryAction::Select(ItemKind::FieldArmor))
+                .expect("the inventory table must have a row for worn armor");
+            let values: Vec<_> = cells
+                .iter()
+                .filter_map(|cell| view.text.get(cell).ok())
+                .map(|text| text.as_str())
+                .collect();
+            assert_eq!(values, ["Field armor", "1", "5 kg", "Equipped"]);
             photo!("field-equipment-inventory");
             smoke.stage = 61;
         }
@@ -285,11 +310,25 @@ pub(crate) fn drive(
         7 => {
             assert_eq!(equipment.get(EquipmentSlot::Body), None);
             assert_eq!(bag.count(ItemKind::FieldArmor), 1);
+            click(
+                &mut commands,
+                MenuTab::Inventory,
+                &view.tabs,
+                window,
+                camera,
+            );
+            smoke.stage = 71;
+        }
+        71 if menu.is_on(MenuTab::Inventory) => {
             click!(InventoryAction::Select(ItemKind::FieldArmor));
             smoke.stage = 8;
         }
         8 => {
             click!(InventoryAction::Drop);
+            smoke.stage = 81;
+        }
+        81 => {
+            click!(InventoryAction::ConfirmDrop);
             smoke.stage = 9;
         }
         9 => {
@@ -317,7 +356,16 @@ pub(crate) fn drive(
             }
         }
         11 if menu.is_on(MenuTab::Inventory) => {
-            click!(InventoryAction::Select(ItemKind::FieldArmor));
+            click(
+                &mut commands,
+                MenuTab::Equipment,
+                &view.tabs,
+                window,
+                camera,
+            );
+        }
+        11 if menu.is_on(MenuTab::Equipment) => {
+            click!(InventoryAction::SelectGear(ItemKind::FieldArmor));
             smoke.stage = 12;
         }
         12 => {
@@ -326,7 +374,7 @@ pub(crate) fn drive(
         }
         13 if check_worn(&view, &equipment, player) => {
             assert_eq!(equipment.total_defense(), 3);
-            keys.press(KeyCode::KeyI);
+            keys.press(KeyCode::Tab);
             smoke.stage = 49;
         }
         100 => {
@@ -357,7 +405,16 @@ pub(crate) fn drive(
             }
         }
         102 if menu.is_on(MenuTab::Inventory) => {
-            click!(InventoryAction::Select(ItemKind::ReinforcedArmor));
+            click(
+                &mut commands,
+                MenuTab::Equipment,
+                &view.tabs,
+                window,
+                camera,
+            );
+        }
+        102 if menu.is_on(MenuTab::Equipment) => {
+            click!(InventoryAction::SelectGear(ItemKind::ReinforcedArmor));
             smoke.stage = 103;
         }
         103 => {
@@ -367,7 +424,7 @@ pub(crate) fn drive(
         104 => {
             assert_eq!(bag.count(ItemKind::FieldArmor), 1);
             assert_eq!(equipment.total_defense(), 6);
-            click!(InventoryAction::Select(ItemKind::ReinforcedHelmet));
+            click!(InventoryAction::SelectGear(ItemKind::ReinforcedHelmet));
             smoke.stage = 105;
         }
         105 => {
@@ -387,7 +444,7 @@ pub(crate) fn drive(
         107 => {
             assert_eq!(equipment.get(EquipmentSlot::Helmet), None);
             assert_eq!(bag.count(ItemKind::ReinforcedHelmet), 1);
-            click!(InventoryAction::Select(ItemKind::ReinforcedHelmet));
+            click!(InventoryAction::SelectGear(ItemKind::ReinforcedHelmet));
             smoke.stage = 108;
         }
         108 => {
@@ -396,7 +453,7 @@ pub(crate) fn drive(
         }
         109 if check_worn(&view, &equipment, player) => {
             assert_eq!(equipment.total_defense(), 8);
-            keys.press(KeyCode::KeyI);
+            keys.press(KeyCode::Tab);
             smoke.stage = 49;
         }
         49 if *state.get() == GameState::Playing && !menu.is_open() => {
