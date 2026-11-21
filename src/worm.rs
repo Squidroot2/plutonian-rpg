@@ -462,7 +462,7 @@ mod tests {
         combat::{CombatPlugin, ConfirmedHit, Defense},
         equipment::Equipment,
         inventory::{Inventory, ItemKind},
-        player::{MAX_HEALTH, respawn_defeated},
+        player::{MAX_HEALTH, MovementInput, respawn_defeated},
         quest::Quest,
         spear::Thrust,
         world::WorldLayout,
@@ -494,6 +494,7 @@ mod tests {
         .init_resource::<Dialogue>()
         .init_resource::<Equipment>()
         .init_resource::<Thrust>()
+        .init_resource::<MovementInput>()
         .add_plugins((CombatPlugin, WormPlugin))
         .add_systems(
             Update,

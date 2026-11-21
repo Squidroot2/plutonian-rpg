@@ -9,7 +9,7 @@ use crate::{
     },
     interaction::{InteractionTarget, Nearby, Target},
     inventory::{Inventory, ItemKind},
-    player::Player,
+    player::{Dodge, Player},
     quest::{Dialogue, Quest},
     world::WorldLayout,
     worm::{GROUND_OFFSET, Worm, WormPhase},
@@ -51,7 +51,14 @@ pub(super) fn drive(
     run: Res<SmokeRun>,
     mut phase: ResMut<WorldCheck>,
     mut last_log: Local<f64>,
-    mut player: Query<(Entity, &mut Player, &mut Transform, &Collider, &Health)>,
+    mut player: Query<(
+        Entity,
+        &mut Player,
+        &mut Dodge,
+        &mut Transform,
+        &Collider,
+        &Health,
+    )>,
     (mut quest, mut inventory, dialogue, nearby): (
         ResMut<Quest>,
         ResMut<Inventory>,
@@ -68,7 +75,8 @@ pub(super) fn drive(
     mut commands: Commands,
     mut exit: MessageWriter<AppExit>,
 ) {
-    let Ok((entity, mut controller, mut transform, capsule, player_health)) = player.single_mut()
+    let Ok((entity, mut controller, mut dodge, mut transform, capsule, player_health)) =
+        player.single_mut()
     else {
         return;
     };
@@ -100,19 +108,24 @@ pub(super) fn drive(
             )
             .map(|hit| hit.entity)
     };
-    let fixture = |player: &mut Player, transform: &mut Transform, point: Vec3| {
-        let probe = point.with_y(2.0);
-        let support = spatial
-            .cast_ray(
-                probe,
-                Dir3::NEG_Y,
-                6.0,
-                true,
-                &SpatialQueryFilter::from_excluded_entities([entity]),
-            )
-            .expect("the exterior smoke fixture must stand over the ice shelf");
-        player.respawn(transform, probe - Vec3::Y * (support.distance - 0.905));
-    };
+    let fixture =
+        |player: &mut Player, dodge: &mut Dodge, transform: &mut Transform, point: Vec3| {
+            let probe = point.with_y(2.0);
+            let support = spatial
+                .cast_ray(
+                    probe,
+                    Dir3::NEG_Y,
+                    6.0,
+                    true,
+                    &SpatialQueryFilter::from_excluded_entities([entity]),
+                )
+                .expect("the exterior smoke fixture must stand over the ice shelf");
+            player.respawn(
+                dodge,
+                transform,
+                probe - Vec3::Y * (support.distance - 0.905),
+            );
+        };
     let junction = ORIGIN + Vec3::new(3.8, 0.0, -10.75);
 
     match *phase {
@@ -139,7 +152,12 @@ pub(super) fn drive(
             *phase = WorldCheck::OutpostPhoto(capture(&mut commands, "outpost"));
         }
         WorldCheck::OutpostPhoto(photo) if captures.get(photo).is_err() => {
-            fixture(&mut controller, &mut transform, HATCH + Vec3::Z * 1.35);
+            fixture(
+                &mut controller,
+                &mut dodge,
+                &mut transform,
+                HATCH + Vec3::Z * 1.35,
+            );
             *phase = WorldCheck::InspectLocked;
         }
         WorldCheck::InspectLocked if ready(DungeonTarget::Hatch) => {
@@ -165,6 +183,7 @@ pub(super) fn drive(
             // The arena already verifies the quest from its first conversation.
             fixture(
                 &mut controller,
+                &mut dodge,
                 &mut transform,
                 WorldLayout::Outpost.keeper() + Vec3::Z * 1.65,
             );

@@ -3,7 +3,7 @@ use crate::{
     camera::Orbit,
     inventory::scene_ready,
     loading::{GameAssets, LoadStatus, PendingScene},
-    player::{MovementInput, Player},
+    player::{Dodge, MovementInput, Player},
     quest::{Dialogue, Quest},
     spear::Thrust,
     world::SpawnWorld,
@@ -306,13 +306,13 @@ fn use_target(
     quest: Res<Quest>,
     mut progress: ResMut<DungeonProgress>,
     mut dialogue: ResMut<Dialogue>,
-    mut player: Query<(Entity, &mut Player, &mut Transform)>,
+    mut player: Query<(Entity, &mut Player, &mut Dodge, &mut Transform)>,
     mut orbit: ResMut<Orbit>,
     mut thrust: ResMut<Thrust>,
     mut input: ResMut<MovementInput>,
     spatial: SpatialQuery,
 ) {
-    let Ok((entity, mut player, mut transform)) = player.single_mut() else {
+    let Ok((entity, mut player, mut dodge, mut transform)) = player.single_mut() else {
         return;
     };
     if player.area != event.0.area() {
@@ -349,7 +349,11 @@ fn use_target(
         dialogue.text = Some("The hatch landing is obstructed.");
         return;
     };
-    player.respawn(&mut transform, probe - Vec3::Y * (hit.distance - 0.905));
+    player.respawn(
+        &mut dodge,
+        &mut transform,
+        probe - Vec3::Y * (hit.distance - 0.905),
+    );
     player.area = area;
     transform.rotation = Quat::from_rotation_y(yaw + std::f32::consts::PI);
     orbit.yaw = yaw;

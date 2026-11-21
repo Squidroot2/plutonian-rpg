@@ -22,6 +22,7 @@ Choose **Start Game** on the title screen to load Nivalis. Click a button or sel
 | Left Shift | Sprint |
 | Left click | Thrust with an equipped spear |
 | Space | Jump (grounded only) |
+| Left Ctrl | Dodge hop in the WASD direction, or backward with no movement input (grounded only) |
 | E | Speak / collect a nearby item / dismiss dialogue |
 | Enter | Quest interaction / dismiss dialogue |
 | I | Open / close inventory |

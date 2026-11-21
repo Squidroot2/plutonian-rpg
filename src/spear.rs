@@ -9,7 +9,7 @@ use crate::{
     interaction::InteractionSystems,
     inventory::scene_ready,
     loading::{GameAssets, PendingScene},
-    player::Player,
+    player::{Dodge, MovementInput, Player},
     quest::Dialogue,
     world::{SpawnWorld, WorldLayout},
 };
@@ -158,11 +158,12 @@ fn attack(
     orbit: Res<Orbit>,
     time: Res<Time>,
     spatial: SpatialQuery,
+    movement: Res<MovementInput>,
     mut thrust: ResMut<Thrust>,
-    mut player: Query<(Entity, &Player, &mut Transform)>,
+    mut player: Query<(Entity, &Player, &Dodge, &mut Transform)>,
     mut hits: MessageWriter<Hit>,
 ) {
-    let Ok((entity, controller, mut transform)) = player.single_mut() else {
+    let Ok((entity, controller, dodge, mut transform)) = player.single_mut() else {
         return;
     };
     if dialogue.text.is_some()
@@ -180,7 +181,7 @@ fn attack(
         {
             hits.write(hit);
         }
-    } else {
+    } else if !dodge.active() && !movement.dodge_pending(controller.grounded, dodge) {
         let facing = Quat::from_rotation_y(orbit.yaw + std::f32::consts::PI);
         thrust.begin(
             facing,
@@ -294,6 +295,7 @@ mod tests {
         .init_resource::<Dialogue>()
         .init_resource::<Equipment>()
         .init_resource::<Orbit>()
+        .init_resource::<MovementInput>()
         .init_resource::<ButtonInput<MouseButton>>()
         .add_plugins((crate::combat::CombatPlugin, SpearPlugin));
         app.finish();

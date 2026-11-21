@@ -4,7 +4,7 @@ use crate::{
     combat::{DeathLifetime, Health},
     combat_feedback::{AttackImpact, BitePulse},
     loading::GameAssets,
-    player::Player,
+    player::{DODGE_KEY, Player},
     spear::{GRIP_SIDE, Thrust},
     worm::{self, GROUND_OFFSET, Worm, WormPhase},
 };
@@ -17,7 +17,7 @@ pub(super) enum Encounter {
     Spawn,
     Pursuit(Vec3),
     Dodge {
-        captured: bool,
+        start: Option<Vec3>,
     },
     TakeBite,
     Fight {
@@ -147,27 +147,31 @@ pub(super) fn fight(
                 "worm must pursue before biting"
             );
             assert_eq!(player_health.current(), 100, "wind-up must not deal damage");
-            *phase = Encounter::Dodge { captured: false };
+            orbit.yaw = 1.1;
+            orbit.pitch = 0.44;
+            capture(&mut commands, "worm-windup");
+            *phase = Encounter::Dodge { start: None };
         }
-        Encounter::Dodge { captured } => {
+        Encounter::Dodge { start } => {
             if let WormPhase::Windup(remaining) = worm.phase {
-                if remaining <= 0.39 {
-                    if captured {
-                        orbit.yaw = 0.0;
-                        keys.press(KeyCode::KeyS);
-                        keys.press(KeyCode::ShiftLeft);
-                    } else {
-                        orbit.yaw = 1.1;
-                        orbit.pitch = 0.44;
-                        capture(&mut commands, "worm-windup");
-                        *phase = Encounter::Dodge { captured: true };
-                    }
+                if remaining <= 0.27 && start.is_none() && controller.grounded {
+                    orbit.yaw = 0.0;
+                    keys.press(KeyCode::KeyS);
+                    keys.press(DODGE_KEY);
+                    *phase = Encounter::Dodge {
+                        start: Some(transform.translation),
+                    };
                 }
             } else if matches!(worm.phase, WormPhase::Recovery(_)) {
+                let start = start.expect("the player must dodge before the worm bites");
+                assert!(
+                    transform.translation.z - start.z > 0.95,
+                    "one dodge press must hop back out of bite range"
+                );
                 assert_eq!(
                     player_health.current(),
                     100,
-                    "backpedaling must evade the bite"
+                    "the dodge hop must evade the bite"
                 );
                 assert_eq!(
                     pulse.single().ok(),
