@@ -13,6 +13,7 @@ use bevy::{
         keyboard::{Key, KeyboardInput},
     },
     prelude::*,
+    ui::UiGlobalTransform,
 };
 
 pub struct InventoryUiPlugin;
@@ -137,11 +138,13 @@ enum PanelText {
 struct EmptyList(MenuTab);
 #[derive(Component)]
 struct DropControls;
+#[derive(Component)]
+struct ItemList;
 
 impl Plugin for InventoryUiPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<InventoryUiState>()
-            .add_systems(Update, (edit_quantity, sync).chain())
+            .add_systems(Update, (navigate_items, edit_quantity, sync).chain())
             .add_systems(Last, dismiss_prompt.after(menu_ui::close));
     }
 }
@@ -190,7 +193,7 @@ pub(crate) fn spawn(page: &mut ChildSpawnerCommands) {
                 )
             });
         panel
-            .spawn(scroll_pane(MenuTab::Inventory, percent(100)))
+            .spawn((ItemList, scroll_pane(MenuTab::Inventory, percent(100))))
             .insert(Node {
                 flex_grow: 1.0,
                 min_height: px(0),
@@ -426,6 +429,66 @@ fn confirm_drop(ui: &mut InventoryUiState, inventory: &Inventory, commands: &mut
     {
         ui.cancel_drop();
         commands.trigger(DropRequest { item, quantity });
+    }
+}
+
+fn navigate_items(
+    keys: Res<ButtonInput<KeyCode>>,
+    bindings: Res<Keybinds>,
+    menu: Res<PlayerMenu>,
+    inventory: Res<Inventory>,
+    equipment: Res<Equipment>,
+    mut ui: ResMut<InventoryUiState>,
+    mut notice: ResMut<InventoryNotice>,
+    mut lists: Query<(&ComputedNode, &UiGlobalTransform, &mut ScrollPosition), With<ItemList>>,
+    rows: Query<(&InventoryAction, &ComputedNode, &UiGlobalTransform)>,
+) {
+    if !menu.accepts(MenuTab::Inventory)
+        || ui.drop_is_open()
+        || keys.just_pressed(KeyCode::Escape)
+        || bindings.just_pressed(Control::Drop, &keys)
+    {
+        return;
+    }
+    let up = bindings.just_pressed(Control::MenuUp, &keys);
+    let down = bindings.just_pressed(Control::MenuDown, &keys);
+    if up == down {
+        return;
+    }
+
+    let selected = ui.selected;
+    let items = ItemKind::ALL
+        .into_iter()
+        .filter(|&item| owned(item, &inventory, &equipment) > 0);
+    let next = if down {
+        items.skip_while(|&item| Some(item) != selected).nth(1)
+    } else {
+        items
+            .rev()
+            .skip_while(|&item| Some(item) != selected)
+            .nth(1)
+    };
+    let Some(item) = next else { return };
+    ui.selected = Some(item);
+    notice.0.clear();
+
+    if let Ok((list, list_transform, mut scroll)) = lists.single_mut()
+        && let Some((_, row, row_transform)) = rows
+            .iter()
+            .find(|(action, _, _)| **action == InventoryAction::Select(item))
+    {
+        let offset = row_transform.translation.y - list_transform.translation.y;
+        let top_overflow = offset - row.size().y * 0.5 + list.size().y * 0.5;
+        let bottom_overflow = offset + row.size().y * 0.5 - list.size().y * 0.5;
+        let adjustment = if top_overflow < 0.0 {
+            top_overflow
+        } else {
+            bottom_overflow.max(0.0)
+        };
+        if adjustment != 0.0 {
+            scroll.0.y =
+                ((list.scroll_position.y + adjustment) * list.inverse_scale_factor()).max(0.0);
+        }
     }
 }
 

@@ -578,4 +578,61 @@ mod tests {
         ));
         assert_eq!(app.world().resource::<SettingsMenu>().capture, None);
     }
+
+    #[test]
+    fn menu_navigation_rebinds_independently_of_gameplay_controls() {
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, SettingsPlugin))
+            .init_resource::<ButtonInput<KeyCode>>()
+            .init_resource::<ButtonInput<MouseButton>>();
+        let bindings = app.world().resource::<Keybinds>();
+        assert_eq!(bindings.get(Control::MenuUp).label(), "W");
+        assert_eq!(bindings.get(Control::MenuDown).label(), "S");
+
+        let mut menu = app.world_mut().resource_mut::<SettingsMenu>();
+        menu.open();
+        menu.keybinds = true;
+        menu.capture = Some(Control::MenuUp);
+        app.update();
+
+        let press = |app: &mut App, key| {
+            let mut keys = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
+            keys.reset_all();
+            keys.press(key);
+            app.update();
+        };
+        press(&mut app, KeyCode::KeyD);
+        let bindings = app.world().resource::<Keybinds>();
+        assert_eq!(bindings.get(Control::MenuUp).label(), "D");
+        assert_eq!(bindings.get(Control::Right).label(), "D");
+
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .reset_all();
+        app.world_mut().resource_mut::<SettingsMenu>().capture = Some(Control::MenuDown);
+        app.update();
+        press(&mut app, KeyCode::KeyD);
+        assert!(
+            app.world()
+                .resource::<SettingsMenu>()
+                .notice
+                .contains("Menu Up")
+        );
+        press(&mut app, KeyCode::KeyQ);
+        assert!(
+            app.world()
+                .resource::<SettingsMenu>()
+                .notice
+                .contains("Drop item")
+        );
+        press(&mut app, KeyCode::ArrowDown);
+        assert_eq!(
+            app.world()
+                .resource::<Keybinds>()
+                .get(Control::MenuDown)
+                .label(),
+            "ArrowDown"
+        );
+        assert_eq!(app.world().resource::<SettingsMenu>().capture, None);
+    }
 }

@@ -21,7 +21,7 @@ Choose **Start Game** on the title screen to load Nivalis. Click a button or sel
 
 | Control | Action |
 | --- | --- |
-| W / S | Walk forward / backpedal |
+| W / S | Walk forward / backpedal in play. Move selection up / down in Inventory. |
 | A / D | Strafe left / right |
 | Mouse | Orbit camera and turn to face its horizontal look direction |
 | Scroll | Adjust camera distance |
@@ -66,7 +66,7 @@ E picks up the nearest eligible item within three meters and clear line of sight
 
 Batteries, scrap, and methane pouches are scattered around the outpost, trail, and cavern: two of each material in each region, for 18 initial pickups. Pickups transfer their whole stack. Inventory starts empty, stacks by item type, and has no capacity limit. Materials have no crafting or consumption effects yet.
 
-Select the Inventory tab or press I to jump straight to it. Each row shows the owned quantity and total weight. Equipped gear appears with an **Equipped** status and counts toward the row totals. Select a row to see its per-unit weight and details.
+Select the Inventory tab or press I to jump straight to it. Each row shows the owned quantity and total weight. Equipped gear appears with an **Equipped** status and counts toward the row totals. Use W or S to move between rows and see per-unit weight and details. Rebind these keys under **Menu Up** and **Menu Down** in Settings.
 
 Select a row and click **Drop** at the bottom of Inventory or press Q to open the quantity prompt. Type a number or use the minus and plus buttons. Click **Confirm drop** or press Enter to drop that amount. Escape or **Cancel** dismisses the prompt. For equipped gear, the prompt counts only spare copies in the bag.
 

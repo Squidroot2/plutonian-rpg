@@ -217,12 +217,29 @@ pub(crate) fn drive(
         }
         4 => {
             assert!(!ui.drop_is_open(), "the quantity prompt must start hidden");
+            assert_eq!(ui.selected, Some(ItemKind::Battery));
+            keys.press(KeyCode::KeyS);
+            smoke.phase = 43;
+        }
+        43 => {
+            assert_eq!(ui.selected, Some(ItemKind::Scrap));
+            keys.press(KeyCode::KeyW);
+            smoke.phase = 44;
+        }
+        44 => {
+            assert_eq!(ui.selected, Some(ItemKind::Battery));
             keys.press(KeyCode::KeyQ);
             smoke.phase = 41;
         }
         41 => {
             assert!(ui.drop_is_open(), "Q must open the quantity prompt");
             assert_eq!(inventory.count(ItemKind::Battery), 2);
+            keys.press(KeyCode::KeyS);
+            smoke.phase = 45;
+        }
+        45 => {
+            assert_eq!(ui.selected, Some(ItemKind::Battery));
+            assert!(ui.drop_is_open());
             keys.press(KeyCode::Escape);
             smoke.phase = 42;
         }
@@ -290,7 +307,7 @@ pub(crate) fn drive(
         9 if *state.get() == GameState::Playing && !menu.is_open() => {
             if inventory.count(ItemKind::Battery) == 2 {
                 info!(
-                    "INVENTORY SMOKE PASS: collected all materials, typed quantity, dropped one battery through UI, recollected it, verified live physics and captured input"
+                    "INVENTORY SMOKE PASS: collected all materials, navigated with W/S, typed quantity, dropped one battery through UI, recollected it, verified live physics and captured input"
                 );
                 smoke.done = true;
                 return;

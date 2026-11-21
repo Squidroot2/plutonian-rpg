@@ -12,11 +12,13 @@ pub(crate) enum Control {
     Interact,
     Inventory,
     Drop,
+    MenuUp,
+    MenuDown,
     Attack,
 }
 
 impl Control {
-    pub(crate) const ALL: [Self; 11] = [
+    pub(crate) const ALL: [Self; 13] = [
         Self::Forward,
         Self::Backward,
         Self::Left,
@@ -27,6 +29,8 @@ impl Control {
         Self::Interact,
         Self::Inventory,
         Self::Drop,
+        Self::MenuUp,
+        Self::MenuDown,
         Self::Attack,
     ];
 
@@ -42,8 +46,19 @@ impl Control {
             Self::Interact => "Interact",
             Self::Inventory => "Inventory",
             Self::Drop => "Drop item",
+            Self::MenuUp => "Menu Up",
+            Self::MenuDown => "Menu Down",
             Self::Attack => "Attack",
         }
+    }
+
+    fn conflicts_with(self, other: Self) -> bool {
+        let menu_navigation = |control| matches!(control, Self::MenuUp | Self::MenuDown);
+        // Gameplay-only controls are suppressed in Inventory. Its shortcuts
+        // and its two navigation directions still need distinct keys.
+        menu_navigation(self) == menu_navigation(other)
+            || matches!(self, Self::Inventory | Self::Drop)
+            || matches!(other, Self::Inventory | Self::Drop)
     }
 }
 
@@ -98,6 +113,8 @@ impl Default for Keybinds {
             (Control::Interact, KeyE),
             (Control::Inventory, KeyI),
             (Control::Drop, KeyQ),
+            (Control::MenuUp, KeyW),
+            (Control::MenuDown, KeyS),
         ];
         for (control, key) in keys {
             bindings[control as usize] = Binding::Key(key);
@@ -134,10 +151,9 @@ impl Keybinds {
             }
             _ => {}
         }
-        if let Some(other) = Control::ALL
-            .into_iter()
-            .find(|&other| other != control && self.get(other) == binding)
-        {
+        if let Some(other) = Control::ALL.into_iter().find(|&other| {
+            other != control && control.conflicts_with(other) && self.get(other) == binding
+        }) {
             return Err(format!("Already assigned to {}.", other.label()));
         }
         self.0[control as usize] = binding;
