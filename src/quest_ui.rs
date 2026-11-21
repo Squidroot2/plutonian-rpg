@@ -1,4 +1,8 @@
-use crate::{GameState, quest::QuestJournal, ui::text_style};
+use crate::{
+    GameState,
+    quest::{QuestJournal, QuestOutcome, QuestStatus},
+    ui::text_style,
+};
 use bevy::{
     input::mouse::AccumulatedMouseScroll,
     prelude::*,
@@ -33,7 +37,7 @@ struct QuestDetails;
 #[derive(Component)]
 pub(crate) struct QuestRow {
     pub(crate) id: String,
-    pub(crate) completed: bool,
+    pub(crate) status: QuestStatus,
 }
 #[derive(Component)]
 struct Close;
@@ -181,7 +185,7 @@ fn sync(
         return;
     }
     let mut entries: Vec<_> = journal.entries().collect();
-    entries.sort_by_key(|(quest, step)| *step == quest.objectives.len());
+    entries.sort_by_key(|(_, progress)| progress.status());
     if !entries
         .iter()
         .any(|(quest, _)| Some(&quest.id) == log.selected.as_ref())
@@ -193,11 +197,15 @@ fn sync(
     {
         clear(&mut commands, children);
         commands.entity(entity).with_children(|list| {
-            for (heading, completed) in [("Active", false), ("Completed", true)] {
+            for (heading, status) in [
+                ("Active", QuestStatus::Active),
+                ("Completed", QuestStatus::Completed),
+                ("Failed", QuestStatus::Failed),
+            ] {
                 list.spawn((Text::new(heading), text_style(17.0), Pickable::IGNORE));
                 let mut any = false;
-                for (quest, step) in &entries {
-                    if (*step == quest.objectives.len()) != completed {
+                for (quest, progress) in &entries {
+                    if progress.status() != status {
                         continue;
                     }
                     any = true;
@@ -206,7 +214,7 @@ fn sync(
                         button(),
                         QuestRow {
                             id: quest.id.clone(),
-                            completed,
+                            status,
                         },
                     ))
                     .insert(background)
@@ -239,24 +247,33 @@ fn sync(
             scroll.0 = Vec2::ZERO;
         }
         commands.entity(entity).with_children(|details| {
-            if let Some((quest, step)) = entries
+            if let Some((quest, progress)) = entries
                 .iter()
                 .find(|(quest, _)| Some(&quest.id) == log.selected.as_ref())
             {
                 details.spawn((Text::new(&quest.title), text_style(23.0)));
                 details.spawn((Text::new(&quest.summary), text_style(17.0)));
-                if let Some(objective) = quest.objectives.get(*step) {
-                    details.spawn((
-                        Text::new(format!("Current objective\n{}", objective.title)),
-                        text_style(19.0),
-                    ));
-                    details.spawn((Text::new(&objective.directions), text_style(17.0)));
-                } else {
-                    details.spawn((Text::new(&quest.completion), text_style(17.0)));
+                match &progress.outcome {
+                    QuestOutcome::Active(index) => {
+                        let objective = &quest.objectives[*index];
+                        details.spawn((
+                            Text::new(format!("Current objective\n{}", objective.title)),
+                            text_style(19.0),
+                        ));
+                        details.spawn((Text::new(&objective.directions), text_style(17.0)));
+                    }
+                    QuestOutcome::Completed => {
+                        details.spawn((Text::new(&quest.completion), text_style(17.0)));
+                    }
+                    QuestOutcome::Failed(reason) => {
+                        details.spawn((Text::new("Quest failed"), text_style(19.0)));
+                        details.spawn((Text::new(reason), text_style(17.0)));
+                    }
                 }
-                if *step > 0 {
+                if !progress.completed.is_empty() {
                     details.spawn((Text::new("Completed steps"), text_style(19.0)));
-                    for objective in &quest.objectives[..*step] {
+                    for &index in &progress.completed {
+                        let objective = &quest.objectives[index];
                         details.spawn((
                             Text::new(format!("• {}", objective.title)),
                             text_style(16.0),

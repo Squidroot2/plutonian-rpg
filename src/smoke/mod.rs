@@ -2,6 +2,7 @@
 mod dungeon;
 mod equipment;
 mod inventory;
+mod nemi;
 #[cfg(test)]
 pub(crate) use inventory::pointer_click;
 mod spear;
@@ -21,7 +22,7 @@ use crate::{
     inventory_ui::{InventoryAction, InventoryUiState},
     loading::LoadStatus,
     player::{DODGE_KEY, Dodge, Player},
-    quest::{Beacon, Dialogue, LAST_LIGHT, QuestAction, QuestJournal},
+    quest::{Beacon, Dialogue, LAST_LIGHT, QuestAction, QuestJournal, QuestStatus},
     quest_ui::{QuestLog, QuestRow},
     title::{TitleBackdrop, TitleInput},
     world::WorldLayout,
@@ -94,6 +95,7 @@ pub fn spawn_arena(
 
 pub struct SmokePlugin {
     pub arena: bool,
+    pub nemi: bool,
 }
 
 #[derive(Resource)]
@@ -164,6 +166,14 @@ impl Plugin for SmokePlugin {
                         .before(crate::ui::pause),
                 )
                 .add_plugins((InventorySmokePlugin, EquipmentSmokePlugin, SpearSmokePlugin));
+        } else if self.nemi {
+            app.init_resource::<nemi::Check>().add_systems(
+                PreUpdate,
+                nemi::drive
+                    .after(InputSystems)
+                    .before(crate::ui::pause)
+                    .run_if(in_state(GameState::Playing)),
+            );
         } else {
             app.add_systems(
                 OnEnter(GameState::Playing),
@@ -224,6 +234,7 @@ fn watchdog(
     armor: Option<Res<EquipmentSmoke>>,
     arena: Option<Res<ArenaStep>>,
     world: Option<Res<dungeon::WorldCheck>>,
+    nemi: Option<Res<nemi::Check>>,
 ) {
     assert_ne!(
         *state.get(),
@@ -233,13 +244,14 @@ fn watchdog(
     );
     assert!(
         run.0.elapsed() < TIMEOUT,
-        "smoke test timed out in {:?}; inventory {:?}, weapons {:?}, armor {:?}, arena {:?}, world {:?}",
+        "smoke test timed out in {:?}; inventory {:?}, weapons {:?}, armor {:?}, arena {:?}, world {:?}, Nemi {:?}",
         state.get(),
         inventory.as_deref().map(InventorySmoke::phase),
         weapons.as_deref(),
         armor.as_deref().map(EquipmentSmoke::stage),
         arena.as_deref(),
         world.as_deref(),
+        nemi.as_deref(),
     );
 }
 
@@ -369,7 +381,7 @@ fn drive(
             keys.press(KeyCode::KeyE);
             let (row, _) = rows
                 .iter()
-                .find(|(_, row)| row.id == LAST_LIGHT && !row.completed)
+                .find(|(_, row)| row.id == LAST_LIGHT && row.status == QuestStatus::Active)
                 .expect("The Last Light must have an active journal row");
             let (window, camera) = inventory_smoke.context.expect("smoke UI context");
             commands.trigger(inventory::pointer_click(row, window, camera));

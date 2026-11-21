@@ -106,7 +106,7 @@ impl ItemKind {
             Self::Battery => "A sealed cell holding a little warmth and charge.",
             Self::Scrap => "Salvaged metal from the outpost's machines.",
             Self::MethanePouch => "A reinforced pouch of condensed methane.",
-            Self::BeaconCore => "Quest item. Return this core to Nemi.",
+            Self::BeaconCore => "Quest item. This charged core can restore the Nivalis beacon.",
             Self::FieldSpear | Self::Trident => "Aim with the camera to thrust.",
             Self::FieldArmor => "Light fitted plates used by outpost explorers.",
             Self::ReinforcedArmor => "A reinforced cuirass for crossing the deep ice.",

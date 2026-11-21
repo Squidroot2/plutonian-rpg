@@ -16,7 +16,7 @@ use crate::{
     inventory::{Inventory, ItemKind},
     loot_ui::LootAction,
     player::{Dodge, Player},
-    quest::{Dialogue, LAST_LIGHT, OLD_RELAY, QuestAction, QuestJournal},
+    quest::{Dialogue, LAST_LIGHT, OLD_RELAY, QuestAction, QuestJournal, QuestStatus},
     quest_ui::{QuestLog, QuestRow},
     roach::Roach,
     world::WorldLayout,
@@ -220,11 +220,11 @@ pub(super) fn drive(
             assert!(journal.is_open());
             assert!(
                 rows.iter()
-                    .any(|(_, row)| row.id == LAST_LIGHT && !row.completed)
+                    .any(|(_, row)| row.id == LAST_LIGHT && row.status == QuestStatus::Active)
             );
             let (relay, _) = rows
                 .iter()
-                .find(|(_, row)| row.id == OLD_RELAY && !row.completed)
+                .find(|(_, row)| row.id == OLD_RELAY && row.status == QuestStatus::Active)
                 .expect("Old Relay must have an active journal row");
             commands.trigger(pointer_click(
                 relay,
@@ -422,7 +422,7 @@ pub(super) fn drive(
             assert!(journal.is_open());
             assert!(
                 rows.iter()
-                    .any(|(_, row)| row.id == OLD_RELAY && row.completed)
+                    .any(|(_, row)| row.id == OLD_RELAY && row.status == QuestStatus::Completed)
             );
             keys.press(KeyCode::Tab);
             *phase = WorldCheck::LeaveArchive;

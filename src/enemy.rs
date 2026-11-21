@@ -223,7 +223,7 @@ fn ground_encounters(
     }
 }
 
-fn surface(
+pub(crate) fn surface(
     spatial: &SpatialQuery,
     filter: &SpatialQueryFilter,
     origin: Vec3,
@@ -365,7 +365,7 @@ fn move_ground_enemies(
     }
 }
 
-fn heading(delta: Vec3) -> Quat {
+pub(crate) fn heading(delta: Vec3) -> Quat {
     Quat::from_rotation_y(delta.x.atan2(delta.z))
 }
 

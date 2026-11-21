@@ -4,6 +4,7 @@ use crate::{
     controls::{Control, Keybinds},
     dungeon::{Area, DungeonTarget, UseDungeonTarget},
     inventory::{Inventory, ItemKind, Pickup},
+    nemi::Nemi,
     player::Player,
     quest::{Dialogue, LAST_LIGHT, QuestAction, QuestJournal},
     quest_ui::QuestLog,
@@ -15,6 +16,7 @@ use bevy::prelude::*;
 pub enum Target {
     Keeper,
     Core,
+    BeaconSocket,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum InteractionTarget {
@@ -74,6 +76,7 @@ fn find_target(
             Option<&DungeonTarget>,
             Option<&CorpseLoot>,
             Has<Dead>,
+            Option<&Nemi>,
         ),
         Or<(
             With<Target>,
@@ -99,9 +102,14 @@ fn find_target(
     let mut selected = None;
     let origin = transform.translation + Vec3::Y * INTERACT_HEIGHT;
     let mut closest = INTERACT_RANGE;
-    for (entity, transform, target, pickup, dungeon, corpse, dead) in &targets {
+    for (entity, transform, target, pickup, dungeon, corpse, dead, nemi) in &targets {
         let (interaction, point) = if let Some(target) = target {
-            if *target == Target::Core && !quest.expects(QuestAction::RecoveredCore) {
+            let available = match target {
+                Target::Keeper => !dead && nemi.is_none_or(Nemi::can_talk),
+                Target::Core => quest.expects(QuestAction::RecoveredCore),
+                Target::BeaconSocket => quest.expects(QuestAction::InstalledCore),
+            };
+            if player.area != Area::Surface || !available {
                 continue;
             }
             (
@@ -170,6 +178,7 @@ fn interact(
     mut inventory: ResMut<Inventory>,
     mut commands: Commands,
     pickups: Query<&Pickup>,
+    keepers: Query<&Nemi, Without<Dead>>,
     mut loot: ResMut<LootTarget>,
     mut next: ResMut<NextState<GameState>>,
     log: Option<Res<QuestLog>>,
@@ -187,19 +196,28 @@ fn interact(
     if let Some((entity, target)) = nearby.0 {
         match target {
             InteractionTarget::Quest(Target::Keeper) => {
-                dialogue.text = Some(speak_to_nemi(&mut quest, &mut inventory));
+                dialogue.text = Some(if keepers.get(entity).is_ok_and(Nemi::refuses) {
+                    "NEMI\n\nStay away from me."
+                } else {
+                    speak_to_nemi(&mut quest, &mut inventory)
+                });
             }
             InteractionTarget::Quest(Target::Core) => {
                 if quest.expects(QuestAction::RecoveredCore)
                     && inventory.add(ItemKind::BeaconCore, 1)
                 {
                     quest.record(QuestAction::RecoveredCore);
-                    dialogue.text = Some(
-                        "POWER CORE RECOVERED\n\nIts light pulses against your hands. There is still warmth inside.\n\nReturn to Nemi at the outpost to restore the beacon.",
-                    );
+                    dialogue.text = Some(if quest.expects(QuestAction::InstalledCore) {
+                        "POWER CORE RECOVERED\n\nInstall it in the socket at the south side of the beacon tower."
+                    } else {
+                        "POWER CORE RECOVERED\n\nIts light pulses against your hands. There is still warmth inside.\n\nReturn to Nemi at the outpost to restore the beacon."
+                    });
                     commands.entity(entity).despawn();
                     commands.trigger(crate::combat_audio::ItemPickedUp);
                 }
+            }
+            InteractionTarget::Quest(Target::BeaconSocket) => {
+                dialogue.text = Some(install_core(&mut quest, &mut inventory));
             }
             InteractionTarget::Pickup(_) if interact_pressed => {
                 // Re-read the live component before transferring the stack.
@@ -219,6 +237,15 @@ fn interact(
             }
             _ => (),
         }
+    }
+}
+
+fn install_core(quest: &mut QuestJournal, inventory: &mut Inventory) -> &'static str {
+    if quest.expects(QuestAction::InstalledCore) && inventory.consume_core() {
+        quest.record(QuestAction::InstalledCore);
+        "BEACON RESTORED\n\nThe core locks into the socket and the tower lights up. The Old Relay hatch northwest of the tower now has power."
+    } else {
+        "BEACON SOCKET\n\nThe socket needs a charged beacon core."
     }
 }
 
@@ -261,6 +288,24 @@ mod tests {
         speak_to_nemi(&mut journal, &mut inventory);
         assert!(journal.is_complete(LAST_LIGHT));
         assert_eq!(inventory.count(ItemKind::BeaconCore), 0);
+    }
+
+    #[test]
+    fn installing_the_core_consumes_it_once_and_requires_the_solo_objective() {
+        let mut journal = crate::quest::test_journal();
+        let mut inventory = Inventory::default();
+        journal.record(QuestAction::TalkedToNemi);
+        assert!(inventory.add(ItemKind::BeaconCore, 1));
+        journal.record(QuestAction::RecoveredCore);
+        install_core(&mut journal, &mut inventory);
+        assert_eq!(inventory.count(ItemKind::BeaconCore), 1);
+        journal.record(QuestAction::AttackedNemi);
+        install_core(&mut journal, &mut inventory);
+        assert!(journal.beacon_powered());
+        assert_eq!(inventory.count(ItemKind::BeaconCore), 0);
+        assert!(inventory.add(ItemKind::BeaconCore, 1));
+        install_core(&mut journal, &mut inventory);
+        assert_eq!(inventory.count(ItemKind::BeaconCore), 1);
     }
 
     fn test_app() -> App {

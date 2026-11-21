@@ -3,6 +3,7 @@ use crate::{
     equipment::bind_equipment_attachments,
     interaction::Target,
     loading::{GameAssets, LoadStatus, PendingScene},
+    nemi::{self, Nemi},
     player::{ActorVisual, Player, bind_actor_animation},
     quest::Beacon,
 };
@@ -146,9 +147,12 @@ fn spawn_world(
         .spawn((
             Name::new("Keeper Nemi"),
             Target::Keeper,
-            Transform::from_translation(layout.keeper() + Vec3::Y * 0.9),
+            Nemi::default(),
+            Transform::from_translation(layout.keeper() + Vec3::Y * nemi::GROUND_OFFSET)
+                .with_rotation(Quat::from_rotation_y(0.5)),
             Visibility::default(),
-            RigidBody::Static,
+            RigidBody::Kinematic,
+            CustomPositionIntegration,
             Collider::capsule(0.38, 1.3),
         ))
         .with_children(|parent| {
@@ -157,9 +161,7 @@ fn spawn_world(
                     ActorVisual { player: false },
                     PendingScene,
                     WorldAssetRoot(character),
-                    Transform::from_xyz(0.0, -0.9, 0.0)
-                        .with_rotation(Quat::from_rotation_y(0.5))
-                        .with_scale(Vec3::splat(1.12)),
+                    Transform::from_xyz(0.0, -0.9, 0.0).with_scale(Vec3::splat(1.12)),
                 ))
                 .observe(ready)
                 .observe(bind_actor_animation);
@@ -191,6 +193,32 @@ fn spawn_world(
         },
         Transform::from_translation(layout.beacon()),
     ));
+    let socket_offset = if *layout == WorldLayout::Outpost {
+        3.0
+    } else {
+        -2.0
+    };
+    commands
+        .spawn((
+            Name::new("Beacon core socket"),
+            Target::BeaconSocket,
+            Transform::from_translation(layout.beacon().with_y(0.5) + Vec3::Z * socket_offset),
+            Mesh3d(meshes.add(Cuboid::new(0.65, 0.60, 0.50))),
+            MeshMaterial3d(materials.add(StandardMaterial {
+                base_color: Color::srgb(0.14, 0.22, 0.27),
+                metallic: 0.7,
+                ..default()
+            })),
+        ))
+        .with_child((
+            Mesh3d(meshes.add(Torus::new(0.12, 0.20))),
+            MeshMaterial3d(materials.add(StandardMaterial {
+                base_color: Color::srgb(0.18, 0.62, 0.68),
+                emissive: LinearRgba::rgb(0.02, 0.30, 0.38),
+                ..default()
+            })),
+            Transform::from_xyz(0.0, 0.31, 0.0),
+        ));
     commands.spawn((
         DirectionalLight {
             illuminance: 1800.0,
@@ -259,8 +287,9 @@ fn ground_spawned_models(
         ) {
             let support = origin.y - hit.distance;
             let offset = match target {
-                Some(Target::Keeper) => 0.9,
+                Some(Target::Keeper) => nemi::GROUND_OFFSET,
                 Some(Target::Core) => 0.445,
+                Some(Target::BeaconSocket) => 0.30,
                 None => 0.905,
             };
             transform.translation.y = support + offset;

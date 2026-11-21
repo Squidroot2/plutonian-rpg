@@ -2,11 +2,13 @@ use crate::{
     GameState,
     camera::Orbit,
     combat::{CombatSystems, Dead, Defense, Health, HealthRecovery},
+    combat_feedback::DeathAnimation,
     controls::{Control, Keybinds},
     dungeon::Area,
     equipment::Equipment,
     interaction::InteractionSystems,
     inventory::{CARRY_CAPACITY, IMMOBILE_WEIGHT, Inventory},
+    nemi::NemiPlayback,
     quest::Dialogue,
     quest_ui::QuestLog,
     spear::Thrust,
@@ -183,7 +185,6 @@ pub struct ActorVisual {
 }
 #[derive(Component)]
 struct AnimatedActor {
-    player: bool,
     current: usize,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -234,8 +235,11 @@ impl Gait {
 }
 
 const SPEAR_LOCOMOTION_START: usize = Gait::WalkBackRight as usize + 1;
+pub(crate) const WALK_CLIP: usize = Gait::Walk as usize;
+pub(crate) const RUN_CLIP: usize = Gait::Run as usize;
 const SPEAR_THRUST_CLIP: usize = SPEAR_LOCOMOTION_START * 2;
-pub const CLIPS: [&str; SPEAR_THRUST_CLIP + 1] = [
+const NEMI_DEATH_CLIP: usize = SPEAR_THRUST_CLIP + 1;
+pub const CLIPS: [&str; NEMI_DEATH_CLIP + 1] = [
     "Idle",
     "Walk",
     "Run",
@@ -259,6 +263,7 @@ pub const CLIPS: [&str; SPEAR_THRUST_CLIP + 1] = [
     "SpearWalkBackLeft",
     "SpearWalkBackRight",
     "SpearThrust",
+    "NemiDeath",
 ];
 
 #[derive(Resource)]
@@ -438,29 +443,40 @@ pub(crate) fn movement(
 pub(crate) fn bind_actor_animation(
     event: On<WorldInstanceReady>,
     library: Res<AnimationLibrary>,
-    visuals: Query<&ActorVisual>,
+    visuals: Query<(&ActorVisual, &ChildOf)>,
     children: Query<&Children>,
     mut players: Query<&mut AnimationPlayer>,
     mut commands: Commands,
 ) {
-    let Ok(actor) = visuals.get(event.entity) else {
+    let Ok((actor, parent)) = visuals.get(event.entity) else {
         return;
     };
+    let mut death_players = Vec::new();
     for child in children.iter_descendants(event.entity) {
         if let Ok(mut player) = players.get_mut(child) {
             let mut transitions = AnimationTransitions::new();
             transitions
                 .play(&mut player, library.nodes[0], Duration::ZERO)
                 .repeat();
-            commands.entity(child).insert((
-                AnimationGraphHandle(library.graph.clone()),
-                transitions,
-                AnimatedActor {
-                    player: actor.player,
-                    current: 0,
-                },
-            ));
+            commands
+                .entity(child)
+                .insert((AnimationGraphHandle(library.graph.clone()), transitions));
+            if actor.player {
+                commands.entity(child).insert(AnimatedActor { current: 0 });
+            } else {
+                death_players.push(child);
+                commands.entity(child).insert(NemiPlayback {
+                    owner: parent.parent(),
+                    clip: 0,
+                });
+            }
         }
+    }
+    if !death_players.is_empty() {
+        commands.entity(parent.parent()).insert(DeathAnimation {
+            players: death_players,
+            clip: library.nodes[NEMI_DEATH_CLIP],
+        });
     }
 }
 
@@ -487,7 +503,7 @@ fn animate(
         gait as usize
     };
     for (mut animation, mut transitions, mut actor) in &mut animations {
-        let index = if actor.player { desired } else { 0 };
+        let index = desired;
         if index != actor.current {
             if index == SPEAR_THRUST_CLIP {
                 transitions
@@ -499,7 +515,7 @@ fn animate(
                     (actor.current >= SPEAR_LOCOMOTION_START) != (index >= SPEAR_LOCOMOTION_START);
                 let blend = if changes_grip || actor.current == SPEAR_THRUST_CLIP {
                     Duration::ZERO
-                } else if actor.player && dodge.active() {
+                } else if dodge.active() {
                     Duration::from_millis(50)
                 } else {
                     Duration::from_millis(160)
@@ -510,7 +526,7 @@ fn animate(
             }
             actor.current = index;
         }
-        if actor.player && index != SPEAR_THRUST_CLIP {
+        if index != SPEAR_THRUST_CLIP {
             let speed = gait.playback_speed(player.running);
             if let Some(clip) = animation.animation_mut(library.nodes[index])
                 && clip.speed() != speed

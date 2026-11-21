@@ -16,6 +16,7 @@ mod inventory;
 mod inventory_ui;
 mod loading;
 mod loot_ui;
+mod nemi;
 mod player;
 mod practice_dummy;
 mod quest;
@@ -47,9 +48,14 @@ fn main() {
     let args: Vec<_> = std::env::args().skip(1).collect();
     let arena = args.iter().any(|arg| arg == "--smoke-test");
     let world = args.iter().any(|arg| arg == "--smoke-world");
+    let nemi = args.iter().any(|arg| arg == "--smoke-nemi");
     assert!(
-        !(arena && world),
-        "choose either --smoke-test or --smoke-world"
+        [arena, world, nemi]
+            .into_iter()
+            .filter(|mode| *mode)
+            .count()
+            <= 1,
+        "choose one smoke mode"
     );
     let mode = if args.iter().any(|arg| arg == "--windowed") {
         WindowMode::Windowed
@@ -102,10 +108,11 @@ fn main() {
             combat_audio::CombatAudioPlugin,
             settings::SettingsPlugin,
             enemy::EnemyPlugin,
+            nemi::NemiPlugin,
             loot_ui::LootUiPlugin,
         ));
-    if arena || world {
-        app.add_plugins(smoke::SmokePlugin { arena });
+    if arena || world || nemi {
+        app.add_plugins(smoke::SmokePlugin { arena, nemi });
     }
     app.run();
 }

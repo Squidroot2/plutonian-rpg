@@ -86,6 +86,7 @@ pub(crate) struct Hit {
 
 #[derive(Clone, Copy, Debug, Message, PartialEq)]
 pub(crate) struct ConfirmedHit {
+    pub(crate) source: Entity,
     pub(crate) target: Entity,
     pub(crate) contact: Option<Contact>,
 }
@@ -193,6 +194,7 @@ fn resolve_hits(
         }
 
         confirmed.write(ConfirmedHit {
+            source: hit.source,
             target: hit.target,
             contact: hit.contact,
         });
@@ -358,6 +360,7 @@ mod tests {
                 .copied()
                 .collect::<Vec<_>>(),
             [ConfirmedHit {
+                source: attacker,
                 target,
                 contact: None
             }],

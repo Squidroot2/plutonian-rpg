@@ -4,7 +4,7 @@ use crate::{
     inventory::scene_ready,
     loading::{EnemyVisuals, GameAssets, LoadStatus, PendingScene},
     player::{Dodge, MovementInput, Player},
-    quest::{Dialogue, LAST_LIGHT, QuestAction, QuestJournal},
+    quest::{Dialogue, QuestAction, QuestJournal},
     roach,
     spear::Thrust,
     world::SpawnWorld,
@@ -307,7 +307,7 @@ fn use_target(
         return;
     }
     let (area, probe, yaw) = match event.0 {
-        DungeonTarget::Hatch if !quest.is_complete(LAST_LIGHT) => {
+        DungeonTarget::Hatch if !quest.beacon_powered() => {
             quest.record(QuestAction::InspectedSealedHatch);
             dialogue.text = Some(
                 "OLD RELAY\n\nThe hatch responds to the beacon. Restore the light to release the seal.",

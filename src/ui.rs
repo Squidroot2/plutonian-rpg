@@ -7,7 +7,7 @@ use crate::{
     interaction::{InteractionSystems, InteractionTarget, Nearby, Target},
     loading::LoadStatus,
     player::{Player, respawn_defeated},
-    quest::{Dialogue, LAST_LIGHT, QuestJournal},
+    quest::{Dialogue, QuestJournal},
     quest_ui::QuestLog,
     settings::SettingsMenu,
     world::WorldLayout,
@@ -433,12 +433,15 @@ fn refresh_prompt(
                 let action: String = match target {
                     InteractionTarget::Quest(Target::Keeper) => "Speak to Nemi".into(),
                     InteractionTarget::Quest(Target::Core) => "Recover power core".into(),
+                    InteractionTarget::Quest(Target::BeaconSocket) => {
+                        "Install the beacon core".into()
+                    }
                     InteractionTarget::Pickup(pickup) => {
                         format!("Pick up {} x{}", pickup.item.name(), pickup.quantity)
                     }
                     InteractionTarget::Corpse => "Loot corpse".into(),
                     InteractionTarget::Dungeon(target) => match target {
-                        DungeonTarget::Hatch if !quest.is_complete(LAST_LIGHT) => {
+                        DungeonTarget::Hatch if !quest.beacon_powered() => {
                             "Inspect the sealed hatch".into()
                         }
                         DungeonTarget::Hatch => "Enter the Old Relay".into(),

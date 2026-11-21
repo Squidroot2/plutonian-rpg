@@ -142,6 +142,7 @@ def character():
     rig.animation_data.action = None
     add_directional_walks(rig)
     add_spear_animations(rig)
+    add_nemi_death(rig)
     save_export('plutonian')
 
 
@@ -178,6 +179,39 @@ def key_pose(bone, offset, rotation, frame):
     bone.rotation_euler = (rest.inverted() @ rotation @ rest).to_euler('XYZ')
     bone.keyframe_insert('location', frame=frame, group=bone.name)
     bone.keyframe_insert('rotation_euler', frame=frame, group=bone.name)
+
+
+def add_nemi_death(rig):
+    rig.animation_data_create()
+    new_action(rig, 'NemiDeath')
+    for frame, height, roll, brace, bend in [
+        (0, 0, 0, 0, 0),
+        (4, -.05, 12, 30, 18),
+        (10, -.23, 36, 55, 35),
+        (17, .20, 84, 20, 12),
+        (24, .25, 89, 12, 8),
+    ]:
+        root_rotation = Matrix.Rotation(math.radians(roll), 3, 'Y')
+        for bone in rig.pose.bones:
+            offset = Vector((0, 0, height)) if bone.name == 'root' else Vector((0, 0, 0))
+            rotation = Matrix.Identity(3)
+            if bone.name == 'root':
+                rotation = root_rotation
+            elif bone.name == 'spine':
+                rotation = Matrix.Rotation(math.radians(bend * .6), 3, 'X')
+            elif bone.name == 'head':
+                rotation = Matrix.Rotation(math.radians(-bend * .5), 3, 'Y')
+            elif bone.name in ('arm-1', 'arm1'):
+                side = -1 if bone.name == 'arm-1' else 1
+                rotation = Matrix.Rotation(math.radians(-brace), 3, 'X')
+                rotation = Matrix.Rotation(math.radians(-side * brace * .45), 3, 'Y') @ rotation
+            elif bone.name in ('leg-1', 'leg1'):
+                rotation = Matrix.Rotation(math.radians(bend if bone.name == 'leg-1' else -bend * .5), 3, 'X')
+            key_pose(bone, offset, rotation, frame)
+    rig.animation_data.action = None
+    for bone in rig.pose.bones:
+        bone.location = (0, 0, 0)
+        bone.rotation_euler = (0, 0, 0)
 
 
 def add_directional_walks(rig):
@@ -1050,6 +1084,13 @@ elif '--ground' in sys.argv:
             obj.matrix_world = matrix
     bpy.context.view_layer.update()
     save_export('collision')
+elif '--export' in sys.argv and '--nemi-death' in sys.argv:
+    bpy.context.preferences.filepaths.save_version = 0
+    bpy.context.preferences.filepaths.file_preview_type = 'NONE'
+    bpy.ops.wm.open_mainfile(filepath=str(ROOT / 'art/plutonian.blend'))
+    rig = next(obj for obj in bpy.context.scene.objects if obj.type == 'ARMATURE')
+    add_nemi_death(rig)
+    save_export('plutonian')
 elif '--export' in sys.argv:
     for name in ['plutonian', 'outpost', 'collision', 'core', 'battery', 'scrap', 'methane_pouch', 'large_boulder', 'practice_dummy', 'ice_worm', 'relay_roach', 'old_relay', 'old_relay_collision', *MEAT_NAMES, *GEAR_NAMES]:
         bpy.ops.wm.open_mainfile(filepath=str(ROOT/'art'/f'{name}.blend'))

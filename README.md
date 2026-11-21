@@ -47,9 +47,11 @@ The game includes The Last Light, the Old Relay quest and dungeon, and one speak
 
 ## Quest log
 
-Press Tab during gameplay to open the log and select an active or completed quest. Tab, Escape, and Close return control to the player. The world continues while the log is open, so find a safe place to read. Inspecting the sealed Old Relay hatch adds that quest alongside The Last Light. Nemi also adds it when you return the core.
+Press Tab during gameplay to open the log and select an active, completed, or failed quest. Tab, Escape, and Close return control to the player. The world continues while the log is open, so find a safe place to read. Inspecting the sealed Old Relay hatch adds that quest alongside The Last Light. Restoring power also adds it if you missed the hatch.
 
-Quest definitions live in `data/quests/catalog.quest.ron`. Add a definition with a unique ID, activation rules, and ordered objectives. Definitions can use the catalog’s existing world actions and quest-completion conditions. The game loads the catalog at startup and keeps progress for the current session.
+A landed attack makes Nemi flee and fails The Last Light if it is active. A surviving Nemi returns after the player backs off, then refuses to help. Follow **Relight the Beacon** to use the charged core at the tower base. If you already restored the beacon with Nemi, attacking them leaves the beacon powered.
+
+Quest definitions live in `data/quests/catalog.quest.ron`. Add a definition with a unique ID, activation rules, named objectives, and conditional transitions. Definitions can use the catalog’s existing world actions and quest-completion conditions. The game loads the catalog at startup and keeps progress for the current session.
 
 ## Inventory
 
@@ -90,7 +92,7 @@ Two ice worms roam beside the trail and a third waits near the cavern entrance. 
 
 ## The Old Relay
 
-After you restore the beacon, look for the round hatch west and slightly south of Nemi. Use E to enter. Follow the amber lamps to the maintenance switch, then go through the raised gate to discover the archive survey log. Two ice worms and a fast, biting relay roach patrol the relay. Use the hatch in the vestibule to return to Nivalis. Gate progress and the discovery stay with you for the session.
+After you restore the beacon, look for the round hatch northwest of the beacon tower. Use E to enter. Follow the amber lamps to the maintenance switch, then go through the raised gate to discover the archive survey log. Two ice worms and a fast, biting relay roach patrol the relay. Use the hatch in the vestibule to return to Nivalis. Gate progress and the discovery stay with you for the session.
 
 ## Blender workflow
 
@@ -104,7 +106,7 @@ Blender 5.3 was used for the included editable sources in `art/`. Runtime export
 
 | Source / export | Purpose |
 | --- | --- |
-| `plutonian` | Shared skinned character, with base locomotion, spear carry, and `SpearThrust` actions |
+| `plutonian` | Shared skinned character, with base locomotion, spear carry, `SpearThrust`, and `NemiDeath` actions |
 | `outpost` | Ice shelf, habitats, waystones, cavern, beacon tower, distant sky details |
 | `collision` | Simplified static geometry, hidden at runtime |
 | `core` | Collectible beacon power core |
@@ -135,6 +137,8 @@ To regenerate only equipment, pass `-- --equipment`. This overwrites equipment s
 
 Pass `-- --spear` to regenerate the field spear, trident, practice dummy, and the character's spear carry and `SpearThrust` actions. Both weapons attach to `spear_grip` on the spine and use the same two grip points. The spear pose generator bends the upper arm and forearm around each elbow, with blended weights at the joint. Export the pickups flat on the ground using the same sources, and keep the action's contact at frame 6 and recovery at frame 16 (24 fps).
 
+Append `--nemi-death` to the export command to rebuild the collapse action on the existing shared character rig and export that character alone.
+
 The scripts run in a separate background Blender process; a live MCP connection is not required. One Blender unit equals one meter. Author with Z up and the character facing -Y; glTF export converts to Bevy's Y-up coordinates, with the character facing +Z. Keep scale applied and keep the animation names unchanged. Materials use Principled BSDF base color, roughness, metallic, and emission. Animation is exported as sampled actions. Keep visible environment edits and `collision.blend` aligned; collision does not regenerate from edited outpost sources during `--export`.
 
 Trail pillar bodies (the `Waystone` meshes) are included in the hidden collision scene; their glowing lamps remain decorative. To add missing pillar bodies to an existing collision source without replacing other collision meshes, run the asset command with `-- --pillars`. Full procedural generation includes them automatically.
@@ -158,6 +162,7 @@ cargo clippy --locked --all-targets
 cargo test --locked
 cargo run --locked -- --smoke-test
 cargo run --locked -- --smoke-world
+cargo run --locked -- --smoke-nemi
 python3 scripts/check_assets.py
 ```
 
@@ -165,6 +170,7 @@ Run the desktop checks on an idle graphical desktop without supplying mouse or k
 
 - `--smoke-test` starts a standalone arena with nearby materials, equipment, a practice dummy, and the keeper and core. It checks inventory quantities and drops, both weapons' hits and misses, a worm pursuit, dodge, bite, and defeat, armor swaps and attachment during movement, the 640×704 inventory layout, wall collision, pause/resume, and fall recovery. The short beacon interaction verifies that the core is protected in the bag, consumed on turn-in, and lights the beacon. The run prints `SMOKE PASS` and its duration, or fails within 60 seconds with the current phase.
 - `--smoke-world` loads the shipped outpost, verifies the player and worms start grounded, checks the route past the worms, and checks that every authored pillar blocks the movement capsule from four directions. It then checks the locked hatch, beacon turn-in, gate, archive discovery, return and reentry, and fall recovery. It prints `WORLD SMOKE PASS` on success.
+- `--smoke-nemi` checks spear damage, fleeing and returning, the failed quest entry, Nemi’s collapse, and opening the relay by installing the core at the beacon. It prints `NEMI SMOKE PASS` on success.
 
 The checks save screenshots in `/tmp/plutonian-*.png`, including the arena, outpost, inventory, beacon, and weapon and armor poses.
 
