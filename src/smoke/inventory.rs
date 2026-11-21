@@ -234,7 +234,7 @@ pub(crate) fn drive(
         }
         7 => {
             assert_eq!(ui.amount(&inventory), Some(1));
-            smoke.screenshot = Some(crate::smoke::capture(&mut commands, "inventory"));
+            smoke.screenshot = Some(super::capture(&mut commands, "inventory"));
             click(
                 &mut commands,
                 InventoryAction::Drop,

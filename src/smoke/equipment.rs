@@ -1,11 +1,11 @@
 //! Opt-in equipment playthrough using the live inventory UI and animated player rig.
+use super::inventory::{InventorySmoke, click, walk};
 use crate::{
     GameState,
     camera::Orbit,
     equipment::{Equipment, EquipmentSlot, WornEquipment},
     interaction::{InteractionTarget, Nearby},
     inventory::{Inventory, ItemKind, Pickup},
-    inventory_smoke::{InventorySmoke, click, walk},
     inventory_ui::{InventoryAction, InventoryScreen},
     loading::PendingScene,
     player::Player,
@@ -71,7 +71,7 @@ impl Plugin for EquipmentSmokePlugin {
             PreUpdate,
             drive
                 .after(InputSystems)
-                .after(crate::inventory_smoke::drive)
+                .after(super::inventory::drive)
                 .before(crate::ui::pause),
         );
     }
@@ -145,7 +145,7 @@ fn check_worn(view: &View, equipment: &Equipment, player: Entity) -> bool {
     true
 }
 pub(crate) fn drive(
-    spear_smoke: Res<crate::spear_smoke::SpearSmoke>,
+    spear_smoke: Res<super::spear::SpearSmoke>,
     mut smoke: ResMut<EquipmentSmoke>,
     inventory_smoke: Res<InventorySmoke>,
     state: Res<State<GameState>>,
@@ -186,7 +186,7 @@ pub(crate) fn drive(
     }
     macro_rules! photo {
         ($name:expr) => {
-            smoke.screenshot = Some(crate::smoke::capture(&mut commands, $name));
+            smoke.screenshot = Some(super::capture(&mut commands, $name));
         };
     }
     match smoke.stage {

@@ -5,17 +5,14 @@
 #![deny(clippy::unwrap_used)]
 mod camera;
 mod equipment;
-mod equipment_smoke;
 mod interaction;
 mod inventory;
-mod inventory_smoke;
 mod inventory_ui;
 mod loading;
 mod player;
 mod quest;
 mod smoke;
 mod spear;
-mod spear_smoke;
 mod ui;
 mod world;
 use bevy::prelude::*;
@@ -73,13 +70,6 @@ fn main() {
             arena,
             fullscreen: args.iter().any(|arg| arg == "--smoke-fullscreen"),
         });
-    }
-    if arena {
-        app.add_plugins((
-            inventory_smoke::InventorySmokePlugin,
-            equipment_smoke::EquipmentSmokePlugin,
-            spear_smoke::SpearSmokePlugin,
-        ));
     }
     app.run();
 }

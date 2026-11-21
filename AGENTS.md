@@ -4,7 +4,7 @@
 
 This Linux desktop RPG uses Rust 2024, Bevy 0.20, and Avian 0.8. `src/main.rs` assembles plugins; `loading.rs`, `world.rs`, `player.rs`, `camera.rs`, `quest.rs`, and `ui.rs` own their respective systems. Keep movement physics in `FixedUpdate` and respect the loading, playing, paused, and failed states.
 
-Unit tests live beside quest logic in `src/quest.rs`. `src/smoke.rs` provides the opt-in desktop playthrough. Editable Blender sources belong in `art/`; runtime GLBs belong in `assets/models/`. Asset generation and validation scripts live in `scripts/`.
+Unit tests live beside quest logic in `src/quest.rs`. `src/smoke/` contains the opt-in desktop smoke tests. Editable Blender sources belong in `art/`; runtime GLBs belong in `assets/models/`. Asset generation and validation scripts live in `scripts/`.
 
 ## Build, Test, and Development Commands
 

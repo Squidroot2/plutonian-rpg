@@ -1,13 +1,13 @@
 //! Play the spear and trident tutorials before the equipment and quest checks.
 use bevy::{input::InputSystems, prelude::*, render::view::screenshot::Screenshot};
 
+use super::inventory::{InventorySmoke, click, walk};
 use crate::{
     GameState,
     camera::Orbit,
     equipment::{Equipment, EquipmentSlot, WornEquipment},
     interaction::{InteractionTarget, Nearby},
     inventory::{Inventory, ItemKind, Pickup},
-    inventory_smoke::{InventorySmoke, click, walk},
     inventory_ui::InventoryAction,
     loading::PendingScene,
     player::Player,
@@ -49,8 +49,8 @@ impl Plugin for SpearSmokePlugin {
             PreUpdate,
             drive
                 .after(InputSystems)
-                .after(crate::inventory_smoke::drive)
-                .before(crate::equipment_smoke::drive)
+                .after(super::inventory::drive)
+                .before(super::equipment::drive)
                 .before(crate::ui::pause)
                 .before(crate::player::input),
         );
@@ -95,7 +95,7 @@ fn drive(
         (ItemKind::FieldSpear, "spear")
     };
     let capture = |commands: &mut Commands, stage| {
-        crate::smoke::capture(commands, &format!("{screenshot_name}-{stage}"))
+        super::capture(commands, &format!("{screenshot_name}-{stage}"))
     };
     let now = time.elapsed_secs();
     let (transform, controller) = player

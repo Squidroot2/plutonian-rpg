@@ -1,16 +1,22 @@
 //! Opt-in desktop checks for live gameplay and shipped-map collisions.
+mod equipment;
+mod inventory;
+mod spear;
+
+use self::{
+    equipment::{EquipmentSmoke, EquipmentSmokePlugin},
+    inventory::{InventorySmoke, InventorySmokePlugin, click, walk},
+    spear::{SpearSmoke, SpearSmokePlugin},
+};
 use crate::{
     GameState,
     camera::Orbit,
-    equipment_smoke::EquipmentSmoke,
     interaction::{InteractionTarget, Nearby, Target},
     inventory::{Inventory, ItemKind},
-    inventory_smoke::{InventorySmoke, click, walk},
     inventory_ui::{InventoryAction, InventoryUiState},
     loading::LoadStatus,
     player::Player,
     quest::{Beacon, Dialogue, Quest},
-    spear_smoke::SpearSmoke,
     world::WorldLayout,
 };
 use avian3d::prelude::*;
@@ -117,10 +123,11 @@ impl Plugin for SmokePlugin {
                     PreUpdate,
                     drive
                         .after(InputSystems)
-                        .after(crate::equipment_smoke::drive)
+                        .after(equipment::drive)
                         .before(crate::player::input)
                         .before(crate::ui::pause),
-                );
+                )
+                .add_plugins((InventorySmokePlugin, EquipmentSmokePlugin, SpearSmokePlugin));
         } else {
             app.add_systems(
                 OnEnter(GameState::Playing),
