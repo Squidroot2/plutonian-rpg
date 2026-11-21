@@ -171,7 +171,7 @@ fn drive(
         SpearSmoke::Select if menu.is_on(MenuTab::Equipment) => {
             click(
                 &mut commands,
-                InventoryAction::SelectGear(weapon),
+                InventoryAction::ToggleSlot(EquipmentSlot::Weapon),
                 &actions,
                 window,
                 camera,
@@ -181,7 +181,7 @@ fn drive(
         SpearSmoke::Equip => {
             click(
                 &mut commands,
-                InventoryAction::Equip,
+                InventoryAction::EquipFromSlot(EquipmentSlot::Weapon, weapon),
                 &actions,
                 window,
                 camera,

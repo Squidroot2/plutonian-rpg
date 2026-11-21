@@ -255,11 +255,14 @@ pub(crate) fn drive(
             smoke.stage = 41;
         }
         41 if menu.is_on(MenuTab::Equipment) => {
-            click!(InventoryAction::SelectGear(ItemKind::FieldHelmet));
+            click!(InventoryAction::ToggleSlot(EquipmentSlot::Helmet));
             smoke.stage = 5;
         }
         5 => {
-            click!(InventoryAction::Equip);
+            click!(InventoryAction::EquipFromSlot(
+                EquipmentSlot::Helmet,
+                ItemKind::FieldHelmet
+            ));
             smoke.stage = 6;
         }
         6 if check_worn(&view, &equipment, player) => {
@@ -392,11 +395,14 @@ pub(crate) fn drive(
             );
         }
         11 if menu.is_on(MenuTab::Equipment) => {
-            click!(InventoryAction::SelectGear(ItemKind::FieldArmor));
+            click!(InventoryAction::ToggleSlot(EquipmentSlot::Body));
             smoke.stage = 12;
         }
         12 => {
-            click!(InventoryAction::Equip);
+            click!(InventoryAction::EquipFromSlot(
+                EquipmentSlot::Body,
+                ItemKind::FieldArmor
+            ));
             smoke.stage = 13;
         }
         13 if check_worn(&view, &equipment, player) => {
@@ -441,21 +447,27 @@ pub(crate) fn drive(
             );
         }
         102 if menu.is_on(MenuTab::Equipment) => {
-            click!(InventoryAction::SelectGear(ItemKind::ReinforcedArmor));
+            click!(InventoryAction::ToggleSlot(EquipmentSlot::Body));
             smoke.stage = 103;
         }
         103 => {
-            click!(InventoryAction::Equip);
+            click!(InventoryAction::EquipFromSlot(
+                EquipmentSlot::Body,
+                ItemKind::ReinforcedArmor
+            ));
             smoke.stage = 104;
         }
         104 => {
             assert_eq!(bag.count(ItemKind::FieldArmor), 1);
             assert_eq!(equipment.total_defense(), 6);
-            click!(InventoryAction::SelectGear(ItemKind::ReinforcedHelmet));
+            click!(InventoryAction::ToggleSlot(EquipmentSlot::Helmet));
             smoke.stage = 105;
         }
         105 => {
-            click!(InventoryAction::Equip);
+            click!(InventoryAction::EquipFromSlot(
+                EquipmentSlot::Helmet,
+                ItemKind::ReinforcedHelmet
+            ));
             smoke.stage = 106;
         }
         106 if check_worn(&view, &equipment, player) => {
@@ -471,11 +483,14 @@ pub(crate) fn drive(
         107 => {
             assert_eq!(equipment.get(EquipmentSlot::Helmet), None);
             assert_eq!(bag.count(ItemKind::ReinforcedHelmet), 1);
-            click!(InventoryAction::SelectGear(ItemKind::ReinforcedHelmet));
+            click!(InventoryAction::ToggleSlot(EquipmentSlot::Helmet));
             smoke.stage = 108;
         }
         108 => {
-            click!(InventoryAction::Equip);
+            click!(InventoryAction::EquipFromSlot(
+                EquipmentSlot::Helmet,
+                ItemKind::ReinforcedHelmet
+            ));
             smoke.stage = 109;
         }
         109 if check_worn(&view, &equipment, player) => {

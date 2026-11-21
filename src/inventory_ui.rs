@@ -22,7 +22,6 @@ pub struct InventoryUiPlugin;
 pub struct InventoryUiState {
     pub selected: Option<ItemKind>,
     pub quantity: String,
-    gear: Option<ItemKind>,
     equip_slot: Option<EquipmentSlot>,
     drop_open: bool,
     editing: bool,
@@ -108,8 +107,6 @@ fn owned(item: ItemKind, inventory: &Inventory, equipment: &Equipment) -> u64 {
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum InventoryAction {
     Select(ItemKind),
-    SelectGear(ItemKind),
-    Equip,
     ToggleSlot(EquipmentSlot),
     EquipFromSlot(EquipmentSlot, ItemKind),
     CloseSlotPicker(EquipmentSlot),
@@ -124,11 +121,9 @@ pub enum InventoryAction {
 impl InventoryAction {
     fn tab(self) -> MenuTab {
         match self {
-            Self::SelectGear(_)
-            | Self::Equip
-            | Self::ToggleSlot(_)
-            | Self::EquipFromSlot(_, _)
-            | Self::CloseSlotPicker(_) => MenuTab::Equipment,
+            Self::ToggleSlot(_) | Self::EquipFromSlot(_, _) | Self::CloseSlotPicker(_) => {
+                MenuTab::Equipment
+            }
             _ => MenuTab::Inventory,
         }
     }
@@ -139,7 +134,6 @@ enum PanelText {
     ItemQuantity(ItemKind),
     ItemWeight(ItemKind),
     ItemStatus(ItemKind),
-    Gear(ItemKind),
     Slot(EquipmentSlot),
     SlotAction(EquipmentSlot),
     Defense,
@@ -152,7 +146,7 @@ enum PanelText {
 }
 
 #[derive(Component)]
-struct EmptyList(MenuTab);
+struct EmptyList;
 #[derive(Component)]
 struct DropControls;
 #[derive(Component)]
@@ -221,11 +215,7 @@ pub(crate) fn spawn(page: &mut ChildSpawnerCommands) {
                 ..column()
             })
             .with_children(|bag| {
-                bag.spawn((
-                    EmptyList(MenuTab::Inventory),
-                    Text::new("Your inventory is empty."),
-                    font(16.0),
-                ));
+                bag.spawn((EmptyList, Text::new("Your inventory is empty."), font(16.0)));
                 for item in ItemKind::ALL {
                     bag.spawn((InventoryAction::Select(item), menu_ui::button()))
                         .observe(action)
@@ -320,24 +310,7 @@ pub(crate) fn spawn(page: &mut ChildSpawnerCommands) {
 }
 
 pub(crate) fn spawn_equipment(page: &mut ChildSpawnerCommands) {
-    page.spawn(scroll_pane(MenuTab::Equipment, percent(38)))
-        .with_children(|list| {
-            list.spawn((Text::new("Available gear"), font(19.0)));
-            list.spawn((
-                EmptyList(MenuTab::Equipment),
-                Text::new("No gear in your bag."),
-                font(16.0),
-            ));
-            for item in ItemKind::GEAR {
-                action_button(
-                    list,
-                    InventoryAction::SelectGear(item),
-                    (PanelText::Gear(item), Text::default()),
-                );
-            }
-            action_button(list, InventoryAction::Equip, Text::new("Equip selected"));
-        });
-    page.spawn(scroll_pane(MenuTab::Equipment, percent(62)))
+    page.spawn(scroll_pane(MenuTab::Equipment, percent(100)))
         .with_children(|details| {
             details.spawn((Text::new("Equipped"), font(19.0)));
             details.spawn((PanelText::Defense, Text::default(), font(16.0)));
@@ -452,17 +425,6 @@ fn action(
                 && inventory.count(item) > 0
                 && !equipped(item, &equipment)
             {
-                commands.trigger(EquipRequest(item));
-            }
-        }
-        InventoryAction::SelectGear(item)
-            if inventory.count(item) > 0 && !equipped(item, &equipment) =>
-        {
-            ui.gear = Some(item);
-            notice.0.clear();
-        }
-        InventoryAction::Equip => {
-            if let Some(item) = ui.gear.filter(|item| !equipped(*item, &equipment)) {
                 commands.trigger(EquipRequest(item));
             }
         }
@@ -665,14 +627,6 @@ fn sync(
             .find(|&item| owned(item, &inventory, &equipment) > 0);
         ui.cancel_drop();
     }
-    if ui
-        .gear
-        .is_none_or(|item| inventory.count(item) == 0 || equipped(item, &equipment))
-    {
-        ui.gear = ItemKind::GEAR
-            .into_iter()
-            .find(|&item| inventory.count(item) > 0 && !equipped(item, &equipment));
-    }
     if ui.equip_slot.is_some_and(|slot| {
         equipment.get(slot).is_some() || available_gear_for_slot(slot, &inventory).next().is_none()
     }) {
@@ -694,12 +648,6 @@ fn sync(
                 Some(item) == ui.selected,
                 false,
             ),
-            InventoryAction::SelectGear(item) => (
-                inventory.count(item) > 0,
-                Some(item) == ui.gear,
-                equipped(item, &equipment),
-            ),
-            InventoryAction::Equip => (ui.gear.is_some(), false, false),
             InventoryAction::ToggleSlot(slot) => (
                 true,
                 false,
@@ -726,13 +674,8 @@ fn sync(
             BUTTON
         };
     }
-    for (kind, mut node) in &mut nodes.p2() {
-        node.display = display(match kind.0 {
-            MenuTab::Inventory => ui.selected.is_none(),
-            _ => !ItemKind::GEAR
-                .into_iter()
-                .any(|item| inventory.count(item) > 0),
-        });
+    for (_, mut node) in &mut nodes.p2() {
+        node.display = display(ui.selected.is_none());
     }
     for (picker, mut node) in &mut nodes.p3() {
         node.display = display(ui.equip_slot == Some(picker.0));
@@ -754,7 +697,6 @@ fn sync(
             PanelText::ItemStatus(item) if equipped(item, &equipment) => "Equipped".into(),
             PanelText::ItemStatus(ItemKind::BeaconCore) => "Quest item".into(),
             PanelText::ItemStatus(_) => String::new(),
-            PanelText::Gear(item) => format!("{}  x{}", item.name(), inventory.count(item)),
             PanelText::Slot(slot) => slot_label(slot, &equipment),
             PanelText::SlotAction(slot) => {
                 if equipment.get(slot).is_some() {
