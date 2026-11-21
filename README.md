@@ -136,3 +136,7 @@ Run the desktop checks on an idle graphical desktop without supplying mouse or k
 The checks save screenshots in `/tmp/plutonian-*.png`, including the arena, outpost, inventory, beacon, and weapon and armor poses.
 
 Manual acceptance: walk and sprint, jump and land, traverse the trail rise, push against habitat/cavern walls, orbit the camera near obstructions, try interacting out of range or through a wall, read/dismiss each dialogue, collect the core once, return to Nemi, confirm the lit beacon, pause/resume using keys and buttons, fall off the ice shelf, pick up materials on the trail and in the cavern, use the inventory quantity field and buttons, drop and recollect stacks near slopes and walls, equip and swap both gear sets, unequip/drop/recollect gear, inspect its fit during animation, and restart to confirm fresh quest, inventory, and equipment state. Automated checks cannot establish how comfortable the movement or composition feels.
+
+## License
+
+Licensed under the [MIT License](LICENSE).

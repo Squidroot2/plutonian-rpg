@@ -3,6 +3,7 @@ name = "plutonian-rpg"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.97.1"
+license = "MIT"
 
 [dependencies]
 bevy = { version = "0.20", default-features = false, features = ["default_app", "std", "bevy_winit", "multi_threaded", "3d_bevy_render", "ui_bevy_render", "ui_picking", "default_font", "png", "x11", "wayland"] }
