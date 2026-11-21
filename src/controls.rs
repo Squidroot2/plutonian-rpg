@@ -66,6 +66,10 @@ impl Control {
         }
     }
 
+    pub(crate) fn is_menu_control(self) -> bool {
+        self == Self::Inventory || Self::MENU.contains(&self)
+    }
+
     fn conflicts_with(self, other: Self) -> bool {
         let left = self.conflict_group();
         let right = other.conflict_group();

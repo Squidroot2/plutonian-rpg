@@ -168,18 +168,24 @@ fn setup(mut commands: Commands) {
             panel
                 .spawn((Section::Keybinds, section_layout()))
                 .with_children(|menu| {
-                    menu.spawn(Node {
-                        width: percent(100),
-                        flex_wrap: FlexWrap::Wrap,
-                        justify_content: JustifyContent::SpaceBetween,
-                        row_gap: px(6),
-                        ..default()
-                    })
-                    .with_children(|grid| {
-                        for control in Control::ALL {
-                            spawn_button(grid, Action::Rebind(control), percent(49));
-                        }
-                    });
+                    for (header, menu_controls) in [("Gameplay", false), ("Menu", true)] {
+                        menu.spawn((Text::new(header), ui::text_style(20.0), Pickable::IGNORE));
+                        menu.spawn(Node {
+                            width: percent(100),
+                            flex_wrap: FlexWrap::Wrap,
+                            justify_content: JustifyContent::SpaceBetween,
+                            row_gap: px(6),
+                            ..default()
+                        })
+                        .with_children(|grid| {
+                            for control in Control::ALL
+                                .into_iter()
+                                .filter(|control| control.is_menu_control() == menu_controls)
+                            {
+                                spawn_button(grid, Action::Rebind(control), percent(49));
+                            }
+                        });
+                    }
                     spawn_button(menu, Action::ResetBindings, percent(100));
                     spawn_button(menu, Action::Back, percent(100));
                 });
@@ -586,6 +592,10 @@ mod tests {
             .init_resource::<ButtonInput<KeyCode>>()
             .init_resource::<ButtonInput<MouseButton>>();
         let bindings = app.world().resource::<Keybinds>();
+        assert!(!Control::Forward.is_menu_control());
+        assert!(Control::Inventory.is_menu_control());
+        assert!(Control::Drop.is_menu_control());
+        assert!(Control::MenuRight.is_menu_control());
         assert_eq!(bindings.get(Control::MenuUp).label(), "W");
         assert_eq!(bindings.get(Control::MenuDown).label(), "S");
         assert_eq!(bindings.get(Control::MenuLeft).label(), "A");
