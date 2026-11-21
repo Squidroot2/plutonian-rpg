@@ -2,4 +2,8 @@
 
 ## Sound Effects
 
-Sound effects are from the [RPG Audio pack](https://kenney.nl/assets/rpg-audio) by Kenney (kenney.nl).
+The following sound effects are from Kenney's [RPG Audio pack](https://kenney.nl/assets/rpg-audio) (kenney.nl):
+
+- `assets/sounds/cloth3.ogg` — unequipping
+- `assets/sounds/cloth4.ogg` — equipping
+- `assets/sounds/footstep05.ogg` — player footsteps
