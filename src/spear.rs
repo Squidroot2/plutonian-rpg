@@ -51,6 +51,10 @@ impl Thrust {
         self.elapsed.is_some()
     }
 
+    pub(crate) fn just_started(&self) -> bool {
+        self.elapsed == Some(0.0)
+    }
+
     pub(crate) fn cancel(&mut self) {
         self.elapsed = None;
     }

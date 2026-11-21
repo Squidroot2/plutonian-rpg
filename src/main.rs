@@ -5,6 +5,7 @@
 #![deny(clippy::unwrap_used)]
 mod camera;
 mod combat;
+mod combat_audio;
 mod combat_feedback;
 mod controls;
 mod dungeon;
@@ -94,6 +95,7 @@ fn main() {
         .add_plugins((
             combat::CombatPlugin,
             combat_feedback::CombatFeedbackPlugin,
+            combat_audio::CombatAudioPlugin,
             settings::SettingsPlugin,
             roach::RoachPlugin,
             loot_ui::LootUiPlugin,
