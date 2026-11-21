@@ -294,6 +294,35 @@ mod tests {
     }
 
     #[test]
+    fn grounded_thrust_reaches_the_roach_hitbox() {
+        let mut app = test_app();
+        let player_position = Vec3::Y * 0.905;
+        let player = app
+            .world_mut()
+            .spawn(Transform::from_translation(player_position))
+            .id();
+        let roach = app
+            .world_mut()
+            .spawn((
+                RigidBody::Kinematic,
+                crate::roach::collider(),
+                Transform::from_xyz(0.0, crate::roach::GROUND_OFFSET, 2.4),
+            ))
+            .id();
+        for _ in 0..3 {
+            app.update();
+        }
+
+        let hit = app
+            .world_mut()
+            .run_system_once(move |spatial: SpatialQuery| {
+                thrust_contact(&spatial, player, player_position, Quat::IDENTITY)
+            })
+            .expect("physics resources must be initialized for the thrust cast");
+        assert_eq!(hit.map(|hit| hit.target), Some(roach));
+    }
+
+    #[test]
     fn only_a_landed_thrust_emits_one_impact() {
         let mut app = test_app();
         let world = app.world_mut();

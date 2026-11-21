@@ -11,11 +11,12 @@ pub(crate) const MODEL: EnemyModel = EnemyModel {
     path: "models/relay_roach.glb",
     clips: ["RoachIdle", "RoachCrawl", "RoachBite", "RoachDeath"],
 };
+pub(crate) const GROUND_OFFSET: f32 = 0.32;
 pub(crate) const CONFIG: GroundMelee = GroundMelee {
     name: "Relay roach",
     health: 20,
     loot: ItemKind::RoachMeat,
-    movement: GroundMovement::new(3.5, 0.32),
+    movement: GroundMovement::new(3.5, GROUND_OFFSET),
     bite: Bite {
         range: 1.5,
         windup: 0.4,
@@ -40,6 +41,16 @@ pub(crate) fn spawn(
         home,
         area,
         CONFIG,
-        Collider::cuboid(1.0, 0.65, 1.2),
+        collider(),
     )
+}
+
+pub(crate) fn collider() -> Collider {
+    let height = 1.10;
+    // Extend the collider upward from the floor at the roach's existing model height.
+    Collider::compound(vec![(
+        Vec3::Y * (height / 2.0 - GROUND_OFFSET + 0.01),
+        Quat::IDENTITY,
+        Collider::cuboid(1.0, height, 1.2),
+    )])
 }
