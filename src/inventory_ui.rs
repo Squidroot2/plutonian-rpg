@@ -518,6 +518,12 @@ fn edit_quantity(
             Key::Enter if !event.repeat => confirm_drop(&mut ui, &inventory, &mut commands),
             Key::ArrowUp => ui.step(&inventory, 1),
             Key::ArrowDown => ui.step(&inventory, -1),
+            Key::Character(character) if character.eq_ignore_ascii_case("d") => {
+                ui.step(&inventory, 1);
+            }
+            Key::Character(character) if character.eq_ignore_ascii_case("a") => {
+                ui.step(&inventory, -1);
+            }
             Key::Backspace if ui.editing => {
                 if ui.replace {
                     ui.quantity.clear();
