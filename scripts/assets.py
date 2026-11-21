@@ -474,7 +474,8 @@ def items():
         save_export(name)
 
 
-GEAR_NAMES = ['field_armor', 'reinforced_armor', 'field_helmet', 'reinforced_helmet', 'field_spear']
+SPEAR_NAMES = ['field_spear', 'trident']
+GEAR_NAMES = ['field_armor', 'reinforced_armor', 'field_helmet', 'reinforced_helmet', *SPEAR_NAMES]
 
 
 def attachment_frames():
@@ -508,7 +509,7 @@ def export_equipment(name):
     objects = [obj for obj in bpy.context.scene.objects if obj.type == 'MESH']
     matrices = {obj: obj.matrix_world.copy() for obj in objects}
     # Convert the worn mesh to character space before grounding the pickup.
-    if name == 'field_spear':
+    if name in SPEAR_NAMES:
         frame = attachment_frames()['spear_grip'].inverted()
         for obj in objects:
             obj.matrix_world = frame @ matrices[obj]
@@ -530,8 +531,8 @@ def export_equipment(name):
 def equipment():
     frames = attachment_frames()
     for name in GEAR_NAMES:
-        if name == 'field_spear':
-            spear_model(frames['spear_grip'])
+        if name in SPEAR_NAMES:
+            spear_model(frames['spear_grip'], name)
             continue
         reset()
         reinforced = name.startswith('reinforced')
@@ -579,19 +580,31 @@ def equipment():
         export_equipment(name)
 
 
-def spear_model(frame):
+def spear_model(frame, name):
     reset()
     shaft = material('Dark alloy shaft', (.13,.23,.26), metal=.65)
     grip = material('Insulated grip', (.035,.055,.065))
     blade = material('Pale ice alloy', (.32,.52,.57), metal=.75)
-    glow = material('Spear identification', (.12,.87,.7), emission=3)
+    tint = (.63,.28,.95) if name == 'trident' else (.12,.87,.7)
+    glow = material('Spear identification', tint, emission=3)
     x, rear, z = SPEAR_GRIP
     box('Octagonal shaft core', (x,rear-.72,z), (.065,1.8,.061), shaft)
     box('Rear hand wrap', (x,rear,z), (.094,.20,.088), grip)
     box('Forward hand wrap', (x,rear-SPEAR_HAND_SPACING,z), (.094,.20,.088), grip)
     box('End cap', (x,rear+.18,z), (.106,.085,.095), blade)
-    box('Glowing collar', (x,rear-1.57,z), (.115,.095,.096), glow)
-    point = cone('Spear point', (x,rear-1.755,z), .095, .38, blade)
+    if name == 'trident':
+        box('Fork crosspiece', (x,rear-1.55,z), (.47,.11,.09), shaft)
+        box('Fork inlay', (x,rear-1.55,z+.048), (.38,.045,.012), glow)
+        for side, label in [(-1, 'Right'), (1, 'Left')]:
+            tine_x = x + side*.195
+            box(f'{label} tine base', (tine_x,rear-1.61,z), (.086,.17,.071), blade)
+            tine = cone(f'{label} tine', (tine_x,rear-1.765,z), .062, .24, blade)
+            tine.rotation_euler.x = math.pi/2
+            tine.scale.y = .64
+    else:
+        box('Glowing collar', (x,rear-1.57,z), (.115,.095,.096), glow)
+    point = cone('Center tine' if name == 'trident' else 'Spear point',
+                 (x,rear-1.755,z), .095, .38, blade)
     point.rotation_euler.x = math.pi/2
     point.scale.y = .64
     bpy.context.view_layer.update()
@@ -599,8 +612,8 @@ def spear_model(frame):
         obj.matrix_world = frame @ obj.matrix_world
     bpy.context.scene['equipment_bone'] = 'spear_grip'
     bpy.context.view_layer.update()
-    bpy.ops.wm.save_as_mainfile(filepath=str(ROOT / 'art/field_spear.blend'))
-    export_equipment('field_spear')
+    bpy.ops.wm.save_as_mainfile(filepath=str(ROOT / 'art' / f'{name}.blend'))
+    export_equipment(name)
 
 
 def practice_dummy():
@@ -628,7 +641,9 @@ def spear_assets():
     rig = next(obj for obj in bpy.context.scene.objects if obj.type == 'ARMATURE')
     add_spear_animations(rig)
     save_export('plutonian')
-    spear_model(attachment_frames()['spear_grip'])
+    frame = attachment_frames()['spear_grip']
+    for name in SPEAR_NAMES:
+        spear_model(frame, name)
     practice_dummy()
 
 

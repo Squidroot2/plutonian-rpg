@@ -222,9 +222,7 @@ fn animate(
     };
     let desired = if thrust.active() {
         SPEAR_THRUST_CLIP
-    } else if equipment.get(crate::equipment::EquipmentSlot::Weapon)
-        == Some(crate::inventory::ItemKind::FieldSpear)
-    {
+    } else if equipment.has_spear() {
         SPEAR_LOCOMOTION_START + locomotion
     } else {
         locomotion

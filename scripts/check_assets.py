@@ -6,7 +6,7 @@ import struct
 
 root = Path(__file__).resolve().parents[1]
 documents = {}
-gear_names = ['field_armor', 'reinforced_armor', 'field_helmet', 'reinforced_helmet', 'field_spear']
+gear_names = ['field_armor', 'reinforced_armor', 'field_helmet', 'reinforced_helmet', 'field_spear', 'trident']
 for name in ['plutonian', 'outpost', 'collision', 'core', 'battery', 'scrap', 'methane_pouch', 'practice_dummy', *gear_names, *[name+'_worn' for name in gear_names]]:
     source_name = name.removesuffix('_worn')
     source = root / 'art' / f'{source_name}.blend'
@@ -89,7 +89,8 @@ def mesh_bounds(document):
     return [min(p[axis] for p in points) for axis in range(3)], [max(p[axis] for p in points) for axis in range(3)]
 
 limits = {'field_armor': [.86,.76,.8], 'reinforced_armor': [1.02,.8,.84],
-          'field_helmet': [.9,.58,.72], 'reinforced_helmet': [1,.64,.8], 'field_spear': [.28,.23,2.3]}
+          'field_helmet': [.9,.58,.72], 'reinforced_helmet': [1,.64,.8],
+          'field_spear': [.28,.23,2.3], 'trident': [.58,.23,2.3]}
 for name in gear_names:
     low, high = mesh_bounds(documents[name])
     assert abs(low[1]) < .001, f'{name}: pickup must have a base origin'
@@ -103,8 +104,20 @@ for name in gear_names:
 # against the wraps on the worn shaft. The spine's motion affects all three equally.
 character = documents['plutonian']
 nodes = {node['name']: index for index, node in enumerate(character['nodes'])}
-wraps = {node['name']: node.get('translation', [0,0,0]) for node in documents['field_spear_worn']['nodes']
-         if node.get('name') in ['Rear hand wrap', 'Forward hand wrap']}
+
+def grip_wraps(document):
+    return {node['name']: node.get('translation', [0,0,0]) for node in document['nodes']
+            if node.get('name') in ['Rear hand wrap', 'Forward hand wrap']}
+
+
+wraps = grip_wraps(documents['field_spear_worn'])
+trident_wraps = grip_wraps(documents['trident_worn'])
+assert wraps.keys() == trident_wraps.keys() and all(dist(wraps[name], trident_wraps[name]) < .001 for name in wraps), (
+    'The trident must use the same two grip points as the field spear'
+)
+assert abs(mesh_bounds(documents['trident_worn'])[1][2] - mesh_bounds(documents['field_spear_worn'])[1][2]) < .001, (
+    'The trident and field spear tips must have the same forward reach'
+)
 
 
 def read_samples(index):

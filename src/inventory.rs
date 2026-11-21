@@ -21,17 +21,19 @@ pub enum ItemKind {
     FieldHelmet,
     ReinforcedHelmet,
     FieldSpear,
+    Trident,
 }
 impl ItemKind {
     pub const MATERIALS: [Self; 3] = [Self::Battery, Self::Scrap, Self::MethanePouch];
-    pub const GEAR: [Self; 5] = [
+    pub const GEAR: [Self; 6] = [
         Self::FieldArmor,
         Self::ReinforcedArmor,
         Self::FieldHelmet,
         Self::ReinforcedHelmet,
         Self::FieldSpear,
+        Self::Trident,
     ];
-    pub const ALL: [Self; 9] = [
+    pub const ALL: [Self; 10] = [
         Self::Battery,
         Self::Scrap,
         Self::MethanePouch,
@@ -40,6 +42,7 @@ impl ItemKind {
         Self::FieldHelmet,
         Self::ReinforcedHelmet,
         Self::FieldSpear,
+        Self::Trident,
         Self::BeaconCore,
     ];
     pub fn name(self) -> &'static str {
@@ -49,6 +52,7 @@ impl ItemKind {
             Self::MethanePouch => "Methane pouch",
             Self::BeaconCore => "Beacon power core",
             Self::FieldSpear => "Field spear",
+            Self::Trident => "Trident",
             Self::FieldArmor => "Field armor",
             Self::ReinforcedArmor => "Reinforced armor",
             Self::FieldHelmet => "Field helmet",
@@ -62,6 +66,7 @@ impl ItemKind {
             Self::MethanePouch => "methane_pouch",
             Self::BeaconCore => "core",
             Self::FieldSpear => "field_spear",
+            Self::Trident => "trident",
             Self::FieldArmor => "field_armor",
             Self::ReinforcedArmor => "reinforced_armor",
             Self::FieldHelmet => "field_helmet",
@@ -74,7 +79,7 @@ impl ItemKind {
             Self::Scrap => "Salvaged metal from the outpost's machines.",
             Self::MethanePouch => "A reinforced pouch of condensed methane.",
             Self::BeaconCore => "Quest item. Return this core to Nemi.",
-            Self::FieldSpear => "Aim with the camera and left click to thrust.",
+            Self::FieldSpear | Self::Trident => "Aim with the camera and left click to thrust.",
             Self::FieldArmor => "Light fitted plates used by outpost explorers.",
             Self::ReinforcedArmor => "A reinforced cuirass for crossing the deep ice.",
             Self::FieldHelmet => "An open-face helmet with space for sensory horns.",
@@ -178,6 +183,7 @@ fn spawn_loot(
     }
     for (item, position) in [
         (ItemKind::FieldSpear, Vec3::new(6.0, 2.0, 5.0)),
+        (ItemKind::Trident, Vec3::new(1.5, 2.0, 5.0)),
         (ItemKind::FieldArmor, Vec3::new(-5.0, 2.0, -5.0)),
         (ItemKind::FieldHelmet, Vec3::new(4.0, 2.0, -9.0)),
         (ItemKind::ReinforcedArmor, Vec3::new(-3.0, 2.0, -115.0)),

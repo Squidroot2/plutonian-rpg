@@ -1,4 +1,4 @@
-//! Play the spear tutorial before the existing equipment and quest checks.
+//! Play the spear and trident tutorials before the equipment and quest checks.
 use bevy::{
     input::InputSystems,
     prelude::*,
@@ -65,7 +65,11 @@ fn drive(
     mut smoke: ResMut<SpearSmoke>,
     state: Res<State<GameState>>,
     time: Res<Time>,
-    (mut deadline, mut captured_at): (Local<Option<f32>>, Local<f32>),
+    (mut deadline, mut captured_at, mut testing_trident): (
+        Local<Option<f32>>,
+        Local<f32>,
+        Local<bool>,
+    ),
     inventory: Res<Inventory>,
     equipment: Res<Equipment>,
     nearby: Res<Nearby>,
@@ -85,10 +89,23 @@ fn drive(
     if !materials.done || smoke.done() {
         return;
     }
+    let (weapon, screenshot_name) = if *testing_trident {
+        (ItemKind::Trident, "trident")
+    } else {
+        (ItemKind::FieldSpear, "spear")
+    };
+    let capture = |commands: &mut Commands, stage| {
+        commands
+            .spawn(Screenshot::primary_window())
+            .observe(save_to_disk(format!(
+                "/tmp/plutonian-{screenshot_name}-{stage}.png"
+            )));
+    };
     let now = time.elapsed_secs();
     assert!(
         now < *deadline.get_or_insert(now + 25.0),
-        "spear smoke timed out in {:?}",
+        "{} smoke timed out in {:?}",
+        weapon.name(),
         *smoke
     );
     let (transform, controller) = player
@@ -105,25 +122,32 @@ fn drive(
 
     match *smoke {
         SpearSmoke::Collect | SpearSmoke::Recollect if *state.get() == GameState::Playing => {
-            if inventory.count(ItemKind::FieldSpear) == 1 {
+            if inventory.count(weapon) == 1 {
                 if *smoke == SpearSmoke::Recollect {
                     assert_eq!(equipment.get(EquipmentSlot::Weapon), None);
                     info!(
-                        "SPEAR SMOKE PASS: collected, equipped, hit, missed, unequipped, dropped and recollected spear"
+                        "SPEAR SMOKE PASS: collected, equipped, hit, missed, unequipped, dropped and recollected {}",
+                        weapon.name()
                     );
-                    *smoke = SpearSmoke::Done;
+                    if *testing_trident {
+                        *smoke = SpearSmoke::Done;
+                    } else {
+                        *testing_trident = true;
+                        *deadline = None;
+                        *smoke = SpearSmoke::Collect;
+                    }
                 } else {
                     keys.press(KeyCode::KeyI);
                     *smoke = SpearSmoke::Select;
                 }
-            } else if matches!(nearby.0, Some((_, InteractionTarget::Pickup(p))) if p.item == ItemKind::FieldSpear)
+            } else if matches!(nearby.0, Some((_, InteractionTarget::Pickup(p))) if p.item == weapon)
             {
                 keys.press(KeyCode::KeyE);
             } else {
                 let (_, target) = pickups
                     .iter()
-                    .find(|(p, _)| p.item == ItemKind::FieldSpear)
-                    .expect("the uncollected spear must have a world pickup");
+                    .find(|(p, _)| p.item == weapon)
+                    .expect("the uncollected weapon must have a world pickup");
                 walk(
                     &mut keys,
                     &mut orbit,
@@ -135,7 +159,7 @@ fn drive(
         SpearSmoke::Select if *state.get() == GameState::Inventory => {
             click(
                 &mut commands,
-                InventoryAction::Select(ItemKind::FieldSpear),
+                InventoryAction::Select(weapon),
                 &actions,
                 window,
                 camera,
@@ -152,15 +176,10 @@ fn drive(
             );
             *smoke = SpearSmoke::Close;
         }
-        SpearSmoke::Close if worn.iter().any(|piece| piece.item == ItemKind::FieldSpear) => {
-            assert_eq!(
-                equipment.get(EquipmentSlot::Weapon),
-                Some(ItemKind::FieldSpear)
-            );
-            assert_eq!(inventory.count(ItemKind::FieldSpear), 0);
-            commands
-                .spawn(Screenshot::primary_window())
-                .observe(save_to_disk("/tmp/plutonian-spear-inventory.png"));
+        SpearSmoke::Close if worn.iter().any(|piece| piece.item == weapon) => {
+            assert_eq!(equipment.get(EquipmentSlot::Weapon), Some(weapon));
+            assert_eq!(inventory.count(weapon), 0);
+            capture(&mut commands, "inventory");
             *captured_at = now;
             *smoke = SpearSmoke::CaptureInventory;
         }
@@ -179,7 +198,7 @@ fn drive(
                 walk(&mut keys, &mut orbit, transform.translation, position);
             } else if controller.grounded {
                 orbit.yaw = std::f32::consts::PI;
-                orbit.distance = 3.5;
+                orbit.distance = 4.5;
                 buttons.press(MouseButton::Left);
                 *captured_at = now;
                 *smoke = SpearSmoke::Chamber;
@@ -187,9 +206,7 @@ fn drive(
         }
         SpearSmoke::Chamber | SpearSmoke::Impact if dummy.remaining > 0.0 => {
             assert!(thrust.active());
-            commands
-                .spawn(Screenshot::primary_window())
-                .observe(save_to_disk("/tmp/plutonian-spear-hit.png"));
+            capture(&mut commands, "hit");
             *smoke = SpearSmoke::Recovery;
         }
         SpearSmoke::Chamber | SpearSmoke::Impact if thrust.active() => {
@@ -206,17 +223,13 @@ fn drive(
                 "the horizontal aim must stay locked after the camera moves"
             );
             if *smoke == SpearSmoke::Chamber && now - *captured_at >= 3.0 / 24.0 {
-                commands
-                    .spawn(Screenshot::primary_window())
-                    .observe(save_to_disk("/tmp/plutonian-spear-chamber.png"));
+                capture(&mut commands, "chamber");
                 *smoke = SpearSmoke::Impact;
             }
         }
         SpearSmoke::Recovery if !thrust.active() && dummy.remaining == 0.0 => {
             orbit.yaw = std::f32::consts::PI;
-            commands
-                .spawn(Screenshot::primary_window())
-                .observe(save_to_disk("/tmp/plutonian-spear-carry.png"));
+            capture(&mut commands, "carry");
             *captured_at = now;
             *smoke = SpearSmoke::CaptureCarry;
         }
@@ -243,10 +256,10 @@ fn drive(
             *smoke = SpearSmoke::SelectDrop;
         }
         SpearSmoke::SelectDrop => {
-            assert_eq!(inventory.count(ItemKind::FieldSpear), 1);
+            assert_eq!(inventory.count(weapon), 1);
             click(
                 &mut commands,
-                InventoryAction::Select(ItemKind::FieldSpear),
+                InventoryAction::Select(weapon),
                 &actions,
                 window,
                 camera,
@@ -265,11 +278,11 @@ fn drive(
         }
         SpearSmoke::CloseBag => {
             assert_eq!(
-                inventory.count(ItemKind::FieldSpear),
+                inventory.count(weapon),
                 0,
-                "unequipped spear must fit the drop clearance"
+                "unequipped weapon must fit the drop clearance"
             );
-            assert!(!worn.iter().any(|piece| piece.item == ItemKind::FieldSpear));
+            assert!(!worn.iter().any(|piece| piece.item == weapon));
             keys.press(KeyCode::KeyI);
             orbit.distance = 5.5;
             *smoke = SpearSmoke::Recollect;

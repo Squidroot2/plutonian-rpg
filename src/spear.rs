@@ -4,9 +4,9 @@ use bevy::{gltf::Gltf, prelude::*, window::PrimaryWindow};
 use crate::{
     GameState,
     camera::Orbit,
-    equipment::{Equipment, EquipmentSlot},
+    equipment::Equipment,
     interaction::InteractionSystems,
-    inventory::{ItemKind, scene_ready},
+    inventory::scene_ready,
     loading::{GameAssets, PendingScene},
     player::Player,
     quest::Dialogue,
@@ -158,7 +158,7 @@ fn attack(
         return;
     };
     if dialogue.text.is_some()
-        || equipment.get(EquipmentSlot::Weapon) != Some(ItemKind::FieldSpear)
+        || !equipment.has_spear()
         || !windows.iter().any(|window| window.focused)
     {
         thrust.0 = None;
@@ -245,6 +245,7 @@ fn react(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::inventory::ItemKind;
     use bevy::{
         asset::AssetPlugin, ecs::system::RunSystemOnce, mesh::MeshPlugin, state::app::StatesPlugin,
         time::TimeUpdateStrategy, transform::TransformPlugin,

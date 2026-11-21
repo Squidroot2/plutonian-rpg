@@ -46,6 +46,7 @@ impl ItemKind {
             Self::FieldHelmet => (EquipmentSlot::Helmet, 1, Vec3::new(0.9, 0.58, 0.72)),
             Self::ReinforcedHelmet => (EquipmentSlot::Helmet, 3, Vec3::new(1.0, 0.64, 0.8)),
             Self::FieldSpear => (EquipmentSlot::Weapon, 0, Vec3::new(0.28, 0.23, 2.3)),
+            Self::Trident => (EquipmentSlot::Weapon, 0, Vec3::new(0.58, 0.23, 2.3)),
             _ => return None,
         };
         Some(GearDefinition {
@@ -60,6 +61,12 @@ pub struct Equipment(BTreeMap<EquipmentSlot, ItemKind>);
 impl Equipment {
     pub fn get(&self, slot: EquipmentSlot) -> Option<ItemKind> {
         self.0.get(&slot).copied()
+    }
+    pub fn has_spear(&self) -> bool {
+        matches!(
+            self.get(EquipmentSlot::Weapon),
+            Some(ItemKind::FieldSpear | ItemKind::Trident)
+        )
     }
     pub fn total_defense(&self) -> u16 {
         self.0
