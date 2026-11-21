@@ -2,6 +2,7 @@ use crate::{
     GameState,
     camera::Orbit,
     combat::{CombatSystems, Dead, Defense, Health, HealthRecovery},
+    controls::{Control, Keybinds},
     dungeon::Area,
     equipment::Equipment,
     interaction::InteractionSystems,
@@ -254,13 +255,14 @@ impl MovementInput {
 
 pub(crate) fn input(
     keys: Res<ButtonInput<KeyCode>>,
+    bindings: Res<Keybinds>,
     dialogue: Res<Dialogue>,
     mut input: ResMut<MovementInput>,
 ) {
     input.direction = Vec2::ZERO;
     input.sprint = false;
     if dialogue.text.is_some()
-        || keys.just_pressed(KeyCode::KeyI)
+        || bindings.just_pressed(Control::Inventory, &keys)
         || keys.just_pressed(KeyCode::Escape)
     {
         input.jump = false;
@@ -268,13 +270,15 @@ pub(crate) fn input(
         return;
     }
     input.direction = Vec2::new(
-        keys.pressed(KeyCode::KeyD) as i8 as f32 - keys.pressed(KeyCode::KeyA) as i8 as f32,
-        keys.pressed(KeyCode::KeyW) as i8 as f32 - keys.pressed(KeyCode::KeyS) as i8 as f32,
+        bindings.pressed(Control::Right, &keys) as i8 as f32
+            - bindings.pressed(Control::Left, &keys) as i8 as f32,
+        bindings.pressed(Control::Forward, &keys) as i8 as f32
+            - bindings.pressed(Control::Backward, &keys) as i8 as f32,
     )
     .normalize_or_zero();
-    input.sprint = keys.pressed(KeyCode::ShiftLeft);
-    input.jump |= keys.just_pressed(KeyCode::Space);
-    if keys.just_pressed(DODGE_KEY) {
+    input.sprint = bindings.pressed(Control::Sprint, &keys);
+    input.jump |= bindings.just_pressed(Control::Jump, &keys);
+    if bindings.just_pressed(Control::Dodge, &keys) {
         input.dodge = Some(input.direction);
     }
 }
@@ -532,6 +536,7 @@ mod tests {
         .init_resource::<Equipment>()
         .init_resource::<Inventory>()
         .init_resource::<MovementInput>()
+        .init_resource::<Keybinds>()
         .init_resource::<ButtonInput<KeyCode>>()
         .init_resource::<ButtonInput<MouseButton>>()
         .add_plugins((CombatPlugin, SpearPlugin))
@@ -611,6 +616,26 @@ mod tests {
             .get::<Dodge>(player)
             .expect("Player must supply its Dodge component")
             .active()
+    }
+
+    #[test]
+    fn movement_uses_the_rebound_forward_key() {
+        let (mut app, player) = test_app();
+        app.world_mut()
+            .resource_mut::<Keybinds>()
+            .assign(
+                Control::Forward,
+                crate::controls::Binding::Key(KeyCode::ArrowUp),
+            )
+            .expect("the up arrow must be available for forward movement");
+
+        let start = transform(&app, player).translation.z;
+        press(&mut app, &[KeyCode::KeyW]);
+        tick(&mut app, 3);
+        assert_eq!(transform(&app, player).translation.z, start);
+        press(&mut app, &[KeyCode::ArrowUp]);
+        tick(&mut app, 3);
+        assert!(transform(&app, player).translation.z < start - 0.1);
     }
 
     #[test]

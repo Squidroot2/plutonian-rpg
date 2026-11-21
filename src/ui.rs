@@ -1,6 +1,7 @@
 use crate::{
     GameState,
     combat::Health,
+    controls::{Control, Keybinds},
     dungeon::{Area, DungeonProgress, DungeonTarget},
     interaction::{InteractionSystems, InteractionTarget},
     loading::LoadStatus,
@@ -206,6 +207,7 @@ fn setup(mut commands: Commands) {
 pub(crate) fn pause(
     smoke: Option<Res<crate::smoke::SmokeRun>>,
     keys: Res<ButtonInput<KeyCode>>,
+    bindings: Res<Keybinds>,
     state: Res<State<GameState>>,
     mut next: ResMut<NextState<GameState>>,
     mut dialogue: ResMut<Dialogue>,
@@ -218,14 +220,12 @@ pub(crate) fn pause(
     if smoke.is_none() && *state.get() == GameState::Playing && windows.iter().any(|w| !w.focused) {
         next.set(GameState::Paused);
     }
-    if keys.just_pressed(KeyCode::KeyI)
-        && *state.get() == GameState::Playing
-        && dialogue.text.is_none()
-    {
+    let inventory_pressed = bindings.just_pressed(Control::Inventory, &keys);
+    if inventory_pressed && *state.get() == GameState::Playing && dialogue.text.is_none() {
         next.set(GameState::Inventory);
     }
     if *state.get() == GameState::Inventory
-        && keys.any_just_pressed([KeyCode::KeyI, KeyCode::Escape])
+        && (inventory_pressed || keys.just_pressed(KeyCode::Escape))
     {
         next.set(GameState::Playing);
         return;
@@ -386,6 +386,7 @@ fn refresh_prompt(
     dungeon: Res<DungeonProgress>,
     dialogue: Res<Dialogue>,
     nearby: Res<Nearby>,
+    bindings: Res<Keybinds>,
     mut prompts: Query<&mut Text, With<StatusText>>,
 ) {
     if !(state.is_changed()
@@ -393,7 +394,8 @@ fn refresh_prompt(
         || quest.is_changed()
         || dungeon.is_changed()
         || dialogue.is_changed()
-        || nearby.is_changed())
+        || nearby.is_changed()
+        || bindings.is_changed())
     {
         return;
     }
@@ -407,24 +409,28 @@ fn refresh_prompt(
             status.error.as_deref().unwrap_or("Asset loading failed")
         ),
         GameState::Playing if dialogue.text.is_none() => {
-            nearby.0.map_or(String::new(), |(_, target)| match target {
-                InteractionTarget::Quest(Target::Keeper) => "[E] Speak to Nemi".into(),
-                InteractionTarget::Quest(Target::Core) => "[E] Recover power core".into(),
-                InteractionTarget::Pickup(pickup) => {
-                    format!("[E] Pick up {} x{}", pickup.item.name(), pickup.quantity)
-                }
-                InteractionTarget::Dungeon(target) => match target {
-                    DungeonTarget::Hatch if !DungeonProgress::hatch_unlocked(*quest) => {
-                        "[E] Inspect the sealed hatch".into()
+            let key = bindings.get(Control::Interact).label();
+            nearby.0.map_or(String::new(), |(_, target)| {
+                let action: String = match target {
+                    InteractionTarget::Quest(Target::Keeper) => "Speak to Nemi".into(),
+                    InteractionTarget::Quest(Target::Core) => "Recover power core".into(),
+                    InteractionTarget::Pickup(pickup) => {
+                        format!("Pick up {} x{}", pickup.item.name(), pickup.quantity)
                     }
-                    DungeonTarget::Hatch => "[E] Enter the Old Relay".into(),
-                    DungeonTarget::Exit => "[E] Return to Nivalis".into(),
-                    DungeonTarget::Switch if dungeon.gate_open() => {
-                        "[E] Check maintenance switch".into()
-                    }
-                    DungeonTarget::Switch => "[E] Operate maintenance switch".into(),
-                    DungeonTarget::SurveyLog => "[E] Read the survey log".into(),
-                },
+                    InteractionTarget::Dungeon(target) => match target {
+                        DungeonTarget::Hatch if !DungeonProgress::hatch_unlocked(*quest) => {
+                            "Inspect the sealed hatch".into()
+                        }
+                        DungeonTarget::Hatch => "Enter the Old Relay".into(),
+                        DungeonTarget::Exit => "Return to Nivalis".into(),
+                        DungeonTarget::Switch if dungeon.gate_open() => {
+                            "Check maintenance switch".into()
+                        }
+                        DungeonTarget::Switch => "Operate maintenance switch".into(),
+                        DungeonTarget::SurveyLog => "Read the survey log".into(),
+                    },
+                };
+                format!("[{key}] {action}")
             })
         }
         _ => String::new(),
@@ -433,16 +439,18 @@ fn refresh_prompt(
 
 fn refresh_dialogue(
     dialogue: Res<Dialogue>,
+    bindings: Res<Keybinds>,
     mut panel: Query<(&mut Text, &mut Visibility), With<DialogueText>>,
 ) {
-    if !dialogue.is_changed() {
+    if !dialogue.is_changed() && !bindings.is_changed() {
         return;
     }
     let Ok((mut text, mut visibility)) = panel.single_mut() else {
         return;
     };
     if let Some(content) = dialogue.text {
-        **text = format!("{content}\n\n[E / ENTER] Continue");
+        let key = bindings.get(Control::Interact).label();
+        **text = format!("{content}\n\n[{key} / Enter] Continue");
         *visibility = Visibility::Visible;
     } else {
         *visibility = Visibility::Hidden;

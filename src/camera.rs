@@ -1,3 +1,4 @@
+use crate::controls::{Control, Keybinds};
 use crate::{GameState, player::Player, quest::Dialogue};
 use avian3d::prelude::*;
 use bevy::{
@@ -63,11 +64,12 @@ fn look(
     scroll: Res<AccumulatedMouseScroll>,
     dialogue: Res<Dialogue>,
     keys: Res<ButtonInput<KeyCode>>,
+    bindings: Res<Keybinds>,
     windows: Query<&Window, With<PrimaryWindow>>,
     mut orbit: ResMut<Orbit>,
 ) {
     if dialogue.text.is_some()
-        || keys.just_pressed(KeyCode::KeyI)
+        || bindings.just_pressed(Control::Inventory, &keys)
         || keys.just_pressed(KeyCode::Escape)
         || !windows.iter().any(|w| w.focused)
     {

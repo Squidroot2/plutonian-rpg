@@ -4,6 +4,7 @@ use bevy::{gltf::Gltf, prelude::*, window::PrimaryWindow};
 use crate::{
     GameState,
     combat::{CombatSystems, Contact, Hit, HitReaction, TrainingTarget},
+    controls::{Binding, Control, Keybinds},
     equipment::Equipment,
     interaction::InteractionSystems,
     inventory::{CARRY_CAPACITY, Inventory, scene_ready},
@@ -146,6 +147,8 @@ fn ground_dummy(
 
 fn attack(
     buttons: Res<ButtonInput<MouseButton>>,
+    keys: Res<ButtonInput<KeyCode>>,
+    bindings: Res<Keybinds>,
     windows: Query<&Window, With<PrimaryWindow>>,
     equipment: Res<Equipment>,
     inventory: Res<Inventory>,
@@ -178,7 +181,11 @@ fn attack(
         && !(inventory.carried_weight(&equipment) <= CARRY_CAPACITY
             && movement.dodge_pending(controller.grounded, dodge))
     {
-        thrust.begin(controller.grounded, buttons.just_pressed(MouseButton::Left));
+        let attack = match bindings.get(Control::Attack) {
+            Binding::Key(key) => keys.just_pressed(key),
+            Binding::Mouse(button) => buttons.just_pressed(button),
+        };
+        thrust.begin(controller.grounded, attack);
     }
 }
 
@@ -281,6 +288,8 @@ mod tests {
         .init_resource::<Inventory>()
         .init_resource::<Orbit>()
         .init_resource::<MovementInput>()
+        .init_resource::<Keybinds>()
+        .init_resource::<ButtonInput<KeyCode>>()
         .init_resource::<ButtonInput<MouseButton>>()
         .add_plugins((crate::combat::CombatPlugin, SpearPlugin))
         .add_systems(Update, face_camera.before(CombatSystems::Detect));

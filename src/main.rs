@@ -6,6 +6,7 @@
 mod camera;
 mod combat;
 mod combat_feedback;
+mod controls;
 mod dungeon;
 mod equipment;
 mod interaction;

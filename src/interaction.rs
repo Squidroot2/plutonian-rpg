@@ -1,5 +1,6 @@
 use crate::{
     GameState,
+    controls::{Control, Keybinds},
     dungeon::{DungeonTarget, UseDungeonTarget},
     inventory::{Inventory, Pickup},
     player::Player,
@@ -124,6 +125,7 @@ fn find_target(
 }
 fn interact(
     keys: Res<ButtonInput<KeyCode>>,
+    bindings: Res<Keybinds>,
     nearby: Res<Nearby>,
     mut dialogue: ResMut<Dialogue>,
     mut quest: ResMut<Quest>,
@@ -131,7 +133,8 @@ fn interact(
     mut commands: Commands,
     pickups: Query<&Pickup>,
 ) {
-    if !keys.just_pressed(KeyCode::KeyE) && !keys.just_pressed(KeyCode::Enter) {
+    let interact_pressed = bindings.just_pressed(Control::Interact, &keys);
+    if !interact_pressed && !keys.just_pressed(KeyCode::Enter) {
         return;
     }
     if dialogue.text.take().is_some() {
@@ -149,7 +152,7 @@ fn interact(
                     commands.entity(entity).despawn();
                 }
             }
-            InteractionTarget::Pickup(_) if keys.just_pressed(KeyCode::KeyE) => {
+            InteractionTarget::Pickup(_) if interact_pressed => {
                 // Re-read the live component before transferring the stack.
                 if let Ok(pickup) = pickups.get(entity) {
                     if inventory.add(pickup.item, pickup.quantity) {
@@ -188,6 +191,7 @@ mod tests {
         .init_resource::<Quest>()
         .init_resource::<Dialogue>()
         .init_resource::<Inventory>()
+        .init_resource::<Keybinds>()
         .init_resource::<ButtonInput<KeyCode>>()
         .add_plugins(InteractionPlugin);
         app.world_mut()
