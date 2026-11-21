@@ -15,9 +15,10 @@ use crate::{
     interaction::{InteractionTarget, Nearby, Target},
     inventory::{Inventory, ItemKind},
     loot_ui::LootAction,
+    menu_ui::{MenuTab, PlayerMenu},
     player::{Dodge, Player},
     quest::{Dialogue, LAST_LIGHT, OLD_RELAY, QuestAction, QuestJournal, QuestStatus},
-    quest_ui::{QuestLog, QuestRow},
+    quest_ui::{QuestRow, QuestSelection},
     roach::Roach,
     world::WorldLayout,
     worm::{GROUND_OFFSET, Worm},
@@ -85,9 +86,10 @@ pub(super) fn drive(
         Res<Dialogue>,
         Res<Nearby>,
     ),
-    (progress, journal, rows): (
+    (progress, journal, selection, rows): (
         Res<DungeonProgress>,
-        Res<QuestLog>,
+        Res<PlayerMenu>,
+        Res<QuestSelection>,
         Query<(Entity, &QuestRow)>,
     ),
     gate: Query<Entity, With<ArchiveGate>>,
@@ -217,7 +219,7 @@ pub(super) fn drive(
             *phase = WorldCheck::CheckDiscoveredJournal;
         }
         WorldCheck::CheckDiscoveredJournal => {
-            assert!(journal.is_open());
+            assert!(journal.is_on(MenuTab::Quest));
             assert!(
                 rows.iter()
                     .any(|(_, row)| row.id == LAST_LIGHT && row.status == QuestStatus::Active)
@@ -234,7 +236,7 @@ pub(super) fn drive(
             *phase = WorldCheck::CheckRelaySelection;
         }
         WorldCheck::CheckRelaySelection => {
-            assert_eq!(journal.selected(), Some(OLD_RELAY));
+            assert_eq!(selection.selected(), Some(OLD_RELAY));
             capture(&mut commands, "relay-quest-log");
             keys.press(KeyCode::Tab);
             *phase = WorldCheck::SetUpTurnIn;
@@ -366,7 +368,7 @@ pub(super) fn drive(
             *phase = WorldCheck::GateRises;
         }
         WorldCheck::GateRises if progress.gate_open() && passage_hit().is_none() => {
-            assert!(journal.is_open());
+            assert!(journal.is_on(MenuTab::Quest));
             assert!(quest.expects(QuestAction::ReadSurveyLog));
             keys.press(KeyCode::Tab);
             capture(&mut commands, "relay-maintenance");
@@ -419,7 +421,7 @@ pub(super) fn drive(
             *phase = WorldCheck::CheckCompletedJournal;
         }
         WorldCheck::CheckCompletedJournal => {
-            assert!(journal.is_open());
+            assert!(journal.is_on(MenuTab::Quest));
             assert!(
                 rows.iter()
                     .any(|(_, row)| row.id == OLD_RELAY && row.status == QuestStatus::Completed)

@@ -6,9 +6,9 @@ use crate::{
     dungeon::{Area, DungeonProgress, DungeonTarget},
     interaction::{InteractionSystems, InteractionTarget, Nearby, Target},
     loading::LoadStatus,
+    menu_ui::PlayerMenu,
     player::{Player, respawn_defeated},
     quest::{Dialogue, QuestJournal},
-    quest_ui::QuestLog,
     settings::SettingsMenu,
     world::WorldLayout,
 };
@@ -222,7 +222,7 @@ pub(crate) fn pause(
     mut dialogue: ResMut<Dialogue>,
     windows: Query<&Window, With<PrimaryWindow>>,
     settings: Option<Res<SettingsMenu>>,
-    log: Option<ResMut<QuestLog>>,
+    log: Option<ResMut<PlayerMenu>>,
 ) {
     if settings.is_some_and(|menu| menu.is_open()) {
         return;
@@ -232,30 +232,17 @@ pub(crate) fn pause(
         return;
     }
     if *state.get() == GameState::Playing
-        && let Some(mut log) = log
+        && dialogue.text.is_none()
+        && let Some(mut menu) = log
     {
         let tab = keys.just_pressed(KeyCode::Tab);
+        let inventory = bindings.just_pressed(Control::Inventory, &keys);
         let escape = keys.just_pressed(KeyCode::Escape);
-        if log.open {
-            if tab || escape {
-                log.close_requested = true;
-            }
+        if ((tab || inventory || escape) && menu.shortcuts(tab, inventory, escape))
+            || menu.is_open()
+        {
             return;
         }
-        if tab && !escape && dialogue.text.is_none() {
-            log.open = true;
-            return;
-        }
-    }
-    let inventory_pressed = bindings.just_pressed(Control::Inventory, &keys);
-    if inventory_pressed && *state.get() == GameState::Playing && dialogue.text.is_none() {
-        next.set(GameState::Inventory);
-    }
-    if *state.get() == GameState::Inventory
-        && (inventory_pressed || keys.just_pressed(KeyCode::Escape))
-    {
-        next.set(GameState::Playing);
-        return;
     }
     if keys.just_pressed(KeyCode::Escape) {
         match state.get() {
@@ -322,7 +309,7 @@ fn refresh_compass(
     };
     let visible = matches!(
         state.get(),
-        GameState::Playing | GameState::Inventory | GameState::Paused | GameState::Looting
+        GameState::Playing | GameState::Paused | GameState::Looting
     );
     visibility.set_if_neq(if visible {
         Visibility::Inherited
@@ -369,7 +356,7 @@ fn refresh_health(
         return;
     };
     match state.get() {
-        GameState::Playing | GameState::Inventory | GameState::Paused | GameState::Looting => {
+        GameState::Playing | GameState::Paused | GameState::Looting => {
             if health.current() < health.maximum() {
                 *opacity = 1.0;
             } else if *state.get() == GameState::Playing {
@@ -404,7 +391,7 @@ fn refresh_prompt(
     dialogue: Res<Dialogue>,
     nearby: Res<Nearby>,
     bindings: Res<Keybinds>,
-    log: Res<QuestLog>,
+    log: Res<PlayerMenu>,
     mut prompts: Query<&mut Text, With<StatusText>>,
 ) {
     if !(state.is_changed()

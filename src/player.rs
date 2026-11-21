@@ -8,9 +8,9 @@ use crate::{
     equipment::Equipment,
     interaction::InteractionSystems,
     inventory::{CARRY_CAPACITY, IMMOBILE_WEIGHT, Inventory},
+    menu_ui::PlayerMenu,
     nemi::NemiPlayback,
     quest::Dialogue,
-    quest_ui::QuestLog,
     spear::Thrust,
     world::WorldLayout,
 };
@@ -23,10 +23,8 @@ impl Plugin for PlayerPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<MovementInput>()
             .add_systems(OnEnter(GameState::Paused), freeze)
-            .add_systems(OnEnter(GameState::Inventory), freeze)
             .add_systems(OnEnter(GameState::Looting), freeze)
             .add_systems(OnExit(GameState::Paused), resume)
-            .add_systems(OnExit(GameState::Inventory), resume)
             .add_systems(OnExit(GameState::Looting), resume)
             .add_systems(
                 PreUpdate,
@@ -291,13 +289,12 @@ pub(crate) fn input(
     bindings: Res<Keybinds>,
     dialogue: Res<Dialogue>,
     mut input: ResMut<MovementInput>,
-    log: Option<Res<QuestLog>>,
+    log: Option<Res<PlayerMenu>>,
 ) {
     input.direction = Vec2::ZERO;
     input.sprint = false;
     if dialogue.text.is_some()
         || log.is_some_and(|log| log.is_open())
-        || bindings.just_pressed(Control::Inventory, &keys)
         || keys.just_pressed(KeyCode::Escape)
     {
         input.jump = false;
@@ -595,8 +592,7 @@ mod tests {
         .add_systems(FixedUpdate, movement.run_if(in_state(GameState::Playing)))
         .add_systems(Update, footsteps.run_if(in_state(GameState::Playing)))
         .add_systems(Update, face_camera.before(CombatSystems::Detect))
-        .add_systems(OnEnter(GameState::Paused), freeze)
-        .add_systems(OnEnter(GameState::Inventory), freeze);
+        .add_systems(OnEnter(GameState::Paused), freeze);
         let world = app.world_mut();
         world.spawn((
             Window {
@@ -921,14 +917,12 @@ mod tests {
         press(&mut app, &[DODGE_KEY]);
         tick(&mut app, 4);
         let position = transform(&app, player).translation;
-        for state in [GameState::Paused, GameState::Inventory] {
-            app.world_mut()
-                .resource_mut::<NextState<GameState>>()
-                .set(state);
-            tick(&mut app, 40);
-            assert!(active(&app, player));
-            assert_eq!(transform(&app, player).translation, position);
-        }
+        app.world_mut()
+            .resource_mut::<NextState<GameState>>()
+            .set(GameState::Paused);
+        tick(&mut app, 40);
+        assert!(active(&app, player));
+        assert_eq!(transform(&app, player).translation, position);
         app.world_mut()
             .resource_mut::<NextState<GameState>>()
             .set(GameState::Playing);

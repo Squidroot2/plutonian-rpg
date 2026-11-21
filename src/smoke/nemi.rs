@@ -8,10 +8,11 @@ use crate::{
     equipment::Equipment,
     interaction::{InteractionTarget, Nearby, Target},
     inventory::{Inventory, ItemKind},
+    menu_ui::{MenuTab, PlayerMenu},
     nemi::Nemi,
     player::{Dodge, Player},
     quest::{Beacon, Dialogue, LAST_LIGHT, OLD_RELAY, QuestJournal, QuestStatus, RELIGHT_BEACON},
-    quest_ui::{QuestLog, QuestRow},
+    quest_ui::{QuestRow, QuestSelection},
     spear::{GRIP_SIDE, Thrust},
 };
 use avian3d::prelude::*;
@@ -57,7 +58,13 @@ pub(super) fn drive(
         Without<Player>,
     >,
     targets: Query<(&Target, &Transform), (Without<Player>, Without<Nemi>)>,
-    (quest, dialogue, nearby, log): (Res<QuestJournal>, Res<Dialogue>, Res<Nearby>, Res<QuestLog>),
+    (quest, dialogue, nearby, log, selection): (
+        Res<QuestJournal>,
+        Res<Dialogue>,
+        Res<Nearby>,
+        Res<PlayerMenu>,
+        Res<QuestSelection>,
+    ),
     (mut bag, mut equipment, thrust): (ResMut<Inventory>, ResMut<Equipment>, Res<Thrust>),
     (lights, animations, rows): (
         Query<&PointLight, With<Beacon>>,
@@ -183,7 +190,7 @@ pub(super) fn drive(
             *stage = Check::SelectFailure;
         }
         Check::SelectFailure => {
-            assert!(log.is_open());
+            assert!(log.is_on(MenuTab::Quest));
             assert!(
                 rows.iter()
                     .any(|(_, row)| row.id == RELIGHT_BEACON && row.status == QuestStatus::Active)
@@ -200,7 +207,7 @@ pub(super) fn drive(
             *stage = Check::CloseLog;
         }
         Check::CloseLog => {
-            assert_eq!(log.selected(), Some(LAST_LIGHT));
+            assert_eq!(selection.selected(), Some(LAST_LIGHT));
             capture(&mut commands, "nemi-quest-failed");
             keys.press(KeyCode::Tab);
             *stage = Check::Attack(20);

@@ -12,6 +12,7 @@ use crate::{
     inventory::{Inventory, ItemKind, Pickup},
     inventory_ui::InventoryAction,
     loading::PendingScene,
+    menu_ui::{MenuTab, PlayerMenu},
     player::Player,
     practice_dummy::PracticeDummy,
     spear::{GRIP_SIDE, Thrust},
@@ -73,7 +74,7 @@ impl Plugin for SpearSmokePlugin {
 fn drive(
     materials: Res<InventorySmoke>,
     mut smoke: ResMut<SpearSmoke>,
-    state: Res<State<GameState>>,
+    (state, menu): (Res<State<GameState>>, Res<PlayerMenu>),
     time: Res<Time>,
     (mut screenshot, mut captured_at, mut testing_trident): (
         Local<Option<Entity>>,
@@ -126,7 +127,9 @@ fn drive(
     buttons.reset_all();
 
     match *smoke {
-        SpearSmoke::Collect | SpearSmoke::Recollect if *state.get() == GameState::Playing => {
+        SpearSmoke::Collect | SpearSmoke::Recollect
+            if *state.get() == GameState::Playing && !menu.is_open() =>
+        {
             if inventory.count(weapon) == 1 {
                 if *smoke == SpearSmoke::Recollect {
                     assert_eq!(equipment.get(EquipmentSlot::Weapon), None);
@@ -160,7 +163,7 @@ fn drive(
                 );
             }
         }
-        SpearSmoke::Select if *state.get() == GameState::Inventory => {
+        SpearSmoke::Select if menu.is_on(MenuTab::Inventory) => {
             click(
                 &mut commands,
                 InventoryAction::Select(weapon),
@@ -192,7 +195,7 @@ fn drive(
             keys.press(KeyCode::KeyI);
             *smoke = SpearSmoke::Approach;
         }
-        SpearSmoke::Approach if *state.get() == GameState::Playing => {
+        SpearSmoke::Approach if *state.get() == GameState::Playing && !menu.is_open() => {
             let position = dummy_transform.translation + Vec3::new(-GRIP_SIDE, 0.0, -2.0);
             if transform
                 .translation
@@ -279,7 +282,7 @@ fn drive(
                 }
             }
         }
-        SpearSmoke::Unequip if *state.get() == GameState::Inventory => {
+        SpearSmoke::Unequip if menu.is_on(MenuTab::Inventory) => {
             click(
                 &mut commands,
                 InventoryAction::Unequip(EquipmentSlot::Weapon),

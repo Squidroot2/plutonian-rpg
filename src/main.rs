@@ -16,6 +16,7 @@ mod inventory;
 mod inventory_ui;
 mod loading;
 mod loot_ui;
+mod menu_ui;
 mod nemi;
 mod player;
 mod practice_dummy;
@@ -39,7 +40,6 @@ pub enum GameState {
     Loading,
     Playing,
     Paused,
-    Inventory,
     Looting,
     Failed,
 }
@@ -101,6 +101,7 @@ fn main() {
             title::TitlePlugin,
             ui::GameUiPlugin,
             quest_ui::QuestUiPlugin,
+            menu_ui::PlayerMenuPlugin,
         ))
         .add_plugins((
             combat::CombatPlugin,

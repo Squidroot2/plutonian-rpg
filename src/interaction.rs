@@ -4,10 +4,10 @@ use crate::{
     controls::{Control, Keybinds},
     dungeon::{Area, DungeonTarget, UseDungeonTarget},
     inventory::{Inventory, ItemKind, Pickup},
+    menu_ui::PlayerMenu,
     nemi::Nemi,
     player::Player,
     quest::{Dialogue, LAST_LIGHT, QuestAction, QuestJournal},
-    quest_ui::QuestLog,
 };
 use avian3d::prelude::*;
 use bevy::prelude::*;
@@ -88,7 +88,7 @@ fn find_target(
     quest: Res<QuestJournal>,
     dialogue: Res<Dialogue>,
     spatial: SpatialQuery,
-    log: Option<Res<QuestLog>>,
+    log: Option<Res<PlayerMenu>>,
     mut nearby: ResMut<Nearby>,
 ) {
     if dialogue.text.is_some() || log.is_some_and(|log| log.is_open()) {
@@ -181,7 +181,7 @@ fn interact(
     keepers: Query<&Nemi, Without<Dead>>,
     mut loot: ResMut<LootTarget>,
     mut next: ResMut<NextState<GameState>>,
-    log: Option<Res<QuestLog>>,
+    log: Option<Res<PlayerMenu>>,
 ) {
     if log.is_some_and(|log| log.is_open()) {
         return;
@@ -326,6 +326,7 @@ mod tests {
         .init_resource::<Dialogue>()
         .init_resource::<Inventory>()
         .init_resource::<Keybinds>()
+        .init_resource::<PlayerMenu>()
         .init_resource::<ButtonInput<KeyCode>>()
         .add_plugins((InteractionPlugin, crate::loot_ui::LootUiPlugin));
         app.world_mut()
@@ -540,7 +541,7 @@ mod tests {
         );
     }
     #[test]
-    fn range_walls_and_inventory_state_block_collection() {
+    fn range_walls_and_inventory_tab_block_collection() {
         let mut app = test_app();
         let item = app
             .world_mut()
@@ -587,8 +588,8 @@ mod tests {
         assert!(app.world().get_entity(item).is_ok());
         app.world_mut().despawn(wall);
         app.world_mut()
-            .resource_mut::<NextState<GameState>>()
-            .set(GameState::Inventory);
+            .resource_mut::<PlayerMenu>()
+            .show(crate::menu_ui::MenuTab::Inventory);
         for _ in 0..3 {
             app.update();
         }
@@ -617,7 +618,12 @@ mod tests {
         app.update();
         assert_eq!(
             *app.world().resource::<State<GameState>>().get(),
-            GameState::Inventory
+            GameState::Playing
+        );
+        assert!(
+            app.world()
+                .resource::<PlayerMenu>()
+                .is_on(crate::menu_ui::MenuTab::Inventory)
         );
         assert_eq!(
             app.world()

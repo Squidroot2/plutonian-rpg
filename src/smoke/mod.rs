@@ -21,9 +21,10 @@ use crate::{
     inventory::{CARRY_CAPACITY, DropRequest, IMMOBILE_WEIGHT, Inventory, ItemKind},
     inventory_ui::{InventoryAction, InventoryUiState},
     loading::LoadStatus,
+    menu_ui::{MenuTab, PlayerMenu},
     player::{DODGE_KEY, Dodge, Player},
     quest::{Beacon, Dialogue, LAST_LIGHT, QuestAction, QuestJournal, QuestStatus},
-    quest_ui::{QuestLog, QuestRow},
+    quest_ui::{QuestRow, QuestSelection},
     title::{TitleBackdrop, TitleInput},
     world::WorldLayout,
 };
@@ -118,6 +119,10 @@ enum ArenaStep {
         position: Vec3,
         started: Duration,
     },
+    SwitchToCharacter,
+    CloseCharacter(u32),
+    ReopenCharacter,
+    SelectQuestTab,
     OpenJournal(Vec3),
     SelectJournal(Vec3),
     CloseJournal,
@@ -277,7 +282,12 @@ fn drive(
         Res<Nearby>,
     ),
     equipment: Res<Equipment>,
-    (journal, rows): (Res<QuestLog>, Query<(Entity, &QuestRow)>),
+    (menu, selection, rows, tabs): (
+        Res<PlayerMenu>,
+        Res<QuestSelection>,
+        Query<(Entity, &QuestRow)>,
+        Query<(Entity, &MenuTab)>,
+    ),
     mut player: Query<(&mut Transform, &Player, &Dodge)>,
     targets: Query<(&Target, &Transform), Without<Player>>,
     beacon: Query<&PointLight, With<Beacon>>,
@@ -370,11 +380,48 @@ fn drive(
                 );
                 keys.press(KeyCode::Tab);
                 keys.press(KeyCode::KeyE);
-                *step = ArenaStep::OpenJournal(transform.translation);
+                *step = ArenaStep::SwitchToCharacter;
             }
         }
+        ArenaStep::SwitchToCharacter => {
+            assert!(
+                menu.is_on(MenuTab::Inventory),
+                "Tab must reopen the tab used by the previous inventory checks"
+            );
+            let (window, camera) = inventory_smoke.context.expect("smoke UI context");
+            click(&mut commands, MenuTab::Character, &tabs, window, camera);
+            let batteries = inventory.count(ItemKind::Battery);
+            assert!(batteries > 0);
+            commands.trigger(DropRequest {
+                item: ItemKind::Battery,
+                quantity: 1,
+            });
+            *step = ArenaStep::CloseCharacter(batteries);
+        }
+        ArenaStep::CloseCharacter(batteries) => {
+            assert!(menu.is_on(MenuTab::Character));
+            assert_eq!(
+                inventory.count(ItemKind::Battery),
+                batteries,
+                "a hidden Inventory tab must reject drop requests"
+            );
+            capture(&mut commands, "character-menu");
+            keys.press(KeyCode::Tab);
+            *step = ArenaStep::ReopenCharacter;
+        }
+        ArenaStep::ReopenCharacter => {
+            assert!(!menu.is_open());
+            keys.press(KeyCode::Tab);
+            *step = ArenaStep::SelectQuestTab;
+        }
+        ArenaStep::SelectQuestTab => {
+            assert!(menu.is_on(MenuTab::Character));
+            let (window, camera) = inventory_smoke.context.expect("smoke UI context");
+            click(&mut commands, MenuTab::Quest, &tabs, window, camera);
+            *step = ArenaStep::OpenJournal(transform.translation);
+        }
         ArenaStep::OpenJournal(position) => {
-            assert!(journal.is_open());
+            assert!(menu.is_on(MenuTab::Quest));
             assert!(dialogue.text.is_none());
             assert_eq!(*state.get(), GameState::Playing);
             keys.press(KeyCode::KeyW);
@@ -388,7 +435,7 @@ fn drive(
             *step = ArenaStep::SelectJournal(position);
         }
         ArenaStep::SelectJournal(position) => {
-            assert_eq!(journal.selected(), Some(LAST_LIGHT));
+            assert_eq!(selection.selected(), Some(LAST_LIGHT));
             assert!(transform.translation.xz().distance(position.xz()) < 0.025);
             assert!(dialogue.text.is_none());
             capture(&mut commands, "quest-log");
@@ -397,7 +444,7 @@ fn drive(
             *step = ArenaStep::CloseJournal;
         }
         ArenaStep::CloseJournal => {
-            assert!(!journal.is_open());
+            assert!(!menu.is_open());
             assert_eq!(*state.get(), GameState::Playing);
             assert!(dialogue.text.is_none());
             *step = ArenaStep::Quest;
@@ -443,7 +490,7 @@ fn drive(
                 );
             }
         }
-        ArenaStep::SelectCore if *state.get() == GameState::Inventory => {
+        ArenaStep::SelectCore if menu.is_on(MenuTab::Inventory) => {
             click_action(&mut commands, InventoryAction::Select(ItemKind::BeaconCore));
             *step = ArenaStep::CheckCore;
         }
@@ -553,7 +600,7 @@ fn drive(
                 }
             }
         }
-        ArenaStep::DropBoulder(remaining) if *state.get() == GameState::Inventory => {
+        ArenaStep::DropBoulder(remaining) if menu.is_on(MenuTab::Inventory) => {
             commands.trigger(DropRequest {
                 item: ItemKind::LargeBoulder,
                 quantity: 1,

@@ -7,6 +7,7 @@ use crate::{
     GameState,
     equipment::Equipment,
     loading::{GameAssets, PendingScene},
+    menu_ui::{MenuTab, PlayerMenu},
     player::Player,
     world::{SpawnWorld, WorldLayout},
 };
@@ -345,6 +346,7 @@ pub fn find_drop_position(
 fn drop_items(
     request: On<DropRequest>,
     state: Res<State<GameState>>,
+    menu: Res<PlayerMenu>,
     mut inventory: ResMut<Inventory>,
     players: Query<(Entity, &Transform), With<Player>>,
     spatial: SpatialQuery,
@@ -353,7 +355,7 @@ fn drop_items(
     assets: Res<GameAssets>,
     gltfs: Res<Assets<Gltf>>,
 ) {
-    if *state.get() != GameState::Inventory {
+    if *state.get() != GameState::Playing || !menu.accepts(MenuTab::Inventory) {
         return;
     }
     let Ok((entity, transform)) = players.single() else {

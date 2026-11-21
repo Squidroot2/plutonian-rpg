@@ -5,6 +5,7 @@ use crate::{
     interaction::{InteractionTarget, Nearby},
     inventory::{Inventory, ItemKind, Pickup},
     inventory_ui::{InventoryAction, InventoryUiState},
+    menu_ui::{MenuTab, PlayerMenu},
     player::Player,
 };
 use bevy::{
@@ -30,7 +31,7 @@ pub struct InventorySmoke {
     pub context: Option<(Entity, Entity)>,
     phase: u8,
     collected: usize,
-    frozen_at: Duration,
+    opened_at: Duration,
     screenshot: Option<Entity>,
     position: Vec3,
     yaw: f32,
@@ -48,7 +49,7 @@ impl Plugin for InventorySmokePlugin {
             context: None,
             phase: 1,
             collected: 0,
-            frozen_at: Duration::ZERO,
+            opened_at: Duration::ZERO,
             screenshot: None,
             position: Vec3::ZERO,
             yaw: 0.0,
@@ -107,7 +108,7 @@ pub(crate) fn walk(
 }
 pub(crate) fn drive(
     mut smoke: ResMut<InventorySmoke>,
-    state: Res<State<GameState>>,
+    (state, menu): (Res<State<GameState>>, Res<PlayerMenu>),
     fixed: Res<Time<Fixed>>,
     captures: Query<(), With<Screenshot>>,
     mut keys: ResMut<ButtonInput<KeyCode>>,
@@ -115,7 +116,7 @@ pub(crate) fn drive(
     inventory: Res<Inventory>,
     ui: Res<InventoryUiState>,
     nearby: Res<Nearby>,
-    player: Query<&Transform, With<Player>>,
+    player: Query<(&Transform, &Player)>,
     pickups: Query<(&Pickup, &Transform)>,
     actions: Query<(Entity, &InventoryAction)>,
     windows: Query<Entity, With<Window>>,
@@ -127,7 +128,7 @@ pub(crate) fn drive(
         return;
     }
     keys.reset_all();
-    let Ok(transform) = player.single() else {
+    let Ok((transform, controller)) = player.single() else {
         return;
     };
     let window = windows
@@ -150,8 +151,7 @@ pub(crate) fn drive(
             if inventory.count(item) >= required {
                 smoke.collected += 1;
                 if smoke.collected == order.len() {
-                    keys.press(KeyCode::KeyI);
-                    smoke.phase = 2;
+                    smoke.phase = 10;
                 }
                 return;
             }
@@ -174,23 +174,37 @@ pub(crate) fn drive(
                 .translation;
             walk(&mut keys, &mut orbit, transform.translation, destination);
         }
-        2 if *state.get() == GameState::Inventory => {
+        10 if controller.grounded => {
+            smoke.position = transform.translation;
+            keys.press(KeyCode::Space);
+            smoke.phase = 11;
+        }
+        11 if !controller.grounded && transform.translation.y > smoke.position.y + 0.12 => {
+            keys.press(KeyCode::KeyI);
+            smoke.phase = 2;
+        }
+        2 if menu.is_on(MenuTab::Inventory) => {
             smoke.position = transform.translation;
             smoke.yaw = orbit.yaw;
-            smoke.frozen_at = fixed.elapsed();
+            smoke.opened_at = fixed.elapsed();
             smoke.phase = 3;
         }
         3 => {
-            assert_eq!(*state.get(), GameState::Inventory);
+            assert_eq!(*state.get(), GameState::Playing);
+            assert!(menu.is_on(MenuTab::Inventory));
             keys.press(KeyCode::KeyW);
             keys.press(KeyCode::Space);
             keys.press(KeyCode::KeyE);
             assert!(
-                smoke.position.distance(transform.translation) < 0.01,
-                "inventory did not freeze movement/gravity"
+                smoke.position.xz().distance(transform.translation.xz()) < 0.01,
+                "inventory leaked walking input"
             );
             assert_eq!(smoke.yaw, orbit.yaw);
-            if fixed.elapsed() - smoke.frozen_at >= fixed.timestep() * 3 {
+            if controller.grounded && fixed.elapsed() - smoke.opened_at >= fixed.timestep() * 3 {
+                assert!(
+                    transform.translation.y < smoke.position.y - 0.02,
+                    "gravity must land the player while inventory is open"
+                );
                 click(
                     &mut commands,
                     InventoryAction::Select(ItemKind::Battery),
@@ -259,10 +273,10 @@ pub(crate) fn drive(
                 smoke.phase = 9;
             }
         }
-        9 if *state.get() == GameState::Playing => {
+        9 if *state.get() == GameState::Playing && !menu.is_open() => {
             if inventory.count(ItemKind::Battery) == 2 {
                 info!(
-                    "INVENTORY SMOKE PASS: collected all materials, typed quantity, dropped one battery through UI, recollected it, verified pause"
+                    "INVENTORY SMOKE PASS: collected all materials, typed quantity, dropped one battery through UI, recollected it, verified live physics and captured input"
                 );
                 smoke.done = true;
                 return;

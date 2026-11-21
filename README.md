@@ -31,9 +31,9 @@ Choose **Start Game** on the title screen to load Nivalis. Click a button or sel
 | Left Ctrl | Dodge hop in the WASD direction, or backward with no movement input (grounded only) |
 | E | Speak / collect a nearby item / dismiss dialogue |
 | Enter | Quest interaction / dismiss dialogue |
-| I | Open / close inventory |
-| Tab | Open / close quest log |
-| Escape | Close inventory or quest log / dismiss dialogue / pause or resume |
+| I | Open or switch to Inventory / close the player menu from Inventory |
+| Tab | Open the last player-menu tab / close the menu |
+| Escape | Close the player menu / dismiss dialogue / pause or resume |
 
 The pause menu also has Resume and Quit to desktop buttons. Losing window focus pauses the game. Progress lasts for the current session; relaunching starts a fresh quest. Falling beyond the playable area returns you to the outpost without removing quest progress.
 
@@ -45,9 +45,13 @@ The playable route connects the outpost, an inclined ice shelf, and a shallow ca
 
 The game includes The Last Light, the Old Relay quest and dungeon, and one speaking NPC. Survival, crafting, levelling, controller support, and persistent saves are deferred. This is fictional Pluto: terrain, illumination, and gravity favor the experience over physical accuracy. Assets are original, generated locally with the included Blender script; no external models or textures are required.
 
-## Quest log
+## Player menu
 
-Press Tab during gameplay to open the log and select an active, completed, or failed quest. Tab, Escape, and Close return control to the player. The world continues while the log is open, so find a safe place to read. Inspecting the sealed Old Relay hatch adds that quest alongside The Last Light. Restoring power also adds it if you missed the hatch.
+Press Tab during gameplay to open the player menu. Choose **Quest**, **Inventory**, or **Character**. The menu remembers your last tab for the session and starts on Quest. Tab, Escape, and Close return control to the player. The cursor is available while the menu is open, and the world keeps running. Character shows placeholder data.
+
+### Quest
+
+Select an active, completed, or failed quest to read its details. Inspecting the sealed Old Relay hatch adds that quest alongside The Last Light. Restoring power also adds it if you missed the hatch.
 
 A landed attack makes Nemi flee and fails The Last Light if it is active. A surviving Nemi returns after the player backs off, then refuses to help. Follow **Relight the Beacon** to use the charged core at the tower base. If you already restored the beacon with Nemi, attacking them leaves the beacon powered.
 
@@ -61,7 +65,7 @@ E picks up the nearest eligible item within three meters and clear line of sight
 
 Batteries, scrap, and methane pouches are scattered around the outpost, trail, and cavern: two of each material in each region, for 18 initial pickups. Pickups transfer their whole stack. Inventory starts empty, stacks by item type, and has no capacity limit. Materials have no crafting or consumption effects yet.
 
-Press I to open inventory. Gameplay, gravity, character animation, and camera controls pause while the panel is open, and the cursor becomes available. Select an item in the bag, click its quantity field to type an integer (or use the minus/plus buttons), then click **Drop selected quantity**. I, Escape, or Close returns to play. Scroll the bag list to find additional items; equipment slots and selected-item actions stay outside the scrolling list. Inventory cannot open during dialogue or from the pause menu.
+Select the Inventory tab or press I to jump straight to it. Select an item in the bag, click its quantity field to type an integer or use the minus/plus buttons, then click **Drop selected quantity**. Scroll over the bag or item details to move through each pane. The item detail pane also holds equipment slots and gear actions.
 
 Dropped quantities become one stationary world stack near the player and can be collected with E. Placement checks supporting ground, free space, and walls; a failed drop leaves the inventory unchanged. The beacon core is marked **Quest item** and cannot be dropped. All inventory, quest, and pickup changes last only for the current session; relaunching resets them.
 
@@ -166,9 +170,9 @@ cargo run --locked -- --smoke-nemi
 python3 scripts/check_assets.py
 ```
 
-Run the desktop checks on an idle graphical desktop without supplying mouse or keyboard input. Add `--windowed` to either command to run it in a window.
+Run the desktop checks on an idle graphical desktop without supplying mouse or keyboard input. Add `--windowed` to a smoke command to run it in a window.
 
-- `--smoke-test` starts a standalone arena with nearby materials, equipment, a practice dummy, and the keeper and core. It checks inventory quantities and drops, both weapons' hits and misses, a worm pursuit, dodge, bite, and defeat, armor swaps and attachment during movement, the 640×704 inventory layout, wall collision, pause/resume, and fall recovery. The short beacon interaction verifies that the core is protected in the bag, consumed on turn-in, and lights the beacon. The run prints `SMOKE PASS` and its duration, or fails within 60 seconds with the current phase.
+- `--smoke-test` starts a standalone arena with nearby materials, equipment, a practice dummy, and the keeper and core. It checks tab switching, live physics while the menu is open, inventory quantities and drops, both weapons' hits and misses, a worm pursuit, dodge, bite, and defeat, armor swaps and attachment during movement, the 640×704 player-menu layout, wall collision, pause/resume, and fall recovery. The short beacon interaction verifies that the core is protected in the bag, consumed on turn-in, and lights the beacon. The run prints `SMOKE PASS` and its duration, or fails within 60 seconds with the current phase.
 - `--smoke-world` loads the shipped outpost, verifies the player and worms start grounded, checks the route past the worms, and checks that every authored pillar blocks the movement capsule from four directions. It then checks the locked hatch, beacon turn-in, gate, archive discovery, return and reentry, and fall recovery. It prints `WORLD SMOKE PASS` on success.
 - `--smoke-nemi` checks spear damage, fleeing and returning, the failed quest entry, Nemi’s collapse, and opening the relay by installing the core at the beacon. It prints `NEMI SMOKE PASS` on success.
 

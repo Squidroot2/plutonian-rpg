@@ -645,7 +645,7 @@ mod tests {
     }
 
     #[test]
-    fn paused_inventory_and_dialogue_freeze_windup_and_defeat_preserves_progress() {
+    fn pause_and_dialogue_freeze_windup_and_defeat_preserves_progress() {
         let mut app = test_app();
         let player = app
             .world_mut()
@@ -698,7 +698,7 @@ mod tests {
         );
 
         app.world_mut().resource_mut::<Dialogue>().text = Some("Talking to Nemi");
-        for state in [GameState::Paused, GameState::Inventory, GameState::Playing] {
+        for state in [GameState::Paused, GameState::Playing] {
             app.world_mut()
                 .resource_mut::<NextState<GameState>>()
                 .set(state);

@@ -1,5 +1,4 @@
-use crate::controls::{Control, Keybinds};
-use crate::{GameState, player::Player, quest::Dialogue, quest_ui::QuestLog};
+use crate::{GameState, menu_ui::PlayerMenu, player::Player, quest::Dialogue};
 use avian3d::prelude::*;
 use bevy::{
     input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll},
@@ -68,14 +67,12 @@ fn look(
     scroll: Res<AccumulatedMouseScroll>,
     dialogue: Res<Dialogue>,
     keys: Res<ButtonInput<KeyCode>>,
-    bindings: Res<Keybinds>,
     windows: Query<&Window, With<PrimaryWindow>>,
     mut orbit: ResMut<Orbit>,
-    log: Option<Res<QuestLog>>,
+    log: Option<Res<PlayerMenu>>,
 ) {
     if dialogue.text.is_some()
         || log.is_some_and(|log| log.is_open())
-        || bindings.just_pressed(Control::Inventory, &keys)
         || keys.just_pressed(KeyCode::Escape)
         || !windows.iter().any(|w| w.focused)
     {
@@ -89,7 +86,7 @@ fn cursor(
     state: Res<State<GameState>>,
     dialogue: Res<Dialogue>,
     mut windows: Query<(&Window, &mut CursorOptions), With<PrimaryWindow>>,
-    log: Option<Res<QuestLog>>,
+    log: Option<Res<PlayerMenu>>,
 ) {
     for (window, mut options) in &mut windows {
         let grab = *state.get() == GameState::Playing

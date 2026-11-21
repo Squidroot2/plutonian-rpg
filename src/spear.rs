@@ -8,9 +8,9 @@ use crate::{
     equipment::Equipment,
     interaction::InteractionSystems,
     inventory::{CARRY_CAPACITY, Inventory},
+    menu_ui::PlayerMenu,
     player::{Dodge, MovementInput, Player},
     quest::Dialogue,
-    quest_ui::QuestLog,
 };
 
 /// Maximum distance the spear thrust's collision shape travels.
@@ -94,7 +94,7 @@ fn attack(
     mut thrust: ResMut<Thrust>,
     player: Query<(Entity, &Player, &Dodge, &Transform)>,
     mut hits: MessageWriter<Hit>,
-    log: Option<Res<QuestLog>>,
+    log: Option<Res<PlayerMenu>>,
 ) {
     let Ok((entity, controller, dodge, transform)) = player.single() else {
         return;
@@ -419,7 +419,7 @@ mod tests {
     }
 
     #[test]
-    fn gameplay_requires_an_equipped_spear_and_cancels_on_dialogue_or_inventory() {
+    fn live_menu_preserves_a_thrust_in_progress_and_blocks_new_attacks() {
         let mut app = test_app();
         let world = app.world_mut();
         world.spawn((
@@ -463,10 +463,14 @@ mod tests {
         app.world_mut().resource_mut::<Dialogue>().text = None;
         app.update();
         assert!(app.world().resource::<Thrust>().active());
-        app.world_mut()
-            .resource_mut::<NextState<GameState>>()
-            .set(GameState::Inventory);
+        let mut menu = PlayerMenu::default();
+        menu.show(crate::menu_ui::MenuTab::Inventory);
+        app.insert_resource(menu);
         app.update();
+        assert!(app.world().resource::<Thrust>().active());
+        for _ in 0..60 {
+            app.update();
+        }
         assert!(!app.world().resource::<Thrust>().active());
     }
 }

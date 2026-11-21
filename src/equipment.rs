@@ -6,6 +6,8 @@ use crate::{
     GameState,
     inventory::{Inventory, InventoryNotice, ItemKind, scene_ready},
     loading::{GameAssets, PendingScene},
+    menu_ui::{MenuTab, PlayerMenu},
+    spear::Thrust,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -140,17 +142,27 @@ impl Plugin for EquipmentPlugin {
 fn equip(
     request: On<EquipRequest>,
     state: Res<State<GameState>>,
+    menu: Res<PlayerMenu>,
+    thrust: Option<ResMut<Thrust>>,
     mut equipment: ResMut<Equipment>,
     mut bag: ResMut<Inventory>,
     mut notice: ResMut<InventoryNotice>,
     assets: Option<Res<AssetServer>>,
     mut commands: Commands,
 ) {
-    if *state.get() != GameState::Inventory {
+    if *state.get() != GameState::Playing || !menu.accepts(MenuTab::Inventory) {
         return;
     }
     notice.0 = match equipment.equip(&mut bag, request.0) {
         Ok(true) => {
+            if request
+                .0
+                .gear()
+                .is_some_and(|gear| gear.slot == EquipmentSlot::Weapon)
+                && let Some(mut thrust) = thrust
+            {
+                thrust.cancel();
+            }
             if let Some(assets) = assets {
                 commands.spawn((
                     AudioPlayer::new(assets.load("sounds/cloth4.ogg")),
@@ -166,17 +178,24 @@ fn equip(
 fn unequip(
     request: On<UnequipRequest>,
     state: Res<State<GameState>>,
+    menu: Res<PlayerMenu>,
+    thrust: Option<ResMut<Thrust>>,
     mut equipment: ResMut<Equipment>,
     mut bag: ResMut<Inventory>,
     mut notice: ResMut<InventoryNotice>,
     assets: Option<Res<AssetServer>>,
     mut commands: Commands,
 ) {
-    if *state.get() != GameState::Inventory {
+    if *state.get() != GameState::Playing || !menu.accepts(MenuTab::Inventory) {
         return;
     }
     notice.0 = match equipment.unequip(&mut bag, request.0) {
         Ok(true) => {
+            if request.0 == EquipmentSlot::Weapon
+                && let Some(mut thrust) = thrust
+            {
+                thrust.cancel();
+            }
             if let Some(assets) = assets {
                 commands.spawn((
                     AudioPlayer::new(assets.load("sounds/cloth3.ogg")),
@@ -346,6 +365,7 @@ mod tests {
             .init_resource::<Equipment>()
             .init_resource::<Inventory>()
             .init_resource::<InventoryNotice>()
+            .init_resource::<PlayerMenu>()
             .add_observer(equip)
             .add_observer(unequip);
         app.finish();
@@ -369,18 +389,16 @@ mod tests {
             1
         );
         app.world_mut()
-            .resource_mut::<NextState<GameState>>()
-            .set(GameState::Inventory);
-        app.update();
+            .resource_mut::<PlayerMenu>()
+            .show(MenuTab::Inventory);
         app.world_mut().trigger(EquipRequest(ItemKind::FieldArmor));
         assert_eq!(
             app.world().resource::<Equipment>().get(EquipmentSlot::Body),
             Some(ItemKind::FieldArmor)
         );
         app.world_mut()
-            .resource_mut::<NextState<GameState>>()
-            .set(GameState::Playing);
-        app.update();
+            .resource_mut::<PlayerMenu>()
+            .show(MenuTab::Character);
         app.world_mut().trigger(UnequipRequest(EquipmentSlot::Body));
         assert_eq!(
             app.world().resource::<Equipment>().get(EquipmentSlot::Body),
@@ -393,9 +411,8 @@ mod tests {
             0
         );
         app.world_mut()
-            .resource_mut::<NextState<GameState>>()
-            .set(GameState::Inventory);
-        app.update();
+            .resource_mut::<PlayerMenu>()
+            .show(MenuTab::Inventory);
         app.world_mut().trigger(UnequipRequest(EquipmentSlot::Body));
         assert_eq!(
             app.world().resource::<Equipment>().get(EquipmentSlot::Body),

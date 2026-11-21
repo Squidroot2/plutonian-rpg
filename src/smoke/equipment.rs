@@ -6,8 +6,10 @@ use crate::{
     equipment::{Equipment, EquipmentSlot, WornEquipment},
     interaction::{InteractionTarget, Nearby},
     inventory::{Inventory, ItemKind, Pickup},
-    inventory_ui::{InventoryAction, InventoryScreen},
+    inventory_ui::InventoryAction,
     loading::PendingScene,
+    menu_ui::PlayerMenuScreen,
+    menu_ui::{MenuTab, PlayerMenu},
     player::Player,
 };
 use bevy::{
@@ -25,7 +27,7 @@ pub(crate) struct EquipmentSmoke {
 }
 #[derive(SystemParam)]
 pub(crate) struct View<'w, 's> {
-    screen: Query<'w, 's, (&'static mut Node, &'static ComputedNode), With<InventoryScreen>>,
+    screen: Query<'w, 's, (&'static mut Node, &'static ComputedNode), With<PlayerMenuScreen>>,
     captures: Query<'w, 's, (), With<Screenshot>>,
     player: Query<'w, 's, (Entity, &'static Transform, &'static Player), With<Player>>,
     pickups: Query<'w, 's, (&'static Pickup, &'static Transform)>,
@@ -148,7 +150,7 @@ pub(crate) fn drive(
     spear_smoke: Res<super::spear::SpearSmoke>,
     mut smoke: ResMut<EquipmentSmoke>,
     inventory_smoke: Res<InventorySmoke>,
-    state: Res<State<GameState>>,
+    (state, menu): (Res<State<GameState>>, Res<PlayerMenu>),
     time: Res<Time>,
     bag: Res<Inventory>,
     equipment: Res<Equipment>,
@@ -217,7 +219,7 @@ pub(crate) fn drive(
                 smoke.stage = 2;
             }
         }
-        2 if *state.get() == GameState::Inventory => {
+        2 if menu.is_on(MenuTab::Inventory) => {
             click!(InventoryAction::Select(ItemKind::FieldArmor));
             smoke.stage = 3;
         }
@@ -300,7 +302,7 @@ pub(crate) fn drive(
             keys.press(KeyCode::KeyI);
             smoke.stage = 10;
         }
-        10 if *state.get() == GameState::Playing => {
+        10 if *state.get() == GameState::Playing && !menu.is_open() => {
             if collect(
                 ItemKind::FieldArmor,
                 &bag,
@@ -314,7 +316,7 @@ pub(crate) fn drive(
                 smoke.stage = 11;
             }
         }
-        11 if *state.get() == GameState::Inventory => {
+        11 if menu.is_on(MenuTab::Inventory) => {
             click!(InventoryAction::Select(ItemKind::FieldArmor));
             smoke.stage = 12;
         }
@@ -354,7 +356,7 @@ pub(crate) fn drive(
                 smoke.stage = 102;
             }
         }
-        102 if *state.get() == GameState::Inventory => {
+        102 if menu.is_on(MenuTab::Inventory) => {
             click!(InventoryAction::Select(ItemKind::ReinforcedArmor));
             smoke.stage = 103;
         }
@@ -397,7 +399,7 @@ pub(crate) fn drive(
             keys.press(KeyCode::KeyI);
             smoke.stage = 49;
         }
-        49 if *state.get() == GameState::Playing => {
+        49 if *state.get() == GameState::Playing && !menu.is_open() => {
             // Both equipment rows face a clear strip of floor to the north.
             orbit.yaw = 0.0;
             orbit.pitch = 0.18;
