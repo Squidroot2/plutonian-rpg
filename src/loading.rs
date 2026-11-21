@@ -24,6 +24,7 @@ impl Plugin for LoadingPlugin {
 pub struct GameAssets {
     pub character: Handle<Gltf>,
     pub outpost: Option<(Handle<Gltf>, Handle<Gltf>)>,
+    pub relay: Option<(Handle<Gltf>, Handle<Gltf>)>,
     pub core: Handle<Gltf>,
     pub dummy: Handle<Gltf>,
     pub worm: Handle<Gltf>,
@@ -38,6 +39,7 @@ pub struct LoadStatus {
     pub error: Option<String>,
     pub spawning: bool,
     pub collision_ready: bool,
+    pub relay_collision_ready: bool,
     pub started: Option<std::time::Instant>,
 }
 fn load(mut commands: Commands, server: Res<AssetServer>, layout: Res<WorldLayout>) {
@@ -47,6 +49,12 @@ fn load(mut commands: Commands, server: Res<AssetServer>, layout: Res<WorldLayou
             (
                 server.load("models/outpost.glb"),
                 server.load("models/collision.glb"),
+            )
+        }),
+        relay: (*layout == WorldLayout::Outpost).then(|| {
+            (
+                server.load("models/old_relay.glb"),
+                server.load("models/old_relay_collision.glb"),
             )
         }),
         core: server.load("models/core.glb"),
@@ -91,6 +99,7 @@ fn check(
             assets
                 .outpost
                 .iter()
+                .chain(assets.relay.iter())
                 .flat_map(|(outpost, collision)| [outpost, collision]),
         )
         .chain(assets.pickups.values())
@@ -128,6 +137,7 @@ fn check(
         });
         if pending.is_empty()
             && (status.collision_ready || arena_ready)
+            && (assets.relay.is_none() || status.relay_collision_ready)
             && colliders.iter().count() > 1
         {
             next.set(GameState::Playing);

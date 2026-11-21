@@ -1,4 +1,4 @@
-use crate::{GameState, camera::Orbit, quest::Dialogue, world::WorldLayout};
+use crate::{GameState, camera::Orbit, dungeon::Area, quest::Dialogue, world::WorldLayout};
 use avian3d::prelude::*;
 use bevy::prelude::*;
 use std::time::Duration;
@@ -29,6 +29,7 @@ impl Plugin for PlayerPlugin {
 }
 #[derive(Component, Default)]
 pub struct Player {
+    pub(crate) area: Area,
     pub velocity: Vec3,
     pub grounded: bool,
     pub running: bool,
@@ -37,6 +38,7 @@ pub struct Player {
 }
 impl Player {
     pub(crate) fn respawn(&mut self, transform: &mut Transform, start: Vec3) {
+        self.area = Area::Surface;
         transform.translation = start;
         self.velocity = Vec3::ZERO;
         self.jumping = false;

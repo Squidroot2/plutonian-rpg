@@ -1,5 +1,6 @@
 use crate::{
     GameState,
+    dungeon::{Area, DungeonProgress, DungeonTarget},
     interaction::{InteractionSystems, InteractionTarget},
     loading::LoadStatus,
     player::{MAX_HEALTH, Player},
@@ -174,6 +175,8 @@ fn display(
     status: Res<LoadStatus>,
     quest: Res<Quest>,
     layout: Res<WorldLayout>,
+    dungeon: Res<DungeonProgress>,
+    targets: Query<(&DungeonTarget, &Transform)>,
     dialogue: Res<Dialogue>,
     nearby: Res<Nearby>,
     player: Query<(&Player, &Transform)>,
@@ -185,14 +188,26 @@ fn display(
     mut pause: Query<&mut Visibility, (With<PausePanel>, Without<DialogueText>)>,
 ) {
     let avatar = player.iter().next();
-    let distance = avatar.and_then(|(_, p)| {
-        quest
-            .destination(*layout)
-            .map(|d| p.translation.distance(d))
-    });
-    let location = match *layout {
-        WorldLayout::Outpost => "OUTPOST / NIVALIS",
-        WorldLayout::SmokeArena => "SMOKE ARENA",
+    let area = avatar.map_or(Area::Surface, |(player, _)| player.area);
+    let show_dungeon = *layout == WorldLayout::Outpost && DungeonProgress::hatch_unlocked(*quest);
+    let objective = if show_dungeon {
+        dungeon.objective(area)
+    } else {
+        quest.objective()
+    };
+    let destination = if show_dungeon && area == Area::Surface && !dungeon.explored {
+        targets
+            .iter()
+            .find(|(target, _)| **target == DungeonTarget::Hatch)
+            .map(|(_, transform)| transform.translation)
+    } else {
+        quest.destination(*layout)
+    };
+    let distance = avatar.and_then(|(_, p)| destination.map(|d| p.translation.distance(d)));
+    let location = match (*layout, area) {
+        (_, Area::OldRelay) => "THE OLD RELAY",
+        (WorldLayout::Outpost, Area::Surface) => "OUTPOST / NIVALIS",
+        (WorldLayout::SmokeArena, Area::Surface) => "SMOKE ARENA",
     };
     for mut text in &mut texts.p0() {
         **text = if matches!(state.get(), GameState::Title | GameState::Loading) {
@@ -204,7 +219,7 @@ fn display(
                     "\nHealth {}/{MAX_HEALTH}",
                     player.vitality.health
                 )),
-                quest.objective(),
+                objective,
                 distance.map_or(String::new(), |d| format!("\n{d:.0} m"))
             )
         };
@@ -223,6 +238,18 @@ fn display(
                     InteractionTarget::Pickup(pickup) => {
                         format!("[E] Pick up {} x{}", pickup.item.name(), pickup.quantity)
                     }
+                    InteractionTarget::Dungeon(target) => match target {
+                        DungeonTarget::Hatch if !DungeonProgress::hatch_unlocked(*quest) => {
+                            "[E] Inspect the sealed hatch".into()
+                        }
+                        DungeonTarget::Hatch => "[E] Enter the Old Relay".into(),
+                        DungeonTarget::Exit => "[E] Return to Nivalis".into(),
+                        DungeonTarget::Switch if dungeon.gate_open() => {
+                            "[E] Check maintenance switch".into()
+                        }
+                        DungeonTarget::Switch => "[E] Operate maintenance switch".into(),
+                        DungeonTarget::SurveyLog => "[E] Read the survey log".into(),
+                    },
                 })
             }
             _ => String::new(),

@@ -1,5 +1,6 @@
 use crate::{
     GameState,
+    dungeon::{DungeonTarget, UseDungeonTarget},
     inventory::{Inventory, Pickup},
     player::Player,
     quest::{Dialogue, Quest},
@@ -16,6 +17,7 @@ pub enum Target {
 pub enum InteractionTarget {
     Quest(Target),
     Pickup(Pickup),
+    Dungeon(DungeonTarget),
 }
 #[derive(Resource, Default)]
 pub struct Nearby(pub Option<(Entity, InteractionTarget)>);
@@ -35,10 +37,16 @@ impl Plugin for InteractionPlugin {
     }
 }
 fn find_target(
-    players: Query<(Entity, &Transform), With<Player>>,
+    players: Query<(Entity, &Transform, &Player)>,
     targets: Query<
-        (Entity, &Transform, Option<&Target>, Option<&Pickup>),
-        Or<(With<Target>, With<Pickup>)>,
+        (
+            Entity,
+            &Transform,
+            Option<&Target>,
+            Option<&Pickup>,
+            Option<&DungeonTarget>,
+        ),
+        Or<(With<Target>, With<Pickup>, With<DungeonTarget>)>,
     >,
     quest: Res<Quest>,
     dialogue: Res<Dialogue>,
@@ -49,12 +57,12 @@ fn find_target(
     if dialogue.text.is_some() {
         return;
     }
-    let Ok((player_entity, player)) = players.single() else {
+    let Ok((player_entity, transform, player)) = players.single() else {
         return;
     };
-    let origin = player.translation + Vec3::Y * 0.45;
+    let origin = transform.translation + Vec3::Y * 0.45;
     let mut closest = 3.0;
-    for (entity, transform, target, pickup) in &targets {
+    for (entity, transform, target, pickup, dungeon) in &targets {
         let (interaction, point) = if let Some(target) = target {
             if *target == Target::Core && *quest != Quest::FindCore {
                 continue;
@@ -72,6 +80,18 @@ fn find_target(
             (
                 InteractionTarget::Pickup(*pickup),
                 transform.translation + Vec3::Y * 0.18,
+            )
+        } else if let Some(&dungeon) = dungeon {
+            if player.area != dungeon.area() {
+                continue;
+            }
+            let height = match dungeon {
+                DungeonTarget::Hatch | DungeonTarget::Exit => 0.65,
+                _ => 0.0,
+            };
+            (
+                InteractionTarget::Dungeon(dungeon),
+                transform.translation + Vec3::Y * height,
             )
         } else {
             continue;
@@ -134,6 +154,7 @@ fn interact(
                     }
                 }
             }
+            InteractionTarget::Dungeon(target) => commands.trigger(UseDungeonTarget(target)),
             _ => (),
         }
     }

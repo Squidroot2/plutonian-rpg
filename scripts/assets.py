@@ -729,6 +729,114 @@ def ice_worm():
     save_export('ice_worm')
 
 
+def old_relay():
+    reset()
+    rock = material('Relay basalt', (.092, .148, .19))
+    floor = material('Worn slate', (.13, .22, .26), metal=.2)
+    rib = material('Old relay alloy', (.20, .31, .36), metal=.52)
+    etched = material('Inlaid tracks', (.13, .25, .30), metal=.25)
+    amber = material('Maintenance amber', (1.0, .41, .10), 3.2)
+    cyan = material('Archive cyan', (.15, .76, .86), 3.3)
+    ice = material('Blue cave crystal', (.13, .31, .45), .16, .26)
+
+    # +Y is deeper into the relay. World placement subtracts this from Bevy Z.
+    collision = set()
+
+    def solid(name, pos, size, mat=rock):
+        obj = box(name, pos, size, mat)
+        collision.add(obj.name)
+        return obj
+
+    def shell(name, left, right, near, far):
+        width, length = right-left, far-near
+        x, y = (right+left)/2, (far+near)/2
+        solid(name+' floor', (x, y, -.25), (width, length, .5), floor)
+        solid(name+' ceiling', (x, y, 4.95), (width, length, .5))
+        # Subtle panels along the seam keep the low-lit rooms legible.
+        for lane in [-1, 1]:
+            edge = x + lane * (width/2-.36)
+            box(name+' floor trim', (edge, y, .008), (.12, length-.14, .016), etched)
+
+    def length_wall(name, x, near, far):
+        solid(name, (x, (near+far)/2, 2.35), (.28, far-near, 4.7))
+
+    def end_wall(name, y, left, right):
+        solid(name, ((left+right)/2, y, 2.35), (right-left, .28, 4.7))
+
+    shell('Vestibule', -2.6, 2.6, -2, 6)
+    length_wall('Vestibule west wall', -2.6, -2, 6)
+    length_wall('Vestibule east wall', 2.6, -2, 6)
+    end_wall('Vestibule entry wall', -2, -2.6, 2.6)
+
+    shell('Junction', -5.25, 5.25, 6, 15)
+    length_wall('Junction west wall', -5.25, 6, 15)
+    length_wall('Junction east bounds', 5.25, 6, 9)
+    length_wall('Junction east return', 5.25, 12.5, 15)
+    for side in [-1, 1]:
+        left, right = sorted((side*2.6, side*5.25))
+        end_wall('Junction entry shoulder', 6, left, right)
+        left, right = sorted((side*2, side*5.25))
+        end_wall('Junction gate shoulder', 15, left, right)
+
+    shell('Maintenance', 5.25, 11.25, 8, 14)
+    length_wall('Maintenance back wall', 11.25, 8, 14)
+    end_wall('Maintenance near wall', 8, 5.25, 11.25)
+    end_wall('Maintenance far wall', 14, 5.25, 11.25)
+    solid('Switch plinth', (10.45, 10.75, .48), (.64, .82, .96), rib)
+    box('Switch housing inlay', (10.10, 10.75, .70), (.055, .43, .19), amber)
+    for level in (.42, 1.55):
+        box('Maintenance service conduit', (11.02, 10.75, level), (.16, 4.1, .14), rib)
+    for y in (9.3, 10.0, 11.5, 12.2):
+        box('Maintenance conduit clamp', (10.93, y, 1.55), (.09, .12, .27), etched)
+    for x in (3.1, 4.4, 5.7, 7.0, 8.3, 9.6):
+        box('Maintenance guide light', (x, 12.01, .018), (.54, .12, .035), amber)
+
+    shell('Gate passage', -2, 2, 15, 20)
+    length_wall('Gate passage west wall', -2, 15, 20)
+    length_wall('Gate passage east wall', 2, 15, 20)
+    for side in [-1, 1]:
+        box('Gate guide rail', (side*1.92, 17.4, 2.35), (.16, .48, 4.7), rib)
+        box('Gate guide light', (side*1.80, 17.0, 2.2), (.08, .15, 2.9), cyan)
+    box('Gate header', (0, 17.4, 4.48), (4.0, .52, .42), rib)
+
+    shell('Archive', -5.5, 5.5, 20, 30)
+    length_wall('Archive west wall', -5.5, 20, 30)
+    length_wall('Archive east wall', 5.5, 20, 30)
+    end_wall('Archive far wall', 30, -5.5, 5.5)
+    for side in [-1, 1]:
+        left, right = sorted((side*2, side*5.5))
+        end_wall('Archive entry shoulder', 20, left, right)
+        for y in (22.0, 25.0, 28.4):
+            solid('Archive data cabinet', (side*4.75, y, 1.12), (.92, 1.28, 2.24), rib)
+            for z in (1.28, 1.52, 1.76):
+                box('Archive status slit', (side*4.26, y, z), (.065, .62, .065), cyan)
+    solid('Survey log pedestal', (0, 27.30, .53), (1.36, .95, 1.06), rib)
+    box('Archive map backdrop', (0, 29.78, 2.65), (5.3, .21, 2.23), rib)
+    landmarks = [(-1.95, 2.15), (-1.25, 2.48), (-.52, 2.78), (.31, 2.58), (1.05, 3.06), (1.85, 3.30)]
+    for x, z in landmarks:
+        box('Survey route landmark', (x, 29.63, z), (.18, .08, .18), cyan)
+    for (x, z), (next_x, next_z) in zip(landmarks, landmarks[1:]):
+        path = box('Survey route trace', ((x+next_x)/2, 29.65, (z+next_z)/2),
+                   (math.hypot(next_x-x, next_z-z), .05, .035), cyan)
+        path.rotation_euler.y = -math.atan2(next_z-z, next_x-x)
+
+    for x, y, tint in [(-2.35, 3.8, cyan), (2.35, 3.8, cyan),
+                       (-5.0, 9.0, cyan), (-5.0, 13.1, amber), (10.99, 10.7, amber),
+                       (-5.23, 23.6, cyan), (5.23, 23.6, cyan), (0, 29.6, cyan)]:
+        box('Relay lamp housing', (x, y, 3.52), (.35, .58, .9), rib)
+        box('Relay lamp tube', (x, y-.16, 3.52), (.38, .27, .69), tint)
+    for x, y, z, pitch in [(-4.68, 7.5, .44, .2), (-4.95, 8.15, .62, -.30),
+                            (4.75, 13.9, .45, -.22), (5.0, 13.55, .61, .18)]:
+        crystal = cone('Ice along wall', (x, y, z), .27, z*1.9, ice)
+        crystal.rotation_euler.y = pitch
+
+    save_export('old_relay')
+    for obj in list(bpy.context.scene.objects):
+        if obj.name not in collision:
+            bpy.data.objects.remove(obj, do_unlink=True)
+    save_export('old_relay_collision')
+
+
 def spear_assets():
     bpy.context.preferences.filepaths.save_version = 0
     bpy.context.preferences.filepaths.file_preview_type = 'NONE'
@@ -742,7 +850,9 @@ def spear_assets():
     practice_dummy()
 
 
-if '--worm' in sys.argv:
+if '--relay' in sys.argv:
+    old_relay()
+elif '--worm' in sys.argv:
     ice_worm()
 elif '--spear' in sys.argv:
     spear_assets()
@@ -768,7 +878,7 @@ elif '--ground' in sys.argv:
     bpy.context.view_layer.update()
     save_export('collision')
 elif '--export' in sys.argv:
-    for name in ['plutonian', 'outpost', 'collision', 'core', 'battery', 'scrap', 'methane_pouch', 'practice_dummy', 'ice_worm', *GEAR_NAMES]:
+    for name in ['plutonian', 'outpost', 'collision', 'core', 'battery', 'scrap', 'methane_pouch', 'practice_dummy', 'ice_worm', 'old_relay', 'old_relay_collision', *GEAR_NAMES]:
         bpy.ops.wm.open_mainfile(filepath=str(ROOT/'art'/f'{name}.blend'))
         if name in GEAR_NAMES:
             export_equipment(name)
@@ -783,4 +893,5 @@ else:
     equipment()
     practice_dummy()
     ice_worm()
+    old_relay()
 print('Exported Plutonian RPG assets')

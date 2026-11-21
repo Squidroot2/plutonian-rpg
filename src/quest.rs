@@ -28,10 +28,10 @@ impl Quest {
             }
             (Self::ReturnCore, Target::Keeper) if inventory.consume_core() => {
                 *self = Self::Complete;
-                "NEMI\n\nThere it is. I thought we had lost that light for good.\n\nLook up. The crossing is safe again. Somewhere out on the ice,\nsomeone has seen it, and knows there is still a home to return to.\n\nQUEST COMPLETE / THE LAST LIGHT"
+                "NEMI\n\nThere it is. I thought we had lost that light for good. The crossing is safe again.\n\nThe beacon also powers the Old Relay. Look for the round hatch southwest of here. Its archive may still hold the first survey log.\n\nQUEST COMPLETE / THE LAST LIGHT"
             }
             (Self::Complete, Target::Keeper) => {
-                "NEMI\n\nOur light reaches across the ice again. Stay a while, traveler.\nThere will always be a place for you here."
+                "NEMI\n\nThe light reaches across the ice again. If you want to know how it began, look for the Old Relay hatch southwest of here."
             }
             (Self::ReturnCore, Target::Keeper) => {
                 "NEMI\n\nBring the beacon power core back to me first."

@@ -4,6 +4,7 @@
 #![deny(clippy::perf)]
 #![deny(clippy::unwrap_used)]
 mod camera;
+mod dungeon;
 mod equipment;
 mod interaction;
 mod inventory;
@@ -51,6 +52,7 @@ fn main() {
             avian3d::prelude::PhysicsPlugins::default(),
             loading::LoadingPlugin,
             world::WorldPlugin,
+            dungeon::DungeonPlugin,
             player::PlayerPlugin,
             camera::FollowCameraPlugin,
             quest::QuestPlugin,

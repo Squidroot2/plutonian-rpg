@@ -1,4 +1,5 @@
 //! Opt-in desktop checks for live gameplay and shipped-map collisions.
+mod dungeon;
 mod equipment;
 mod inventory;
 mod spear;
@@ -142,9 +143,14 @@ impl Plugin for SmokePlugin {
                 OnEnter(GameState::Playing),
                 (check_pillar_collision, worm::check_outpost_sites).run_if(run_once),
             )
+            .init_resource::<dungeon::WorldCheck>()
             .add_systems(
-                Update,
-                finish_world_check.run_if(in_state(GameState::Playing)),
+                PreUpdate,
+                dungeon::drive
+                    .after(InputSystems)
+                    .before(crate::player::input)
+                    .before(crate::ui::pause)
+                    .run_if(in_state(GameState::Playing)),
             );
         }
     }
@@ -189,6 +195,7 @@ fn watchdog(
     weapons: Option<Res<SpearSmoke>>,
     armor: Option<Res<EquipmentSmoke>>,
     arena: Option<Res<ArenaStep>>,
+    world: Option<Res<dungeon::WorldCheck>>,
 ) {
     assert_ne!(
         *state.get(),
@@ -198,12 +205,13 @@ fn watchdog(
     );
     assert!(
         run.0.elapsed() < TIMEOUT,
-        "smoke test timed out in {:?}; inventory {:?}, weapons {:?}, armor {:?}, arena {:?}",
+        "smoke test timed out in {:?}; inventory {:?}, weapons {:?}, armor {:?}, arena {:?}, world {:?}",
         state.get(),
         inventory.as_deref().map(InventorySmoke::phase),
         weapons.as_deref(),
         armor.as_deref().map(EquipmentSmoke::stage),
         arena.as_deref(),
+        world.as_deref(),
     );
 }
 
@@ -375,32 +383,6 @@ fn check_arena_wall(players: Query<&Collider, With<Player>>, mover: MoveAndSlide
         "the movement capsule must approach and stop at the arena wall, position {position:?}"
     );
     info!("ARENA COLLISION PASS: wall stops the character capsule");
-}
-
-fn finish_world_check(
-    run: Res<SmokeRun>,
-    player: Query<(&Player, &Transform)>,
-    captures: Query<(), With<Screenshot>>,
-    mut screenshot: Local<Option<Entity>>,
-    mut commands: Commands,
-    mut exit: MessageWriter<AppExit>,
-) {
-    let Ok((controller, transform)) = player.single() else {
-        return;
-    };
-    if let Some(entity) = *screenshot {
-        if captures.get(entity).is_err() {
-            info!(
-                "WORLD SMOKE PASS: shipped map, player grounding, and authored pillars verified in {:.2}s",
-                run.0.elapsed().as_secs_f64()
-            );
-            exit.write(AppExit::Success);
-        }
-    } else if controller.grounded {
-        let start = WorldLayout::Outpost.start();
-        assert!(transform.translation.xz().distance(start.xz()) < 0.01);
-        *screenshot = Some(capture(&mut commands, "outpost"));
-    }
 }
 
 // Exercise the same capsule and move-and-slide path used by character movement

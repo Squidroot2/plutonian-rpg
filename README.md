@@ -35,7 +35,7 @@ The playable route connects the outpost, an inclined ice shelf, and a shallow ca
 
 `src/` separates loading, world assembly, player movement/animation, camera, shared interactions, inventory, equipment, quests, and UI into plugins. Avian's kinematic move-and-slide controller runs at a fixed timestep with capsule ground detection and tuned low gravity. The camera uses a sphere cast to avoid passing through geometry. Interaction requires a nearby target with a clear line of sight. There are no save files or migrations.
 
-The first milestone includes one quest and one speaking NPC. Survival, crafting, levelling, controller support, and persistent saves are deferred. This is fictional Pluto: terrain, illumination, and gravity favor the experience over physical accuracy. Assets are original, generated locally with the included Blender script; no external models or textures are required.
+The game includes one beacon quest, the Old Relay dungeon, and one speaking NPC. Survival, crafting, levelling, controller support, and persistent saves are deferred. This is fictional Pluto: terrain, illumination, and gravity favor the experience over physical accuracy. Assets are original, generated locally with the included Blender script; no external models or textures are required.
 
 ## Inventory
 
@@ -72,7 +72,13 @@ Find the field spear and trident near the outpost spawn, pick either up with E, 
 
 Two ice worms roam beside the trail and a third waits near the cavern entrance. Watch for the worm to rear up, move out of its bite, then thrust during its recovery. Three hits with either weapon defeat a worm. A bite deals 20 damage before armor, and defeat returns you to the outpost at full health with your quest, inventory, and equipment intact. Defeated worms stay gone for the session.
 
+## The Old Relay
+
+After you restore the beacon, look for the round hatch southwest of Nemi. Use E to enter. Follow the amber lamps to the maintenance switch, then go through the raised gate to discover the archive survey log. Two ice worms patrol the relay. Use the hatch in the vestibule to return to Nivalis. Gate progress and the discovery stay with you for the session.
+
 ## Blender workflow
+
+Pass `-- --relay` to the asset command to regenerate the Old Relay source and collision files. The paired GLBs are `old_relay` and `old_relay_collision`.
 
 Pass `-- --worm` to the asset command to regenerate only the ice worm source and its four animation clips.
 
@@ -137,7 +143,7 @@ python3 scripts/check_assets.py
 Run the desktop checks on an idle graphical desktop without supplying mouse or keyboard input. Add `--smoke-fullscreen` to either command to use the full display.
 
 - `--smoke-test` starts a standalone arena with nearby materials, equipment, a practice dummy, and the keeper and core. It checks inventory quantities and drops, both weapons' hits and misses, a worm pursuit, dodge, bite, and defeat, armor swaps and attachment during movement, the 640×704 inventory layout, wall collision, pause/resume, and fall recovery. The short beacon interaction verifies that the core is protected in the bag, consumed on turn-in, and lights the beacon. The run prints `SMOKE PASS` and its duration, or fails within 60 seconds with the current phase.
-- `--smoke-world` loads the shipped outpost, verifies the player and worms start grounded, checks the route past the worms, and checks that every authored pillar blocks the movement capsule from four directions. It prints `WORLD SMOKE PASS` without running the quest route.
+- `--smoke-world` loads the shipped outpost, verifies the player and worms start grounded, checks the route past the worms, and checks that every authored pillar blocks the movement capsule from four directions. It then checks the locked hatch, beacon turn-in, gate, archive discovery, return and reentry, and fall recovery. It prints `WORLD SMOKE PASS` on success.
 
 The checks save screenshots in `/tmp/plutonian-*.png`, including the arena, outpost, inventory, beacon, and weapon and armor poses.
 

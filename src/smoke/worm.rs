@@ -28,12 +28,15 @@ pub(super) fn check_outpost_sites(
     worms: Query<(Entity, &Transform, &Collider), With<Worm>>,
     spatial: SpatialQuery,
 ) {
+    let surface_worms = worms
+        .iter()
+        .filter(|(_, transform, _)| transform.translation.y > -4.0);
     assert_eq!(
-        worms.iter().count(),
+        surface_worms.clone().count(),
         3,
         "the shipped map must spawn all three worms"
     );
-    for (entity, transform, body) in &worms {
+    for (entity, transform, body) in surface_worms {
         let origin = transform.translation + Vec3::Y;
         let support = spatial
             .cast_ray(

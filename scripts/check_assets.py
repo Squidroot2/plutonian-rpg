@@ -7,7 +7,7 @@ import struct
 root = Path(__file__).resolve().parents[1]
 documents = {}
 gear_names = ['field_armor', 'reinforced_armor', 'field_helmet', 'reinforced_helmet', 'field_spear', 'trident']
-for name in ['plutonian', 'outpost', 'collision', 'core', 'battery', 'scrap', 'methane_pouch', 'practice_dummy', 'ice_worm', *gear_names, *[name+'_worn' for name in gear_names]]:
+for name in ['plutonian', 'outpost', 'collision', 'core', 'battery', 'scrap', 'methane_pouch', 'practice_dummy', 'ice_worm', 'old_relay', 'old_relay_collision', *gear_names, *[name+'_worn' for name in gear_names]]:
     source_name = name.removesuffix('_worn')
     source = root / 'art' / f'{source_name}.blend'
     path = root / 'assets' / 'models' / f'{name}.glb'
@@ -95,6 +95,29 @@ def mesh_bounds(document):
     for index in document['scenes'][0]['nodes']:
         visit(index, [[int(row==col) for col in range(4)] for row in range(4)])
     return [min(p[axis] for p in points) for axis in range(3)], [max(p[axis] for p in points) for axis in range(3)]
+
+relay = documents['old_relay']
+relay_collision = documents['old_relay_collision']
+relay_visuals = {node['name']: node for node in relay['nodes'] if 'mesh' in node}
+relay_solids = {node['name']: node for node in relay_collision['nodes'] if 'mesh' in node}
+for room in ['Vestibule', 'Junction', 'Maintenance', 'Gate passage', 'Archive']:
+    for surface in ['floor', 'ceiling']:
+        assert f'{room} {surface}' in relay_solids, f'{room}: missing {surface} collider'
+
+
+def position_bounds(document, node):
+    return [(document['accessors'][part['attributes']['POSITION']]['min'],
+             document['accessors'][part['attributes']['POSITION']]['max'])
+            for part in document['meshes'][node['mesh']]['primitives']]
+
+
+for name, collider in relay_solids.items():
+    assert name in relay_visuals, f'{name}: no matching relay visual'
+    visual = relay_visuals[name]
+    assert local_matrix(visual) == local_matrix(collider), f'{name}: relay collider misaligned'
+    assert position_bounds(relay, visual) == position_bounds(relay_collision, collider), f'{name}: relay collider bounds differ'
+print(f'Old Relay static collision matches visuals: {len(relay_solids)} bodies')
+
 
 limits = {'field_armor': [.86,.76,.8], 'reinforced_armor': [1.02,.8,.84],
           'field_helmet': [.9,.58,.72], 'reinforced_helmet': [1,.64,.8],
