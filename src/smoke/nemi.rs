@@ -27,7 +27,7 @@ pub(super) enum Check {
     Flee,
     Return,
     Talk,
-    CheckRefusal,
+    Refusal,
     OpenLog,
     SelectFailure,
     CloseLog,
@@ -178,9 +178,9 @@ pub(super) fn drive(
         }
         Check::Talk if near(InteractionTarget::Quest(Target::Keeper)) => {
             keys.press(KeyCode::KeyE);
-            *stage = Check::CheckRefusal;
+            *stage = Check::Refusal;
         }
-        Check::CheckRefusal => {
+        Check::Refusal => {
             assert!(dialogue.text.is_some_and(|text| text.contains("Stay away")));
             keys.press(KeyCode::KeyE);
             *stage = Check::OpenLog;
