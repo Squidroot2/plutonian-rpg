@@ -143,7 +143,7 @@ fn equip(
     mut equipment: ResMut<Equipment>,
     mut bag: ResMut<Inventory>,
     mut notice: ResMut<InventoryNotice>,
-    assets: Res<AssetServer>,
+    assets: Option<Res<AssetServer>>,
     mut commands: Commands,
 ) {
     if *state.get() != GameState::Inventory {
@@ -151,10 +151,12 @@ fn equip(
     }
     notice.0 = match equipment.equip(&mut bag, request.0) {
         Ok(true) => {
-            commands.spawn((
-                AudioPlayer::new(assets.load("sounds/cloth4.ogg")),
-                PlaybackSettings::DESPAWN.with_volume(bevy::audio::Volume::Linear(0.2)),
-            ));
+            if let Some(assets) = assets {
+                commands.spawn((
+                    AudioPlayer::new(assets.load("sounds/cloth4.ogg")),
+                    PlaybackSettings::DESPAWN.with_volume(bevy::audio::Volume::Linear(0.2)),
+                ));
+            }
             format!("Equipped {}", request.0.name())
         }
         Ok(false) => "Already equipped.".into(),
@@ -167,7 +169,7 @@ fn unequip(
     mut equipment: ResMut<Equipment>,
     mut bag: ResMut<Inventory>,
     mut notice: ResMut<InventoryNotice>,
-    assets: Res<AssetServer>,
+    assets: Option<Res<AssetServer>>,
     mut commands: Commands,
 ) {
     if *state.get() != GameState::Inventory {
@@ -175,10 +177,12 @@ fn unequip(
     }
     notice.0 = match equipment.unequip(&mut bag, request.0) {
         Ok(true) => {
-            commands.spawn((
-                AudioPlayer::new(assets.load("sounds/cloth3.ogg")),
-                PlaybackSettings::DESPAWN.with_volume(bevy::audio::Volume::Linear(0.2)),
-            ));
+            if let Some(assets) = assets {
+                commands.spawn((
+                    AudioPlayer::new(assets.load("sounds/cloth3.ogg")),
+                    PlaybackSettings::DESPAWN.with_volume(bevy::audio::Volume::Linear(0.2)),
+                ));
+            }
             format!("Unequipped {}", request.0.name())
         }
         Ok(false) => "That slot is empty.".into(),
