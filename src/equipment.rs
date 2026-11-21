@@ -150,7 +150,9 @@ fn equip(
     assets: Option<Res<AssetServer>>,
     mut commands: Commands,
 ) {
-    if *state.get() != GameState::Playing || !menu.accepts(MenuTab::Equipment) {
+    if *state.get() != GameState::Playing
+        || !(menu.accepts(MenuTab::Inventory) || menu.accepts(MenuTab::Equipment))
+    {
         return;
     }
     notice.0 = match equipment.equip(&mut bag, request.0) {
@@ -357,7 +359,7 @@ mod tests {
         );
     }
     #[test]
-    fn requests_only_change_equipment_while_equipment_is_open() {
+    fn equipment_requests_require_the_corresponding_menu_tab() {
         use bevy::state::app::StatesPlugin;
         let mut app = App::new();
         app.add_plugins((MinimalPlugins, StatesPlugin))

@@ -83,7 +83,7 @@ Armor and helmets are world pickups collected with E. Start with empty equipment
 | Field helmet | Helmet | 1 |
 | Reinforced helmet | Helmet | 3 |
 
-Open the **Equipment** tab, select an available gear item, and click **Equip selected**. Equipping moves one copy into its matching slot; swapping returns the previous piece to the bag. Click **Unequip** beside a slot to return the worn item before dropping it. Additional bag copies can be dropped without affecting the worn copy. Identical gear stacks in the bag; equipping the same type again is a no-op.
+Open the **Equipment** tab, select an available gear item, and click **Equip selected**, or double-click a gear row in **Inventory**. Equipping moves one copy into its matching slot; swapping returns the previous piece to the bag. Click **Unequip** beside a slot to return the worn item before dropping it. Additional bag copies can be dropped without affecting the worn copy. Identical gear stacks in the bag; equipping the same type again is a no-op.
 
 Slots show their equipped piece and defense, with a combined total above them. Each point of defense reduces bite damage by one, to a minimum of one. Equipment survives fall recovery and resets on application restart.
 

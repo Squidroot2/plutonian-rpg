@@ -383,6 +383,13 @@ fn action(
             ui.selected = Some(item);
             ui.cancel_drop();
             notice.0.clear();
+            if click.count == 2
+                && item.gear().is_some()
+                && inventory.count(item) > 0
+                && !equipped(item, &equipment)
+            {
+                commands.trigger(EquipRequest(item));
+            }
         }
         InventoryAction::SelectGear(item)
             if inventory.count(item) > 0 && !equipped(item, &equipment) =>
@@ -646,6 +653,77 @@ fn slot_label(slot: EquipmentSlot, equipment: &Equipment) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn inventory_double_click_equips_available_gear_and_swaps_the_worn_item() {
+        use crate::{GameState, equipment::EquipmentPlugin, smoke::pointer_click};
+        use bevy::state::app::StatesPlugin;
+
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, StatesPlugin, EquipmentPlugin))
+            .insert_state(GameState::Playing)
+            .init_resource::<InventoryNotice>()
+            .init_resource::<InventoryUiState>();
+        let world = app.world_mut();
+        let mut menu = PlayerMenu::default();
+        menu.show(MenuTab::Inventory);
+        world.insert_resource(menu);
+        let mut bag = Inventory::default();
+        assert!(bag.add(ItemKind::FieldArmor, 1));
+        assert!(bag.add(ItemKind::ReinforcedArmor, 1));
+        assert!(bag.add(ItemKind::Battery, 1));
+        assert_eq!(
+            world
+                .resource_mut::<Equipment>()
+                .equip(&mut bag, ItemKind::FieldArmor),
+            Ok(true)
+        );
+        world.insert_resource(bag);
+
+        let armor = world
+            .spawn(InventoryAction::Select(ItemKind::ReinforcedArmor))
+            .observe(action)
+            .id();
+        let battery = world
+            .spawn(InventoryAction::Select(ItemKind::Battery))
+            .observe(action)
+            .id();
+        let window = world.spawn_empty().id();
+        let camera = world.spawn_empty().id();
+        world.trigger(pointer_click(armor, window, camera));
+        assert_eq!(
+            world.resource::<InventoryUiState>().selected,
+            Some(ItemKind::ReinforcedArmor)
+        );
+        world.trigger(PointerClick {
+            count: 2,
+            ..pointer_click(battery, window, camera)
+        });
+        assert_eq!(
+            world.resource::<Equipment>().get(EquipmentSlot::Body),
+            Some(ItemKind::FieldArmor)
+        );
+        assert!(world.resource::<InventoryNotice>().0.is_empty());
+
+        for _ in 0..2 {
+            world.trigger(PointerClick {
+                count: 2,
+                ..pointer_click(armor, window, camera)
+            });
+            world.flush();
+        }
+        assert_eq!(
+            world.resource::<Equipment>().get(EquipmentSlot::Body),
+            Some(ItemKind::ReinforcedArmor)
+        );
+        assert_eq!(
+            world
+                .resource::<Inventory>()
+                .count(ItemKind::ReinforcedArmor),
+            0
+        );
+        assert_eq!(world.resource::<Inventory>().count(ItemKind::FieldArmor), 1);
+    }
 
     #[test]
     fn quantity_prompt_validates_spares_and_protects_equipped_copies_and_the_core() {

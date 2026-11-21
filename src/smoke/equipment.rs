@@ -1,5 +1,5 @@
 //! Opt-in equipment playthrough using the live inventory UI and animated player rig.
-use super::inventory::{InventorySmoke, click, walk};
+use super::inventory::{InventorySmoke, click, pointer_click, walk};
 use crate::{
     GameState,
     camera::Orbit,
@@ -224,20 +224,20 @@ pub(crate) fn drive(
             }
         }
         2 if menu.is_on(MenuTab::Inventory) => {
-            click(
-                &mut commands,
-                MenuTab::Equipment,
-                &view.tabs,
-                window,
-                camera,
-            );
-        }
-        2 if menu.is_on(MenuTab::Equipment) => {
-            click!(InventoryAction::SelectGear(ItemKind::FieldArmor));
+            click!(InventoryAction::Select(ItemKind::FieldArmor));
             smoke.stage = 3;
         }
         3 => {
-            click!(InventoryAction::Equip);
+            assert_eq!(equipment.get(EquipmentSlot::Body), None);
+            let (row, _) = view
+                .actions
+                .iter()
+                .find(|(_, action)| **action == InventoryAction::Select(ItemKind::FieldArmor))
+                .expect("field armor inventory row");
+            commands.trigger(PointerClick {
+                count: 2,
+                ..pointer_click(row, window, camera)
+            });
             smoke.stage = 4;
         }
         4 => {
@@ -245,6 +245,16 @@ pub(crate) fn drive(
                 equipment.get(EquipmentSlot::Body),
                 Some(ItemKind::FieldArmor)
             );
+            click(
+                &mut commands,
+                MenuTab::Equipment,
+                &view.tabs,
+                window,
+                camera,
+            );
+            smoke.stage = 41;
+        }
+        41 if menu.is_on(MenuTab::Equipment) => {
             click!(InventoryAction::SelectGear(ItemKind::FieldHelmet));
             smoke.stage = 5;
         }
