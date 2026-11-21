@@ -35,6 +35,3 @@ Use `#[test]` with descriptive behavior names. Cover quest progression, prematur
 
 Export edited `.blend` sources with the README's `--export` command. Running `scripts/assets.py` without `--export` overwrites source art. Align collision geometry separately and preserve animation names.
 
-## Commit & Pull Request Guidelines
-
-Use concise imperative commit subjects. Describe behavior changes, link issues, and report verification in PRs. Include screenshots for visual changes and commit source art with its exports.
