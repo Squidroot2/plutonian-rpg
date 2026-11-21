@@ -2,7 +2,7 @@ use crate::{
     GameState,
     enemy::{EnemyAnimations, EnemyModel, EnemyVisual},
     inventory::ItemKind,
-    player::{AnimationLibrary, CLIPS},
+    player::{AnimationLibrary, CLIPS, add_sword_animation_masks},
     quest::{QuestCatalog, QuestJournal},
     roach,
     save::{self, RunSave, SaveSlot},
@@ -112,6 +112,7 @@ fn check(
     catalogs: Res<Assets<QuestCatalog>>,
     layout: Res<WorldLayout>,
     mut graphs: ResMut<Assets<AnimationGraph>>,
+    clips: Res<Assets<AnimationClip>>,
     mut status: ResMut<LoadStatus>,
     mut next: ResMut<NextState<GameState>>,
     pending: Query<(), With<PendingScene>>,
@@ -221,20 +222,27 @@ fn check(
             return;
         }
     }
-    let graphs_and_nodes = animation_graph(model, CLIPS, "plutonian.glb").and_then(|player| {
-        let enemies = ENEMY_MODELS
-            .iter()
-            .map(|definition| {
-                let model = gltfs
-                    .get(&assets.enemies[definition.path])
-                    .expect("enemy models must be present after loading validation");
-                let (graph, nodes) = animation_graph(model, definition.clips, definition.path)?;
-                Ok((definition.path, (model.scenes[0].clone(), graph, nodes)))
-            })
-            .collect::<Result<BTreeMap<_, _>, String>>()?;
-        Ok((player, enemies))
-    });
-    let ((player_graph, player_nodes), enemies) = match graphs_and_nodes {
+    let graphs_and_nodes =
+        animation_graph(model, CLIPS, "plutonian.glb").and_then(|(mut graph, nodes)| {
+            let guards = add_sword_animation_masks(
+                &mut graph,
+                &nodes,
+                model.named_animations["SwordIdle"].clone(),
+                &clips,
+            )?;
+            let enemies = ENEMY_MODELS
+                .iter()
+                .map(|definition| {
+                    let model = gltfs
+                        .get(&assets.enemies[definition.path])
+                        .expect("enemy models must be present after loading validation");
+                    let (graph, nodes) = animation_graph(model, definition.clips, definition.path)?;
+                    Ok((definition.path, (model.scenes[0].clone(), graph, nodes)))
+                })
+                .collect::<Result<BTreeMap<_, _>, String>>()?;
+            Ok(((graph, nodes, guards), enemies))
+        });
+    let ((player_graph, player_nodes, sword_guards), enemies) = match graphs_and_nodes {
         Ok(result) => result,
         Err(error) => {
             status.error = Some(error);
@@ -245,6 +253,7 @@ fn check(
     commands.insert_resource(AnimationLibrary {
         graph: graphs.add(player_graph),
         nodes: player_nodes,
+        sword_guards,
     });
     commands.insert_resource(EnemyVisuals(
         enemies

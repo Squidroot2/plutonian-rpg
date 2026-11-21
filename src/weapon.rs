@@ -33,9 +33,33 @@ impl WeaponKind {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct WeaponMove {
-    pub(crate) hand: EquipmentSlot,
+pub(crate) enum Hand {
+    Main,
+    Off,
+}
+
+impl Hand {
+    pub(crate) const ALL: [Self; 2] = [Self::Main, Self::Off];
+
+    fn slot(self) -> EquipmentSlot {
+        match self {
+            Self::Main => EquipmentSlot::MainHand,
+            Self::Off => EquipmentSlot::OffHand,
+        }
+    }
+
+    fn control(self) -> Control {
+        match self {
+            Self::Main => Control::Attack,
+            Self::Off => Control::OffHandAttack,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct Swing {
     pub(crate) weapon: WeaponKind,
+    pub(crate) elapsed: f32,
 }
 
 pub struct WeaponPlugin;
@@ -60,42 +84,40 @@ impl Plugin for WeaponPlugin {
 
 #[derive(Default, Resource)]
 pub struct WeaponAttack {
-    swing: Option<(WeaponMove, f32)>,
+    swings: [Option<Swing>; 2],
 }
 impl WeaponAttack {
     pub fn active(&self) -> bool {
-        self.swing.is_some()
+        self.swings.iter().any(Option::is_some)
     }
 
-    pub(crate) fn current(&self) -> Option<WeaponMove> {
-        self.swing.map(|(attack, _)| attack)
+    pub(crate) fn current(&self, hand: Hand) -> Option<Swing> {
+        self.swings[hand as usize]
     }
 
     pub(crate) fn just_started(&self) -> bool {
-        self.swing.is_some_and(|(_, elapsed)| elapsed == 0.0)
+        self.swings
+            .iter()
+            .flatten()
+            .any(|swing| swing.elapsed == 0.0)
     }
 
     pub(crate) fn cancel(&mut self) {
-        self.swing = None;
+        *self = Self::default();
     }
 
-    fn begin(&mut self, attack: WeaponMove) {
-        if !self.active() {
-            self.swing = Some((attack, 0.0));
+    fn advance(&mut self, hand: Hand, delta: f32) -> Option<WeaponKind> {
+        let slot = &mut self.swings[hand as usize];
+        let swing = slot.as_mut()?;
+        let weapon = swing.weapon;
+        let (impact_at, recovery_at) = weapon.timing();
+        let previous = swing.elapsed;
+        swing.elapsed += delta;
+        let impact = previous < impact_at && swing.elapsed >= impact_at;
+        if swing.elapsed >= recovery_at {
+            *slot = None;
         }
-    }
-
-    fn advance(&mut self, delta: f32) -> Option<WeaponMove> {
-        let (attack, elapsed) = self.swing.as_mut()?;
-        let attack = *attack;
-        let (impact_at, recovery_at) = attack.weapon.timing();
-        let previous = *elapsed;
-        *elapsed += delta;
-        let impact = previous < impact_at && *elapsed >= impact_at;
-        if *elapsed >= recovery_at {
-            self.cancel();
-        }
-        impact.then_some(attack)
+        impact.then_some(weapon)
     }
 }
 
@@ -119,63 +141,58 @@ fn attack(
         swing.cancel();
         return;
     };
-    if dialogue.text.is_some()
-        || !windows.iter().any(|window| window.focused)
-        || swing
-            .current()
-            .is_some_and(|attack| equipment.weapon(attack.hand) != Some(attack.weapon))
-    {
+    if dialogue.text.is_some() || !windows.iter().any(|window| window.focused) {
         swing.cancel();
         return;
     }
-    if swing.active() {
-        if let Some(attack) = swing.advance(time.delta_secs())
-            && let Some(hit) = weapon_contact(
-                attack,
-                &spatial,
-                entity,
-                transform.translation,
-                transform.rotation,
-            )
-        {
-            hits.write(hit);
-        }
-    } else if controller.grounded
+    let can_start = controller.grounded
         && !log.is_some_and(|log| log.is_open())
         && !dodge.active()
         && !(inventory.carried_weight(&equipment) <= CARRY_CAPACITY
-            && movement.dodge_pending(controller.grounded, dodge))
-    {
-        for (hand, control) in [
-            (EquipmentSlot::MainHand, Control::Attack),
-            (EquipmentSlot::OffHand, Control::OffHandAttack),
-        ] {
-            if bindings.get(control).just_pressed(&keys, &buttons)
-                && let Some(weapon) = equipment.weapon(hand)
+            && movement.dodge_pending(controller.grounded, dodge));
+
+    for hand in Hand::ALL {
+        let equipped = equipment.weapon(hand.slot());
+        if let Some(current) = swing.current(hand) {
+            if equipped != Some(current.weapon) {
+                swing.swings[hand as usize] = None;
+            } else if let Some(weapon) = swing.advance(hand, time.delta_secs())
+                && let Some(hit) = weapon_contact(
+                    weapon,
+                    hand,
+                    &spatial,
+                    entity,
+                    transform.translation,
+                    transform.rotation,
+                )
             {
-                swing.begin(WeaponMove { hand, weapon });
-                break;
+                hits.write(hit);
             }
+        } else if can_start
+            && let Some(weapon) = equipped
+            && bindings.get(hand.control()).just_pressed(&keys, &buttons)
+        {
+            swing.swings[hand as usize] = Some(Swing {
+                weapon,
+                elapsed: 0.0,
+            });
         }
     }
 }
 
 fn weapon_contact(
-    attack: WeaponMove,
+    weapon: WeaponKind,
+    hand: Hand,
     spatial: &SpatialQuery,
     player: Entity,
     position: Vec3,
     facing: Quat,
 ) -> Option<Hit> {
-    let (side, local_direction, radius, damage) = match attack.weapon {
+    let (side, local_direction, radius, damage) = match weapon {
         WeaponKind::Spear => (GRIP_SIDE, Vec3::Z, 0.12, 10),
         WeaponKind::Shortsword => {
             // Sweep inward from the striking hand at close range.
-            let sign = if attack.hand == EquipmentSlot::MainHand {
-                -1.0
-            } else {
-                1.0
-            };
+            let sign = if hand == Hand::Main { -1.0 } else { 1.0 };
             (0.36 * sign, Vec3::new(-0.40 * sign, 0.0, 1.0), 0.18, 7)
         }
     };
@@ -189,7 +206,7 @@ fn weapon_contact(
             direction,
             &ShapeCastConfig {
                 compute_contact_on_penetration: true,
-                ..ShapeCastConfig::from_max_distance(attack.weapon.reach())
+                ..ShapeCastConfig::from_max_distance(weapon.reach())
             },
             &SpatialQueryFilter::from_excluded_entities([player]),
         )
@@ -221,36 +238,37 @@ mod tests {
     };
     use std::time::Duration;
 
-    const SPEAR_THRUST: WeaponMove = WeaponMove {
-        hand: EquipmentSlot::MainHand,
-        weapon: WeaponKind::Spear,
-    };
-
     fn thrust_contact(
         spatial: &SpatialQuery,
         player: Entity,
         position: Vec3,
         facing: Quat,
     ) -> Option<Hit> {
-        weapon_contact(SPEAR_THRUST, spatial, player, position, facing)
+        weapon_contact(
+            WeaponKind::Spear,
+            Hand::Main,
+            spatial,
+            player,
+            position,
+            facing,
+        )
     }
 
     #[test]
-    fn thrust_has_one_impact_and_ignores_clicks_before_recovery() {
+    fn thrust_has_one_impact_and_ends_after_recovery() {
         let mut thrust = WeaponAttack::default();
-        thrust.begin(SPEAR_THRUST);
-        assert_eq!(thrust.advance(0.2), None);
-        thrust.begin(WeaponMove {
-            hand: EquipmentSlot::OffHand,
-            weapon: WeaponKind::Shortsword,
+        thrust.swings[Hand::Main as usize] = Some(Swing {
+            weapon: WeaponKind::Spear,
+            elapsed: 0.0,
         });
+        assert_eq!(thrust.advance(Hand::Main, 0.2), None);
         assert_eq!(
-            thrust.advance(0.06),
-            Some(SPEAR_THRUST),
+            thrust.advance(Hand::Main, 0.06),
+            Some(WeaponKind::Spear),
             "crossing full extension must report an impact"
         );
-        assert_eq!(thrust.advance(0.2), None);
-        assert_eq!(thrust.advance(0.3), None);
+        assert_eq!(thrust.advance(Hand::Main, 0.2), None);
+        assert_eq!(thrust.advance(Hand::Main, 0.3), None);
         assert!(!thrust.active());
     }
 
@@ -541,7 +559,7 @@ mod tests {
     }
 
     #[test]
-    fn each_button_attacks_from_its_own_hand_and_both_share_recovery() {
+    fn hands_hit_together_and_recover_independently() {
         use crate::combat::Health;
         use EquipmentSlot::{MainHand, OffHand};
         use ItemKind::{FieldSpear, Shortsword};
@@ -572,7 +590,7 @@ mod tests {
         world.spawn((player, Transform::default()));
         let target = world
             .spawn((
-                Health::new(30),
+                Health::new(60),
                 RigidBody::Static,
                 Collider::cuboid(0.7, 1.5, 0.3),
                 Transform::from_xyz(0.0, 0.0, 1.1),
@@ -593,51 +611,72 @@ mod tests {
             app.update();
         }
         click(&mut app, &[Right]);
-        assert_eq!(app.world().resource::<WeaponAttack>().current(), None);
+        assert!(!app.world().resource::<WeaponAttack>().active());
 
         assert_eq!(equipment.unequip(&mut bag, MainHand), Ok(true));
         assert_eq!(equipment.equip_in(&mut bag, OffHand, Shortsword), Ok(true));
         app.insert_resource(equipment.clone());
         click(&mut app, &[Left]);
-        assert_eq!(app.world().resource::<WeaponAttack>().current(), None);
+        assert!(!app.world().resource::<WeaponAttack>().active());
         click(&mut app, &[Right]);
-        assert_eq!(
+        assert!(
             app.world()
                 .resource::<WeaponAttack>()
-                .current()
-                .unwrap()
-                .hand,
-            OffHand
+                .current(Hand::Off)
+                .is_some()
         );
         for _ in 0..30 {
             app.update();
         }
-        assert_eq!(app.world().get::<Health>(target).unwrap().current(), 23);
+        assert_eq!(app.world().get::<Health>(target).unwrap().current(), 53);
 
         assert_eq!(equipment.equip_in(&mut bag, MainHand, Shortsword), Ok(true));
         app.insert_resource(equipment);
         click(&mut app, &[Right, Left]);
-        assert_eq!(
-            app.world()
-                .resource::<WeaponAttack>()
-                .current()
-                .unwrap()
-                .hand,
-            MainHand
+        let attack = app.world().resource::<WeaponAttack>();
+        assert!(
+            Hand::ALL
+                .into_iter()
+                .all(|hand| attack.current(hand).is_some())
         );
         for _ in 0..12 {
             app.update();
         }
-        assert_eq!(app.world().get::<Health>(target).unwrap().current(), 16);
-        click(&mut app, &[Right]);
+        assert_eq!(app.world().get::<Health>(target).unwrap().current(), 39);
+        click(&mut app, &[Left, Right]);
         for _ in 0..30 {
             app.update();
         }
-        assert_eq!(app.world().get::<Health>(target).unwrap().current(), 16);
+        assert_eq!(app.world().get::<Health>(target).unwrap().current(), 39);
         assert!(!app.world().resource::<WeaponAttack>().active());
 
+        click(&mut app, &[Left]);
+        for _ in 0..4 {
+            app.update();
+        }
         click(&mut app, &[Right]);
-        assert!(app.world().resource::<WeaponAttack>().active());
+        let attack = app.world().resource::<WeaponAttack>();
+        assert!(attack.current(Hand::Main).unwrap().elapsed > 0.0);
+        assert_eq!(attack.current(Hand::Off).unwrap().elapsed, 0.0);
+        for _ in 0..7 {
+            app.update();
+        }
+        assert_eq!(app.world().get::<Health>(target).unwrap().current(), 32);
+        for _ in 0..14 {
+            app.update();
+        }
+        assert_eq!(app.world().get::<Health>(target).unwrap().current(), 25);
+        let attack = app.world().resource::<WeaponAttack>();
+        assert!(attack.current(Hand::Main).is_none());
+        assert!(attack.current(Hand::Off).is_some());
+        click(&mut app, &[Left]);
+        assert!(
+            app.world()
+                .resource::<WeaponAttack>()
+                .current(Hand::Main)
+                .is_some()
+        );
+
         let mut menu = PlayerMenu::default();
         menu.show(crate::menu_ui::MenuTab::Equipment);
         app.insert_resource(menu);
@@ -646,7 +685,7 @@ mod tests {
         for _ in 0..30 {
             app.update();
         }
-        assert_eq!(app.world().get::<Health>(target).unwrap().current(), 16);
+        assert_eq!(app.world().get::<Health>(target).unwrap().current(), 25);
     }
 
     #[test]
@@ -672,13 +711,16 @@ mod tests {
             }
             app.world_mut()
                 .run_system_once(move |spatial: SpatialQuery| {
-                    EquipmentSlot::HANDS.map(|hand| {
-                        let attack = WeaponMove {
+                    Hand::ALL.map(|hand| {
+                        weapon_contact(
+                            WeaponKind::Shortsword,
                             hand,
-                            weapon: WeaponKind::Shortsword,
-                        };
-                        weapon_contact(attack, &spatial, player, Vec3::ZERO, Quat::IDENTITY)
-                            .map(|hit| hit.target)
+                            &spatial,
+                            player,
+                            Vec3::ZERO,
+                            Quat::IDENTITY,
+                        )
+                        .map(|hit| hit.target)
                     })
                 })
                 .expect("run the contact queries")

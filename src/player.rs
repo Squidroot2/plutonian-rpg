@@ -11,10 +11,11 @@ use crate::{
     menu_ui::PlayerMenu,
     nemi::NemiPlayback,
     quest::Dialogue,
+    weapon::{Hand, WeaponAttack},
     world::WorldLayout,
 };
 use avian3d::prelude::*;
-use bevy::{prelude::*, world_serialization::WorldInstanceReady};
+use bevy::{animation::AnimationTargetId, prelude::*, world_serialization::WorldInstanceReady};
 use std::time::Duration;
 
 pub struct PlayerPlugin;
@@ -167,7 +168,7 @@ pub struct ActorVisual {
 }
 #[derive(Component)]
 struct AnimatedActor {
-    current: usize,
+    current: Option<usize>,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Gait {
@@ -223,6 +224,7 @@ const SWORD_LOCOMOTION_START: usize = SPEAR_LOCOMOTION_START * 2;
 const SPEAR_THRUST_CLIP: usize = SPEAR_LOCOMOTION_START * 3;
 const SWORD_MAIN_SLASH_CLIP: usize = SPEAR_THRUST_CLIP + 1;
 const SWORD_OFF_SLASH_CLIP: usize = SWORD_MAIN_SLASH_CLIP + 1;
+const SWORD_SLASH_CLIPS: [usize; 2] = [SWORD_MAIN_SLASH_CLIP, SWORD_OFF_SLASH_CLIP];
 const NEMI_DEATH_CLIP: usize = SWORD_OFF_SLASH_CLIP + 1;
 pub const CLIPS: [&str; NEMI_DEATH_CLIP + 1] = [
     "Idle",
@@ -268,6 +270,57 @@ pub const CLIPS: [&str; NEMI_DEATH_CLIP + 1] = [
 pub struct AnimationLibrary {
     pub graph: Handle<AnimationGraph>,
     pub nodes: [AnimationNodeIndex; CLIPS.len()],
+    pub sword_guards: [AnimationNodeIndex; 2],
+}
+
+pub(crate) fn add_sword_animation_masks(
+    graph: &mut AnimationGraph,
+    nodes: &[AnimationNodeIndex; CLIPS.len()],
+    idle: Handle<AnimationClip>,
+    clips: &Assets<AnimationClip>,
+) -> Result<[AnimationNodeIndex; 2], String> {
+    const BODY: u32 = 2;
+    let idle_clip = clips
+        .get(&idle)
+        .ok_or("SwordIdle animation is unavailable")?;
+    let arms = [
+        ["arm-1", "forearm-1", "sword_grip_right"],
+        ["arm1", "forearm1", "sword_grip_left"],
+    ]
+    .map(|bones| {
+        [1, 2, 3].map(|end| {
+            ["PlutonianRig", "root", "spine"]
+                .into_iter()
+                .chain(bones[..end].iter().copied())
+                .collect::<AnimationTargetId>()
+        })
+    });
+    for (side, targets) in arms.iter().enumerate() {
+        for &target in targets {
+            if idle_clip.curves_for_target(target).is_none() {
+                return Err("SwordIdle is missing an arm or wrist animation target".into());
+            }
+            graph.add_target_to_mask_group(target, side as u32);
+        }
+    }
+    for &target in idle_clip.curves().keys() {
+        if !arms
+            .iter()
+            .flatten()
+            .any(|&arm_target| arm_target == target)
+        {
+            graph.add_target_to_mask_group(target, BODY);
+        }
+    }
+    Ok([0, 1].map(|side| {
+        let other_arm = 1 << (1 - side);
+        // Both slashes can contribute to the torso, but each controls only its own arm.
+        graph
+            .get_mut(nodes[SWORD_SLASH_CLIPS[side]])
+            .expect("sword slash nodes are registered with the player clips")
+            .add_mask(other_arm);
+        graph.add_clip_with_mask(idle.clone(), other_arm | (1 << BODY), 1.0, graph.root)
+    }))
 }
 #[derive(Resource, Default)]
 pub(crate) struct MovementInput {
@@ -459,7 +512,9 @@ pub(crate) fn bind_actor_animation(
                 .entity(child)
                 .insert((AnimationGraphHandle(library.graph.clone()), transitions));
             if actor.player {
-                commands.entity(child).insert(AnimatedActor { current: 0 });
+                commands
+                    .entity(child)
+                    .insert(AnimatedActor { current: Some(0) });
             } else {
                 death_players.push(child);
                 commands.entity(child).insert(NemiPlayback {
@@ -479,7 +534,7 @@ pub(crate) fn bind_actor_animation(
 
 fn animate(
     library: Res<AnimationLibrary>,
-    attack: Res<crate::weapon::WeaponAttack>,
+    attack: Res<WeaponAttack>,
     equipment: Res<Equipment>,
     players: Query<(&Player, &Dodge)>,
     mut animations: Query<(
@@ -492,37 +547,64 @@ fn animate(
         return;
     };
     let gait = Gait::for_player(player);
-    let desired = match attack.current() {
-        Some(attack) => match attack.weapon {
-            WeaponKind::Spear => SPEAR_THRUST_CLIP,
-            WeaponKind::Shortsword if attack.hand == EquipmentSlot::MainHand => {
-                SWORD_MAIN_SLASH_CLIP
-            }
-            WeaponKind::Shortsword => SWORD_OFF_SLASH_CLIP,
-        },
-        None => {
-            let carry = equipment
-                .weapon(EquipmentSlot::MainHand)
-                .or_else(|| equipment.weapon(EquipmentSlot::OffHand));
-            let start = match carry {
-                Some(WeaponKind::Spear) => SPEAR_LOCOMOTION_START,
-                Some(WeaponKind::Shortsword) => SWORD_LOCOMOTION_START,
-                None => 0,
-            };
-            start + gait as usize
-        }
+    let sword_times = Hand::ALL.map(|hand| {
+        attack
+            .current(hand)
+            .filter(|swing| swing.weapon == WeaponKind::Shortsword)
+            .map(|swing| swing.elapsed)
+    });
+    let swinging_swords = sword_times.iter().any(Option::is_some);
+    let thrusting = attack
+        .current(Hand::Main)
+        .is_some_and(|swing| swing.weapon == WeaponKind::Spear);
+    let carry = equipment
+        .weapon(EquipmentSlot::MainHand)
+        .or_else(|| equipment.weapon(EquipmentSlot::OffHand));
+    let start = match carry {
+        Some(WeaponKind::Spear) => SPEAR_LOCOMOTION_START,
+        Some(WeaponKind::Shortsword) => SWORD_LOCOMOTION_START,
+        None => 0,
+    };
+    let index = if thrusting {
+        SPEAR_THRUST_CLIP
+    } else {
+        start + gait as usize
     };
     for (mut animation, mut transitions, mut actor) in &mut animations {
-        let index = desired;
-        let is_attack = index >= SPEAR_THRUST_CLIP;
-        if index != actor.current {
-            if is_attack {
+        if swinging_swords {
+            if actor.current.take().is_some() {
+                animation.stop_all();
+                *transitions = AnimationTransitions::new();
+            }
+            for (side, elapsed) in sword_times.into_iter().enumerate() {
+                let slash = library.nodes[SWORD_SLASH_CLIPS[side]];
+                let guard = library.sword_guards[side];
+                let (node, previous) = if elapsed.is_some() {
+                    (slash, guard)
+                } else {
+                    (guard, slash)
+                };
+                // Sample both arms at their own combat time, including the frame a swing starts.
+                animation
+                    .stop(previous)
+                    .play(node)
+                    .pause()
+                    .set_seek_time(elapsed.unwrap_or(0.0));
+            }
+            continue;
+        }
+        if actor.current != Some(index) {
+            if actor.current.is_none() {
+                animation.stop_all();
+            }
+            if thrusting {
                 transitions
                     .play(&mut animation, library.nodes[index], Duration::ZERO)
                     .replay();
             } else {
-                let changes_grip =
-                    actor.current / SPEAR_LOCOMOTION_START != index / SPEAR_LOCOMOTION_START;
+                let changes_grip = actor.current.is_none_or(|current| {
+                    current / SPEAR_LOCOMOTION_START != index / SPEAR_LOCOMOTION_START
+                });
                 let blend = if changes_grip {
                     Duration::ZERO
                 } else if dodge.active() {
@@ -534,9 +616,9 @@ fn animate(
                     .play(&mut animation, library.nodes[index], blend)
                     .repeat();
             }
-            actor.current = index;
+            actor.current = Some(index);
         }
-        if !is_attack {
+        if !thrusting {
             let speed = gait.playback_speed(player.running);
             if let Some(clip) = animation.animation_mut(library.nodes[index])
                 && clip.speed() != speed

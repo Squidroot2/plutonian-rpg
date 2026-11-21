@@ -106,7 +106,7 @@ Equipped models follow the player's animated rig. Helmets have open faces and cl
 
 Find the field spear, trident, and two shortswords in the outpost courtyard and pick them up with E. The spear and trident thrust up to 2.5 m. Each uses both hands and returns both equipped weapons to your bag when you swap it in. A shortsword slashes up to 1.4 m and can be equipped in either hand. Double-click the shortsword row twice in an empty loadout to equip both copies.
 
-Aim at the practice dummy while grounded. Left-click to attack with the main hand or right-click to attack with the off hand. Each attack briefly locks movement and must finish before either hand can attack again. A wall stops the attack, and a hit makes the dummy flash and rock.
+Aim at the practice dummy while grounded. Left-click to attack with the main hand or right-click to attack with the off hand. When dual wielding, click both buttons to swing together, or start one swing while the other hand is still attacking. Each hand recovers independently. Movement locks while either attack is active. A wall stops the attack, and a hit makes the dummy flash and rock.
 
 ## Ice worms
 
@@ -196,7 +196,7 @@ python3 scripts/check_assets.py
 
 Run the desktop checks on an idle graphical desktop without supplying mouse or keyboard input. Add `--windowed` to a smoke command to run it in a window.
 
-- `--smoke-test` starts a standalone arena with nearby materials, equipment, a practice dummy, and the keeper and core. It checks tab switching, live physics while the menu is open, inventory quantities, equipped rows, the drop prompt, both polearms' hits and misses, and dual-wield attachment and hits with each shortsword. It also checks a worm pursuit, dodge, bite, and defeat, armor swaps and attachment during movement, the 640×704 player-menu layout, wall collision, pause/resume, and fall recovery. The short beacon interaction verifies that the core is protected in the bag, consumed on turn-in, and lights the beacon. The run prints `SMOKE PASS` and its duration, or fails within 60 seconds with the current phase.
+- `--smoke-test` starts a standalone arena with nearby materials, equipment, a practice dummy, and the keeper and core. It checks tab switching, live physics while the menu is open, inventory quantities, equipped rows, the drop prompt, both polearms' hits and misses, and shortsword attachment and hits, including simultaneous strikes. It also checks a worm pursuit, dodge, bite, and defeat, armor swaps and attachment during movement, the 640×704 player-menu layout, wall collision, pause/resume, and fall recovery. The short beacon interaction verifies that the core is protected in the bag, consumed on turn-in, and lights the beacon. The run prints `SMOKE PASS` and its duration, or fails within 60 seconds with the current phase.
 - `--smoke-world` loads the shipped outpost, checks transfers in all three tent chests, and walks out of and back into the tent to verify stored contents. It also verifies the worms start grounded, checks the route past the worms, and checks that every authored pillar blocks the movement capsule from four directions. It then checks the locked hatch, beacon turn-in, gate, archive discovery, return and reentry, and fall recovery. It prints `WORLD SMOKE PASS` on success.
 - `--smoke-nemi` checks spear damage, fleeing and returning, the failed quest entry, Nemi’s collapse, and opening the relay by installing the core at the beacon. It prints `NEMI SMOKE PASS` on success.
 

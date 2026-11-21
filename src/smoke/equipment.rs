@@ -4,6 +4,7 @@ use crate::{
     GameState,
     camera::Orbit,
     combat::HitReaction,
+    combat_feedback::AttackImpact,
     equipment::{Equipment, EquipmentSlot, WeaponKind, WornEquipment},
     interaction::{InteractionTarget, Nearby},
     inventory::{Inventory, ItemKind, Pickup},
@@ -13,7 +14,7 @@ use crate::{
     menu_ui::{MenuTab, PlayerMenu},
     player::Player,
     practice_dummy::PracticeDummy,
-    weapon::WeaponAttack,
+    weapon::{Hand, WeaponAttack},
 };
 use bevy::{
     ecs::system::SystemParam, input::InputSystems, prelude::*, render::view::screenshot::Screenshot,
@@ -32,9 +33,11 @@ pub(super) enum ShortswordStep {
     CheckWorn,
     Approach,
     Swing {
-        hand: EquipmentSlot,
+        hand: Hand,
         landed: bool,
     },
+    DualSwing,
+    DualRecovery,
     Unequip,
     SelectDrop,
     OpenDrop,
@@ -204,6 +207,7 @@ fn drive_shortswords(
     (menu, bag, equipment, nearby): (Res<PlayerMenu>, Res<Inventory>, Res<Equipment>, Res<Nearby>),
     attack: Res<WeaponAttack>,
     dummy: Query<(&HitReaction, &Transform), With<PracticeDummy>>,
+    impacts: Query<(), With<AttackImpact>>,
     view: View,
     (mut keys, mut buttons, mut orbit): (
         ResMut<ButtonInput<KeyCode>>,
@@ -293,7 +297,7 @@ fn drive_shortswords(
                 orbit.distance = 3.5;
                 buttons.press(MouseButton::Left);
                 *step = ShortswordStep::Swing {
-                    hand: MainHand,
+                    hand: Hand::Main,
                     landed: false,
                 };
             }
@@ -302,15 +306,12 @@ fn drive_shortswords(
             hand,
             landed: false,
         } => {
-            assert_eq!(
-                attack
-                    .current()
-                    .expect("mouse click must start a swing")
-                    .hand,
-                hand
+            assert!(
+                attack.current(hand).is_some(),
+                "mouse click must start a swing"
             );
             if dummy.remaining > 0.0 {
-                let side = if hand == MainHand { "main" } else { "off" };
+                let side = if hand == Hand::Main { "main" } else { "off" };
                 super::capture(&mut commands, &format!("shortsword-{side}-hit"));
                 *step = ShortswordStep::Swing { hand, landed: true };
             }
@@ -318,16 +319,41 @@ fn drive_shortswords(
         ShortswordStep::Swing { hand, landed: true }
             if !attack.active() && dummy.remaining == 0.0 =>
         {
-            if hand == MainHand {
+            if hand == Hand::Main {
                 buttons.press(MouseButton::Right);
                 *step = ShortswordStep::Swing {
-                    hand: OffHand,
+                    hand: Hand::Off,
                     landed: false,
                 };
             } else {
-                keys.press(KeyCode::Tab);
-                *step = ShortswordStep::Unequip;
+                buttons.press(MouseButton::Left);
+                buttons.press(MouseButton::Right);
+                *step = ShortswordStep::DualSwing;
             }
+        }
+        ShortswordStep::DualSwing => {
+            assert!(
+                Hand::ALL
+                    .into_iter()
+                    .all(|hand| attack.current(hand).is_some())
+            );
+            if dummy.remaining > 0.0 {
+                assert_eq!(impacts.iter().count(), 2, "both swords must hit the dummy");
+                for (piece, _, worn, _) in &view.worn {
+                    assert_eq!(piece.item, Shortsword);
+                    assert!(
+                        worn.translation().z - transform.translation.z > 0.4,
+                        "{:?} sword must extend forward during the dual strike",
+                        piece.slot,
+                    );
+                }
+                super::capture(&mut commands, "shortsword-dual-hit");
+                *step = ShortswordStep::DualRecovery;
+            }
+        }
+        ShortswordStep::DualRecovery if !attack.active() && dummy.remaining == 0.0 => {
+            keys.press(KeyCode::Tab);
+            *step = ShortswordStep::Unequip;
         }
         ShortswordStep::Unequip if menu.accepts(MenuTab::Equipment) => {
             if let Some(slot) = EquipmentSlot::HANDS
@@ -371,7 +397,7 @@ fn drive_shortswords(
             );
             keys.press(KeyCode::Tab);
             info!(
-                "SHORTSWORD SMOKE PASS: collected, equipped and dropped both swords and landed an attack with each hand"
+                "SHORTSWORD SMOKE PASS: collected, equipped and dropped both swords, and landed solo and simultaneous strikes"
             );
             *step = ShortswordStep::Done;
         }
