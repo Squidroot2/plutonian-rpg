@@ -14,12 +14,19 @@ use crate::{
     world::{SpawnWorld, WorldLayout},
 };
 
+/// Maximum distance the spear thrust's collision shape travels.
 pub const REACH: f32 = 2.5;
+/// Elapsed attack time when the thrust checks for a hit (6 frames at 24 FPS).
 const IMPACT_AT: f32 = 6.0 / 24.0;
+/// Elapsed attack time when the thrust recovery ends (16 frames at 24 FPS).
 const RECOVERY_AT: f32 = 16.0 / 24.0;
+/// Vertical offset of the thrust collision origin from the player position.
 const GRIP_HEIGHT: f32 = -0.05;
+/// Sideways offset of the thrust collision origin from the player position.
 pub(crate) const GRIP_SIDE: f32 = -0.40;
+/// Duration of the practice dummy's hit reaction.
 const REACTION_DURATION: f32 = 0.42;
+/// Damage dealt by a spear thrust.
 const THRUST_DAMAGE: u16 = 10;
 
 pub struct SpearPlugin;
