@@ -2,3 +2,4 @@
 *.blend[0-9]*
 __pycache__/
 .idea/
+.codex/
