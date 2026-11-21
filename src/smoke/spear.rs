@@ -13,7 +13,8 @@ use crate::{
     inventory_ui::InventoryAction,
     loading::PendingScene,
     player::Player,
-    spear::{GRIP_SIDE, PracticeDummy, Thrust},
+    practice_dummy::PracticeDummy,
+    spear::{GRIP_SIDE, Thrust},
 };
 
 pub struct SpearSmokePlugin;

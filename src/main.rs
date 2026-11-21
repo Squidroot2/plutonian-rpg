@@ -15,6 +15,7 @@ mod inventory_ui;
 mod loading;
 mod loot_ui;
 mod player;
+mod practice_dummy;
 mod quest;
 mod roach;
 mod settings;
@@ -80,6 +81,7 @@ fn main() {
             quest::QuestPlugin,
             inventory::InventoryPlugin,
             equipment::EquipmentPlugin,
+            practice_dummy::PracticeDummyPlugin,
             spear::SpearPlugin,
             worm::WormPlugin,
             interaction::InteractionPlugin,
