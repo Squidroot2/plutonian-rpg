@@ -35,7 +35,7 @@ The playable route connects the outpost, an inclined ice shelf, and a shallow ca
 
 `src/` separates loading, world assembly, player movement/animation, camera, shared interactions, inventory, equipment, quests, and UI into plugins. Avian's kinematic move-and-slide controller runs at a fixed timestep with capsule ground detection and tuned low gravity. The camera uses a sphere cast to avoid passing through geometry. Interaction requires a nearby target with a clear line of sight. There are no save files or migrations.
 
-The first milestone includes one quest and one speaking NPC. Enemy combat, survival, crafting, levelling, controller support, and persistent saves are deferred. This is fictional Pluto: terrain, illumination, and gravity favor the experience over physical accuracy. Assets are original, generated locally with the included Blender script; no external models or textures are required.
+The first milestone includes one quest and one speaking NPC. Survival, crafting, levelling, controller support, and persistent saves are deferred. This is fictional Pluto: terrain, illumination, and gravity favor the experience over physical accuracy. Assets are original, generated locally with the included Blender script; no external models or textures are required.
 
 ## Inventory
 
@@ -60,7 +60,7 @@ Armor and helmets are world pickups collected with E. Start with empty equipment
 
 Open inventory with I, select a gear item from the bag, and click **Equip**. Equipping moves one copy into its matching slot; swapping returns the previous piece to the bag. Click **Unequip** beside a slot to return the worn item before dropping it. Additional bag copies can be dropped without affecting the worn copy. Identical gear stacks in the bag; equipping the same type again is a no-op.
 
-Slots show their equipped piece and defense, with a combined total above them. Defense is a displayed stat for future combat: this version has no health, damage mitigation, durability, movement penalties, or randomized item attributes. Equipment survives fall recovery and resets on application restart.
+Slots show their equipped piece and defense, with a combined total above them. Each point of defense reduces bite damage by one, to a minimum of one. Equipment survives fall recovery and resets on application restart.
 
 Equipped models follow the player's animated spine and head bones; Nemi's appearance stays unchanged. Helmets have open faces and clearance for the alien's eyes and sensory horns.
 
@@ -68,7 +68,13 @@ Equipped models follow the player's animated spine and head bones; Nemi's appear
 
 Find the field spear and trident near the outpost spawn, pick either up with E, and equip it in the **Weapon** slot in inventory. Aim the camera at the practice dummy on the other side of the spawn and left click while grounded. Both weapons use the same two-handed grip at the right hip and thrust up to 2.5 m. A hit makes the dummy flash and rock. The thrust briefly locks movement, and a wall stops it before it can hit the dummy. Unequip the weapon before dropping it.
 
+## Ice worms
+
+Two ice worms roam beside the trail and a third waits near the cavern entrance. Watch for the worm to rear up, move out of its bite, then thrust during its recovery. Three hits with either weapon defeat a worm. A bite deals 20 damage before armor, and defeat returns you to the outpost at full health with your quest, inventory, and equipment intact. Defeated worms stay gone for the session.
+
 ## Blender workflow
+
+Pass `-- --worm` to the asset command to regenerate only the ice worm source and its four animation clips.
 
 The title screen uses a render of the outpost. To refresh it after editing the scenery, run `blender --background -noaudio art/outpost.blend --python scripts/render_title.py`.
 
@@ -130,8 +136,8 @@ python3 scripts/check_assets.py
 
 Run the desktop checks on an idle graphical desktop without supplying mouse or keyboard input. Add `--smoke-fullscreen` to either command to use the full display.
 
-- `--smoke-test` starts a standalone arena with nearby materials, equipment, a practice dummy, and the keeper and core. It checks inventory quantities and drops, both weapons' hits and misses, armor swaps and attachment during movement, the 640×704 inventory layout, wall collision, pause/resume, and fall recovery. The short beacon interaction verifies that the core is protected in the bag, consumed on turn-in, and lights the beacon. The run prints `SMOKE PASS` and its duration, or fails within 60 seconds with the current phase.
-- `--smoke-world` loads the shipped outpost, verifies the player starts grounded, and checks that every authored pillar blocks the movement capsule from four directions. It prints `WORLD SMOKE PASS` without running the quest route.
+- `--smoke-test` starts a standalone arena with nearby materials, equipment, a practice dummy, and the keeper and core. It checks inventory quantities and drops, both weapons' hits and misses, a worm pursuit, dodge, bite, and defeat, armor swaps and attachment during movement, the 640×704 inventory layout, wall collision, pause/resume, and fall recovery. The short beacon interaction verifies that the core is protected in the bag, consumed on turn-in, and lights the beacon. The run prints `SMOKE PASS` and its duration, or fails within 60 seconds with the current phase.
+- `--smoke-world` loads the shipped outpost, verifies the player and worms start grounded, checks the route past the worms, and checks that every authored pillar blocks the movement capsule from four directions. It prints `WORLD SMOKE PASS` without running the quest route.
 
 The checks save screenshots in `/tmp/plutonian-*.png`, including the arena, outpost, inventory, beacon, and weapon and armor poses.
 

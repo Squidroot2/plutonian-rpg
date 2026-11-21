@@ -33,6 +33,53 @@ pub struct Player {
     pub grounded: bool,
     pub running: bool,
     jumping: bool,
+    pub(crate) vitality: Vitality,
+}
+impl Player {
+    pub(crate) fn respawn(&mut self, transform: &mut Transform, start: Vec3) {
+        transform.translation = start;
+        self.velocity = Vec3::ZERO;
+        self.jumping = false;
+        self.grounded = false;
+        self.running = false;
+    }
+}
+
+pub(crate) const MAX_HEALTH: u16 = 100;
+
+pub(crate) struct Vitality {
+    pub(crate) health: u16,
+    protection: f32,
+}
+impl Default for Vitality {
+    fn default() -> Self {
+        Self {
+            health: MAX_HEALTH,
+            protection: 0.0,
+        }
+    }
+}
+impl Vitality {
+    pub(crate) fn tick(&mut self, delta: f32) {
+        self.protection = (self.protection - delta).max(0.0);
+    }
+
+    /// Return whether this bite defeated the player and requires a respawn.
+    pub(crate) fn bite(&mut self, defense: u16) -> bool {
+        if self.protection > 0.0 {
+            return false;
+        }
+        self.protection = 0.75;
+        self.health = self
+            .health
+            .saturating_sub(20_u16.saturating_sub(defense).max(1));
+        if self.health == 0 {
+            self.health = MAX_HEALTH;
+            true
+        } else {
+            false
+        }
+    }
 }
 #[derive(Component)]
 pub struct ActorVisual {
@@ -90,7 +137,7 @@ pub(crate) fn input(
     input.sprint = keys.pressed(KeyCode::ShiftLeft);
     input.jump |= keys.just_pressed(KeyCode::Space);
 }
-fn movement(
+pub(crate) fn movement(
     time: Res<Time>,
     orbit: Res<Orbit>,
     dialogue: Res<Dialogue>,
@@ -165,9 +212,7 @@ fn movement(
             || transform.translation.z > 35.0
             || transform.translation.z < -140.0
         {
-            transform.translation = layout.start();
-            player.velocity = Vec3::ZERO;
-            player.jumping = false;
+            player.respawn(&mut transform, layout.start());
         }
     }
     input.jump = false;

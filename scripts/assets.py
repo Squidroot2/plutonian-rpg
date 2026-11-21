@@ -634,6 +634,101 @@ def practice_dummy():
     save_export('practice_dummy')
 
 
+def ice_worm():
+    reset()
+    scene = bpy.context.scene
+    scene.render.fps = 60
+    shell = material('Glacial chitin', (.09, .25, .30), metal=.16)
+    ridge = material('Ice-crusted plates', (.25, .49, .52))
+    belly = material('Deep blue tissue', (.045, .105, .15))
+    mouth = material('Warm throat', (1.0, .25, .045), 4)
+    dark = material('Mouth cavity', (.026, .012, .016))
+    fang = material('Frost fangs', (.66, .9, .92))
+
+    # The origin is the collision center, 0.56 m above the ground. Forward is -Y.
+    segments = [
+        ('Head', -.40, .05, (.39, .37, .41)),
+        ('Collar', -.06, -.07, (.40, .36, .36)),
+        ('Body', .27, -.15, (.36, .34, .32)),
+        ('Hindbody', .56, -.23, (.28, .29, .25)),
+        ('Tail', .81, -.34, (.18, .25, .16)),
+    ]
+    bpy.ops.object.armature_add()
+    rig = bpy.context.object
+    rig.name = 'IceWormRig'
+    bpy.ops.object.mode_set(mode='EDIT')
+    bones = rig.data.edit_bones
+    bones.remove(bones[0])
+    for name, y, z, _ in segments:
+        bone = bones.new(name)
+        bone.head, bone.tail = (0, y, z), (0, y, z + .25)
+    bpy.ops.object.mode_set(mode='OBJECT')
+
+    def skin(obj, bone):
+        group = obj.vertex_groups.new(name=bone)
+        group.add(list(range(len(obj.data.vertices))), 1, 'REPLACE')
+        obj.modifiers.new('Ice worm skeleton', 'ARMATURE').object = rig
+        obj.parent = rig
+
+    for name, y, z, (width, length, height) in segments:
+        skin(ico(name + ' shell', (0, y, z), (width, length, height), shell, 2), name)
+        skin(ico(name + ' plating', (0, y+.06, z+height*.49),
+                 (width*.85, length*.63, height*.64), ridge), name)
+        if name != 'Head':
+            skin(ico(name + ' underside', (0, y-.05, z-height*.45),
+                     (width*.65, length*.76, height*.60), belly), name)
+
+    skin(ico('Recessed throat', (0, -.743, .05), (.235, .045, .215), dark, 2), 'Head')
+    skin(ico('Inner mouth glow', (0, -.781, .05), (.108, .024, .100), mouth, 2), 'Head')
+    bpy.ops.mesh.primitive_torus_add(major_segments=16, minor_segments=6, major_radius=.22,
+                                    minor_radius=.045, location=(0,-.783,.05),
+                                    rotation=(math.pi/2,0,0))
+    skin(finish('Luminous jaws', mouth, (1, 1, 1)), 'Head')
+    for index in range(8):
+        angle = index * math.tau / 8
+        radial = Vector((math.cos(angle), 0, math.sin(angle)))
+        tooth = cone(f'Tooth {index+1}', Vector((0,-.822,.05)) + radial*.196, .045, .14, fang)
+        tooth.rotation_euler = (-radial + Vector((0,-.38,0))).to_track_quat('Z', 'Y').to_euler()
+        skin(tooth, 'Head')
+
+    for name, frames in [('WormIdle', 120), ('WormCrawl', 54), ('WormBite', 84), ('WormDeath', 42)]:
+        rig.animation_data_create()
+        action = bpy.data.actions.new(name)
+        action.use_fake_user = True
+        rig.animation_data.action = action
+        for frame in range(frames + 1):
+            phase = frame / frames * math.tau
+            rear = max(0, 1 - abs(frame-26)/26)
+            snap = max(0, 1 - abs(frame-33)/7)
+            collapse = frame / frames
+            for index, bone in enumerate(rig.pose.bones):
+                bone.rotation_mode = 'XYZ'
+                bone.location = (0,0,0)
+                bone.rotation_euler = (0,0,0)
+                if name in ('WormIdle', 'WormCrawl'):
+                    amplitude = .13 if name == 'WormCrawl' else .026
+                    wave = math.sin(phase-index*.9)
+                    bone.location.x = wave * amplitude
+                    bone.location.y = abs(wave) * amplitude * .24
+                    bone.rotation_euler.y = wave*amplitude*1.4
+                elif name == 'WormBite' and index < 3:
+                    weight = 1 - index*.32
+                    bone.location.y = (.36*rear - .07*snap)*weight
+                    bone.location.z = (.20*snap - .13*rear)*weight
+                    bone.rotation_euler.x = (.21*snap - .42*rear)*weight
+                elif name == 'WormDeath':
+                    bone.location.y = -.18*collapse*(1-index*.19)
+                    bone.rotation_euler.z = collapse*(.72+index*.08)
+                bone.keyframe_insert('location', frame=frame, group=bone.name)
+                bone.keyframe_insert('rotation_euler', frame=frame, group=bone.name)
+    rig.animation_data.action = None
+    scene.frame_set(0)
+    for bone in rig.pose.bones:
+        bone.matrix_basis = Matrix.Identity(4)
+    bpy.context.view_layer.update()
+    save_export('ice_worm')
+
+
 def spear_assets():
     bpy.context.preferences.filepaths.save_version = 0
     bpy.context.preferences.filepaths.file_preview_type = 'NONE'
@@ -647,7 +742,9 @@ def spear_assets():
     practice_dummy()
 
 
-if '--spear' in sys.argv:
+if '--worm' in sys.argv:
+    ice_worm()
+elif '--spear' in sys.argv:
     spear_assets()
 elif '--equipment' in sys.argv:
     equipment()
@@ -671,7 +768,7 @@ elif '--ground' in sys.argv:
     bpy.context.view_layer.update()
     save_export('collision')
 elif '--export' in sys.argv:
-    for name in ['plutonian', 'outpost', 'collision', 'core', 'battery', 'scrap', 'methane_pouch', 'practice_dummy', *GEAR_NAMES]:
+    for name in ['plutonian', 'outpost', 'collision', 'core', 'battery', 'scrap', 'methane_pouch', 'practice_dummy', 'ice_worm', *GEAR_NAMES]:
         bpy.ops.wm.open_mainfile(filepath=str(ROOT/'art'/f'{name}.blend'))
         if name in GEAR_NAMES:
             export_equipment(name)
@@ -685,4 +782,5 @@ else:
     items()
     equipment()
     practice_dummy()
+    ice_worm()
 print('Exported Plutonian RPG assets')

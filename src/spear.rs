@@ -23,18 +23,22 @@ const REACTION_DURATION: f32 = 0.42;
 #[derive(SystemSet, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct SpearSystems;
 
+#[derive(Message)]
+pub(crate) struct SpearHit(pub Entity);
+
 pub struct SpearPlugin;
 impl Plugin for SpearPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Thrust>()
+            .add_message::<SpearHit>()
             .add_observer(spawn_dummy)
             .add_systems(OnExit(GameState::Loading), ground_dummy)
             .add_systems(OnExit(GameState::Playing), |mut thrust: ResMut<Thrust>| {
-                thrust.0 = None;
+                thrust.cancel();
             })
             .add_systems(
                 Update,
-                (attack, react)
+                (attack, mark_dummy_hits, react)
                     .chain()
                     .after(InteractionSystems)
                     .in_set(SpearSystems)
@@ -52,6 +56,10 @@ struct Swing {
 impl Thrust {
     pub fn active(&self) -> bool {
         self.0.is_some()
+    }
+
+    pub(crate) fn cancel(&mut self) {
+        self.0 = None;
     }
 
     fn begin(&mut self, facing: Quat, grounded: bool, clicked: bool) {
@@ -152,7 +160,7 @@ fn attack(
     spatial: SpatialQuery,
     mut thrust: ResMut<Thrust>,
     mut player: Query<(Entity, &Player, &mut Transform)>,
-    mut dummies: Query<&mut PracticeDummy>,
+    mut hits: MessageWriter<SpearHit>,
 ) {
     let Ok((entity, controller, mut transform)) = player.single_mut() else {
         return;
@@ -161,18 +169,16 @@ fn attack(
         || !equipment.has_spear()
         || !windows.iter().any(|window| window.focused)
     {
-        thrust.0 = None;
+        thrust.cancel();
         return;
     }
     if let Some(swing) = thrust.0.as_ref() {
         let facing = swing.facing;
         transform.rotation = facing;
-        if thrust.advance(time.delta_secs()) {
-            if let Some(target) = thrust_contact(&spatial, entity, transform.translation, facing)
-                && let Ok(mut dummy) = dummies.get_mut(target)
-            {
-                dummy.remaining = REACTION_DURATION;
-            }
+        if thrust.advance(time.delta_secs())
+            && let Some(target) = thrust_contact(&spatial, entity, transform.translation, facing)
+        {
+            hits.write(SpearHit(target));
         }
     } else {
         let facing = Quat::from_rotation_y(orbit.yaw + std::f32::consts::PI);
@@ -183,6 +189,14 @@ fn attack(
         );
         if thrust.active() {
             transform.rotation = facing;
+        }
+    }
+}
+
+fn mark_dummy_hits(mut hits: MessageReader<SpearHit>, mut dummies: Query<&mut PracticeDummy>) {
+    for &SpearHit(entity) in hits.read() {
+        if let Ok(mut dummy) = dummies.get_mut(entity) {
+            dummy.remaining = REACTION_DURATION;
         }
     }
 }

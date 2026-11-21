@@ -7,7 +7,7 @@ import struct
 root = Path(__file__).resolve().parents[1]
 documents = {}
 gear_names = ['field_armor', 'reinforced_armor', 'field_helmet', 'reinforced_helmet', 'field_spear', 'trident']
-for name in ['plutonian', 'outpost', 'collision', 'core', 'battery', 'scrap', 'methane_pouch', 'practice_dummy', *gear_names, *[name+'_worn' for name in gear_names]]:
+for name in ['plutonian', 'outpost', 'collision', 'core', 'battery', 'scrap', 'methane_pouch', 'practice_dummy', 'ice_worm', *gear_names, *[name+'_worn' for name in gear_names]]:
     source_name = name.removesuffix('_worn')
     source = root / 'art' / f'{source_name}.blend'
     path = root / 'assets' / 'models' / f'{name}.glb'
@@ -35,6 +35,14 @@ for name in ['plutonian', 'outpost', 'collision', 'core', 'battery', 'scrap', 'm
         thrust = next(animation for animation in document['animations'] if animation['name'] == 'SpearThrust')
         duration = max(document['accessors'][sampler['input']]['max'][0] for sampler in thrust['samplers'])
         assert abs(duration-16/24) < .001, 'SpearThrust duration must match the in-game recovery'
+
+    if name == 'ice_worm':
+        durations = {'WormIdle': 2.0, 'WormCrawl': .9, 'WormBite': 1.4, 'WormDeath': .7}
+        assert document.get('skins'), 'Ice worm must be skinned'
+        assert {clip['name'] for clip in document['animations']} == durations.keys()
+        for clip in document['animations']:
+            length = max(document['accessors'][sampler['input']]['max'][0] for sampler in clip['samplers'])
+            assert abs(length - durations[clip['name']]) < .001, f"{clip['name']}: unexpected duration"
 
     print(f'{name}: {len(document["meshes"])} meshes, {len(data):,} bytes OK')
 

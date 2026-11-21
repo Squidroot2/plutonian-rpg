@@ -30,6 +30,7 @@ pub enum SpearSmoke {
     CaptureCarry,
     StartMiss,
     Miss,
+    WormEncounter,
     Unequip,
     SelectDrop,
     Drop,
@@ -45,15 +46,24 @@ impl SpearSmoke {
 }
 impl Plugin for SpearSmokePlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<SpearSmoke>().add_systems(
-            PreUpdate,
-            drive
-                .after(InputSystems)
-                .after(super::inventory::drive)
-                .before(super::equipment::drive)
-                .before(crate::ui::pause)
-                .before(crate::player::input),
-        );
+        app.init_resource::<SpearSmoke>()
+            .init_resource::<super::worm::Encounter>()
+            .add_systems(
+                PreUpdate,
+                drive
+                    .after(InputSystems)
+                    .after(super::inventory::drive)
+                    .before(super::equipment::drive)
+                    .before(crate::ui::pause)
+                    .before(crate::player::input),
+            )
+            .add_systems(
+                PreUpdate,
+                super::worm::fight
+                    .after(drive)
+                    .before(crate::player::input)
+                    .before(crate::ui::pause),
+            );
     }
 }
 
@@ -236,8 +246,12 @@ fn drive(
         SpearSmoke::Miss => {
             assert_eq!(dummy.remaining, 0.0, "aiming away must miss the dummy");
             if !thrust.active() {
-                keys.press(KeyCode::KeyI);
-                *smoke = SpearSmoke::Unequip;
+                if *testing_trident {
+                    *smoke = SpearSmoke::WormEncounter;
+                } else {
+                    keys.press(KeyCode::KeyI);
+                    *smoke = SpearSmoke::Unequip;
+                }
             }
         }
         SpearSmoke::Unequip if *state.get() == GameState::Inventory => {

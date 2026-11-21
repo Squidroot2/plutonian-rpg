@@ -2,7 +2,7 @@ use crate::{
     GameState,
     interaction::{InteractionSystems, InteractionTarget},
     loading::LoadStatus,
-    player::Player,
+    player::{MAX_HEALTH, Player},
     quest::{Dialogue, Nearby, Quest, Target},
     world::WorldLayout,
 };
@@ -176,7 +176,7 @@ fn display(
     layout: Res<WorldLayout>,
     dialogue: Res<Dialogue>,
     nearby: Res<Nearby>,
-    player: Query<&Transform, With<Player>>,
+    player: Query<(&Player, &Transform)>,
     mut texts: ParamSet<(
         Query<&mut Text, With<Hud>>,
         Query<&mut Text, With<StatusText>>,
@@ -184,7 +184,8 @@ fn display(
     )>,
     mut pause: Query<&mut Visibility, (With<PausePanel>, Without<DialogueText>)>,
 ) {
-    let distance = player.iter().next().and_then(|p| {
+    let avatar = player.iter().next();
+    let distance = avatar.and_then(|(_, p)| {
         quest
             .destination(*layout)
             .map(|d| p.translation.distance(d))
@@ -198,7 +199,11 @@ fn display(
             String::new()
         } else {
             format!(
-                "{location}\n\n{}{}",
+                "{location}{}\n\n{}{}",
+                avatar.map_or(String::new(), |(player, _)| format!(
+                    "\nHealth {}/{MAX_HEALTH}",
+                    player.vitality.health
+                )),
                 quest.objective(),
                 distance.map_or(String::new(), |d| format!("\n{d:.0} m"))
             )

@@ -16,6 +16,7 @@ mod spear;
 mod title;
 mod ui;
 mod world;
+mod worm;
 use bevy::prelude::*;
 
 #[derive(States, Default, Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -56,6 +57,7 @@ fn main() {
             inventory::InventoryPlugin,
             equipment::EquipmentPlugin,
             spear::SpearPlugin,
+            worm::WormPlugin,
             interaction::InteractionPlugin,
             inventory_ui::InventoryUiPlugin,
             title::TitlePlugin,

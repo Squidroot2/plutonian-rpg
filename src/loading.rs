@@ -3,6 +3,7 @@ use crate::{
     inventory::ItemKind,
     player::{AnimationLibrary, CLIPS},
     world::WorldLayout,
+    worm::{self, WormAnimations},
 };
 use bevy::{
     asset::{LoadState, RecursiveDependencyLoadState},
@@ -25,6 +26,7 @@ pub struct GameAssets {
     pub outpost: Option<(Handle<Gltf>, Handle<Gltf>)>,
     pub core: Handle<Gltf>,
     pub dummy: Handle<Gltf>,
+    pub worm: Handle<Gltf>,
     pub pickups: BTreeMap<ItemKind, Handle<Gltf>>,
     pub worn: BTreeMap<ItemKind, Handle<Gltf>>,
 }
@@ -49,6 +51,7 @@ fn load(mut commands: Commands, server: Res<AssetServer>, layout: Res<WorldLayou
         }),
         core: server.load("models/core.glb"),
         dummy: server.load("models/practice_dummy.glb"),
+        worm: server.load("models/ice_worm.glb"),
         pickups: ItemKind::MATERIALS
             .into_iter()
             .chain(ItemKind::GEAR)
@@ -82,7 +85,7 @@ fn check(
     if started.elapsed().as_secs() > 90 {
         status.error = Some("Timed out while loading or preparing the world".into());
     }
-    let handles = [&assets.character, &assets.core, &assets.dummy]
+    let handles = [&assets.character, &assets.core, &assets.dummy, &assets.worm]
         .into_iter()
         .chain(
             assets
@@ -159,22 +162,48 @@ fn check(
             return;
         }
     }
-    let mut graph = AnimationGraph::new();
-    let mut nodes = Vec::new();
-    for name in CLIPS {
-        let Some(clip) = model.named_animations.get(name) else {
-            status.error = Some(format!("plutonian.glb is missing animation {name}"));
+    let worm_model = gltfs
+        .get(&assets.worm)
+        .expect("the ice worm glTF must be present after loading validation");
+    let graphs_and_nodes = animation_graph(model, CLIPS, "plutonian.glb").and_then(|player| {
+        animation_graph(worm_model, worm::CLIPS, "ice_worm.glb").map(|worm| (player, worm))
+    });
+    let ((player_graph, player_nodes), (worm_graph, worm_nodes)) = match graphs_and_nodes {
+        Ok(result) => result,
+        Err(error) => {
+            status.error = Some(error);
             next.set(GameState::Failed);
             return;
-        };
-        nodes.push(graph.add_clip(clip.clone(), 1.0, graph.root));
-    }
+        }
+    };
     commands.insert_resource(AnimationLibrary {
-        graph: graphs.add(graph),
-        nodes: nodes
-            .try_into()
-            .expect("each registered clip must produce one animation graph node"),
+        graph: graphs.add(player_graph),
+        nodes: player_nodes,
+    });
+    commands.insert_resource(WormAnimations {
+        graph: graphs.add(worm_graph),
+        nodes: worm_nodes,
     });
     status.spawning = true;
     commands.trigger(crate::world::SpawnWorld);
+}
+
+fn animation_graph<const N: usize>(
+    model: &Gltf,
+    names: [&str; N],
+    file: &str,
+) -> Result<(AnimationGraph, [AnimationNodeIndex; N]), String> {
+    let mut graph = AnimationGraph::new();
+    let mut nodes = Vec::with_capacity(N);
+    for name in names {
+        let clip = model
+            .named_animations
+            .get(name)
+            .ok_or_else(|| format!("{file} is missing animation {name}"))?;
+        nodes.push(graph.add_clip(clip.clone(), 1.0, graph.root));
+    }
+    let nodes = nodes
+        .try_into()
+        .expect("each registered clip must produce one animation graph node");
+    Ok((graph, nodes))
 }

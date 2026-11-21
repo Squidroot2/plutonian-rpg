@@ -2,6 +2,7 @@
 mod equipment;
 mod inventory;
 mod spear;
+mod worm;
 
 use self::{
     equipment::{EquipmentSmoke, EquipmentSmokePlugin},
@@ -139,7 +140,7 @@ impl Plugin for SmokePlugin {
         } else {
             app.add_systems(
                 OnEnter(GameState::Playing),
-                check_pillar_collision.run_if(run_once),
+                (check_pillar_collision, worm::check_outpost_sites).run_if(run_once),
             )
             .add_systems(
                 Update,
