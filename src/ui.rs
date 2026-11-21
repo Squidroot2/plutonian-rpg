@@ -194,7 +194,7 @@ fn display(
         WorldLayout::SmokeArena => "SMOKE ARENA",
     };
     for mut text in &mut texts.p0() {
-        **text = if *state.get() == GameState::Loading {
+        **text = if matches!(state.get(), GameState::Title | GameState::Loading) {
             String::new()
         } else {
             format!(

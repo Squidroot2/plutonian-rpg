@@ -119,13 +119,10 @@ pub(crate) fn drive(
     mut keyboard: MessageWriter<KeyboardInput>,
     mut commands: Commands,
 ) {
-    if smoke.done {
+    if smoke.done || matches!(state.get(), GameState::Title | GameState::Loading) {
         return;
     }
     keys.reset_all();
-    if *state.get() == GameState::Loading {
-        return;
-    }
     let Ok(transform) = player.single() else {
         return;
     };

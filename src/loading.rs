@@ -15,7 +15,7 @@ pub struct LoadingPlugin;
 impl Plugin for LoadingPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<LoadStatus>()
-            .add_systems(Startup, load)
+            .add_systems(OnEnter(GameState::Loading), load)
             .add_systems(Update, check.run_if(in_state(GameState::Loading)));
     }
 }

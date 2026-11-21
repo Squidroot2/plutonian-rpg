@@ -131,7 +131,7 @@ impl Plugin for EquipmentPlugin {
         app.init_resource::<Equipment>()
             .add_observer(equip)
             .add_observer(unequip)
-            .add_systems(Update, sync_worn);
+            .add_systems(Update, sync_worn.run_if(resource_exists::<GameAssets>));
     }
 }
 fn equip(

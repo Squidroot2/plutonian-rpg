@@ -13,6 +13,7 @@ mod player;
 mod quest;
 mod smoke;
 mod spear;
+mod title;
 mod ui;
 mod world;
 use bevy::prelude::*;
@@ -20,6 +21,7 @@ use bevy::prelude::*;
 #[derive(States, Default, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum GameState {
     #[default]
+    Title,
     Loading,
     Playing,
     Paused,
@@ -56,6 +58,7 @@ fn main() {
             spear::SpearPlugin,
             interaction::InteractionPlugin,
             inventory_ui::InventoryUiPlugin,
+            title::TitlePlugin,
             ui::GameUiPlugin,
         ));
     let args: Vec<_> = std::env::args().skip(1).collect();

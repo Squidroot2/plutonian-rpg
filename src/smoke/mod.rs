@@ -17,6 +17,7 @@ use crate::{
     loading::LoadStatus,
     player::Player,
     quest::{Beacon, Dialogue, Quest},
+    title::{TitleBackdrop, TitleInput},
     world::WorldLayout,
 };
 use avian3d::prelude::*;
@@ -102,7 +103,14 @@ enum ArenaStep {
 impl Plugin for SmokePlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(SmokeRun(Instant::now()))
-            .add_systems(Update, watchdog);
+            .add_systems(Update, watchdog)
+            .add_systems(
+                PreUpdate,
+                start_from_title
+                    .after(InputSystems)
+                    .before(TitleInput)
+                    .run_if(in_state(GameState::Title)),
+            );
         if self.fullscreen {
             app.add_systems(Startup, |mut windows: Query<&mut Window>| {
                 for mut window in &mut windows {
@@ -137,6 +145,37 @@ impl Plugin for SmokePlugin {
                 Update,
                 finish_world_check.run_if(in_state(GameState::Playing)),
             );
+        }
+    }
+}
+
+fn start_from_title(
+    backdrop: Query<&ImageNode, With<TitleBackdrop>>,
+    captures: Query<(), With<Screenshot>>,
+    assets: Res<Assets<Image>>,
+    game_assets: Option<Res<crate::loading::GameAssets>>,
+    time: Res<Time>,
+    mut ready_at: Local<Option<Duration>>,
+    mut screenshot: Local<Option<Entity>>,
+    mut keys: ResMut<ButtonInput<KeyCode>>,
+    mut commands: Commands,
+) {
+    assert!(
+        game_assets.is_none(),
+        "the title screen must defer world loading"
+    );
+    if let Some(entity) = *screenshot {
+        if captures.get(entity).is_err() {
+            keys.press(KeyCode::Enter);
+        }
+    } else if backdrop
+        .single()
+        .is_ok_and(|node| assets.contains(&node.image))
+    {
+        // Give the renderer time to prepare the first UI pipelines after loading the texture.
+        let ready_at = *ready_at.get_or_insert(time.elapsed());
+        if time.elapsed() - ready_at >= Duration::from_millis(250) {
+            *screenshot = Some(capture(&mut commands, "title"));
         }
     }
 }

@@ -12,6 +12,8 @@ cargo run --locked
 
 The first build compiles Bevy and its renderer and can take several minutes. Run from the repository root so Bevy finds `assets/`. `Cargo.lock` pins the dependency versions used for this application.
 
+Choose **Start Game** on the title screen to load Nivalis. Click a button or select it with the arrow keys or Tab and activate it with Enter or Space.
+
 | Control | Action |
 | --- | --- |
 | WASD | Move relative to the camera |
@@ -67,6 +69,8 @@ Equipped models follow the player's animated spine and head bones; Nemi's appear
 Find the field spear and trident near the outpost spawn, pick either up with E, and equip it in the **Weapon** slot in inventory. Aim the camera at the practice dummy on the other side of the spawn and left click while grounded. Both weapons use the same two-handed grip at the right hip and thrust up to 2.5 m. A hit makes the dummy flash and rock. The thrust briefly locks movement, and a wall stops it before it can hit the dummy. Unequip the weapon before dropping it.
 
 ## Blender workflow
+
+The title screen uses a render of the outpost. To refresh it after editing the scenery, run `blender --background -noaudio art/outpost.blend --python scripts/render_title.py`.
 
 Blender 5.3 was used for the included editable sources in `art/`. Runtime exports are checked in under `assets/models/`, so Blender is not needed to play.
 
