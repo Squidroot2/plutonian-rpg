@@ -539,8 +539,12 @@ mod tests {
         spear::SpearPlugin,
     };
     use bevy::{
-        asset::AssetPlugin, mesh::MeshPlugin, state::app::StatesPlugin, time::TimeUpdateStrategy,
-        transform::TransformPlugin, window::PrimaryWindow,
+        asset::{AssetApp, AssetPlugin},
+        mesh::MeshPlugin,
+        state::app::StatesPlugin,
+        time::TimeUpdateStrategy,
+        transform::TransformPlugin,
+        window::PrimaryWindow,
     };
 
     const STEP: Duration = Duration::from_micros(15_625);
@@ -555,6 +559,7 @@ mod tests {
             MeshPlugin,
             PhysicsPlugins::default(),
         ))
+        .init_asset::<AudioSource>()
         .insert_state(GameState::Playing)
         .insert_resource(TimeUpdateStrategy::ManualDuration(STEP))
         .insert_resource(WorldLayout::SmokeArena)
