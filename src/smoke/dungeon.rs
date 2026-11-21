@@ -47,6 +47,8 @@ pub(super) enum WorldCheck {
     InspectStoredChest,
     CheckStoredChest,
     LeaveStorage,
+    RecoverCore,
+    CheckRecoveredCore,
     InspectLocked,
     LockedNotice,
     OpenDiscoveredJournal,
@@ -96,9 +98,9 @@ pub(super) fn drive(
         ),
         With<Player>,
     >,
-    (mut quest, mut inventory, dialogue, nearby): (
-        ResMut<QuestJournal>,
-        ResMut<Inventory>,
+    (quest, inventory, dialogue, nearby): (
+        Res<QuestJournal>,
+        Res<Inventory>,
         Res<Dialogue>,
         Res<Nearby>,
     ),
@@ -145,6 +147,7 @@ pub(super) fn drive(
         *last_log = now;
     }
     let ready = |target| matches!(nearby.0, Some((_, InteractionTarget::Dungeon(current))) if current == target);
+    let quest_ready = |target| matches!(nearby.0, Some((_, InteractionTarget::Quest(current))) if current == target);
     let chest_ready = |chest| matches!(nearby.0, Some((_, InteractionTarget::Chest(current))) if current == chest);
     let storage_open = *state.get() == GameState::Storage;
     let click_storage = |commands: &mut Commands, action| {
@@ -396,6 +399,28 @@ pub(super) fn drive(
                 &mut controller,
                 &mut dodge,
                 &mut transform,
+                WorldLayout::Outpost.core() + Vec3::Z * 1.65,
+            );
+            *phase = WorldCheck::RecoverCore;
+        }
+        WorldCheck::RecoverCore if quest_ready(Target::Core) => {
+            keys.press(KeyCode::KeyE);
+            *phase = WorldCheck::CheckRecoveredCore;
+        }
+        WorldCheck::CheckRecoveredCore => {
+            assert_eq!(inventory.count(ItemKind::BeaconCore), 1);
+            assert!(quest.expects(QuestAction::TalkedToNemi));
+            assert!(!quest.beacon_powered());
+            assert!(
+                dialogue
+                    .text
+                    .is_some_and(|text| text.contains("Speak to Nemi"))
+            );
+            keys.press(KeyCode::KeyE);
+            fixture(
+                &mut controller,
+                &mut dodge,
+                &mut transform,
                 HATCH + Vec3::Z * 1.35,
             );
             *phase = WorldCheck::InspectLocked;
@@ -447,31 +472,25 @@ pub(super) fn drive(
             keys.press(KeyCode::Tab);
             *phase = WorldCheck::SetUpTurnIn;
         }
-        WorldCheck::SetUpTurnIn if dialogue.text.is_none() => {
-            // The arena already verifies the quest from its first conversation.
+        WorldCheck::SetUpTurnIn if !journal.is_open() => {
             fixture(
                 &mut controller,
                 &mut dodge,
                 &mut transform,
                 WorldLayout::Outpost.keeper() + Vec3::Z * 1.65,
             );
-            assert!(inventory.add(ItemKind::BeaconCore, 1));
-            quest.record(QuestAction::TalkedToNemi);
-            quest.record(QuestAction::RecoveredCore);
             *phase = WorldCheck::TurnIn;
         }
         WorldCheck::TurnIn if quest.is_complete(LAST_LIGHT) => {
             assert_eq!(inventory.count(ItemKind::BeaconCore), 0);
-            assert!(dialogue.text.is_some_and(|text| text.contains("Old Relay")));
+            let text = dialogue
+                .text
+                .expect("first meeting completes The Last Light");
+            assert!(text.contains("You found the core") && text.contains("Old Relay"));
             keys.press(KeyCode::KeyE);
             *phase = WorldCheck::ApproachHatch;
         }
-        WorldCheck::TurnIn
-            if matches!(
-                nearby.0,
-                Some((_, InteractionTarget::Quest(Target::Keeper)))
-            ) =>
-        {
+        WorldCheck::TurnIn if quest_ready(Target::Keeper) => {
             keys.press(KeyCode::KeyE);
         }
         WorldCheck::ApproachHatch => {

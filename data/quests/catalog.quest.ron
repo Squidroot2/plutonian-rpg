@@ -19,7 +19,10 @@
                 id: "recover_core",
                 title: "Recover the beacon core",
                 directions: "Head north from Nivalis and follow the paired blue waystones over the ice shelf. They lead to a shallow cavern lined with blue crystals. The charged core rests on a stone plinth in the middle of the cavern.",
-                transitions: [(when: Action(RecoveredCore), to: Objective("return_core"))],
+                transitions: [
+                    (when: Action(RecoveredCore), to: Objective("return_core")),
+                    (when: Occurred(RecoveredCore), to: Objective("return_core"), credit_early: true),
+                ],
             ),
             (
                 id: "return_core",

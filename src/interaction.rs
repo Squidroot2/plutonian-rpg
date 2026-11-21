@@ -114,7 +114,7 @@ fn find_target(
         let (interaction, point) = if let Some(target) = target {
             let available = match target {
                 Target::Keeper => !dead && nemi.is_none_or(Nemi::can_talk),
-                Target::Core => quest.expects(QuestAction::RecoveredCore),
+                Target::Core => !quest.has_occurred(QuestAction::RecoveredCore),
                 Target::BeaconSocket => quest.expects(QuestAction::InstalledCore),
             };
             if player.area != Area::Surface || !available {
@@ -223,12 +223,14 @@ fn interact(
                 });
             }
             InteractionTarget::Quest(Target::Core) => {
-                if quest.expects(QuestAction::RecoveredCore)
+                if !quest.has_occurred(QuestAction::RecoveredCore)
                     && inventory.add(ItemKind::BeaconCore, 1)
                 {
                     quest.record(QuestAction::RecoveredCore);
                     dialogue.text = Some(if quest.expects(QuestAction::InstalledCore) {
                         "POWER CORE RECOVERED\n\nInstall it in the socket at the south side of the beacon tower."
+                    } else if quest.expects(QuestAction::TalkedToNemi) {
+                        "POWER CORE RECOVERED\n\nIts light pulses against your hands. There is still warmth inside.\n\nSpeak to Nemi at the outpost about restoring the beacon."
                     } else {
                         "POWER CORE RECOVERED\n\nIts light pulses against your hands. There is still warmth inside.\n\nReturn to Nemi at the outpost to restore the beacon."
                     });
@@ -276,15 +278,23 @@ fn install_core(quest: &mut QuestJournal, inventory: &mut Inventory) -> &'static
 }
 
 fn speak_to_nemi(quest: &mut QuestJournal, inventory: &mut Inventory) -> &'static str {
+    let first_meeting = quest.expects(QuestAction::TalkedToNemi);
+    if first_meeting {
+        quest.record(QuestAction::TalkedToNemi);
+    }
     if quest.expects(QuestAction::ReturnedCore) {
         if inventory.consume_core() {
             quest.record(QuestAction::ReturnedCore);
+            if first_meeting {
+                return "NEMI / BEACON KEEPER\n\nYou found the core in the blue cavern? Our beacon went dark, and families have been waiting to cross the ice. With this, I can light their way again.\n\nThe beacon also powers the Old Relay. Look for the round hatch west and a little south of here. Its archive may still hold the first survey log.\n\nQUEST COMPLETE / THE LAST LIGHT";
+            }
             return "NEMI\n\nThere it is. I thought we had lost that light for good. The crossing is safe again.\n\nThe beacon also powers the Old Relay. Look for the round hatch west and a little south of here. Its archive may still hold the first survey log.\n\nQUEST COMPLETE / THE LAST LIGHT";
+        }
+        if first_meeting {
+            return "NEMI / BEACON KEEPER\n\nYou found the core in the blue cavern? Our beacon went dark, and families have been waiting to cross the ice. Bring the core to me when you have it with you.";
         }
         return "NEMI\n\nBring the beacon power core back to me first.";
     }
-    let first_meeting = quest.expects(QuestAction::TalkedToNemi);
-    quest.record(QuestAction::TalkedToNemi);
     if first_meeting {
         "NEMI / BEACON KEEPER\n\nYou made it home before the long dark. Our beacon has gone silent. The families here depend on its signal to cross the ice.\n\nA charged core waits in the blue cavern, beyond the waystones. Follow their lights north, then bring it back."
     } else if quest.is_complete(LAST_LIGHT) {
@@ -318,6 +328,28 @@ mod tests {
         assert!(inventory.transfer_to(supplies, ItemKind::BeaconCore, 1));
         speak_to_nemi(&mut journal, &mut inventory);
         assert!(journal.expects(QuestAction::ReturnedCore));
+        assert!(supplies.transfer_to(&mut inventory, ItemKind::BeaconCore, 1));
+        speak_to_nemi(&mut journal, &mut inventory);
+        assert!(journal.is_complete(LAST_LIGHT));
+        assert_eq!(inventory.count(ItemKind::BeaconCore), 0);
+    }
+
+    #[test]
+    fn an_early_core_in_storage_advances_to_turn_in_on_the_first_meeting() {
+        let mut journal = crate::quest::test_journal();
+        let mut inventory = Inventory::default();
+        assert!(inventory.add(ItemKind::BeaconCore, 1));
+        journal.record(QuestAction::RecoveredCore);
+        let mut chest = ChestStorage::default();
+        let supplies = chest.get_mut(ChestId::Supply);
+        assert!(inventory.transfer_to(supplies, ItemKind::BeaconCore, 1));
+
+        let dialogue = speak_to_nemi(&mut journal, &mut inventory);
+        assert!(dialogue.contains("Bring the core to me"));
+        assert!(journal.expects(QuestAction::ReturnedCore));
+        assert!(!journal.beacon_powered());
+        assert_eq!(supplies.count(ItemKind::BeaconCore), 1);
+
         assert!(supplies.transfer_to(&mut inventory, ItemKind::BeaconCore, 1));
         speak_to_nemi(&mut journal, &mut inventory);
         assert!(journal.is_complete(LAST_LIGHT));
@@ -390,6 +422,49 @@ mod tests {
             .resource_mut::<ButtonInput<KeyCode>>()
             .reset_all();
         app.update();
+    }
+
+    #[test]
+    fn the_player_can_collect_the_core_and_turn_it_in_at_the_first_meeting() {
+        let mut app = test_app();
+        let core = app
+            .world_mut()
+            .spawn((Target::Core, Transform::from_xyz(0.0, 0.45, -1.0)))
+            .id();
+        app.world_mut()
+            .spawn((Target::Keeper, Transform::from_xyz(0.0, 0.0, -2.0)));
+
+        press_interact(&mut app);
+        let world = app.world();
+        let journal = world.resource::<QuestJournal>();
+        assert!(journal.has_occurred(QuestAction::RecoveredCore));
+        assert!(journal.expects(QuestAction::TalkedToNemi));
+        assert!(!journal.beacon_powered());
+        assert_eq!(world.resource::<Inventory>().count(ItemKind::BeaconCore), 1);
+        assert!(world.get_entity(core).is_err());
+        assert!(
+            world
+                .resource::<Dialogue>()
+                .text
+                .unwrap()
+                .contains("Speak to Nemi")
+        );
+
+        press_interact(&mut app);
+        assert!(app.world().resource::<Dialogue>().text.is_none());
+        press_interact(&mut app);
+        let world = app.world();
+        let journal = world.resource::<QuestJournal>();
+        assert!(journal.has_occurred(QuestAction::TalkedToNemi));
+        assert!(journal.is_complete(LAST_LIGHT));
+        assert_eq!(world.resource::<Inventory>().count(ItemKind::BeaconCore), 0);
+        assert!(
+            world
+                .resource::<Dialogue>()
+                .text
+                .unwrap()
+                .contains("You found the core")
+        );
     }
 
     #[test]

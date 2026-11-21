@@ -57,6 +57,8 @@ struct Transition {
     to: Destination,
     #[serde(default = "credit_objective")]
     credit: bool,
+    #[serde(default)]
+    credit_early: bool,
 }
 
 fn credit_objective() -> bool {
@@ -143,6 +145,16 @@ impl QuestDefinition {
             if transition.when == Condition::SessionStart {
                 return Err(format!(
                     "Quest {} uses SessionStart as a transition",
+                    self.id
+                ));
+            }
+            if transition.credit_early
+                && (!matches!(transition.when, Condition::Occurred(_))
+                    || !transition.credit
+                    || matches!(transition.to, Destination::Fail(_)))
+            {
+                return Err(format!(
+                    "Quest {} uses credit_early on a transition that does not credit an Occurred condition",
                     self.id
                 ));
             }
@@ -277,9 +289,8 @@ impl QuestProgress {
         if let QuestOutcome::Active(current) = self.outcome
             && transition.credit
             && !matches!(transition.to, Destination::Fail(_))
-            && !self.completed.contains(&current)
         {
-            self.completed.push(current);
+            self.credit(current);
         }
         self.outcome = match &transition.to {
             Destination::Objective(id) => QuestOutcome::Active(
@@ -290,6 +301,12 @@ impl QuestProgress {
             Destination::Complete => QuestOutcome::Completed,
             Destination::Fail(reason) => QuestOutcome::Failed(reason.clone()),
         };
+    }
+
+    fn credit(&mut self, objective: usize) {
+        if !self.completed.contains(&objective) {
+            self.completed.push(objective);
+        }
     }
 }
 
@@ -339,6 +356,10 @@ impl QuestJournal {
         })
     }
 
+    pub(crate) fn has_occurred(&self, action: QuestAction) -> bool {
+        self.occurred.contains(&action)
+    }
+
     pub(crate) fn record(&mut self, action: QuestAction) {
         self.occurred.insert(action);
         let condition = Condition::Action(action);
@@ -368,7 +389,7 @@ impl QuestJournal {
 
     fn persistent(&self, condition: &Condition) -> bool {
         match condition {
-            Condition::Occurred(action) => self.occurred.contains(action),
+            Condition::Occurred(action) => self.has_occurred(*action),
             Condition::QuestCompleted(id) => self.is_complete(id),
             Condition::QuestFailed(id) => self.status(id) == Some(QuestStatus::Failed),
             _ => false,
@@ -380,16 +401,13 @@ impl QuestJournal {
     fn settle(&mut self, trigger: Option<Condition>) {
         loop {
             let mut starts = Vec::new();
+            let mut credits = Vec::new();
             let mut advances = Vec::new();
             for quest in &self.catalog.0 {
                 if quest.outpost_only && self.layout != WorldLayout::Outpost {
                     continue;
                 }
-                match self
-                    .progress
-                    .get(&quest.id)
-                    .map(|progress| &progress.outcome)
-                {
+                match self.progress.get(&quest.id) {
                     None if quest
                         .starts_when
                         .iter()
@@ -397,8 +415,20 @@ impl QuestJournal {
                     {
                         starts.push(quest)
                     }
-                    Some(QuestOutcome::Active(index)) => {
-                        if let Some(transition) = quest.objectives[*index]
+                    Some(progress) => {
+                        let QuestOutcome::Active(index) = progress.outcome else {
+                            continue;
+                        };
+                        for (objective_index, objective) in quest.objectives.iter().enumerate() {
+                            if !progress.completed.contains(&objective_index)
+                                && objective.transitions.iter().any(|transition| {
+                                    transition.credit_early && self.persistent(&transition.when)
+                                })
+                            {
+                                credits.push((&quest.id, objective_index));
+                            }
+                        }
+                        if let Some(transition) = quest.objectives[index]
                             .transitions
                             .iter()
                             .find(|transition| self.persistent(&transition.when))
@@ -408,6 +438,12 @@ impl QuestJournal {
                     }
                     _ => {}
                 }
+            }
+            for (id, objective) in credits {
+                self.progress
+                    .get_mut(id)
+                    .expect("active quest")
+                    .credit(objective);
             }
             if starts.is_empty() && advances.is_empty() {
                 break;
@@ -544,10 +580,31 @@ mod tests {
     }
 
     #[test]
-    fn early_discovery_runs_alongside_last_light_and_progresses_in_order() {
+    fn early_core_recovery_credits_the_objective_without_skipping_the_meeting() {
         let mut journal = test_journal();
+        journal.record(QuestAction::ReturnedCore);
+        journal.record(QuestAction::RecoveredCore);
         journal.record(QuestAction::RecoveredCore);
         assert!(journal.expects(QuestAction::TalkedToNemi));
+        assert!(!journal.expects(QuestAction::ReturnedCore));
+        assert!(!journal.beacon_powered());
+        assert_eq!(journal.progress[LAST_LIGHT].completed, [1]);
+
+        journal.record(QuestAction::TalkedToNemi);
+        journal.record(QuestAction::TalkedToNemi);
+        assert!(journal.expects(QuestAction::ReturnedCore));
+        assert!(!journal.beacon_powered());
+        assert_eq!(journal.progress[LAST_LIGHT].completed, [1, 0]);
+
+        journal.record(QuestAction::ReturnedCore);
+        journal.record(QuestAction::ReturnedCore);
+        assert!(journal.beacon_powered());
+        assert_eq!(journal.progress[LAST_LIGHT].completed, [1, 0, 2]);
+    }
+
+    #[test]
+    fn early_hatch_discovery_runs_alongside_last_light_and_keeps_relay_steps_in_order() {
+        let mut journal = test_journal();
         journal.record(QuestAction::InspectedSealedHatch);
         journal.record(QuestAction::InspectedSealedHatch);
         journal.record(QuestAction::EnteredRelay);
@@ -639,6 +696,23 @@ mod tests {
     }
 
     #[test]
+    fn attack_after_early_recovery_opens_the_solo_route_at_installation() {
+        let mut journal = test_journal();
+        journal.record(QuestAction::RecoveredCore);
+        journal.record(QuestAction::AttackedNemi);
+
+        assert_eq!(journal.status(LAST_LIGHT), Some(QuestStatus::Failed));
+        assert_eq!(journal.progress[LAST_LIGHT].completed, [1]);
+        assert!(journal.progress[RELIGHT_BEACON].completed.is_empty());
+        assert!(journal.expects(QuestAction::InstalledCore));
+        assert!(!journal.beacon_powered());
+
+        journal.record(QuestAction::InstalledCore);
+        assert!(journal.is_complete(RELIGHT_BEACON));
+        assert!(journal.expects(QuestAction::EnteredRelay));
+    }
+
+    #[test]
     fn attack_after_turn_in_preserves_the_completed_quest_and_power() {
         let mut journal = test_journal();
         journal.record(QuestAction::TalkedToNemi);
@@ -658,6 +732,7 @@ mod tests {
             when: Condition::Action(QuestAction::InspectedSealedHatch),
             to: Destination::Objective("missing".into()),
             credit: false,
+            credit_early: false,
         };
         catalog.0[0].objectives[0].transitions.push(transition);
         assert!(
@@ -676,5 +751,20 @@ mod tests {
             QuestOutcome::Failed("Example outcome".into())
         );
         assert!(progress.completed.is_empty());
+    }
+
+    #[test]
+    fn early_credit_requires_a_crediting_occurred_transition() {
+        let mut catalog = test_journal().catalog;
+        catalog.0[0].objectives[1].transitions[0].credit_early = true;
+        assert!(catalog.validate().unwrap_err().contains("credit_early"));
+
+        catalog.0[0].objectives[1].transitions[0].credit_early = false;
+        catalog.0[0].objectives[1].transitions[1].credit = false;
+        assert!(catalog.validate().unwrap_err().contains("credit_early"));
+
+        catalog.0[0].objectives[1].transitions[1].credit = true;
+        catalog.0[0].objectives[1].transitions[1].to = Destination::Fail("Example outcome".into());
+        assert!(catalog.validate().unwrap_err().contains("credit_early"));
     }
 }
