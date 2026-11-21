@@ -201,7 +201,7 @@ fn drive(
             {
                 walk(&mut keys, &mut orbit, transform.translation, position);
             } else if controller.grounded {
-                orbit.yaw = std::f32::consts::PI;
+                orbit.yaw = std::f32::consts::PI + 0.95;
                 orbit.distance = 4.5;
                 buttons.press(MouseButton::Left);
                 *captured_at = now;
@@ -218,18 +218,18 @@ fn drive(
             *smoke = SpearSmoke::Recovery;
         }
         SpearSmoke::Chamber | SpearSmoke::Impact if thrust.active() => {
-            orbit.yaw = std::f32::consts::PI + 0.95;
+            orbit.yaw = std::f32::consts::PI;
             keys.press(KeyCode::KeyW);
             keys.press(KeyCode::ShiftLeft);
             keys.press(KeyCode::Space);
             assert!(controller.grounded);
             if now - *captured_at > 0.07 {
                 assert_eq!(controller.velocity.xz(), Vec2::ZERO);
+                assert!(
+                    (transform.rotation * Vec3::Z).z > 0.99,
+                    "the player must turn toward the dummy during the thrust"
+                );
             }
-            assert!(
-                transform.forward().z < -0.99,
-                "the horizontal aim must stay locked after the camera moves"
-            );
             if *smoke == SpearSmoke::Chamber && now - *captured_at >= 3.0 / 24.0 {
                 capture(&mut commands, "chamber");
                 *smoke = SpearSmoke::Impact;

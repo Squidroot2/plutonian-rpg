@@ -355,7 +355,6 @@ fn use_target(
         probe - Vec3::Y * (hit.distance - 0.905),
     );
     player.area = area;
-    transform.rotation = Quat::from_rotation_y(yaw + std::f32::consts::PI);
     orbit.yaw = yaw;
     orbit.pitch = 0.22;
     thrust.cancel();

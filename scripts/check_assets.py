@@ -7,6 +7,8 @@ import struct
 root = Path(__file__).resolve().parents[1]
 documents = {}
 gear_names = ['field_armor', 'reinforced_armor', 'field_helmet', 'reinforced_helmet', 'field_spear', 'trident']
+directional_walks = {'WalkBack', 'StrafeLeft', 'StrafeRight', 'WalkForwardLeft',
+                     'WalkForwardRight', 'WalkBackLeft', 'WalkBackRight'}
 for name in ['plutonian', 'outpost', 'collision', 'core', 'battery', 'scrap', 'methane_pouch', 'practice_dummy', 'ice_worm', 'old_relay', 'old_relay_collision', *gear_names, *[name+'_worn' for name in gear_names]]:
     source_name = name.removesuffix('_worn')
     source = root / 'art' / f'{source_name}.blend'
@@ -28,11 +30,13 @@ for name in ['plutonian', 'outpost', 'collision', 'core', 'battery', 'scrap', 'm
     for buffer in document.get('buffers', []):
         assert 'uri' not in buffer, f'{name}: external buffer'
     if name == 'plutonian':
-        names = {a['name'] for a in document.get('animations', [])}
-        assert names == {'Idle', 'Walk', 'Run', 'Jump', 'SpearIdle', 'SpearWalk', 'SpearRun', 'SpearJump', 'SpearThrust'}, names
+        animations = {clip['name']: clip for clip in document.get('animations', [])}
+        locomotion = {'Idle', 'Walk', 'Run', 'Jump'} | directional_walks
+        assert animations.keys() == locomotion | {'Spear'+clip for clip in locomotion} | {'SpearThrust'}, animations.keys()
+        assert len(animations) == len(document['animations']), 'Duplicate character animation names'
         assert document.get('skins'), 'Character must be rigged'
         assert any(node.get('name') == 'spear_grip' for node in document['nodes']), 'Spear grip bone is missing'
-        thrust = next(animation for animation in document['animations'] if animation['name'] == 'SpearThrust')
+        thrust = animations['SpearThrust']
         duration = max(document['accessors'][sampler['input']]['max'][0] for sampler in thrust['samplers'])
         assert abs(duration-16/24) < .001, 'SpearThrust duration must match the in-game recovery'
 
@@ -161,6 +165,23 @@ def read_samples(index):
             for i in range(accessor['count'])]
 
 
+for animation in character['animations']:
+    clip = animation['name']
+    if clip.removeprefix('Spear') not in directional_walks:
+        continue
+    tracks = {(channel['target']['node'], channel['target']['path']):
+              read_samples(animation['samplers'][channel['sampler']]['output'])
+              for channel in animation['channels']}
+    for (node, path), samples in tracks.items():
+        if node == nodes['root']:
+            assert len(set(samples)) == 1, f'{clip}: {path} moves the root'
+    for name in ['leg-1', 'leg1']:
+        rotations = tracks[nodes[name], 'rotation']
+        assert len(set(rotations)) > 2 and dist(rotations[0], rotations[-1]) < .001, (
+            f'{clip}: {name} must animate and loop'
+        )
+
+
 def transform_point(matrix, point):
     return [sum(row[i]*point[i] for i in range(3)) + row[3] for row in matrix[:3]]
 
@@ -235,4 +256,4 @@ for animation in character['animations']:
         assert thrust_grips[0][2] - thrust_grips[3][2] > .25, "SpearThrust: wind-up must draw the shaft back"
         assert thrust_grips[6][2] - thrust_grips[3][2] > .45, "SpearThrust: impact must drive the shaft forward"
         assert dist(thrust_grips[0], thrust_grips[16]) < .001, "SpearThrust: recovery must return to the carry pose"
-print('Both hands align with the shaft and both elbows clear the body throughout the five spear clips')
+print('Both hands align with the shaft and both elbows clear the body throughout the spear clips')

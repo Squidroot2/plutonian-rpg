@@ -93,6 +93,14 @@ enum ArenaStep {
         position: Vec3,
         started: Duration,
     },
+    Strafe {
+        position: Vec3,
+        started: Duration,
+    },
+    Backpedal {
+        position: Vec3,
+        started: Duration,
+    },
     Quest,
     SelectCore,
     CheckCore,
@@ -276,6 +284,55 @@ fn drive(
             );
             if fixed.elapsed() - started >= fixed.timestep() * 3 {
                 keys.press(KeyCode::Escape);
+                *step = ArenaStep::Strafe {
+                    position: transform.translation,
+                    started: fixed.elapsed(),
+                };
+            }
+        }
+        ArenaStep::Strafe { position, started } if *state.get() == GameState::Playing => {
+            orbit.yaw = 0.0;
+            keys.press(KeyCode::KeyD);
+            keys.press(KeyCode::ShiftLeft);
+            if fixed.elapsed() - started >= fixed.timestep() * 12 {
+                let travel = transform.translation - position;
+                assert!(
+                    travel.x > 0.3 && travel.z.abs() < 0.03,
+                    "D must strafe right: {travel:?}"
+                );
+                assert!(
+                    !controller.running,
+                    "shift must keep pure strafing at walking speed"
+                );
+                assert!((transform.rotation * Vec3::Z).abs_diff_eq(Vec3::NEG_Z, 0.001));
+                capture(&mut commands, "strafe");
+                // Switch inputs before the next fixed step.
+                *step = ArenaStep::Backpedal {
+                    position: transform.translation,
+                    started: fixed.elapsed(),
+                };
+                keys.release(KeyCode::KeyD);
+                keys.press(KeyCode::KeyS);
+            }
+        }
+        ArenaStep::Backpedal { position, started } if *state.get() == GameState::Playing => {
+            keys.press(KeyCode::KeyS);
+            keys.press(KeyCode::ShiftLeft);
+            if fixed.elapsed() - started >= fixed.timestep() * 12 {
+                let travel = transform.translation - position;
+                assert!(
+                    travel.z > 0.3 && travel.x.abs() < 0.03,
+                    "S must backpedal: {travel:?}"
+                );
+                assert!(
+                    !controller.running,
+                    "shift must keep backpedaling at walking speed"
+                );
+                assert!((transform.rotation * Vec3::Z).abs_diff_eq(Vec3::NEG_Z, 0.001));
+                capture(&mut commands, "backpedal");
+                info!(
+                    "MOVEMENT SMOKE PASS: strafed and backpedaled at walking speed while facing the camera aim"
+                );
                 *step = ArenaStep::Quest;
             }
         }

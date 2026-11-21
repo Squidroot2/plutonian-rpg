@@ -3,7 +3,6 @@ use bevy::{gltf::Gltf, prelude::*, window::PrimaryWindow};
 
 use crate::{
     GameState,
-    camera::Orbit,
     combat::{CombatSystems, Contact, Hit, HitReaction, TrainingTarget},
     equipment::Equipment,
     interaction::InteractionSystems,
@@ -48,38 +47,33 @@ impl Plugin for SpearPlugin {
 }
 
 #[derive(Default, Resource)]
-pub struct Thrust(Option<Swing>);
-struct Swing {
-    facing: Quat,
-    elapsed: f32,
+pub struct Thrust {
+    elapsed: Option<f32>,
 }
 impl Thrust {
     pub fn active(&self) -> bool {
-        self.0.is_some()
+        self.elapsed.is_some()
     }
 
     pub(crate) fn cancel(&mut self) {
-        self.0 = None;
+        self.elapsed = None;
     }
 
-    fn begin(&mut self, facing: Quat, grounded: bool, clicked: bool) {
+    fn begin(&mut self, grounded: bool, clicked: bool) {
         if !self.active() && grounded && clicked {
-            self.0 = Some(Swing {
-                facing,
-                elapsed: 0.0,
-            });
+            self.elapsed = Some(0.0);
         }
     }
 
     fn advance(&mut self, delta: f32) -> bool {
-        let Some(swing) = self.0.as_mut() else {
+        let Some(elapsed) = self.elapsed.as_mut() else {
             return false;
         };
-        let previous = swing.elapsed;
-        swing.elapsed += delta;
-        let impact = previous < IMPACT_AT && swing.elapsed >= IMPACT_AT;
-        if swing.elapsed >= RECOVERY_AT {
-            self.0 = None;
+        let previous = *elapsed;
+        *elapsed += delta;
+        let impact = previous < IMPACT_AT && *elapsed >= IMPACT_AT;
+        if *elapsed >= RECOVERY_AT {
+            self.cancel();
         }
         impact
     }
@@ -155,15 +149,14 @@ fn attack(
     windows: Query<&Window, With<PrimaryWindow>>,
     equipment: Res<Equipment>,
     dialogue: Res<Dialogue>,
-    orbit: Res<Orbit>,
     time: Res<Time>,
     spatial: SpatialQuery,
     movement: Res<MovementInput>,
     mut thrust: ResMut<Thrust>,
-    mut player: Query<(Entity, &Player, &Dodge, &mut Transform)>,
+    player: Query<(Entity, &Player, &Dodge, &Transform)>,
     mut hits: MessageWriter<Hit>,
 ) {
-    let Ok((entity, controller, dodge, mut transform)) = player.single_mut() else {
+    let Ok((entity, controller, dodge, transform)) = player.single() else {
         return;
     };
     if dialogue.text.is_some()
@@ -173,24 +166,15 @@ fn attack(
         thrust.cancel();
         return;
     }
-    if let Some(swing) = thrust.0.as_ref() {
-        let facing = swing.facing;
-        transform.rotation = facing;
+    if thrust.active() {
         if thrust.advance(time.delta_secs())
-            && let Some(hit) = thrust_contact(&spatial, entity, transform.translation, facing)
+            && let Some(hit) =
+                thrust_contact(&spatial, entity, transform.translation, transform.rotation)
         {
             hits.write(hit);
         }
     } else if !dodge.active() && !movement.dodge_pending(controller.grounded, dodge) {
-        let facing = Quat::from_rotation_y(orbit.yaw + std::f32::consts::PI);
-        thrust.begin(
-            facing,
-            controller.grounded,
-            buttons.just_pressed(MouseButton::Left),
-        );
-        if thrust.active() {
-            transform.rotation = facing;
-        }
+        thrust.begin(controller.grounded, buttons.just_pressed(MouseButton::Left));
     }
 }
 
@@ -248,7 +232,7 @@ fn react(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::inventory::ItemKind;
+    use crate::{camera::Orbit, inventory::ItemKind, player::face_camera};
     use bevy::{
         asset::AssetPlugin, ecs::system::RunSystemOnce, mesh::MeshPlugin, state::app::StatesPlugin,
         time::TimeUpdateStrategy, transform::TransformPlugin,
@@ -258,17 +242,13 @@ mod tests {
     #[test]
     fn thrust_has_one_impact_and_ignores_clicks_before_recovery() {
         let mut thrust = Thrust::default();
-        thrust.begin(Quat::IDENTITY, false, true);
+        thrust.begin(false, true);
         assert!(!thrust.active(), "airborne attacks must be rejected");
-        thrust.begin(Quat::IDENTITY, true, false);
+        thrust.begin(true, false);
         assert!(!thrust.active(), "holding the mouse is not a new click");
-        thrust.begin(Quat::IDENTITY, true, true);
+        thrust.begin(true, true);
         assert!(!thrust.advance(0.2));
-        thrust.begin(Quat::from_rotation_y(1.0), true, true);
-        assert_eq!(
-            thrust.0.as_ref().map(|swing| swing.facing),
-            Some(Quat::IDENTITY)
-        );
+        thrust.begin(true, true);
         assert!(
             thrust.advance(0.06),
             "crossing full extension must report an impact"
@@ -297,7 +277,8 @@ mod tests {
         .init_resource::<Orbit>()
         .init_resource::<MovementInput>()
         .init_resource::<ButtonInput<MouseButton>>()
-        .add_plugins((crate::combat::CombatPlugin, SpearPlugin));
+        .add_plugins((crate::combat::CombatPlugin, SpearPlugin))
+        .add_systems(Update, face_camera.before(CombatSystems::Detect));
         app.finish();
         app.cleanup();
         app
@@ -414,7 +395,11 @@ mod tests {
             app.update();
         }
 
-        fn swing(app: &mut App, camera_yaw: f32) -> Vec<crate::combat::ConfirmedHit> {
+        fn swing(
+            app: &mut App,
+            camera_yaw: f32,
+            turn_to: Option<f32>,
+        ) -> Vec<crate::combat::ConfirmedHit> {
             app.world_mut().resource_mut::<Orbit>().yaw = camera_yaw;
             let mut hits = app
                 .world()
@@ -424,7 +409,13 @@ mod tests {
             let mut input = app.world_mut().resource_mut::<ButtonInput<MouseButton>>();
             input.reset_all();
             input.press(MouseButton::Left);
-            for _ in 0..40 {
+            for frame in 0..40 {
+                if frame == 5
+                    && let Some(yaw) = turn_to
+                {
+                    assert!(app.world().resource::<Thrust>().active());
+                    app.world_mut().resource_mut::<Orbit>().yaw = yaw;
+                }
                 app.update();
                 app.world_mut()
                     .resource_mut::<ButtonInput<MouseButton>>()
@@ -442,13 +433,13 @@ mod tests {
 
         let forward_yaw = -std::f32::consts::PI;
         assert!(matches!(
-            swing(&mut app, forward_yaw).as_slice(),
+            swing(&mut app, 0.0, Some(forward_yaw)).as_slice(),
             [crate::combat::ConfirmedHit {
                 contact: Some(_),
                 ..
             }]
         ));
-        assert!(swing(&mut app, 0.0).is_empty());
+        assert!(swing(&mut app, 0.0, None).is_empty());
 
         app.world_mut().spawn((
             RigidBody::Static,
@@ -459,7 +450,7 @@ mod tests {
             app.update();
         }
         assert!(
-            swing(&mut app, forward_yaw).is_empty(),
+            swing(&mut app, forward_yaw, None).is_empty(),
             "terrain must stop feedback along with the thrust"
         );
     }

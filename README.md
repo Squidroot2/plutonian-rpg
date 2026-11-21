@@ -16,11 +16,12 @@ Choose **Start Game** on the title screen to load Nivalis. Click a button or sel
 
 | Control | Action |
 | --- | --- |
-| WASD | Move relative to the camera |
-| Mouse | Orbit camera |
+| W / S | Walk forward / backpedal |
+| A / D | Strafe left / right |
+| Mouse | Orbit camera and turn to face its horizontal look direction |
 | Scroll | Adjust camera distance |
-| Left Shift | Sprint |
-| Left click | Thrust with an equipped spear |
+| Left Shift | Sprint forward or on a forward diagonal |
+| Left click | Thrust with an equipped spear, aiming with the camera through impact |
 | Space | Jump (grounded only) |
 | Left Ctrl | Dodge hop in the WASD direction, or backward with no movement input (grounded only) |
 | E | Speak / collect a nearby item / dismiss dialogue |
@@ -110,6 +111,8 @@ blender --background -noaudio --factory-startup --python-exit-code 1 --python sc
 ```
 
 To regenerate only the three material models without replacing existing world or character art, pass `-- --items` to the asset command. This overwrites the material sources and exports. Pickup models use a base origin at zero height; material models use a 0.62 m square placement footprint and 0.6 m height. Equipment uses its larger per-item bounds from `ItemKind::gear()` in `src/equipment.rs`; `scripts/check_assets.py` verifies the exported geometry fits those bounds.
+
+Pass `-- --locomotion` to regenerate the player's backpedal, strafe, and diagonal actions in `art/plutonian.blend` and re-export `assets/models/plutonian.glb`.
 
 To regenerate only equipment, pass `-- --equipment`. This overwrites equipment sources and exports while preserving character and map art. Each equipment `.blend` stores geometry in its attachment frame (`spine` for armor, `head` for helmets, `spear_grip` for weapons). The generator derives that frame from the exported character rig. `--export` produces the bone-local `_worn.glb` and automatically centers a second, base-origin pickup export from the same source geometry. Recheck fit after changing the character rig. Keep worn sources in their attachment frame.
 

@@ -4,6 +4,7 @@ use crate::{
     combat::{CombatSystems, Dead, Defense, Health},
     dungeon::Area,
     equipment::Equipment,
+    interaction::InteractionSystems,
     quest::Dialogue,
     spear::Thrust,
     world::WorldLayout,
@@ -27,6 +28,13 @@ impl Plugin for PlayerPlugin {
                     .run_if(in_state(GameState::Playing)),
             )
             .add_systems(FixedUpdate, movement.run_if(in_state(GameState::Playing)))
+            .add_systems(
+                Update,
+                face_camera
+                    .after(InteractionSystems)
+                    .before(CombatSystems::Detect)
+                    .run_if(in_state(GameState::Playing)),
+            )
             .add_systems(Update, sync_defense.before(CombatSystems::Resolve))
             .add_systems(
                 Update,
@@ -45,6 +53,7 @@ pub struct Player {
     pub grounded: bool,
     pub running: bool,
     jumping: bool,
+    movement_direction: Vec2,
 }
 impl Player {
     pub(crate) fn respawn(&mut self, dodge: &mut Dodge, transform: &mut Transform, start: Vec3) {
@@ -54,6 +63,7 @@ impl Player {
         self.jumping = false;
         self.grounded = false;
         self.running = false;
+        self.movement_direction = Vec2::ZERO;
         *dodge = Dodge::default();
     }
 
@@ -71,6 +81,8 @@ const DODGE_GRAVITY: f32 = 10.0;
 const DODGE_SPEED: f32 = 6.0;
 const DODGE_DURATION: f32 = 0.32;
 const DODGE_COOLDOWN: f32 = 0.55;
+const WALK_SPEED: f32 = 3.0;
+const SPRINT_SPEED: f32 = 5.5;
 
 #[derive(Component, Default)]
 pub(crate) struct Dodge {
@@ -143,19 +155,80 @@ struct AnimatedActor {
     player: bool,
     current: usize,
 }
-pub const CLIPS: [&str; 9] = [
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Gait {
+    Idle,
+    Walk,
+    Run,
+    Jump,
+    WalkBack,
+    StrafeLeft,
+    StrafeRight,
+    WalkForwardLeft,
+    WalkForwardRight,
+    WalkBackLeft,
+    WalkBackRight,
+}
+
+impl Gait {
+    fn for_player(player: &Player) -> Self {
+        if !player.grounded {
+            return Self::Jump;
+        }
+        // The normalized keyboard axes are each zero, ±1, or ±1/√2.
+        match (
+            player.movement_direction.x.round() as i8,
+            player.movement_direction.y.round() as i8,
+        ) {
+            (0, 1) if player.running => Self::Run,
+            (0, 1) => Self::Walk,
+            (0, -1) => Self::WalkBack,
+            (-1, 0) => Self::StrafeLeft,
+            (1, 0) => Self::StrafeRight,
+            (-1, 1) => Self::WalkForwardLeft,
+            (1, 1) => Self::WalkForwardRight,
+            (-1, -1) => Self::WalkBackLeft,
+            (1, -1) => Self::WalkBackRight,
+            _ => Self::Idle,
+        }
+    }
+
+    fn playback_speed(self, running: bool) -> f32 {
+        if running && matches!(self, Self::WalkForwardLeft | Self::WalkForwardRight) {
+            SPRINT_SPEED / WALK_SPEED
+        } else {
+            1.0
+        }
+    }
+}
+
+const SPEAR_LOCOMOTION_START: usize = Gait::WalkBackRight as usize + 1;
+const SPEAR_THRUST_CLIP: usize = SPEAR_LOCOMOTION_START * 2;
+pub const CLIPS: [&str; SPEAR_THRUST_CLIP + 1] = [
     "Idle",
     "Walk",
     "Run",
     "Jump",
+    "WalkBack",
+    "StrafeLeft",
+    "StrafeRight",
+    "WalkForwardLeft",
+    "WalkForwardRight",
+    "WalkBackLeft",
+    "WalkBackRight",
     "SpearIdle",
     "SpearWalk",
     "SpearRun",
     "SpearJump",
+    "SpearWalkBack",
+    "SpearStrafeLeft",
+    "SpearStrafeRight",
+    "SpearWalkForwardLeft",
+    "SpearWalkForwardRight",
+    "SpearWalkBackLeft",
+    "SpearWalkBackRight",
     "SpearThrust",
 ];
-const SPEAR_LOCOMOTION_START: usize = 4;
-const SPEAR_THRUST_CLIP: usize = 8;
 
 #[derive(Resource)]
 pub struct AnimationLibrary {
@@ -211,6 +284,16 @@ fn camera_heading(direction: Vec2, yaw: f32) -> Vec3 {
     forward * direction.y + right * direction.x
 }
 
+pub(crate) fn face_camera(orbit: Res<Orbit>, mut players: Query<&mut Transform, With<Player>>) {
+    // The character's model faces +Z. The camera looks inward along its orbit.
+    let facing = Quat::from_rotation_y(orbit.yaw + std::f32::consts::PI);
+    for mut transform in &mut players {
+        if transform.rotation != facing {
+            transform.rotation = facing;
+        }
+    }
+}
+
 pub(crate) fn movement(
     time: Res<Time>,
     orbit: Res<Orbit>,
@@ -251,9 +334,7 @@ pub(crate) fn movement(
         if can_move && player.grounded {
             if let Some(direction) = dodge_request.filter(|_| dodge.ready()) {
                 let heading = if direction == Vec2::ZERO {
-                    (transform.rotation * Vec3::NEG_Z)
-                        .with_y(0.0)
-                        .normalize_or_zero()
+                    camera_heading(Vec2::NEG_Y, orbit.yaw)
                 } else {
                     camera_heading(direction, orbit.yaw)
                 };
@@ -265,20 +346,22 @@ pub(crate) fn movement(
         }
         let (horizontal, gravity) = if let Some(hop) = &dodge.hop {
             player.running = false;
+            player.movement_direction = Vec2::ZERO;
             (hop.heading * DODGE_SPEED, DODGE_GRAVITY)
         } else {
-            let heading = if can_move {
-                camera_heading(input.direction, orbit.yaw)
+            let direction = if can_move {
+                input.direction
             } else {
-                Vec3::ZERO
+                Vec2::ZERO
             };
-            player.running = input.sprint && heading.length_squared() > 0.01;
-            let speed = if player.running { 5.5 } else { 3.0 };
-            if heading.length_squared() > 0.01 {
-                let target = Quat::from_rotation_y(heading.x.atan2(heading.z));
-                transform.rotation = transform.rotation.slerp(target, (delta * 12.0).min(1.0));
-            }
-            (heading * speed, 5.0)
+            player.movement_direction = direction;
+            player.running = input.sprint && direction.y > 0.0;
+            let speed = if player.running {
+                SPRINT_SPEED
+            } else {
+                WALK_SPEED
+            };
+            (camera_heading(direction, orbit.yaw) * speed, 5.0)
         };
         player.velocity.x = horizontal.x;
         player.velocity.z = horizontal.z;
@@ -355,21 +438,13 @@ fn animate(
     let Some((player, dodge)) = players.iter().next() else {
         return;
     };
-    let locomotion = if !player.grounded {
-        3
-    } else if player.velocity.xz().length_squared() < 0.1 {
-        0
-    } else if player.running {
-        2
-    } else {
-        1
-    };
+    let gait = Gait::for_player(player);
     let desired = if thrust.active() {
         SPEAR_THRUST_CLIP
     } else if equipment.has_spear() {
-        SPEAR_LOCOMOTION_START + locomotion
+        SPEAR_LOCOMOTION_START + gait as usize
     } else {
-        locomotion
+        gait as usize
     };
     for (mut animation, mut transitions, mut actor) in &mut animations {
         let index = if actor.player { desired } else { 0 };
@@ -394,6 +469,14 @@ fn animate(
                     .repeat();
             }
             actor.current = index;
+        }
+        if actor.player && index != SPEAR_THRUST_CLIP {
+            let speed = gait.playback_speed(player.running);
+            if let Some(clip) = animation.animation_mut(library.nodes[index])
+                && clip.speed() != speed
+            {
+                clip.set_speed(speed);
+            }
         }
     }
 }
@@ -447,6 +530,7 @@ mod tests {
         .add_plugins((CombatPlugin, SpearPlugin))
         .add_systems(PreUpdate, input.run_if(in_state(GameState::Playing)))
         .add_systems(FixedUpdate, movement.run_if(in_state(GameState::Playing)))
+        .add_systems(Update, face_camera.before(CombatSystems::Detect))
         .add_systems(OnEnter(GameState::Paused), freeze)
         .add_systems(OnEnter(GameState::Inventory), freeze);
         let world = app.world_mut();
@@ -523,13 +607,88 @@ mod tests {
     }
 
     #[test]
+    fn idle_player_faces_camera_yaw_even_without_a_fixed_step() {
+        let (mut app, player) = test_app();
+        let start = transform(&app, player).translation;
+        app.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::ZERO));
+        let mut orbit = app.world_mut().resource_mut::<Orbit>();
+        orbit.yaw = std::f32::consts::FRAC_PI_2;
+        orbit.pitch = 0.8;
+        tick(&mut app, 1);
+        let facing = transform(&app, player);
+        assert_eq!(facing.translation, start);
+        assert!((facing.rotation * Vec3::Z).abs_diff_eq(Vec3::NEG_X, 0.001));
+        assert!((facing.rotation * Vec3::Y).abs_diff_eq(Vec3::Y, 0.001));
+    }
+
+    #[test]
+    fn camera_relative_walking_and_sprint_choose_the_expected_gaits() {
+        let (mut app, player) = test_app();
+        app.world_mut().resource_mut::<Orbit>().yaw = std::f32::consts::FRAC_PI_2;
+        let cases: &[(&[KeyCode], Vec3, Gait, bool)] = &[
+            (&[KeyCode::KeyW], Vec3::NEG_X, Gait::Run, true),
+            (&[KeyCode::KeyA], Vec3::Z, Gait::StrafeLeft, false),
+            (&[KeyCode::KeyD], Vec3::NEG_Z, Gait::StrafeRight, false),
+            (&[KeyCode::KeyS], Vec3::X, Gait::WalkBack, false),
+            (
+                &[KeyCode::KeyW, KeyCode::KeyA],
+                Vec3::NEG_X + Vec3::Z,
+                Gait::WalkForwardLeft,
+                true,
+            ),
+            (
+                &[KeyCode::KeyW, KeyCode::KeyD],
+                Vec3::NEG_X + Vec3::NEG_Z,
+                Gait::WalkForwardRight,
+                true,
+            ),
+            (
+                &[KeyCode::KeyS, KeyCode::KeyA],
+                Vec3::X + Vec3::Z,
+                Gait::WalkBackLeft,
+                false,
+            ),
+            (
+                &[KeyCode::KeyS, KeyCode::KeyD],
+                Vec3::X + Vec3::NEG_Z,
+                Gait::WalkBackRight,
+                false,
+            ),
+        ];
+        for &(keys, heading, gait, sprint) in cases {
+            press(&mut app, &[KeyCode::ShiftLeft]);
+            press(&mut app, keys);
+            let start = transform(&app, player).translation;
+            tick(&mut app, 3);
+            let end = transform(&app, player);
+            let controller = app
+                .world()
+                .get::<Player>(player)
+                .expect("the movement fixture must have a controller");
+            let meters = if sprint { 5.5 } else { 3.0 } * STEP.as_secs_f32() * 3.0;
+            assert!(
+                (end.translation - start)
+                    .xz()
+                    .abs_diff_eq((heading.normalize() * meters).xz(), 0.003)
+            );
+            assert!((end.rotation * Vec3::Z).abs_diff_eq(Vec3::NEG_X, 0.001));
+            assert_eq!(Gait::for_player(controller), gait);
+            assert_eq!(controller.running, sprint);
+            app.world_mut()
+                .resource_mut::<ButtonInput<KeyCode>>()
+                .reset_all();
+        }
+        assert_eq!(
+            Gait::WalkForwardRight.playback_speed(true),
+            SPRINT_SPEED / WALK_SPEED
+        );
+        assert_eq!(Gait::WalkForwardRight.playback_speed(false), 1.0);
+    }
+
+    #[test]
     fn neutral_hop_is_backward_and_held_input_does_not_repeat() {
         let (mut app, player) = test_app();
-        let facing = Quat::from_rotation_y(std::f32::consts::FRAC_PI_2);
-        app.world_mut()
-            .get_mut::<Transform>(player)
-            .expect("the player must have a transform to face sideways")
-            .rotation = facing;
+        app.world_mut().resource_mut::<Orbit>().yaw = std::f32::consts::FRAC_PI_2;
         let start = transform(&app, player).translation;
         press(&mut app, &[DODGE_KEY, KeyCode::Space]);
         tick(&mut app, 10);
@@ -540,9 +699,9 @@ mod tests {
         );
         tick(&mut app, 15);
         let landed = transform(&app, player);
-        assert!((1.6..2.05).contains(&(start.x - landed.translation.x)));
+        assert!((1.6..2.05).contains(&(landed.translation.x - start.x)));
         assert!((landed.translation.z - start.z).abs() < 0.02);
-        assert!(landed.rotation.abs_diff_eq(facing, 0.001));
+        assert!((landed.rotation * Vec3::Z).abs_diff_eq(Vec3::NEG_X, 0.001));
         assert!(!active(&app, player));
         tick(&mut app, 45);
         assert!(
@@ -571,7 +730,10 @@ mod tests {
         app.world_mut().resource_mut::<Orbit>().yaw = 0.0;
         release(&mut app, KeyCode::KeyW);
         release(&mut app, KeyCode::KeyD);
-        tick(&mut app, 24);
+        tick(&mut app, 1);
+        assert!(active(&app, player));
+        assert!((transform(&app, player).rotation * Vec3::Z).abs_diff_eq(Vec3::NEG_Z, 0.001));
+        tick(&mut app, 23);
         let end = transform(&app, player);
         assert!(
             end.translation.z < -1.0,
@@ -582,7 +744,6 @@ mod tests {
             "wall must stop the player capsule at its face, got {:?}",
             end.translation
         );
-        assert!(end.rotation.abs_diff_eq(Quat::IDENTITY, 0.001));
     }
 
     #[test]

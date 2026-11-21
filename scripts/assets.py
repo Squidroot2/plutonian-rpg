@@ -140,6 +140,7 @@ def character():
                 bone.keyframe_insert('location', frame=f, group=bone.name)
         rig.animation_data.action.use_fake_user = True
     rig.animation_data.action = None
+    add_directional_walks(rig)
     add_spear_animations(rig)
     save_export('plutonian')
 
@@ -148,6 +149,78 @@ def character():
 SPEAR_GRIP = (-.40, -.42, .84)
 SPEAR_HAND_SPACING = .23
 SPEAR_CARRY_ANGLE = math.radians(-16)
+
+# The rig faces -Y and its right side is -X in Blender.
+DIRECTIONAL_WALKS = {
+    'WalkBack': (0, 1),
+    'StrafeLeft': (1, 0),
+    'StrafeRight': (-1, 0),
+    'WalkForwardLeft': (1, -1),
+    'WalkForwardRight': (-1, -1),
+    'WalkBackLeft': (1, 1),
+    'WalkBackRight': (-1, 1),
+}
+
+
+def new_action(rig, name):
+    previous = bpy.data.actions.get(name)
+    if previous is not None:
+        bpy.data.actions.remove(previous)
+    action = bpy.data.actions.new(name)
+    action.use_fake_user = True
+    rig.animation_data.action = action
+
+
+def key_pose(bone, offset, rotation, frame):
+    rest = bone.bone.matrix_local.to_3x3()
+    bone.location = rest.inverted() @ offset
+    bone.rotation_mode = 'XYZ'
+    bone.rotation_euler = (rest.inverted() @ rotation @ rest).to_euler('XYZ')
+    bone.keyframe_insert('location', frame=frame, group=bone.name)
+    bone.keyframe_insert('rotation_euler', frame=frame, group=bone.name)
+
+
+def add_directional_walks(rig):
+    rig.animation_data_create()
+    frames = 20
+    for name, (x, y) in DIRECTIONAL_WALKS.items():
+        direction = Vector((x, y)).normalized()
+        new_action(rig, name)
+        for frame in range(frames + 1):
+            cycle = (frame % frames) / frames
+            key_pose(rig.pose.bones['spine'], Vector((0, 0, -.022 * math.sin(math.tau * cycle)**2)),
+                     Matrix.Identity(3), frame)
+            for side, shift in [(-1, 0), (1, .5)]:
+                phase = (cycle + shift) % 1.0
+                # The planted foot sweeps against motion, then lifts and recovers.
+                swing = max(0.0, 2 * phase - 1)
+                stride = 1 - 4 * phase if phase < .5 else 2 * swing**2 * (3 - 2 * swing) - 1
+                lift = .10 * math.sin(math.pi * swing)**2
+                lateral = direction.x * .13 * stride + side * abs(direction.x) * .11
+                forward = direction.y * .24 * stride
+                rotation = Vector((0, 0, -1)).rotation_difference(
+                    Vector((lateral, forward, -.60))).to_matrix()
+                # Account for the shoe's extent so the planted foot stays at floor height.
+                shoe_center = rotation @ Vector((0, -.09, -.60))
+                shoe_extent = Vector((.14 * rotation[2][0], .22 * rotation[2][1],
+                                      .10 * rotation[2][2])).length
+                leg = rig.pose.bones[f'leg{side}']
+                height = shoe_extent - shoe_center.z - leg.bone.head_local.z + lift
+                key_pose(leg, Vector((0, 0, height)), rotation, frame)
+                arm_swing = -.24 * stride * direction.y
+                key_pose(rig.pose.bones[f'arm{side}'], Vector((0, 0, 0)),
+                         Matrix.Rotation(arm_swing, 3, 'X'), frame)
+    rig.animation_data.action = None
+
+
+def reset_character_pose(rig):
+    rig.animation_data.action = None
+    bpy.context.scene.frame_set(1)
+    for bone in rig.pose.bones:
+        if bone.name.startswith('arm'):
+            bone.rotation_mode = 'XYZ'
+        bone.matrix_basis = Matrix.Identity(4)
+    bpy.context.view_layer.update()
 
 
 def add_spear_joints(rig):
@@ -225,40 +298,37 @@ def bend_arm(rig, side, target):
     return arm, forearm
 
 
-def add_spear_animations(rig):
-    from bpy_extras.anim_utils import action_get_channelbag_for_slot
+def set_spear_grip(rig, frame, advance=0.0, lift=0.0, yaw=SPEAR_CARRY_ANGLE, lean=0.0):
+    rear = Vector(SPEAR_GRIP) + Vector((0, -advance, lift))
+    grip = rig.pose.bones['spear_grip']
+    rest = grip.bone.matrix_local.to_3x3()
+    # Keep the shaft level while the chest pitches forward under it.
+    shaft_rotation = Matrix.Rotation(-lean, 3, 'X') @ Matrix.Rotation(yaw, 3, 'Z')
+    grip.location = rest.inverted() @ (rear - Vector(SPEAR_GRIP))
+    grip.rotation_mode = 'XYZ'
+    grip.rotation_euler = (rest.inverted() @ shaft_rotation @ rest).to_euler('XYZ')
+    for channel in ['location', 'rotation_euler']:
+        grip.keyframe_insert(channel, frame=frame, group=grip.name)
+    for side, spacing in [(-1, 0.0), (1, SPEAR_HAND_SPACING)]:
+        target = rear + shaft_rotation @ Vector((0, -spacing, 0))
+        for bone in bend_arm(rig, side, target):
+            for channel in ['location', 'rotation_euler', 'scale']:
+                bone.keyframe_insert(channel, frame=frame, group=bone.name)
 
-    scene = bpy.context.scene
-    add_spear_joints(rig)
+
+def add_spear_locomotion(rig, bases):
+    from bpy_extras.anim_utils import action_get_channelbag_for_slot
 
     rig.animation_data_create()
     rig.animation_data.action = None
-    for name in ['SpearIdle', 'SpearWalk', 'SpearRun', 'SpearJump', 'SpearThrust']:
+    for base in bases:
+        name = 'Spear' + base
         previous = bpy.data.actions.get(name)
         if previous is not None:
             bpy.data.actions.remove(previous)
-
-    def set_grip(frame, advance=0.0, lift=0.0, yaw=SPEAR_CARRY_ANGLE, lean=0.0):
-        rear = Vector(SPEAR_GRIP) + Vector((0, -advance, lift))
-        grip = rig.pose.bones['spear_grip']
-        rest = grip.bone.matrix_local.to_3x3()
-        # Keep the shaft level while the chest pitches forward under it.
-        shaft_rotation = Matrix.Rotation(-lean, 3, 'X') @ Matrix.Rotation(yaw, 3, 'Z')
-        grip.location = rest.inverted() @ (rear - Vector(SPEAR_GRIP))
-        grip.rotation_mode = 'XYZ'
-        grip.rotation_euler = (rest.inverted() @ shaft_rotation @ rest).to_euler('XYZ')
-        for channel in ['location', 'rotation_euler']:
-            grip.keyframe_insert(channel, frame=frame, group=grip.name)
-        for side, spacing in [(-1, 0.0), (1, SPEAR_HAND_SPACING)]:
-            target = rear + shaft_rotation @ Vector((0, -spacing, 0))
-            for bone in bend_arm(rig, side, target):
-                for channel in ['location', 'rotation_euler', 'scale']:
-                    bone.keyframe_insert(channel, frame=frame, group=bone.name)
-
-    for base in ['Idle', 'Walk', 'Run', 'Jump']:
         source = bpy.data.actions[base]
         action = source.copy()
-        action.name = 'Spear' + base
+        action.name = name
         action.use_fake_user = True
         rig.animation_data.action = action
         channelbag = action_get_channelbag_for_slot(action, rig.animation_data.action_slot)
@@ -267,21 +337,17 @@ def add_spear_animations(rig):
                 channelbag.fcurves.remove(curve)
         # Both arms hold the same shaft-relative pose as their shared spine moves.
         for frame in source.frame_range:
-            set_grip(frame)
+            set_spear_grip(rig, frame)
+    reset_character_pose(rig)
 
-    action = bpy.data.actions.new('SpearThrust')
-    action.use_fake_user = True
-    rig.animation_data.action = action
+
+def add_spear_animations(rig):
+    add_spear_joints(rig)
+    add_spear_locomotion(rig, ['Idle', 'Walk', 'Run', 'Jump', *DIRECTIONAL_WALKS])
+    new_action(rig, 'SpearThrust')
 
     def key_pitch(name, offset, pitch, frame):
-        bone = rig.pose.bones[name]
-        rest = bone.bone.matrix_local.to_3x3()
-        bone.location = rest.inverted() @ offset
-        bone.rotation_mode = 'XYZ'
-        rotation = Matrix.Rotation(pitch, 3, 'X')
-        bone.rotation_euler = (rest.inverted() @ rotation @ rest).to_euler('XYZ')
-        bone.keyframe_insert('location', frame=frame, group=name)
-        bone.keyframe_insert('rotation_euler', frame=frame, group=name)
+        key_pose(rig.pose.bones[name], offset, Matrix.Rotation(pitch, 3, 'X'), frame)
 
     # Chamber the spear with a step, drive it forward at contact, then reset.
     # Columns after frame: grip advance/lift/yaw, chest drive/dip/lean,
@@ -308,7 +374,7 @@ def add_spear_animations(rig):
         )
         lean = math.radians(lean)
         key_pitch('spine', Vector((0, -drive, -dip)), lean, frame)
-        set_grip(frame, advance, lift, math.radians(yaw), lean)
+        set_spear_grip(rig, frame, advance, lift, math.radians(yaw), lean)
         for name, angle, foot_lift in [('leg1', lead, step_lift), ('leg-1', rear, 0)]:
             pitch = math.radians(angle)
             # Offset each leg by the change in its shoe's lowest point.
@@ -317,13 +383,7 @@ def add_spear_animations(rig):
             height = shoe_extent - shoe_center.z - .70 + foot_lift
             key_pitch(name, Vector((0, 0, height)), pitch, frame)
 
-    rig.animation_data.action = None
-    scene.frame_set(1)
-    for bone in rig.pose.bones:
-        if bone.name.startswith('arm'):
-            bone.rotation_mode = 'XYZ'
-        bone.matrix_basis = Matrix.Identity(4)
-    bpy.context.view_layer.update()
+    reset_character_pose(rig)
 
 
 def world():
@@ -856,6 +916,14 @@ elif '--worm' in sys.argv:
     ice_worm()
 elif '--spear' in sys.argv:
     spear_assets()
+elif '--locomotion' in sys.argv:
+    bpy.context.preferences.filepaths.save_version = 0
+    bpy.context.preferences.filepaths.file_preview_type = 'NONE'
+    bpy.ops.wm.open_mainfile(filepath=str(ROOT / 'art/plutonian.blend'))
+    rig = next(obj for obj in bpy.context.scene.objects if obj.type == 'ARMATURE')
+    add_directional_walks(rig)
+    add_spear_locomotion(rig, DIRECTIONAL_WALKS)
+    save_export('plutonian')
 elif '--equipment' in sys.argv:
     equipment()
 elif '--pillars' in sys.argv:
