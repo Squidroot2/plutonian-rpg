@@ -1,4 +1,4 @@
-use crate::{GameState, camera::Orbit, quest::Dialogue, world::START};
+use crate::{GameState, camera::Orbit, quest::Dialogue, world::WorldLayout};
 use avian3d::prelude::*;
 use bevy::prelude::*;
 use std::time::Duration;
@@ -95,6 +95,7 @@ fn movement(
     orbit: Res<Orbit>,
     dialogue: Res<Dialogue>,
     thrust: Res<crate::spear::Thrust>,
+    layout: Res<WorldLayout>,
     mut input: ResMut<MovementInput>,
     spatial: SpatialQuery,
     mover: MoveAndSlide,
@@ -164,7 +165,7 @@ fn movement(
             || transform.translation.z > 35.0
             || transform.translation.z < -140.0
         {
-            transform.translation = START;
+            transform.translation = layout.start();
             player.velocity = Vec3::ZERO;
             player.jumping = false;
         }

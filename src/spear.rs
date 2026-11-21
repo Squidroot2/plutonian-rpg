@@ -10,11 +10,10 @@ use crate::{
     loading::{GameAssets, PendingScene},
     player::Player,
     quest::Dialogue,
-    world::SpawnWorld,
+    world::{SpawnWorld, WorldLayout},
 };
 
 pub const REACH: f32 = 2.5;
-pub const DUMMY_POSITION: Vec3 = Vec3::new(6.0, 2.0, 11.0);
 const IMPACT_AT: f32 = 6.0 / 24.0;
 const RECOVERY_AT: f32 = 16.0 / 24.0;
 const GRIP_HEIGHT: f32 = -0.05;
@@ -92,6 +91,7 @@ fn spawn_dummy(
     mut commands: Commands,
     assets: Res<GameAssets>,
     models: Res<Assets<Gltf>>,
+    layout: Res<WorldLayout>,
 ) {
     let scene = models
         .get(&assets.dummy)
@@ -104,7 +104,7 @@ fn spawn_dummy(
             PracticeDummy::default(),
             RigidBody::Static,
             Collider::cuboid(0.72, 1.5, 0.55),
-            Transform::from_translation(DUMMY_POSITION),
+            Transform::from_translation(layout.dummy()),
             Visibility::default(),
         ))
         .with_children(|parent| {

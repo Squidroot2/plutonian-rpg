@@ -1,9 +1,6 @@
 pub use crate::interaction::{Nearby, Target};
 use crate::inventory::{Inventory, ItemKind};
-use crate::{
-    GameState,
-    world::{CORE, KEEPER},
-};
+use crate::{GameState, world::WorldLayout};
 use bevy::prelude::*;
 
 pub struct QuestPlugin;
@@ -50,10 +47,10 @@ impl Quest {
             Self::Complete => "Beacon restored | The outpost welcomes you",
         }
     }
-    pub fn destination(self) -> Option<Vec3> {
+    pub fn destination(self, layout: WorldLayout) -> Option<Vec3> {
         match self {
-            Self::MeetKeeper | Self::ReturnCore => Some(KEEPER),
-            Self::FindCore => Some(CORE),
+            Self::MeetKeeper | Self::ReturnCore => Some(layout.keeper()),
+            Self::FindCore => Some(layout.core()),
             Self::Complete => None,
         }
     }
@@ -67,7 +64,7 @@ pub struct Beacon;
 #[derive(Component)]
 struct BeaconLens;
 #[derive(Event)]
-pub struct SpawnBeaconLens;
+pub struct SpawnBeaconLens(pub Vec3);
 impl Plugin for QuestPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Quest>()
@@ -83,7 +80,7 @@ impl Plugin for QuestPlugin {
 }
 
 fn spawn_lens(
-    _: On<SpawnBeaconLens>,
+    event: On<SpawnBeaconLens>,
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
@@ -96,7 +93,7 @@ fn spawn_lens(
             base_color: Color::srgb(0.04, 0.1, 0.13),
             ..default()
         })),
-        Transform::from_xyz(0.0, 7.5, 5.0),
+        Transform::from_translation(event.0),
     ));
 }
 fn effects(
@@ -130,7 +127,7 @@ mod tests {
         assert_eq!(q, Quest::ReturnCore);
         q.interact(Target::Keeper, &mut inventory);
         assert_eq!(q, Quest::Complete);
-        assert!(q.destination().is_none());
+        assert!(q.destination(WorldLayout::Outpost).is_none());
     }
     #[test]
     fn turn_in_requires_and_consumes_the_core() {

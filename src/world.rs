@@ -7,16 +7,53 @@ use crate::{
 use avian3d::prelude::*;
 use bevy::{gltf::Gltf, prelude::*, world_serialization::WorldInstanceReady};
 
-pub const START: Vec3 = Vec3::new(4.0, 0.5, 8.0);
-pub const KEEPER: Vec3 = Vec3::new(3.0, -0.95, -1.0);
-pub const CORE: Vec3 = Vec3::new(0.0, 2.3, -122.0);
+#[derive(Resource, Default, Clone, Copy, PartialEq, Eq)]
+pub enum WorldLayout {
+    #[default]
+    Outpost,
+    SmokeArena,
+}
+
+impl WorldLayout {
+    pub fn start(self) -> Vec3 {
+        match self {
+            Self::Outpost => Vec3::new(4.0, 0.5, 8.0),
+            Self::SmokeArena => Vec3::new(0.0, 0.905, 0.0),
+        }
+    }
+    pub fn keeper(self) -> Vec3 {
+        match self {
+            Self::Outpost => Vec3::new(3.0, -0.95, -1.0),
+            Self::SmokeArena => Vec3::new(-4.0, 0.0, 5.0),
+        }
+    }
+    pub fn core(self) -> Vec3 {
+        match self {
+            Self::Outpost => Vec3::new(0.0, 2.3, -122.0),
+            Self::SmokeArena => Vec3::new(-1.0, 0.445, 5.0),
+        }
+    }
+    pub fn dummy(self) -> Vec3 {
+        match self {
+            Self::Outpost => Vec3::new(6.0, 2.0, 11.0),
+            Self::SmokeArena => Vec3::new(6.0, 2.0, 4.0),
+        }
+    }
+    fn beacon(self) -> Vec3 {
+        match self {
+            Self::Outpost => Vec3::new(0.0, 7.5, 5.0),
+            Self::SmokeArena => Vec3::new(-4.0, 2.8, 5.0),
+        }
+    }
+}
 
 pub struct WorldPlugin;
 #[derive(Event)]
 pub struct SpawnWorld;
 impl Plugin for WorldPlugin {
     fn build(&self, app: &mut App) {
-        app.add_observer(spawn_world)
+        app.init_resource::<WorldLayout>()
+            .add_observer(spawn_world)
             .add_systems(OnExit(GameState::Loading), ground_spawned_models);
     }
 }
@@ -29,27 +66,33 @@ fn spawn_world(
     mut commands: Commands,
     assets: Res<GameAssets>,
     gltfs: Res<Assets<Gltf>>,
+    layout: Res<WorldLayout>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    commands
-        .spawn((
-            Name::new("Outpost visuals"),
-            PendingScene,
-            WorldAssetRoot(
-                gltfs
-                    .get(&assets.outpost)
-                    .expect("the validated outpost glTF must remain loaded when spawning the world")
-                    .scenes[0]
-                    .clone(),
-            ),
-        ))
-        .observe(ready);
-    commands
+    if let Some((outpost, collision)) = &assets.outpost {
+        commands
+            .spawn((
+                Name::new("Outpost visuals"),
+                PendingScene,
+                WorldAssetRoot(
+                    gltfs
+                        .get(outpost)
+                        .expect(
+                            "the validated outpost glTF must remain loaded when spawning the world",
+                        )
+                        .scenes[0]
+                        .clone(),
+                ),
+            ))
+            .observe(ready);
+        commands
         .spawn((
             Name::new("Outpost collision"),
             PendingScene,
             WorldAssetRoot(
                 gltfs
-                    .get(&assets.collision)
+                    .get(collision)
                     .expect(
                         "the validated collision glTF must remain loaded when spawning the world",
                     )
@@ -67,6 +110,9 @@ fn spawn_world(
                 info!("Collision hierarchy ready");
             },
         );
+    } else {
+        crate::smoke::spawn_arena(&mut commands, &mut meshes, &mut materials);
+    }
     let character = gltfs
         .get(&assets.character)
         .expect("the validated character glTF must remain loaded when spawning the world")
@@ -80,7 +126,7 @@ fn spawn_world(
             RigidBody::Kinematic,
             CustomPositionIntegration,
             Collider::capsule(0.32, 1.15),
-            Transform::from_translation(START),
+            Transform::from_translation(layout.start()),
         ))
         .with_children(|parent| {
             parent
@@ -96,7 +142,7 @@ fn spawn_world(
         .spawn((
             Name::new("Keeper Nemi"),
             Target::Keeper,
-            Transform::from_translation(KEEPER + Vec3::Y * 0.9),
+            Transform::from_translation(layout.keeper() + Vec3::Y * 0.9),
             Visibility::default(),
             RigidBody::Static,
             Collider::capsule(0.38, 1.3),
@@ -127,7 +173,7 @@ fn spawn_world(
                     .scenes[0]
                     .clone(),
             ),
-            Transform::from_translation(CORE),
+            Transform::from_translation(layout.core()),
         ))
         .observe(ready);
     commands.spawn((
@@ -138,7 +184,7 @@ fn spawn_world(
             range: 45.0,
             ..default()
         },
-        Transform::from_xyz(0.0, 7.5, 5.0),
+        Transform::from_translation(layout.beacon()),
     ));
     commands.spawn((
         DirectionalLight {
@@ -169,6 +215,9 @@ fn spawn_world(
             20.0,
         ),
     ] {
+        if *layout == WorldLayout::SmokeArena && position.z < -20.0 {
+            continue;
+        }
         commands.spawn((
             PointLight {
                 color,
@@ -180,7 +229,7 @@ fn spawn_world(
         ));
     }
     // Visible beacon lens, independent of the authored unlit tower.
-    commands.trigger(crate::quest::SpawnBeaconLens);
+    commands.trigger(crate::quest::SpawnBeaconLens(layout.beacon()));
 }
 
 // Resolve support against the loaded collision scene once, before play starts.

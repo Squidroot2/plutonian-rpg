@@ -4,6 +4,7 @@ use crate::{
     loading::LoadStatus,
     player::Player,
     quest::{Dialogue, Nearby, Quest, Target},
+    world::WorldLayout,
 };
 use bevy::{app::AppExit, prelude::*, window::PrimaryWindow};
 
@@ -118,7 +119,7 @@ fn setup(mut commands: Commands) {
         });
 }
 pub(crate) fn pause(
-    smoke: Option<Res<crate::smoke::Smoke>>,
+    smoke: Option<Res<crate::smoke::SmokeRun>>,
     keys: Res<ButtonInput<KeyCode>>,
     state: Res<State<GameState>>,
     mut next: ResMut<NextState<GameState>>,
@@ -172,6 +173,7 @@ fn display(
     state: Res<State<GameState>>,
     status: Res<LoadStatus>,
     quest: Res<Quest>,
+    layout: Res<WorldLayout>,
     dialogue: Res<Dialogue>,
     nearby: Res<Nearby>,
     player: Query<&Transform, With<Player>>,
@@ -182,16 +184,21 @@ fn display(
     )>,
     mut pause: Query<&mut Visibility, (With<PausePanel>, Without<DialogueText>)>,
 ) {
-    let distance = player
-        .iter()
-        .next()
-        .and_then(|p| quest.destination().map(|d| p.translation.distance(d)));
+    let distance = player.iter().next().and_then(|p| {
+        quest
+            .destination(*layout)
+            .map(|d| p.translation.distance(d))
+    });
+    let location = match *layout {
+        WorldLayout::Outpost => "OUTPOST / NIVALIS",
+        WorldLayout::SmokeArena => "SMOKE ARENA",
+    };
     for mut text in &mut texts.p0() {
         **text = if *state.get() == GameState::Loading {
             String::new()
         } else {
             format!(
-                "OUTPOST / NIVALIS\n\n{}{}",
+                "{location}\n\n{}{}",
                 quest.objective(),
                 distance.map_or(String::new(), |d| format!("\n{d:.0} m"))
             )

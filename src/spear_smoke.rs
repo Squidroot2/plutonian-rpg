@@ -1,9 +1,5 @@
 //! Play the spear and trident tutorials before the equipment and quest checks.
-use bevy::{
-    input::InputSystems,
-    prelude::*,
-    render::view::screenshot::{Screenshot, save_to_disk},
-};
+use bevy::{input::InputSystems, prelude::*, render::view::screenshot::Screenshot};
 
 use crate::{
     GameState,
@@ -15,7 +11,7 @@ use crate::{
     inventory_ui::InventoryAction,
     loading::PendingScene,
     player::Player,
-    spear::{DUMMY_POSITION, GRIP_SIDE, PracticeDummy, Thrust},
+    spear::{GRIP_SIDE, PracticeDummy, Thrust},
 };
 
 pub struct SpearSmokePlugin;
@@ -32,6 +28,7 @@ pub enum SpearSmoke {
     Impact,
     Recovery,
     CaptureCarry,
+    StartMiss,
     Miss,
     Unequip,
     SelectDrop,
@@ -65,8 +62,8 @@ fn drive(
     mut smoke: ResMut<SpearSmoke>,
     state: Res<State<GameState>>,
     time: Res<Time>,
-    (mut deadline, mut captured_at, mut testing_trident): (
-        Local<Option<f32>>,
+    (mut screenshot, mut captured_at, mut testing_trident): (
+        Local<Option<Entity>>,
         Local<f32>,
         Local<bool>,
     ),
@@ -75,7 +72,10 @@ fn drive(
     nearby: Res<Nearby>,
     thrust: Res<Thrust>,
     player: Query<(&Transform, &Player)>,
-    dummy: Query<&PracticeDummy>,
+    (dummy, captures): (
+        Query<(&PracticeDummy, &Transform)>,
+        Query<(), With<Screenshot>>,
+    ),
     pickups: Query<(&Pickup, &Transform)>,
     worn: Query<&WornEquipment, Without<PendingScene>>,
     actions: Query<(Entity, &InventoryAction)>,
@@ -95,26 +95,16 @@ fn drive(
         (ItemKind::FieldSpear, "spear")
     };
     let capture = |commands: &mut Commands, stage| {
-        commands
-            .spawn(Screenshot::primary_window())
-            .observe(save_to_disk(format!(
-                "/tmp/plutonian-{screenshot_name}-{stage}.png"
-            )));
+        crate::smoke::capture(commands, &format!("{screenshot_name}-{stage}"))
     };
     let now = time.elapsed_secs();
-    assert!(
-        now < *deadline.get_or_insert(now + 25.0),
-        "{} smoke timed out in {:?}",
-        weapon.name(),
-        *smoke
-    );
     let (transform, controller) = player
         .single()
         .expect("spear smoke requires one loaded player");
     let (window, camera) = materials
         .context
         .expect("inventory smoke must provide a window and camera");
-    let dummy = dummy
+    let (dummy, dummy_transform) = dummy
         .single()
         .expect("spear smoke requires one loaded practice dummy");
     keys.reset_all();
@@ -133,7 +123,6 @@ fn drive(
                         *smoke = SpearSmoke::Done;
                     } else {
                         *testing_trident = true;
-                        *deadline = None;
                         *smoke = SpearSmoke::Collect;
                     }
                 } else {
@@ -179,16 +168,17 @@ fn drive(
         SpearSmoke::Close if worn.iter().any(|piece| piece.item == weapon) => {
             assert_eq!(equipment.get(EquipmentSlot::Weapon), Some(weapon));
             assert_eq!(inventory.count(weapon), 0);
-            capture(&mut commands, "inventory");
-            *captured_at = now;
+            *screenshot = Some(capture(&mut commands, "inventory"));
             *smoke = SpearSmoke::CaptureInventory;
         }
-        SpearSmoke::CaptureInventory if now - *captured_at > 0.2 => {
+        SpearSmoke::CaptureInventory
+            if screenshot.is_some_and(|entity| captures.get(entity).is_err()) =>
+        {
             keys.press(KeyCode::KeyI);
             *smoke = SpearSmoke::Approach;
         }
         SpearSmoke::Approach if *state.get() == GameState::Playing => {
-            let position = DUMMY_POSITION + Vec3::new(-GRIP_SIDE, 0.0, -2.0);
+            let position = dummy_transform.translation + Vec3::new(-GRIP_SIDE, 0.0, -2.0);
             if transform
                 .translation
                 .with_y(0.0)
@@ -229,13 +219,18 @@ fn drive(
         }
         SpearSmoke::Recovery if !thrust.active() && dummy.remaining == 0.0 => {
             orbit.yaw = std::f32::consts::PI;
-            capture(&mut commands, "carry");
-            *captured_at = now;
+            *screenshot = Some(capture(&mut commands, "carry"));
             *smoke = SpearSmoke::CaptureCarry;
         }
-        SpearSmoke::CaptureCarry if now - *captured_at > 0.2 => {
+        SpearSmoke::CaptureCarry
+            if screenshot.is_some_and(|entity| captures.get(entity).is_err()) =>
+        {
             orbit.yaw = 0.0;
             buttons.press(MouseButton::Left);
+            *smoke = SpearSmoke::StartMiss;
+        }
+        SpearSmoke::StartMiss => {
+            assert!(thrust.active(), "aiming away must start a real thrust");
             *smoke = SpearSmoke::Miss;
         }
         SpearSmoke::Miss => {

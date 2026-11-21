@@ -1,4 +1,4 @@
-//! Drives the inventory through normal key handling and UI pointer observers before the quest run.
+//! Exercises pickup, quantities, and dropping through the live inventory UI.
 use crate::{
     GameState,
     camera::{FollowCamera, Orbit},
@@ -18,46 +18,44 @@ use bevy::{
         pointer::{Location, PointerButton, PointerId},
     },
     prelude::*,
+    render::view::screenshot::Screenshot,
     window::WindowRef,
 };
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 pub struct InventorySmokePlugin;
 #[derive(Resource)]
 pub struct InventorySmoke {
     pub done: bool,
-    pub equipment_ready: bool,
-    pub equipment_busy: bool,
-    pub equipment_done: bool,
     pub context: Option<(Entity, Entity)>,
     phase: u8,
     collected: usize,
-    timer: f32,
+    frozen_at: Duration,
+    screenshot: Option<Entity>,
     position: Vec3,
     yaw: f32,
-    start: Instant,
 }
+impl InventorySmoke {
+    pub fn phase(&self) -> u8 {
+        self.phase
+    }
+}
+
 impl Plugin for InventorySmokePlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(InventorySmoke {
             done: false,
-            equipment_ready: false,
-            equipment_busy: true,
-            equipment_done: false,
             context: None,
-            phase: 0,
+            phase: 1,
             collected: 0,
-            timer: 0.0,
+            frozen_at: Duration::ZERO,
+            screenshot: None,
             position: Vec3::ZERO,
             yaw: 0.0,
-            start: Instant::now(),
         })
         .add_systems(
             PreUpdate,
-            drive
-                .after(InputSystems)
-                .before(crate::ui::pause)
-                .before(crate::smoke::drive),
+            drive.after(InputSystems).before(crate::ui::pause),
         );
     }
 }
@@ -106,7 +104,8 @@ pub(crate) fn walk(
 pub(crate) fn drive(
     mut smoke: ResMut<InventorySmoke>,
     state: Res<State<GameState>>,
-    time: Res<Time>,
+    fixed: Res<Time<Fixed>>,
+    captures: Query<(), With<Screenshot>>,
     mut keys: ResMut<ButtonInput<KeyCode>>,
     mut orbit: ResMut<Orbit>,
     inventory: Res<Inventory>,
@@ -124,16 +123,6 @@ pub(crate) fn drive(
         return;
     }
     keys.reset_all();
-    assert!(
-        smoke.start.elapsed().as_secs() < 120,
-        "inventory smoke timed out at phase {}",
-        smoke.phase
-    );
-    assert_ne!(
-        *state.get(),
-        GameState::Failed,
-        "inventory assets failed to load"
-    );
     if *state.get() == GameState::Loading {
         return;
     }
@@ -147,20 +136,7 @@ pub(crate) fn drive(
         .single()
         .expect("the inventory smoke test requires exactly one follow camera");
     smoke.context = Some((window, camera));
-    let now = time.elapsed_secs();
     match smoke.phase {
-        0 => {
-            if transform.translation.z > -14.0 {
-                walk(
-                    &mut keys,
-                    &mut orbit,
-                    transform.translation,
-                    Vec3::new(4.0, 0.0, -15.0),
-                );
-            } else {
-                smoke.phase = 1;
-            }
-        }
         1 => {
             let order = [
                 ItemKind::MethanePouch,
@@ -200,7 +176,7 @@ pub(crate) fn drive(
         2 if *state.get() == GameState::Inventory => {
             smoke.position = transform.translation;
             smoke.yaw = orbit.yaw;
-            smoke.timer = now;
+            smoke.frozen_at = fixed.elapsed();
             smoke.phase = 3;
         }
         3 => {
@@ -213,7 +189,7 @@ pub(crate) fn drive(
                 "inventory did not freeze movement/gravity"
             );
             assert_eq!(smoke.yaw, orbit.yaw);
-            if now - smoke.timer > 0.5 {
+            if fixed.elapsed() - smoke.frozen_at >= fixed.timestep() * 3 {
                 click(
                     &mut commands,
                     InventoryAction::Select(ItemKind::Battery),
@@ -258,9 +234,7 @@ pub(crate) fn drive(
         }
         7 => {
             assert_eq!(ui.amount(&inventory), Some(1));
-            commands
-                .spawn(Screenshot::primary_window())
-                .observe(save_to_disk("/tmp/plutonian-inventory.png"));
+            smoke.screenshot = Some(crate::smoke::capture(&mut commands, "inventory"));
             click(
                 &mut commands,
                 InventoryAction::Drop,
@@ -268,11 +242,13 @@ pub(crate) fn drive(
                 window,
                 camera,
             );
-            smoke.timer = now;
             smoke.phase = 8;
         }
         8 => {
-            if now - smoke.timer > 0.3 {
+            if smoke
+                .screenshot
+                .is_some_and(|entity| captures.get(entity).is_err())
+            {
                 assert_eq!(
                     inventory.count(ItemKind::Battery),
                     1,
@@ -312,4 +288,3 @@ pub(crate) fn drive(
         _ => (),
     }
 }
-use bevy::render::view::screenshot::{Screenshot, save_to_disk};

@@ -1,14 +1,19 @@
-//! Opt-in end-to-end desktop check using the real input, controller, and quest systems.
+//! Opt-in desktop checks for live gameplay and shipped-map collisions.
 use crate::{
     GameState,
     camera::Orbit,
+    equipment_smoke::EquipmentSmoke,
+    interaction::{InteractionTarget, Nearby, Target},
     inventory::{Inventory, ItemKind},
-    inventory_smoke::InventorySmoke,
-    inventory_ui::InventoryAction,
+    inventory_smoke::{InventorySmoke, click, walk},
+    inventory_ui::{InventoryAction, InventoryUiState},
+    loading::LoadStatus,
     player::Player,
-    quest::{Dialogue, Nearby, Quest},
-    world::{CORE, KEEPER},
+    quest::{Beacon, Dialogue, Quest},
+    spear_smoke::SpearSmoke,
+    world::WorldLayout,
 };
+use avian3d::prelude::*;
 use bevy::{
     app::AppExit,
     input::InputSystems,
@@ -17,26 +22,82 @@ use bevy::{
 };
 use std::time::{Duration, Instant};
 
-pub struct SmokePlugin;
-#[derive(Resource)]
-pub(crate) struct Smoke {
-    start: Instant,
-    action_at: f32,
-    quest: Quest,
-    waypoint: usize,
-    captured: bool,
-    completed_at: Option<f32>,
-    jumped: bool,
-    airborne: bool,
-    landed: bool,
-    fall_at: Option<f32>,
-    paused: bool,
-    pause_position: Option<Vec3>,
-    core_ui: u8,
+pub const ARENA_LOOT: [(ItemKind, f32, f32); 10] = [
+    (ItemKind::MethanePouch, -2.0, 0.0),
+    (ItemKind::Scrap, -3.0, 1.3),
+    (ItemKind::Battery, -4.0, 0.0),
+    (ItemKind::Battery, -5.0, 1.3),
+    (ItemKind::FieldSpear, 4.0, 0.0),
+    (ItemKind::Trident, 7.5, 1.0),
+    (ItemKind::FieldArmor, -3.0, -4.0),
+    (ItemKind::FieldHelmet, 0.0, -4.0),
+    (ItemKind::ReinforcedArmor, 3.0, -4.0),
+    (ItemKind::ReinforcedHelmet, 6.0, -4.0),
+];
+
+const WALL: Vec3 = Vec3::new(0.0, 1.0, 9.0);
+const TIMEOUT: Duration = Duration::from_secs(60);
+
+#[derive(Component)]
+pub struct ArenaFloor;
+
+pub fn spawn_arena(
+    commands: &mut Commands,
+    meshes: &mut Assets<Mesh>,
+    materials: &mut Assets<StandardMaterial>,
+) {
+    let floor = Vec3::new(28.0, 1.0, 28.0);
+    commands.spawn((
+        ArenaFloor,
+        Name::new("Smoke arena floor"),
+        Mesh3d(meshes.add(Cuboid::from_size(floor))),
+        MeshMaterial3d(materials.add(Color::srgb(0.16, 0.23, 0.32))),
+        RigidBody::Static,
+        Collider::cuboid(floor.x, floor.y, floor.z),
+        Transform::from_xyz(0.0, -0.5, 0.0),
+    ));
+    let wall = Vec3::new(4.0, 2.0, 0.4);
+    commands.spawn((
+        Name::new("Smoke arena wall"),
+        Mesh3d(meshes.add(Cuboid::from_size(wall))),
+        MeshMaterial3d(materials.add(Color::srgb(0.4, 0.24, 0.12))),
+        RigidBody::Static,
+        Collider::cuboid(wall.x, wall.y, wall.z),
+        Transform::from_translation(WALL),
+    ));
 }
+
+pub struct SmokePlugin {
+    pub arena: bool,
+    pub fullscreen: bool,
+}
+
+#[derive(Resource)]
+pub(crate) struct SmokeRun(Instant);
+
+#[derive(Resource, Debug, Default)]
+enum ArenaStep {
+    #[default]
+    CaptureArena,
+    Pause(Entity),
+    Paused {
+        position: Vec3,
+        started: Duration,
+    },
+    Quest,
+    SelectCore,
+    CheckCore,
+    TryCoreDrop(Entity),
+    CloseCore,
+    Fall(Entity),
+    Recover,
+}
+
 impl Plugin for SmokePlugin {
     fn build(&self, app: &mut App) {
-        if std::env::args().any(|arg| arg == "--smoke-fullscreen") {
+        app.insert_resource(SmokeRun(Instant::now()))
+            .add_systems(Update, watchdog);
+        if self.fullscreen {
             app.add_systems(Startup, |mut windows: Query<&mut Window>| {
                 for mut window in &mut windows {
                     window.mode = bevy::window::WindowMode::BorderlessFullscreen(
@@ -45,251 +106,253 @@ impl Plugin for SmokePlugin {
                 }
             });
         }
-        app.add_systems(
-            OnEnter(GameState::Playing),
-            check_pillar_collision.run_if(run_once),
-        );
-        app.insert_resource(Smoke {
-            start: Instant::now(),
-            action_at: 0.0,
-            quest: Quest::MeetKeeper,
-            waypoint: 0,
-            captured: false,
-            completed_at: None,
-            jumped: false,
-            airborne: false,
-            landed: false,
-            fall_at: None,
-            paused: false,
-            pause_position: None,
-            core_ui: 0,
-        })
-        .add_systems(
-            PreUpdate,
-            drive
-                .after(InputSystems)
-                .before(crate::player::input)
-                .before(crate::ui::pause),
-        );
+        if self.arena {
+            app.insert_resource(WorldLayout::SmokeArena)
+                .init_resource::<ArenaStep>()
+                .add_systems(
+                    OnEnter(GameState::Playing),
+                    check_arena_wall.run_if(run_once),
+                )
+                .add_systems(
+                    PreUpdate,
+                    drive
+                        .after(InputSystems)
+                        .after(crate::equipment_smoke::drive)
+                        .before(crate::player::input)
+                        .before(crate::ui::pause),
+                );
+        } else {
+            app.add_systems(
+                OnEnter(GameState::Playing),
+                check_pillar_collision.run_if(run_once),
+            )
+            .add_systems(
+                Update,
+                finish_world_check.run_if(in_state(GameState::Playing)),
+            );
+        }
     }
 }
-pub(crate) fn drive(
-    inventory_smoke: Res<InventorySmoke>,
-    inventory: Res<Inventory>,
-    actions: Query<(Entity, &InventoryAction)>,
-    mut last_debug: Local<f32>,
-    mut smoke: ResMut<Smoke>,
-    time: Res<Time>,
+
+fn watchdog(
+    run: Res<SmokeRun>,
     state: Res<State<GameState>>,
-    mut next: ResMut<NextState<GameState>>,
-    quest: Res<Quest>,
-    dialogue: Res<Dialogue>,
-    nearby: Res<Nearby>,
-    mut player: Query<(&mut Transform, &Player)>,
+    status: Res<LoadStatus>,
+    inventory: Option<Res<InventorySmoke>>,
+    weapons: Option<Res<SpearSmoke>>,
+    armor: Option<Res<EquipmentSmoke>>,
+    arena: Option<Res<ArenaStep>>,
+) {
+    assert_ne!(
+        *state.get(),
+        GameState::Failed,
+        "smoke test asset loading failed: {:?}",
+        status.error
+    );
+    assert!(
+        run.0.elapsed() < TIMEOUT,
+        "smoke test timed out in {:?}; inventory {:?}, weapons {:?}, armor {:?}, arena {:?}",
+        state.get(),
+        inventory.as_deref().map(InventorySmoke::phase),
+        weapons.as_deref(),
+        armor.as_deref().map(EquipmentSmoke::stage),
+        arena.as_deref(),
+    );
+}
+
+pub(crate) fn capture(commands: &mut Commands, name: &str) -> Entity {
+    commands
+        .spawn(Screenshot::primary_window())
+        .observe(save_to_disk(format!("/tmp/plutonian-{name}.png")))
+        .id()
+}
+
+fn drive(
+    (inventory_smoke, armor, run): (Res<InventorySmoke>, Res<EquipmentSmoke>, Res<SmokeRun>),
+    (inventory, ui, actions): (
+        Res<Inventory>,
+        Res<InventoryUiState>,
+        Query<(Entity, &InventoryAction)>,
+    ),
+    (mut step, mut core_checked, fixed): (ResMut<ArenaStep>, Local<bool>, Res<Time<Fixed>>),
+    (state, quest, dialogue, nearby): (
+        Res<State<GameState>>,
+        Res<Quest>,
+        Res<Dialogue>,
+        Res<Nearby>,
+    ),
+    mut player: Query<(&mut Transform, &Player), With<Player>>,
+    targets: Query<(&Target, &Transform), Without<Player>>,
+    beacon: Query<&PointLight, With<Beacon>>,
+    layout: Res<WorldLayout>,
+    captures: Query<(), With<Screenshot>>,
     mut orbit: ResMut<Orbit>,
     mut keys: ResMut<ButtonInput<KeyCode>>,
     mut commands: Commands,
     mut exit: MessageWriter<AppExit>,
 ) {
-    if !inventory_smoke.done || !inventory_smoke.equipment_ready || inventory_smoke.equipment_busy {
+    if !armor.done() {
         return;
     }
+    let (mut transform, controller) = player.single_mut().expect("the arena must have one player");
     keys.reset_all();
-    assert!(
-        smoke.start.elapsed().as_secs() < 180,
-        "smoke test timed out at {:?}, waypoint {}",
-        *quest,
-        smoke.waypoint
-    );
-    assert!(*state.get() != GameState::Failed, "asset loading failed");
-    let Ok((mut transform, controller)) = player.single_mut() else {
-        return;
+    let click_action = |commands: &mut Commands, action| {
+        let (window, camera) = inventory_smoke
+            .context
+            .expect("the inventory smoke phase must supply the window and camera for the quest UI");
+        click(commands, action, &actions, window, camera);
     };
-    let now = time.elapsed_secs();
-    if now - *last_debug > 3.0 {
-        info!(
-            "SMOKE: state {:?}, position {:?}, grounded {}, velocity {:?}, waypoint {}",
-            state.get(),
-            transform.translation,
-            controller.grounded,
-            controller.velocity,
-            smoke.waypoint
-        );
-        *last_debug = now;
-    }
-    if smoke.jumped && !controller.grounded {
-        smoke.airborne = true;
-    }
-    if smoke.airborne && controller.grounded {
-        smoke.landed = true;
-    }
-    if *state.get() == GameState::Inventory && smoke.core_ui > 0 {
-        assert_eq!(inventory.count(ItemKind::BeaconCore), 1);
-        if smoke.core_ui == 1 {
-            let (window, camera) = inventory_smoke.context.expect("the completed inventory smoke phase must have recorded the window and camera before the quest UI check");
-            crate::inventory_smoke::click(
-                &mut commands,
-                InventoryAction::Select(ItemKind::BeaconCore),
-                &actions,
-                window,
-                camera,
-            );
-            smoke.core_ui = 2;
-            smoke.action_at = now;
-        } else if smoke.core_ui == 2 && now - smoke.action_at > 0.4 {
-            commands
-                .spawn(Screenshot::primary_window())
-                .observe(save_to_disk("/tmp/plutonian-quest-inventory.png"));
-            smoke.core_ui = 3;
-            smoke.action_at = now;
-        } else if smoke.core_ui == 3 && now - smoke.action_at > 0.3 {
-            keys.press(KeyCode::KeyI);
-            smoke.core_ui = 4;
+    match *step {
+        ArenaStep::CaptureArena if *state.get() == GameState::Playing && controller.grounded => {
+            *step = ArenaStep::Pause(capture(&mut commands, "smoke-arena"));
         }
-        return;
-    }
-    if *state.get() == GameState::Paused {
-        let position = smoke.pause_position.expect(
-            "the smoke test must record the player position before entering its pause check",
-        );
-        assert!(
-            position.distance(transform.translation) < 0.01,
-            "player moved while paused"
-        );
-        if now - smoke.action_at > 0.5 {
-            next.set(GameState::Playing);
-            smoke.paused = true;
+        ArenaStep::Pause(capture) if captures.get(capture).is_err() => {
+            keys.press(KeyCode::Escape);
+            *step = ArenaStep::Paused {
+                position: transform.translation,
+                started: fixed.elapsed(),
+            };
         }
-        return;
-    }
-    if *state.get() != GameState::Playing {
-        return;
-    }
-    if !smoke.paused && controller.grounded {
-        smoke.pause_position = Some(transform.translation);
-        smoke.action_at = now;
-        next.set(GameState::Paused);
-        return;
-    }
-    if !smoke.paused {
-        return;
-    }
-    if !smoke.captured {
-        commands
-            .spawn(Screenshot::primary_window())
-            .observe(save_to_disk("/tmp/plutonian-outpost.png"));
-        smoke.captured = true;
-        info!("SMOKE: loaded scenes, grounded player, pause/resume verified");
-    }
-    if smoke.quest != *quest {
-        smoke.quest = *quest;
-        smoke.waypoint = 0;
-        smoke.action_at = now;
-        info!("SMOKE: quest stage {:?}", *quest);
-        if *quest == Quest::ReturnCore {
-            assert_eq!(inventory.count(ItemKind::BeaconCore), 1);
-            commands
-                .spawn(Screenshot::primary_window())
-                .observe(save_to_disk("/tmp/plutonian-cavern.png"));
-        }
-    }
-    if dialogue.text.is_some() {
-        if now - smoke.action_at > 1.0 {
-            keys.press(KeyCode::KeyE);
-            smoke.action_at = now;
-        }
-        return;
-    }
-    if *quest == Quest::ReturnCore && smoke.core_ui == 0 {
-        keys.press(KeyCode::KeyI);
-        smoke.core_ui = 1;
-        return;
-    }
-    if *quest == Quest::Complete {
-        assert!(
-            inventory_smoke.equipment_done,
-            "the equipment playthrough must finish before quest completion"
-        );
-        assert_eq!(inventory.count(ItemKind::BeaconCore), 0);
-        if smoke.completed_at.is_none() {
-            commands
-                .spawn(Screenshot::primary_window())
-                .observe(save_to_disk("/tmp/plutonian-beacon.png"));
-            smoke.completed_at = Some(now);
-        }
-        if now
-            - smoke.completed_at.expect(
-                "the completion timestamp must be initialized before checking the post-quest delay",
-            )
-            > 2.0
-        {
+        ArenaStep::Paused { position, started } if *state.get() == GameState::Paused => {
+            keys.press(KeyCode::KeyW);
             assert!(
-                smoke.airborne && smoke.landed,
-                "jump did not leave the ground and land"
+                position.distance(transform.translation) < 0.01,
+                "player moved while paused"
             );
-            if let Some(fell_at) = smoke.fall_at {
-                if now - fell_at > 0.5 {
-                    assert!(
-                        transform.translation.distance(crate::world::START) < 2.0,
-                        "fall recovery failed"
-                    );
-                    assert_eq!(*quest, Quest::Complete);
-                    info!(
-                        "SMOKE PASS: walked to cavern and back, jumped and landed, collected core, completed quest, recovered from fall"
-                    );
-                    exit.write(AppExit::Success);
-                }
-            } else {
-                transform.translation.y = -20.0;
-                smoke.fall_at = Some(now);
+            if fixed.elapsed() - started >= fixed.timestep() * 3 {
+                keys.press(KeyCode::Escape);
+                *step = ArenaStep::Quest;
             }
         }
-        return;
+        ArenaStep::Quest if *state.get() == GameState::Playing => {
+            if dialogue.text.is_some() {
+                keys.press(KeyCode::KeyE);
+                return;
+            }
+            if *quest == Quest::Complete {
+                assert_eq!(inventory.count(ItemKind::BeaconCore), 0);
+                assert!(
+                    beacon.single().is_ok_and(|light| light.intensity > 0.0),
+                    "turning in the core must light the beacon"
+                );
+                *step = ArenaStep::Fall(capture(&mut commands, "beacon"));
+                return;
+            }
+            if *quest == Quest::ReturnCore && !*core_checked {
+                assert_eq!(inventory.count(ItemKind::BeaconCore), 1);
+                keys.press(KeyCode::KeyI);
+                *step = ArenaStep::SelectCore;
+                return;
+            }
+            let target = match *quest {
+                Quest::MeetKeeper | Quest::ReturnCore => Target::Keeper,
+                Quest::FindCore => Target::Core,
+                Quest::Complete => unreachable!(),
+            };
+            if matches!(nearby.0, Some((_, InteractionTarget::Quest(current))) if current == target)
+            {
+                keys.press(KeyCode::KeyE);
+            } else {
+                let (_, destination) = targets
+                    .iter()
+                    .find(|(current, _)| **current == target)
+                    .expect("the active quest target must have a world entity");
+                walk(
+                    &mut keys,
+                    &mut orbit,
+                    transform.translation,
+                    destination.translation,
+                );
+            }
+        }
+        ArenaStep::SelectCore if *state.get() == GameState::Inventory => {
+            click_action(&mut commands, InventoryAction::Select(ItemKind::BeaconCore));
+            *step = ArenaStep::CheckCore;
+        }
+        ArenaStep::CheckCore => {
+            assert_eq!(ui.selected, Some(ItemKind::BeaconCore));
+            assert_eq!(
+                ui.amount(&inventory),
+                None,
+                "the core must be protected in inventory"
+            );
+            *step = ArenaStep::TryCoreDrop(capture(&mut commands, "quest-inventory"));
+        }
+        ArenaStep::TryCoreDrop(capture) if captures.get(capture).is_err() => {
+            click_action(&mut commands, InventoryAction::Drop);
+            *step = ArenaStep::CloseCore;
+        }
+        ArenaStep::CloseCore => {
+            assert_eq!(inventory.count(ItemKind::BeaconCore), 1);
+            *core_checked = true;
+            keys.press(KeyCode::KeyI);
+            *step = ArenaStep::Quest;
+        }
+        ArenaStep::Fall(capture) if captures.get(capture).is_err() => {
+            transform.translation.y = -20.0;
+            *step = ArenaStep::Recover;
+        }
+        ArenaStep::Recover
+            if controller.grounded && transform.translation.distance(layout.start()) < 0.1 =>
+        {
+            assert_eq!(*quest, Quest::Complete);
+            assert_eq!(inventory.count(ItemKind::BeaconCore), 0);
+            info!(
+                "SMOKE PASS: arena gameplay checks completed in {:.2}s",
+                run.0.elapsed().as_secs_f64()
+            );
+            exit.write(AppExit::Success);
+        }
+        _ => {}
     }
-    let destination = match *quest {
-        Quest::MeetKeeper => KEEPER,
-        Quest::FindCore => {
-            let points = [
-                Vec3::new(-3.2, 0.0, -20.0),
-                Vec3::new(-3.2, 0.0, -65.0),
-                Vec3::new(-3.2, 0.0, -100.0),
-                CORE + Vec3::Z * 2.3,
-            ];
-            points[smoke.waypoint.min(3)]
-        }
-        Quest::ReturnCore => {
-            let points = [
-                Vec3::new(-3.2, 0.0, -100.0),
-                Vec3::new(-3.2, 0.0, -65.0),
-                Vec3::new(-3.2, 0.0, -20.0),
-                KEEPER,
-            ];
-            points[smoke.waypoint.min(3)]
-        }
-        Quest::Complete => unreachable!(),
+}
+
+fn check_arena_wall(players: Query<&Collider, With<Player>>, mover: MoveAndSlide) {
+    let capsule = players
+        .single()
+        .expect("arena collision check requires one player capsule");
+    let position = mover
+        .move_and_slide(
+            capsule,
+            WALL + Vec3::new(0.0, -0.085, -2.0),
+            Quat::IDENTITY,
+            Vec3::Z * 5.0,
+            Duration::from_secs(1),
+            &MoveAndSlideConfig::default(),
+            &SpatialQueryFilter::default(),
+            |_| MoveAndSlideHitResponse::Accept,
+        )
+        .position;
+    assert!(
+        (0.45..0.65).contains(&(WALL.z - position.z)),
+        "the movement capsule must approach and stop at the arena wall, position {position:?}"
+    );
+    info!("ARENA COLLISION PASS: wall stops the character capsule");
+}
+
+fn finish_world_check(
+    run: Res<SmokeRun>,
+    player: Query<(&Player, &Transform)>,
+    captures: Query<(), With<Screenshot>>,
+    mut screenshot: Local<Option<Entity>>,
+    mut commands: Commands,
+    mut exit: MessageWriter<AppExit>,
+) {
+    let Ok((controller, transform)) = player.single() else {
+        return;
     };
-    let delta = (destination - transform.translation).with_y(0.0);
-    if nearby.0.is_some() && (*quest == Quest::MeetKeeper || smoke.waypoint >= 3) {
-        if now - smoke.action_at > 0.4 {
-            keys.press(KeyCode::KeyE);
-            smoke.action_at = now;
+    if let Some(entity) = *screenshot {
+        if captures.get(entity).is_err() {
+            info!(
+                "WORLD SMOKE PASS: shipped map, player grounding, and authored pillars verified in {:.2}s",
+                run.0.elapsed().as_secs_f64()
+            );
+            exit.write(AppExit::Success);
         }
-        return;
-    }
-    if delta.length() < 0.5 && smoke.waypoint < 3 && *quest != Quest::MeetKeeper {
-        smoke.waypoint += 1;
-        return;
-    }
-    orbit.yaw = (-delta.x).atan2(-delta.z);
-    keys.press(KeyCode::KeyW);
-    keys.press(KeyCode::ShiftLeft);
-    if *quest == Quest::FindCore
-        && transform.translation.z < -28.0
-        && !smoke.jumped
-        && controller.grounded
-    {
-        keys.press(KeyCode::Space);
-        smoke.jumped = true;
+    } else if controller.grounded {
+        let start = WorldLayout::Outpost.start();
+        assert!(transform.translation.xz().distance(start.xz()) < 0.01);
+        *screenshot = Some(capture(&mut commands, "outpost"));
     }
 }
 

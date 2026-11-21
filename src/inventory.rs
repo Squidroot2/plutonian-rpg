@@ -7,7 +7,7 @@ use crate::{
     GameState,
     loading::{GameAssets, PendingScene},
     player::Player,
-    world::SpawnWorld,
+    world::{SpawnWorld, WorldLayout},
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -161,7 +161,20 @@ fn spawn_loot(
     mut commands: Commands,
     assets: Res<GameAssets>,
     gltfs: Res<Assets<Gltf>>,
+    layout: Res<WorldLayout>,
 ) {
+    if *layout == WorldLayout::SmokeArena {
+        for (item, x, z) in crate::smoke::ARENA_LOOT {
+            spawn_pickup(
+                &mut commands,
+                &assets,
+                &gltfs,
+                Pickup { item, quantity: 1 },
+                Vec3::new(x, 2.0, z),
+            );
+        }
+        return;
+    }
     // Two of each material in each region; all positions stay inside the traversable corridor.
     for region_z in [-2.0, -55.0, -110.0] {
         for (index, item) in ItemKind::MATERIALS.into_iter().enumerate() {

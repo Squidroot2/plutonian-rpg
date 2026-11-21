@@ -2,6 +2,7 @@ use crate::{
     GameState,
     inventory::ItemKind,
     player::{AnimationLibrary, CLIPS},
+    world::WorldLayout,
 };
 use bevy::{
     asset::{LoadState, RecursiveDependencyLoadState},
@@ -21,8 +22,7 @@ impl Plugin for LoadingPlugin {
 #[derive(Resource)]
 pub struct GameAssets {
     pub character: Handle<Gltf>,
-    pub outpost: Handle<Gltf>,
-    pub collision: Handle<Gltf>,
+    pub outpost: Option<(Handle<Gltf>, Handle<Gltf>)>,
     pub core: Handle<Gltf>,
     pub dummy: Handle<Gltf>,
     pub pickups: BTreeMap<ItemKind, Handle<Gltf>>,
@@ -38,11 +38,15 @@ pub struct LoadStatus {
     pub collision_ready: bool,
     pub started: Option<std::time::Instant>,
 }
-fn load(mut commands: Commands, server: Res<AssetServer>) {
+fn load(mut commands: Commands, server: Res<AssetServer>, layout: Res<WorldLayout>) {
     commands.insert_resource(GameAssets {
         character: server.load("models/plutonian.glb"),
-        outpost: server.load("models/outpost.glb"),
-        collision: server.load("models/collision.glb"),
+        outpost: (*layout == WorldLayout::Outpost).then(|| {
+            (
+                server.load("models/outpost.glb"),
+                server.load("models/collision.glb"),
+            )
+        }),
         core: server.load("models/core.glb"),
         dummy: server.load("models/practice_dummy.glb"),
         pickups: ItemKind::MATERIALS
@@ -70,23 +74,25 @@ fn check(
     mut status: ResMut<LoadStatus>,
     mut next: ResMut<NextState<GameState>>,
     pending: Query<(), With<PendingScene>>,
+    spatial: avian3d::prelude::SpatialQuery,
+    arena_floor: Query<Entity, With<crate::smoke::ArenaFloor>>,
     colliders: Query<&avian3d::prelude::Collider, Without<crate::player::Player>>,
 ) {
     let started = *status.started.get_or_insert_with(std::time::Instant::now);
     if started.elapsed().as_secs() > 90 {
         status.error = Some("Timed out while loading or preparing the world".into());
     }
-    let handles = [
-        &assets.character,
-        &assets.outpost,
-        &assets.collision,
-        &assets.core,
-        &assets.dummy,
-    ]
-    .into_iter()
-    .chain(assets.pickups.values())
-    .chain(assets.worn.values())
-    .collect::<Vec<_>>();
+    let handles = [&assets.character, &assets.core, &assets.dummy]
+        .into_iter()
+        .chain(
+            assets
+                .outpost
+                .iter()
+                .flat_map(|(outpost, collision)| [outpost, collision]),
+        )
+        .chain(assets.pickups.values())
+        .chain(assets.worn.values())
+        .collect::<Vec<_>>();
     for handle in &handles {
         let handle = *handle;
 
@@ -105,7 +111,22 @@ fn check(
     }
     if status.spawning {
         // Scene-ready events alone do not guarantee physics constructors have finished.
-        if pending.is_empty() && status.collision_ready && colliders.iter().count() > 1 {
+        let arena_ready = arena_floor.single().is_ok_and(|floor| {
+            use avian3d::prelude::SpatialQueryFilter;
+            spatial
+                .cast_ray(
+                    Vec3::new(0.0, 5.0, -12.0),
+                    Dir3::NEG_Y,
+                    6.0,
+                    true,
+                    &SpatialQueryFilter::default(),
+                )
+                .is_some_and(|hit| hit.entity == floor)
+        });
+        if pending.is_empty()
+            && (status.collision_ready || arena_ready)
+            && colliders.iter().count() > 1
+        {
             next.set(GameState::Playing);
         }
         return;

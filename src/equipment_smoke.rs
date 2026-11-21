@@ -9,15 +9,10 @@ use crate::{
     inventory_ui::{InventoryAction, InventoryScreen},
     loading::PendingScene,
     player::Player,
-    quest::Quest,
 };
 use bevy::{
-    ecs::system::SystemParam,
-    input::InputSystems,
-    prelude::*,
-    render::view::screenshot::{Screenshot, save_to_disk},
+    ecs::system::SystemParam, input::InputSystems, prelude::*, render::view::screenshot::Screenshot,
 };
-use std::time::Instant;
 
 pub struct EquipmentSmokePlugin;
 #[derive(Resource)]
@@ -25,12 +20,13 @@ pub(crate) struct EquipmentSmoke {
     stage: u16,
     heavy: bool,
     timer: f32,
-    started: Instant,
+    screenshot: Option<Entity>,
     screen_size: Option<(Val, Val)>,
 }
 #[derive(SystemParam)]
 pub(crate) struct View<'w, 's> {
-    screen: Query<'w, 's, &'static mut Node, With<InventoryScreen>>,
+    screen: Query<'w, 's, (&'static mut Node, &'static ComputedNode), With<InventoryScreen>>,
+    captures: Query<'w, 's, (), With<Screenshot>>,
     player: Query<'w, 's, (Entity, &'static Transform, &'static Player), With<Player>>,
     pickups: Query<'w, 's, (&'static Pickup, &'static Transform)>,
     actions: Query<'w, 's, (Entity, &'static InventoryAction)>,
@@ -47,13 +43,28 @@ pub(crate) struct View<'w, 's> {
     nodes: Query<'w, 's, (&'static Name, &'static GlobalTransform)>,
     parents: Query<'w, 's, &'static ChildOf>,
 }
+impl EquipmentSmoke {
+    pub fn stage(&self) -> u16 {
+        self.stage
+    }
+
+    pub fn done(&self) -> bool {
+        self.stage == 60
+    }
+
+    fn captured(&self, view: &View) -> bool {
+        self.screenshot
+            .is_some_and(|entity| view.captures.get(entity).is_err())
+    }
+}
+
 impl Plugin for EquipmentSmokePlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(EquipmentSmoke {
             stage: 0,
             heavy: false,
             timer: 0.0,
-            started: Instant::now(),
+            screenshot: None,
             screen_size: None,
         })
         .add_systems(
@@ -61,7 +72,6 @@ impl Plugin for EquipmentSmokePlugin {
             drive
                 .after(InputSystems)
                 .after(crate::inventory_smoke::drive)
-                .before(crate::smoke::drive)
                 .before(crate::ui::pause),
         );
     }
@@ -137,10 +147,9 @@ fn check_worn(view: &View, equipment: &Equipment, player: Entity) -> bool {
 pub(crate) fn drive(
     spear_smoke: Res<crate::spear_smoke::SpearSmoke>,
     mut smoke: ResMut<EquipmentSmoke>,
-    mut inventory_smoke: ResMut<InventorySmoke>,
+    inventory_smoke: Res<InventorySmoke>,
     state: Res<State<GameState>>,
     time: Res<Time>,
-    quest: Res<Quest>,
     bag: Res<Inventory>,
     equipment: Res<Equipment>,
     nearby: Res<Nearby>,
@@ -150,27 +159,13 @@ pub(crate) fn drive(
     mut commands: Commands,
     mut last_log: Local<f32>,
 ) {
-    if !spear_smoke.done() || !inventory_smoke.done || inventory_smoke.equipment_done {
+    if !spear_smoke.done() || !inventory_smoke.done || smoke.done() {
         return;
     }
     let Ok((player, transform, controller)) = view.player.single() else {
         return;
     };
-    if inventory_smoke.equipment_ready && !inventory_smoke.equipment_busy {
-        if *quest == Quest::FindCore && transform.translation.z < -109.0 {
-            inventory_smoke.equipment_busy = true;
-            smoke.heavy = true;
-            smoke.stage = 100;
-        } else {
-            return;
-        }
-    }
     keys.reset_all();
-    assert!(
-        smoke.started.elapsed().as_secs() < 180,
-        "equipment smoke timed out at stage {}",
-        smoke.stage
-    );
     let now = time.elapsed_secs();
     if now - *last_log > 3.0 {
         info!(
@@ -191,9 +186,7 @@ pub(crate) fn drive(
     }
     macro_rules! photo {
         ($name:expr) => {
-            commands
-                .spawn(Screenshot::primary_window())
-                .observe(save_to_disk(format!("/tmp/plutonian-{}.png", $name)));
+            smoke.screenshot = Some(crate::smoke::capture(&mut commands, $name));
         };
     }
     match smoke.stage {
@@ -242,37 +235,43 @@ pub(crate) fn drive(
         }
         5 => {
             click!(InventoryAction::Equip);
-            smoke.timer = now;
             smoke.stage = 6;
         }
-        6 if now - smoke.timer > 0.3 && check_worn(&view, &equipment, player) => {
+        6 if check_worn(&view, &equipment, player) => {
             assert_eq!(equipment.total_defense(), 3);
             photo!("field-equipment-inventory");
-            smoke.timer = now;
             smoke.stage = 61;
         }
-        61 if now - smoke.timer > 0.2 => {
-            let mut screen = view
+        61 if smoke.captured(&view) => {
+            let (mut screen, _) = view
                 .screen
                 .single_mut()
                 .expect("equipment layout checks require one inventory screen");
             smoke.screen_size = Some((screen.width, screen.height));
             screen.width = px(640);
             screen.height = px(704);
-            smoke.timer = now;
             smoke.stage = 62;
         }
-        62 if now - smoke.timer > 0.3 => {
+        62 => {
+            let (_, computed) = view
+                .screen
+                .single_mut()
+                .expect("the narrow layout check requires one inventory screen");
+            let size = computed.size() * computed.inverse_scale_factor();
+            assert!(
+                (size - Vec2::new(640.0, 704.0)).abs().max_element() <= 1.0,
+                "the inventory must lay out at 640x704, got {size}"
+            );
+
             photo!("field-equipment-inventory-narrow");
-            smoke.timer = now;
             smoke.stage = 63;
         }
-        63 if now - smoke.timer > 0.2 => {
+        63 if smoke.captured(&view) => {
             let (width, height) = smoke
                 .screen_size
                 .take()
                 .expect("the narrow layout check must preserve the original inventory dimensions");
-            let mut screen = view
+            let (mut screen, _) = view
                 .screen
                 .single_mut()
                 .expect("equipment layout checks require one inventory screen");
@@ -289,10 +288,9 @@ pub(crate) fn drive(
         }
         8 => {
             click!(InventoryAction::Drop);
-            smoke.timer = now;
             smoke.stage = 9;
         }
-        9 if now - smoke.timer > 0.3 => {
+        9 => {
             assert_eq!(
                 bag.count(ItemKind::FieldArmor),
                 0,
@@ -322,10 +320,9 @@ pub(crate) fn drive(
         }
         12 => {
             click!(InventoryAction::Equip);
-            smoke.timer = now;
             smoke.stage = 13;
         }
-        13 if now - smoke.timer > 0.3 && check_worn(&view, &equipment, player) => {
+        13 if check_worn(&view, &equipment, player) => {
             assert_eq!(equipment.total_defense(), 3);
             keys.press(KeyCode::KeyI);
             smoke.stage = 49;
@@ -373,17 +370,15 @@ pub(crate) fn drive(
         }
         105 => {
             click!(InventoryAction::Equip);
-            smoke.timer = now;
             smoke.stage = 106;
         }
-        106 if now - smoke.timer > 0.3 && check_worn(&view, &equipment, player) => {
+        106 if check_worn(&view, &equipment, player) => {
             assert_eq!(equipment.total_defense(), 8);
             assert_eq!(bag.count(ItemKind::FieldHelmet), 1);
             photo!("reinforced-equipment-inventory");
-            smoke.timer = now;
             smoke.stage = 161;
         }
-        161 if now - smoke.timer > 0.2 => {
+        161 if smoke.captured(&view) => {
             click!(InventoryAction::Unequip(EquipmentSlot::Helmet));
             smoke.stage = 107;
         }
@@ -395,17 +390,16 @@ pub(crate) fn drive(
         }
         108 => {
             click!(InventoryAction::Equip);
-            smoke.timer = now;
             smoke.stage = 109;
         }
-        109 if now - smoke.timer > 0.3 && check_worn(&view, &equipment, player) => {
+        109 if check_worn(&view, &equipment, player) => {
             assert_eq!(equipment.total_defense(), 8);
             keys.press(KeyCode::KeyI);
             smoke.stage = 49;
         }
         49 if *state.get() == GameState::Playing => {
-            let forward = transform.rotation * Vec3::Z;
-            orbit.yaw = forward.x.atan2(forward.z);
+            // Both equipment rows face a clear strip of floor to the north.
+            orbit.yaw = 0.0;
             orbit.pitch = 0.18;
             orbit.distance = 3.7;
             smoke.timer = now;
@@ -424,6 +418,12 @@ pub(crate) fn drive(
         51 => {
             keys.press(KeyCode::KeyW);
             if now - smoke.timer > 0.5 {
+                assert!(
+                    controller.grounded
+                        && !controller.running
+                        && controller.velocity.xz().length() > 0.1,
+                    "the walk capture requires grounded walking"
+                );
                 assert!(check_worn(&view, &equipment, player));
                 photo!(if smoke.heavy {
                     "reinforced-gear-walk"
@@ -438,6 +438,12 @@ pub(crate) fn drive(
             keys.press(KeyCode::KeyW);
             keys.press(KeyCode::ShiftLeft);
             if now - smoke.timer > 0.5 {
+                assert!(
+                    controller.grounded
+                        && controller.running
+                        && controller.velocity.xz().length() > 0.1,
+                    "the sprint capture requires grounded sprinting"
+                );
                 assert!(check_worn(&view, &equipment, player));
                 photo!(if smoke.heavy {
                     "reinforced-gear-run"
@@ -471,14 +477,14 @@ pub(crate) fn drive(
             orbit.pitch = 0.22;
             orbit.distance = 5.5;
             if smoke.heavy {
-                inventory_smoke.equipment_done = true;
                 info!(
                     "EQUIPMENT SMOKE PASS: picked up both sets, equipped, swapped, unequipped, dropped/recollected, and checked all animation states"
                 );
+                smoke.stage = 60;
+            } else {
+                smoke.heavy = true;
+                smoke.stage = 100;
             }
-            inventory_smoke.equipment_ready = true;
-            inventory_smoke.equipment_busy = false;
-            smoke.stage = 60;
         }
         _ => (),
     }

@@ -61,9 +61,21 @@ fn main() {
             inventory_ui::InventoryUiPlugin,
             ui::GameUiPlugin,
         ));
-    if std::env::args().any(|arg| arg == "--smoke-test") {
+    let args: Vec<_> = std::env::args().skip(1).collect();
+    let arena = args.iter().any(|arg| arg == "--smoke-test");
+    let world = args.iter().any(|arg| arg == "--smoke-world");
+    assert!(
+        !(arena && world),
+        "choose either --smoke-test or --smoke-world"
+    );
+    if arena || world {
+        app.add_plugins(smoke::SmokePlugin {
+            arena,
+            fullscreen: args.iter().any(|arg| arg == "--smoke-fullscreen"),
+        });
+    }
+    if arena {
         app.add_plugins((
-            smoke::SmokePlugin,
             inventory_smoke::InventorySmokePlugin,
             equipment_smoke::EquipmentSmokePlugin,
             spear_smoke::SpearSmokePlugin,
