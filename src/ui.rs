@@ -110,7 +110,7 @@ fn setup(mut commands: Commands) {
             bar.spawn((
                 HealthBarTrack,
                 Node {
-                    width: px(184),
+                    width: px(368),
                     height: px(10),
                     border: UiRect::all(px(1)),
                     border_radius: BorderRadius::all(px(2)),
