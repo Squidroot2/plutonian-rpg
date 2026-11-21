@@ -590,9 +590,11 @@ def starting_tent():
                                        (-.57, -2.02, .9, .73, .45)]:
         block('solid supply crate', (x, y, height/2), (width, depth, height), crate)
         block('crate lid', (x, y, height-.046), (width+.05, depth+.05, .09), frame)
+        # Keep the latch embedded in the chest with its face proud of the lid overhang.
+        latch_y = y - math.copysign(depth/2 + .015, y)
         for side in (-1, 1):
-            block('crate latch', (x+side*width*.27, y-math.copysign(depth/2, y),
-                                  height-.105), (.09, .05, .12), stripe)
+            block('crate latch', (x+side*width*.27, latch_y, height-.105),
+                  (.09, .05, .12), stripe)
     cone('Starting tent heat lamp base', origin + Vector((lamp_x, lamp_y, .64)),
          .16, .12, basalt, .09)
     ico('Starting tent heat lamp crystal', origin + Vector((lamp_x, lamp_y, .85)),
