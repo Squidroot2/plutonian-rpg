@@ -11,6 +11,7 @@ use crate::{
         ArchiveGate, Area, DungeonProgress, DungeonTarget, GATE_LOCAL, HATCH, LOG_LOCAL, ORIGIN,
         SWITCH_LOCAL,
     },
+    enemy::{MeleePhase, MeleePursuit},
     interaction::{InteractionTarget, Nearby, Target},
     inventory::{Inventory, ItemKind},
     loot_ui::LootAction,
@@ -18,7 +19,7 @@ use crate::{
     quest::{Dialogue, Quest},
     roach::Roach,
     world::WorldLayout,
-    worm::{GROUND_OFFSET, Worm, WormPhase},
+    worm::{GROUND_OFFSET, Worm},
 };
 use avian3d::prelude::*;
 use bevy::{app::AppExit, prelude::*, render::view::screenshot::Screenshot};
@@ -79,7 +80,7 @@ pub(super) fn drive(
     ),
     progress: Res<DungeonProgress>,
     gate: Query<Entity, With<ArchiveGate>>,
-    worms: Query<(Entity, &Transform, &Worm), Without<Player>>,
+    worms: Query<(Entity, &Transform, &MeleePursuit), (With<Worm>, Without<Player>)>,
     captures: Query<(), With<Screenshot>>,
     (state, roaches, actions, window, camera): (
         Res<State<GameState>>,
@@ -250,7 +251,7 @@ pub(super) fn drive(
         }
         WorldCheck::LureWorm => {
             if junction_worm(&worms).is_some_and(
-                |worm| matches!(worm.phase, WormPhase::Windup(remaining) if remaining <= 0.36),
+                |worm| matches!(worm.phase, MeleePhase::Windup(remaining) if remaining <= 0.36),
             ) {
                 orbit.yaw = 0.68;
                 orbit.pitch = 0.32;
@@ -263,7 +264,7 @@ pub(super) fn drive(
         WorldCheck::DodgeWorm(health) => {
             walk_to(&mut keys, &mut orbit, junction);
             if junction_worm(&worms)
-                .is_some_and(|worm| matches!(worm.phase, WormPhase::Recovery(_)))
+                .is_some_and(|worm| matches!(worm.phase, MeleePhase::Recovery(_)))
             {
                 assert_eq!(
                     player_health.current(),
@@ -421,12 +422,12 @@ pub(super) fn drive(
 }
 
 fn junction_worm<'a>(
-    worms: &'a Query<(Entity, &Transform, &Worm), Without<Player>>,
-) -> Option<&'a Worm> {
+    worms: &'a Query<(Entity, &Transform, &MeleePursuit), (With<Worm>, Without<Player>)>,
+) -> Option<&'a MeleePursuit> {
     worms
         .iter()
         .find(|(_, transform, _)| {
             transform.translation.y < -7.0 && transform.translation.z > ORIGIN.z - 15.0
         })
-        .map(|(_, _, worm)| worm)
+        .map(|(_, _, pursuit)| pursuit)
 }

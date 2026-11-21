@@ -2,7 +2,7 @@ use crate::{
     GameState,
     camera::Orbit,
     inventory::scene_ready,
-    loading::{GameAssets, LoadStatus, PendingScene},
+    loading::{EnemyVisuals, GameAssets, LoadStatus, PendingScene},
     player::{Dodge, MovementInput, Player},
     quest::{Dialogue, Quest},
     roach,
@@ -121,6 +121,7 @@ fn spawn_relay(
     _: On<SpawnWorld>,
     assets: Res<GameAssets>,
     models: Res<Assets<Gltf>>,
+    enemies: Res<EnemyVisuals>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut commands: Commands,
@@ -278,19 +279,12 @@ fn spawn_relay(
 
     roach::spawn(
         &mut commands,
-        &assets,
-        &models,
+        &enemies,
         ORIGIN + Vec3::new(7.0, 1.2, -12.5),
         Area::OldRelay,
     );
     for offset in [Vec3::new(-3.5, 1.2, -10.5), Vec3::new(3.65, 1.2, -24.0)] {
-        worm::spawn(
-            &mut commands,
-            &assets,
-            &models,
-            ORIGIN + offset,
-            Area::OldRelay,
-        );
+        worm::spawn(&mut commands, &enemies, ORIGIN + offset, Area::OldRelay);
     }
 }
 

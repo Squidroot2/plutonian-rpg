@@ -12,9 +12,8 @@ use bevy::{
 use crate::{
     GameState,
     combat::{CombatSystems, ConfirmedHit, Dead},
-    roach::Roach,
+    enemy::Enemy,
     spear::Thrust,
-    worm::Worm,
 };
 
 pub(crate) struct CombatAudioPlugin;
@@ -76,7 +75,7 @@ fn play(
     sounds: Res<Sounds>,
     thrust: Res<Thrust>,
     mut hits: MessageReader<ConfirmedHit>,
-    deaths: Query<(), (Added<Dead>, Or<(With<Worm>, With<Roach>)>)>,
+    deaths: Query<(), (Added<Dead>, With<Enemy>)>,
 ) {
     if thrust.just_started() {
         spawn_sound(&mut commands, &sounds.thrust);
@@ -160,7 +159,7 @@ impl Source for Samples {
     }
 
     fn sample_rate(&self) -> SampleRate {
-        NonZeroU32::new(RATE).unwrap()
+        NonZeroU32::new(RATE).expect("the effect sample rate is nonzero")
     }
 
     fn total_duration(&self) -> Option<Duration> {

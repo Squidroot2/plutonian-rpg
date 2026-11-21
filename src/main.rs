@@ -9,6 +9,7 @@ mod combat_audio;
 mod combat_feedback;
 mod controls;
 mod dungeon;
+mod enemy;
 mod equipment;
 mod interaction;
 mod inventory;
@@ -97,7 +98,7 @@ fn main() {
             combat_feedback::CombatFeedbackPlugin,
             combat_audio::CombatAudioPlugin,
             settings::SettingsPlugin,
-            roach::RoachPlugin,
+            enemy::EnemyPlugin,
             loot_ui::LootUiPlugin,
         ));
     if arena || world {

@@ -9,17 +9,18 @@ use crate::{
     combat::{Dead, Health},
     combat_feedback::{AttackImpact, BitePulse},
     dungeon::Area,
+    enemy::{MeleePhase, MeleePursuit},
     interaction::{InteractionTarget, Nearby},
     inventory::{Inventory, ItemKind},
-    loading::GameAssets,
+    loading::EnemyVisuals,
     loot_ui::LootAction,
     player::{DODGE_KEY, Player},
     spear::{GRIP_SIDE, Thrust},
     ui::{HealthBar, HealthBarFill},
-    worm::{self, GROUND_OFFSET, Worm, WormPhase},
+    worm::{self, GROUND_OFFSET, Worm},
 };
 use avian3d::prelude::{Collider, SpatialQuery, SpatialQueryFilter};
-use bevy::{gltf::Gltf, prelude::*};
+use bevy::prelude::*;
 
 #[derive(Resource, Default)]
 pub(super) enum Encounter {
@@ -99,10 +100,18 @@ pub(super) fn check_outpost_sites(
 pub(super) fn fight(
     mut phase: ResMut<Encounter>,
     mut smoke: ResMut<SpearSmoke>,
-    assets: Option<Res<GameAssets>>,
-    models: Res<Assets<Gltf>>,
+    visuals: Option<Res<EnemyVisuals>>,
     player: Query<(&Player, &Transform, &Health)>,
-    worms: Query<(&Worm, &Transform, &Health, Has<Dead>, Option<&Collider>)>,
+    worms: Query<
+        (
+            &MeleePursuit,
+            &Transform,
+            &Health,
+            Has<Dead>,
+            Option<&Collider>,
+        ),
+        With<Worm>,
+    >,
     thrust: Res<Thrust>,
     (state, time, nearby, bag): (
         Res<State<GameState>>,
@@ -141,8 +150,7 @@ pub(super) fn fight(
         let home = (transform.translation - Vec3::Z * 4.0).with_y(GROUND_OFFSET);
         worm::spawn(
             &mut commands,
-            &assets.expect("the loaded smoke arena must provide the worm asset"),
-            &models,
+            &visuals.expect("the loaded smoke arena must provide the worm visuals"),
             home,
             Area::Surface,
         );
@@ -155,7 +163,7 @@ pub(super) fn fight(
         .single()
         .expect("the encounter worm must remain spawned");
     match *phase {
-        Encounter::Pursuit(home) if matches!(worm.phase, WormPhase::Windup(_)) => {
+        Encounter::Pursuit(home) if matches!(worm.phase, MeleePhase::Windup(_)) => {
             assert!(
                 enemy.translation.distance(home) > 1.0,
                 "worm must pursue before biting"
@@ -168,7 +176,7 @@ pub(super) fn fight(
             *phase = Encounter::Dodge { start: None };
         }
         Encounter::Dodge { start } => {
-            if let WormPhase::Windup(remaining) = worm.phase {
+            if let MeleePhase::Windup(remaining) = worm.phase {
                 if remaining <= 0.27 && start.is_none() && controller.grounded {
                     orbit.yaw = 0.0;
                     keys.press(KeyCode::KeyS);
@@ -177,7 +185,7 @@ pub(super) fn fight(
                         start: Some(transform.translation),
                     };
                 }
-            } else if matches!(worm.phase, WormPhase::Recovery(_)) {
+            } else if matches!(worm.phase, MeleePhase::Recovery(_)) {
                 let start = start.expect("the player must dodge before the worm bites");
                 assert!(
                     transform.translation.z - start.z > 0.95,
@@ -212,7 +220,7 @@ pub(super) fn fight(
                 Some(&Visibility::Visible),
                 "an accepted bite must show the screen pulse"
             );
-            assert!(matches!(worm.phase, WormPhase::Recovery(_)));
+            assert!(matches!(worm.phase, MeleePhase::Recovery(_)));
             orbit.yaw = 1.05;
             capture(&mut commands, "worm-bite");
             *phase = Encounter::Fight { captured: false };
