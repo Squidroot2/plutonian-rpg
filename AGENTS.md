@@ -2,34 +2,39 @@
 
 ## Project Structure & Module Organization
 
-This Linux desktop RPG uses Rust 2024, Bevy 0.20, and Avian 0.8. `src/main.rs` assembles plugins; `loading.rs`, `world.rs`, `player.rs`, `camera.rs`, `quest.rs`, and `ui.rs` own their respective systems. Keep movement physics in `FixedUpdate` and respect the loading, playing, paused, and failed states.
-
-Unit tests live beside quest logic in `src/quest.rs`. `src/smoke/` contains the opt-in desktop smoke tests. Editable Blender sources belong in `art/`; runtime GLBs belong in `assets/models/`. Asset generation and validation scripts live in `scripts/`.
+This Linux desktop RPG uses Rust 2024, Bevy 0.20, and Avian 0.8. `src/main.rs` registers feature plugins. Unit tests live beside their systems, and `src/smoke/` holds desktop scenarios. Keep Blender sources in `art/`, runtime GLBs in `assets/models/`, and asset tooling in `scripts/`.
 
 ## Build, Test, and Development Commands
 
 Run from the repository root with Rust 1.97.1 or newer:
 
-- `cargo run --locked`: launch the game with checked-in assets.
-- `cargo build --locked`: build the executable.
-- `cargo check --locked`: check compilation without linking.
-- `cargo fmt --check`: verify Rust formatting; use `cargo fmt` to apply it.
-- `cargo test --locked`: run Rust unit tests.
-- `python3 scripts/check_assets.py`: validate GLB structure, embedded resources, skin, and animation names.
-- `cargo run --locked -- --smoke-test`: run the automated quest on a graphical desktop; expect `SMOKE PASS` and screenshots in `/tmp/plutonian-*.png`.
+- `cargo run --locked` launches the game.
+- `cargo build --locked` builds the executable. `cargo check --locked` checks compilation without linking.
+- `cargo fmt --check` checks formatting. `cargo fmt` applies it.
+- `cargo test --locked` runs Rust tests. `cargo clippy --locked --all-targets` runs lint checks.
+- `python3 scripts/check_assets.py` validates GLB structure, resources, skin, and animation names.
+- `cargo run --locked -- --smoke-test` exercises the gameplay arena.
+- `cargo run --locked -- --smoke-world` exercises the shipped map and Old Relay. Both smoke modes require a desktop and save screenshots in `/tmp/plutonian-*.png`.
 
 ## Coding Style & Naming Conventions
 
-Use rustfmt, four-space indentation, `snake_case` functions/modules, and `PascalCase` types/plugins. Prefer focused Bevy systems, typed components/resources, and explicit quest transitions. Follow existing Python formatting and use descriptive asset names. Keep `Cargo.lock` tracked; avoid unrelated dependency upgrades.
+Use rustfmt, four-space indentation, `snake_case` functions and modules, and `PascalCase` types. Follow existing Python formatting, name assets descriptively, and keep `Cargo.lock` tracked.
+
+## ECS Design
+
+- Put actor state in components and session-wide state in resources. Query capabilities such as `Health` or `HitReaction`.
+- Emit `Hit` from attack systems. Shared systems resolve damage, emit `ConfirmedHit`, and mark zero-health entities `Dead`. Opt in to death animation, collider removal, and corpse expiry through components.
+- Separate AI decisions, `FixedUpdate` movement, and presentation. Schedule frame attacks in `CombatSystems::Detect` and reaction systems after `CombatSystems::Resolve`. Gate gameplay by state.
+- Bind animation players and equipment sockets when the scene instance becomes ready. Use entity relationships and change detection to synchronize equipment and UI.
 
 ## Testing Guidelines
 
-Use Rust's built-in `#[test]` framework with descriptive behavior names. Cover valid progression, premature interactions, and duplicate actions when changing quests. No numeric coverage threshold is configured. For movement, camera, or UI changes, run the desktop smoke test and manually check affected interactions; distinguish compilation checks from runtime verification.
+Use `#[test]` with descriptive behavior names. Cover quest progression, premature actions, and duplicates. Test gameplay systems without a renderer. Run the desktop smoke tests for movement, combat, or UI changes.
 
 ## Blender Asset Workflow
 
-Preserve `.blend` sources and update corresponding GLBs. Use the README's `--export` command to export edited sources. Running `scripts/assets.py` without `--export` overwrites source art. Keep collision geometry aligned separately and retain `Idle`, `Walk`, `Run`, and `Jump` animation names.
+Export edited `.blend` sources with the README's `--export` command. Running `scripts/assets.py` without `--export` overwrites source art. Align collision geometry separately and preserve animation names.
 
 ## Commit & Pull Request Guidelines
 
-There are no commits yet, so no established commit-message convention exists. Use concise imperative subjects describing one coherent change. PRs should explain behavior changes, reference relevant issues, report checks and limitations, and include screenshots for visual changes. Include updated source art and exports together.
+Use concise imperative commit subjects. Describe behavior changes, link issues, and report verification in PRs. Include screenshots for visual changes and commit source art with its exports.

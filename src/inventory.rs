@@ -130,7 +130,7 @@ impl Inventory {
         Some(Pickup { item, quantity })
     }
 }
-#[derive(Component, Clone, Copy, Debug)]
+#[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Pickup {
     pub item: ItemKind,
     pub quantity: u32,

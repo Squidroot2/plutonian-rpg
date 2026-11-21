@@ -1,7 +1,8 @@
 use crate::{
     GameState,
+    equipment::bind_equipment_attachments,
     loading::{GameAssets, LoadStatus, PendingScene},
-    player::{ActorVisual, Player},
+    player::{ActorVisual, Player, bind_actor_animation},
     quest::{Beacon, Target},
 };
 use avian3d::prelude::*;
@@ -136,7 +137,9 @@ fn spawn_world(
                     WorldAssetRoot(character.clone()),
                     Transform::from_xyz(0.0, -0.9, 0.0),
                 ))
-                .observe(ready);
+                .observe(ready)
+                .observe(bind_actor_animation)
+                .observe(bind_equipment_attachments);
         });
     commands
         .spawn((
@@ -157,7 +160,8 @@ fn spawn_world(
                         .with_rotation(Quat::from_rotation_y(0.5))
                         .with_scale(Vec3::splat(1.12)),
                 ))
-                .observe(ready);
+                .observe(ready)
+                .observe(bind_actor_animation);
         });
     commands
         .spawn((

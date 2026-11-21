@@ -4,7 +4,7 @@ use bevy::{gltf::Gltf, prelude::*, window::PrimaryWindow};
 use crate::{
     GameState,
     camera::Orbit,
-    combat_feedback::CombatFeedback,
+    combat::{CombatSystems, Contact, Hit, HitReaction, TrainingTarget},
     equipment::Equipment,
     interaction::InteractionSystems,
     inventory::scene_ready,
@@ -20,31 +20,12 @@ const RECOVERY_AT: f32 = 16.0 / 24.0;
 const GRIP_HEIGHT: f32 = -0.05;
 pub(crate) const GRIP_SIDE: f32 = -0.40;
 const REACTION_DURATION: f32 = 0.42;
-
-#[derive(SystemSet, Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct SpearSystems;
-
-#[derive(Clone, Copy, Debug, Message, PartialEq)]
-pub(crate) struct SpearHit {
-    pub(crate) entity: Entity,
-    point: Vec3,
-    normal: Vec3,
-}
-
-impl SpearHit {
-    pub(crate) fn impact(self) -> CombatFeedback {
-        CombatFeedback::Impact {
-            position: self.point,
-            normal: self.normal,
-        }
-    }
-}
+const THRUST_DAMAGE: u16 = 10;
 
 pub struct SpearPlugin;
 impl Plugin for SpearPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Thrust>()
-            .add_message::<SpearHit>()
             .add_observer(spawn_dummy)
             .add_systems(OnExit(GameState::Loading), ground_dummy)
             .add_systems(OnExit(GameState::Playing), |mut thrust: ResMut<Thrust>| {
@@ -52,10 +33,15 @@ impl Plugin for SpearPlugin {
             })
             .add_systems(
                 Update,
-                (attack, mark_dummy_hits, react)
-                    .chain()
+                attack
                     .after(InteractionSystems)
-                    .in_set(SpearSystems)
+                    .in_set(CombatSystems::Detect)
+                    .run_if(in_state(GameState::Playing)),
+            )
+            .add_systems(
+                Update,
+                react
+                    .after(CombatSystems::Resolve)
                     .run_if(in_state(GameState::Playing)),
             );
     }
@@ -100,9 +86,7 @@ impl Thrust {
 }
 
 #[derive(Component, Default)]
-pub struct PracticeDummy {
-    pub(crate) remaining: f32,
-}
+pub struct PracticeDummy;
 #[derive(Component)]
 struct DummyVisual;
 #[derive(Component)]
@@ -123,7 +107,9 @@ fn spawn_dummy(
     commands
         .spawn((
             Name::new("Practice dummy"),
-            PracticeDummy::default(),
+            PracticeDummy,
+            TrainingTarget,
+            HitReaction::new(REACTION_DURATION),
             RigidBody::Static,
             Collider::cuboid(0.72, 1.5, 0.55),
             Transform::from_translation(layout.dummy()),
@@ -174,7 +160,7 @@ fn attack(
     spatial: SpatialQuery,
     mut thrust: ResMut<Thrust>,
     mut player: Query<(Entity, &Player, &mut Transform)>,
-    mut hits: MessageWriter<SpearHit>,
+    mut hits: MessageWriter<Hit>,
 ) {
     let Ok((entity, controller, mut transform)) = player.single_mut() else {
         return;
@@ -207,25 +193,12 @@ fn attack(
     }
 }
 
-fn mark_dummy_hits(
-    mut hits: MessageReader<SpearHit>,
-    mut dummies: Query<&mut PracticeDummy>,
-    mut feedback: MessageWriter<CombatFeedback>,
-) {
-    for &hit in hits.read() {
-        if let Ok(mut dummy) = dummies.get_mut(hit.entity) {
-            dummy.remaining = REACTION_DURATION;
-            feedback.write(hit.impact());
-        }
-    }
-}
-
 fn thrust_contact(
     spatial: &SpatialQuery,
     player: Entity,
     position: Vec3,
     facing: Quat,
-) -> Option<SpearHit> {
+) -> Option<Hit> {
     let direction = Dir3::new(facing * Vec3::Z).ok()?;
     // Match the shaft's offset in the two-handed thrust pose.
     let origin = position + facing * Vec3::new(GRIP_SIDE, GRIP_HEIGHT, 0.0);
@@ -241,42 +214,31 @@ fn thrust_contact(
             },
             &SpatialQueryFilter::from_excluded_entities([player]),
         )
-        .map(|hit| SpearHit {
-            entity: hit.entity,
-            point: hit.point1,
-            normal: hit.normal1,
+        .map(|hit| Hit {
+            source: player,
+            target: hit.entity,
+            damage: THRUST_DAMAGE,
+            contact: Some(Contact {
+                position: hit.point1,
+                normal: hit.normal1,
+            }),
         })
 }
 
 fn react(
-    time: Res<Time>,
-    mut dummies: Query<(&mut PracticeDummy, &Children)>,
+    dummies: Query<(&HitReaction, &Children), (With<PracticeDummy>, Changed<HitReaction>)>,
     mut visuals: Query<&mut Transform, With<DummyVisual>>,
     mut lights: Query<&mut PointLight, With<DummyFlash>>,
 ) {
-    for (mut dummy, children) in &mut dummies {
-        if dummy.remaining <= 0.0 {
-            continue;
-        }
-        let phase = 1.0 - dummy.remaining / REACTION_DURATION;
-        let strength = 1.0 - phase;
+    for (reaction, children) in &dummies {
+        let strength = reaction.strength();
+        let phase = 1.0 - strength;
         for child in children.iter() {
             if let Ok(mut transform) = visuals.get_mut(child) {
                 transform.rotation = Quat::from_rotation_z(0.24 * (phase * 14.0).sin() * strength);
             }
             if let Ok(mut light) = lights.get_mut(child) {
                 light.intensity = 180_000.0 * strength.powi(3);
-            }
-        }
-        dummy.remaining = (dummy.remaining - time.delta_secs()).max(0.0);
-        if dummy.remaining == 0.0 {
-            for child in children.iter() {
-                if let Ok(mut transform) = visuals.get_mut(child) {
-                    transform.rotation = Quat::IDENTITY;
-                }
-                if let Ok(mut light) = lights.get_mut(child) {
-                    light.intensity = 0.0;
-                }
             }
         }
     }
@@ -333,8 +295,7 @@ mod tests {
         .init_resource::<Equipment>()
         .init_resource::<Orbit>()
         .init_resource::<ButtonInput<MouseButton>>()
-        .add_message::<CombatFeedback>()
-        .add_plugins(SpearPlugin);
+        .add_plugins((crate::combat::CombatPlugin, SpearPlugin));
         app.finish();
         app.cleanup();
         app
@@ -369,12 +330,13 @@ mod tests {
             })
             .expect("physics resources must be initialized for the thrust cast");
         let hit = hit.expect("the cast must ignore the player collider and reach the dummy");
-        assert_eq!(hit.entity, dummy);
+        assert_eq!(hit.target, dummy);
+        let contact = hit.contact.expect("thrust must include a world contact");
         assert!(
-            (hit.point.z - 2.125).abs() < 0.02,
+            (contact.position.z - 2.125).abs() < 0.02,
             "impact must lie on the dummy's front face"
         );
-        assert!(hit.normal.dot(Vec3::NEG_Z) > 0.98);
+        assert!(contact.normal.dot(Vec3::NEG_Z) > 0.98);
         let misses = app
             .world_mut()
             .run_system_once(move |spatial: SpatialQuery| {
@@ -408,7 +370,7 @@ mod tests {
             })
             .expect("the thrust must query the updated world collision tree");
         assert_eq!(
-            hit.map(|contact| contact.entity),
+            hit.map(|contact| contact.target),
             Some(wall),
             "the caster must stop at the wall before the dummy"
         );
@@ -429,7 +391,8 @@ mod tests {
         player.grounded = true;
         world.spawn((player, Transform::default()));
         world.spawn((
-            PracticeDummy::default(),
+            PracticeDummy,
+            TrainingTarget,
             RigidBody::Static,
             Collider::cuboid(0.72, 1.5, 0.55),
             Transform::from_xyz(GRIP_SIDE, 0.0, 2.4),
@@ -449,11 +412,11 @@ mod tests {
             app.update();
         }
 
-        fn swing(app: &mut App, camera_yaw: f32) -> Vec<CombatFeedback> {
+        fn swing(app: &mut App, camera_yaw: f32) -> Vec<crate::combat::ConfirmedHit> {
             app.world_mut().resource_mut::<Orbit>().yaw = camera_yaw;
             let mut hits = app
                 .world()
-                .resource::<Messages<CombatFeedback>>()
+                .resource::<Messages<crate::combat::ConfirmedHit>>()
                 .get_cursor_current();
             let mut feedback = Vec::new();
             let mut input = app.world_mut().resource_mut::<ButtonInput<MouseButton>>();
@@ -465,8 +428,11 @@ mod tests {
                     .resource_mut::<ButtonInput<MouseButton>>()
                     .clear_just_pressed(MouseButton::Left);
                 feedback.extend(
-                    hits.read(app.world().resource::<Messages<CombatFeedback>>())
-                        .copied(),
+                    hits.read(
+                        app.world()
+                            .resource::<Messages<crate::combat::ConfirmedHit>>(),
+                    )
+                    .copied(),
                 );
             }
             feedback
@@ -475,7 +441,10 @@ mod tests {
         let forward_yaw = -std::f32::consts::PI;
         assert!(matches!(
             swing(&mut app, forward_yaw).as_slice(),
-            [CombatFeedback::Impact { .. }]
+            [crate::combat::ConfirmedHit {
+                contact: Some(_),
+                ..
+            }]
         ));
         assert!(swing(&mut app, 0.0).is_empty());
 

@@ -13,13 +13,13 @@ pub enum Target {
     Keeper,
     Core,
 }
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum InteractionTarget {
     Quest(Target),
     Pickup(Pickup),
     Dungeon(DungeonTarget),
 }
-#[derive(Resource, Default)]
+#[derive(Resource, Default, PartialEq, Eq)]
 pub struct Nearby(pub Option<(Entity, InteractionTarget)>);
 #[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct InteractionSystems;
@@ -53,13 +53,15 @@ fn find_target(
     spatial: SpatialQuery,
     mut nearby: ResMut<Nearby>,
 ) {
-    nearby.0 = None;
     if dialogue.text.is_some() {
+        nearby.set_if_neq(Nearby::default());
         return;
     }
     let Ok((player_entity, transform, player)) = players.single() else {
+        nearby.set_if_neq(Nearby::default());
         return;
     };
+    let mut selected = None;
     let origin = transform.translation + Vec3::Y * 0.45;
     let mut closest = 3.0;
     for (entity, transform, target, pickup, dungeon) in &targets {
@@ -115,9 +117,10 @@ fn find_target(
             .is_none()
         {
             closest = distance;
-            nearby.0 = Some((entity, interaction));
+            selected = Some((entity, interaction));
         }
     }
+    nearby.set_if_neq(Nearby(selected));
 }
 fn interact(
     keys: Res<ButtonInput<KeyCode>>,

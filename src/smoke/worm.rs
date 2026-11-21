@@ -1,6 +1,7 @@
 use super::{capture, inventory::walk, spear::SpearSmoke};
 use crate::{
     camera::Orbit,
+    combat::{DeathLifetime, Health},
     combat_feedback::{AttackImpact, BitePulse},
     loading::GameAssets,
     player::Player,
@@ -86,8 +87,14 @@ pub(super) fn fight(
     mut smoke: ResMut<SpearSmoke>,
     assets: Option<Res<GameAssets>>,
     models: Res<Assets<Gltf>>,
-    player: Query<(&Player, &Transform)>,
-    worms: Query<(&Worm, &Transform, Option<&Collider>)>,
+    player: Query<(&Player, &Transform, &Health)>,
+    worms: Query<(
+        &Worm,
+        &Transform,
+        &Health,
+        &DeathLifetime,
+        Option<&Collider>,
+    )>,
     thrust: Res<Thrust>,
     feedback: (
         Query<&Visibility, With<BitePulse>>,
@@ -101,7 +108,8 @@ pub(super) fn fight(
     if *smoke != SpearSmoke::WormEncounter {
         return;
     }
-    let (controller, transform) = player.single().expect("worm smoke requires a player");
+    let (controller, transform, player_health) =
+        player.single().expect("worm smoke requires a player");
     let (pulse, impacts) = feedback;
     if matches!(*phase, Encounter::Spawn) {
         let fight_position = Vec3::new(9.5, 0.0, 0.0);
@@ -121,7 +129,7 @@ pub(super) fn fight(
         orbit.distance = 3.8;
         return;
     }
-    let Ok((worm, enemy, collider)) = worms.single() else {
+    let Ok((worm, enemy, worm_health, corpse, collider)) = worms.single() else {
         if matches!(*phase, Encounter::Collapse { .. }) {
             info!(
                 "WORM SMOKE PASS: pursued, telegraphed a bite, missed a dodge, landed one bite, and died to the trident"
@@ -138,10 +146,7 @@ pub(super) fn fight(
                 enemy.translation.distance(home) > 1.0,
                 "worm must pursue before biting"
             );
-            assert_eq!(
-                controller.vitality.health, 100,
-                "wind-up must not deal damage"
-            );
+            assert_eq!(player_health.current(), 100, "wind-up must not deal damage");
             *phase = Encounter::Dodge { captured: false };
         }
         Encounter::Dodge { captured } => {
@@ -160,7 +165,8 @@ pub(super) fn fight(
                 }
             } else if matches!(worm.phase, WormPhase::Recovery(_)) {
                 assert_eq!(
-                    controller.vitality.health, 100,
+                    player_health.current(),
+                    100,
                     "backpedaling must evade the bite"
                 );
                 assert_eq!(
@@ -171,9 +177,10 @@ pub(super) fn fight(
                 *phase = Encounter::TakeBite;
             }
         }
-        Encounter::TakeBite if controller.vitality.health < 100 => {
+        Encounter::TakeBite if player_health.current() < 100 => {
             assert_eq!(
-                controller.vitality.health, 80,
+                player_health.current(),
+                80,
                 "one unarmored bite must deal 20 damage"
             );
             assert_eq!(
@@ -186,7 +193,7 @@ pub(super) fn fight(
             capture(&mut commands, "worm-bite");
             *phase = Encounter::Fight { captured: false };
         }
-        Encounter::Fight { captured: false } if worm.hp == 20 => {
+        Encounter::Fight { captured: false } if worm_health.current() == 20 => {
             assert_eq!(
                 impacts.iter().count(),
                 1,
@@ -196,7 +203,7 @@ pub(super) fn fight(
             capture(&mut commands, "worm-hit");
             *phase = Encounter::Fight { captured: true };
         }
-        Encounter::Fight { .. } if worm.hp == 0 => {
+        Encounter::Fight { .. } if worm_health.current() == 0 => {
             assert!(
                 collider.is_none(),
                 "the collapsed worm must release its collider"
@@ -211,8 +218,7 @@ pub(super) fn fight(
             orbit.yaw = delta.x.atan2(delta.z) + offset - std::f32::consts::PI;
             mouse.press(MouseButton::Left);
         }
-        Encounter::Collapse { captured: false } if matches!(worm.phase, WormPhase::Collapsing(seconds) if seconds < 0.33) =>
-        {
+        Encounter::Collapse { captured: false } if corpse.0 < 0.33 => {
             capture(&mut commands, "worm-collapse");
             *phase = Encounter::Collapse { captured: true };
         }

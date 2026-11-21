@@ -2,6 +2,7 @@
 use super::{SmokeRun, capture, inventory::walk};
 use crate::{
     camera::Orbit,
+    combat::Health,
     dungeon::{
         ArchiveGate, Area, DungeonProgress, DungeonTarget, GATE_LOCAL, HATCH, LOG_LOCAL, ORIGIN,
         SWITCH_LOCAL,
@@ -50,7 +51,7 @@ pub(super) fn drive(
     run: Res<SmokeRun>,
     mut phase: ResMut<WorldCheck>,
     mut last_log: Local<f64>,
-    mut player: Query<(Entity, &mut Player, &mut Transform, &Collider)>,
+    mut player: Query<(Entity, &mut Player, &mut Transform, &Collider, &Health)>,
     (mut quest, mut inventory, dialogue, nearby): (
         ResMut<Quest>,
         ResMut<Inventory>,
@@ -67,7 +68,8 @@ pub(super) fn drive(
     mut commands: Commands,
     mut exit: MessageWriter<AppExit>,
 ) {
-    let Ok((entity, mut controller, mut transform, capsule)) = player.single_mut() else {
+    let Ok((entity, mut controller, mut transform, capsule, player_health)) = player.single_mut()
+    else {
         return;
     };
     keys.reset_all();
@@ -214,7 +216,7 @@ pub(super) fn drive(
                 orbit.yaw = 0.68;
                 orbit.pitch = 0.32;
                 capture(&mut commands, "relay-worm");
-                *phase = WorldCheck::DodgeWorm(controller.vitality.health);
+                *phase = WorldCheck::DodgeWorm(player_health.current());
             } else {
                 walk_to(&mut keys, &mut orbit, ORIGIN + Vec3::new(0.1, 0.0, -8.7));
             }
@@ -225,7 +227,8 @@ pub(super) fn drive(
                 .is_some_and(|worm| matches!(worm.phase, WormPhase::Recovery(_)))
             {
                 assert_eq!(
-                    controller.vitality.health, health,
+                    player_health.current(),
+                    health,
                     "the relay must leave room to dodge"
                 );
                 *phase = WorldCheck::Junction;

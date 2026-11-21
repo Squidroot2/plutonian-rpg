@@ -1,12 +1,11 @@
 use std::collections::BTreeMap;
 
-use bevy::{gltf::Gltf, prelude::*};
+use bevy::{gltf::Gltf, prelude::*, world_serialization::WorldInstanceReady};
 
 use crate::{
     GameState,
     inventory::{Inventory, InventoryNotice, ItemKind, scene_ready},
     loading::{GameAssets, PendingScene},
-    player::ActorVisual,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -166,59 +165,74 @@ fn unequip(
         Err(error) => error.into(),
     };
 }
+#[derive(Component)]
+struct EquipmentAttachment {
+    slot: EquipmentSlot,
+    worn: Option<Entity>,
+}
+
+pub(crate) fn bind_equipment_attachments(
+    event: On<WorldInstanceReady>,
+    children: Query<&Children>,
+    names: Query<&Name>,
+    mut commands: Commands,
+) {
+    for entity in children.iter_descendants(event.entity) {
+        let Ok(name) = names.get(entity) else {
+            continue;
+        };
+        if let Some(slot) = EquipmentSlot::ALL
+            .into_iter()
+            .find(|slot| slot.bone() == name.as_str())
+        {
+            commands
+                .entity(entity)
+                .insert(EquipmentAttachment { slot, worn: None });
+        }
+    }
+}
+
 fn sync_worn(
     mut commands: Commands,
     equipment: Res<Equipment>,
     assets: Res<GameAssets>,
     gltfs: Res<Assets<Gltf>>,
-    visuals: Query<(Entity, &ActorVisual)>,
-    children: Query<&Children>,
-    names: Query<&Name>,
-    worn: Query<(Entity, &WornEquipment)>,
+    mut attachments: Query<(Entity, &mut EquipmentAttachment)>,
+    worn: Query<&WornEquipment>,
 ) {
-    let Some((root, _)) = visuals.iter().find(|(_, actor)| actor.player) else {
-        return;
-    };
-    for slot in EquipmentSlot::ALL {
+    for (bone, mut attachment) in &mut attachments {
+        if !equipment.is_changed() && !attachment.is_added() {
+            continue;
+        }
+        let slot = attachment.slot;
         let desired = equipment.get(slot);
-        let existing = worn
-            .iter()
-            .filter(|(_, piece)| piece.slot == slot)
-            .collect::<Vec<_>>();
-        if desired.is_none() && existing.is_empty() {
+        let existing = attachment
+            .worn
+            .and_then(|entity| worn.get(entity).ok().map(|piece| (entity, piece.item)));
+        if existing.map(|(_, item)| item) == desired {
             continue;
         }
-        if existing.len() == 1 && Some(existing[0].1.item) == desired {
-            continue;
-        }
-        let Some(bone) = children.iter_descendants(root).find(|entity| {
-            names
-                .get(*entity)
-                .is_ok_and(|name| name.as_str() == slot.bone())
-        }) else {
-            continue;
-        };
-        for (entity, _) in existing {
+        if let Some((entity, _)) = existing {
             commands.entity(entity).despawn();
         }
-        if let Some(item) = desired {
+        attachment.worn = desired.map(|item| {
             let scene = gltfs
                 .get(&assets.worn[&item])
                 .expect("worn equipment models must remain loaded after asset validation")
                 .scenes[0]
                 .clone();
-            commands.entity(bone).with_children(|parent| {
-                parent
-                    .spawn((
-                        Name::new(format!("Worn {}", item.name())),
-                        WornEquipment { slot, item },
-                        PendingScene,
-                        WorldAssetRoot(scene),
-                        Transform::default(),
-                    ))
-                    .observe(scene_ready);
-            });
-        }
+            commands
+                .spawn((
+                    Name::new(format!("Worn {}", item.name())),
+                    WornEquipment { slot, item },
+                    PendingScene,
+                    WorldAssetRoot(scene),
+                    Transform::default(),
+                    ChildOf(bone),
+                ))
+                .observe(scene_ready)
+                .id()
+        });
     }
 }
 

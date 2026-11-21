@@ -1,4 +1,9 @@
-use crate::{GameState, camera::FollowCamera, spear::SpearSystems, worm::WormSystems};
+use crate::{
+    GameState,
+    camera::FollowCamera,
+    combat::{CombatSystems, ConfirmedHit, Dead},
+    player::Player,
+};
 use bevy::{
     camera::visibility::NoFrustumCulling,
     pbr::{MaterialPipeline, MaterialPipelineKey},
@@ -12,12 +17,6 @@ use bevy::{
 
 const IMPACT_SECONDS: f32 = 0.18;
 const PULSE_SECONDS: f32 = 0.24;
-
-#[derive(Clone, Copy, Debug, Message, PartialEq)]
-pub(crate) enum CombatFeedback {
-    Impact { position: Vec3, normal: Vec3 },
-    PlayerHurt,
-}
 
 #[derive(Asset, AsBindGroup, TypePath, Clone)]
 struct ImpactMaterial {
@@ -71,6 +70,12 @@ pub(crate) struct AttackImpact;
 #[derive(Component)]
 pub(crate) struct BitePulse;
 
+#[derive(Component)]
+pub(crate) struct DeathAnimation {
+    pub(crate) players: Vec<Entity>,
+    pub(crate) clip: AnimationNodeIndex,
+}
+
 #[derive(Resource)]
 struct ImpactMesh(Handle<Mesh>);
 
@@ -78,30 +83,49 @@ pub(crate) struct CombatFeedbackPlugin;
 
 impl Plugin for CombatFeedbackPlugin {
     fn build(&self, app: &mut App) {
-        app.add_message::<CombatFeedback>()
-            .add_plugins((
-                MaterialPlugin::<ImpactMaterial>::default(),
-                UiMaterialPlugin::<BiteMaterial>::default(),
-            ))
-            .add_systems(Startup, setup)
-            .add_systems(
-                Update,
-                (
-                    age_effects.run_if(in_state(GameState::Playing)),
-                    show_feedback,
-                )
-                    .chain()
-                    .after(SpearSystems)
-                    .after(WormSystems),
+        app.add_plugins((
+            MaterialPlugin::<ImpactMaterial>::default(),
+            UiMaterialPlugin::<BiteMaterial>::default(),
+        ))
+        .add_systems(Startup, setup)
+        .add_systems(
+            Update,
+            (
+                age_effects.run_if(in_state(GameState::Playing)),
+                show_feedback,
             )
-            .add_systems(
-                PostUpdate,
-                face_camera
-                    .after(crate::camera::follow)
-                    .before(TransformSystems::Propagate)
-                    .run_if(in_state(GameState::Playing)),
-            )
-            .add_systems(OnExit(GameState::Playing), clear_effects);
+                .chain()
+                .after(CombatSystems::Resolve),
+        )
+        .add_systems(
+            PostUpdate,
+            face_camera
+                .after(crate::camera::follow)
+                .before(TransformSystems::Propagate)
+                .run_if(in_state(GameState::Playing)),
+        )
+        .add_systems(
+            Update,
+            play_death_animations
+                .after(CombatSystems::Resolve)
+                .run_if(in_state(GameState::Playing)),
+        )
+        .add_systems(OnExit(GameState::Playing), clear_effects);
+    }
+}
+
+fn play_death_animations(
+    dead: Query<&DeathAnimation, (With<Dead>, Or<(Added<Dead>, Added<DeathAnimation>)>)>,
+    mut players: Query<(&mut AnimationPlayer, &mut AnimationTransitions)>,
+) {
+    for death in &dead {
+        for &entity in &death.players {
+            if let Ok((mut player, mut transitions)) = players.get_mut(entity) {
+                transitions
+                    .play(&mut player, death.clip, std::time::Duration::ZERO)
+                    .replay();
+            }
+        }
     }
 }
 
@@ -137,7 +161,8 @@ fn setup(
 }
 
 fn show_feedback(
-    mut events: MessageReader<CombatFeedback>,
+    mut events: MessageReader<ConfirmedHit>,
+    players: Query<(), With<Player>>,
     state: Res<State<GameState>>,
     mesh: Res<ImpactMesh>,
     mut commands: Commands,
@@ -149,25 +174,22 @@ fn show_feedback(
         events.clear();
         return;
     }
-    for &event in events.read() {
-        match event {
-            CombatFeedback::Impact { position, normal } => {
-                commands.spawn((
-                    Name::new("Landed attack impact"),
-                    AttackImpact,
-                    Mesh3d(mesh.0.clone()),
-                    MeshMaterial3d(materials.add(ImpactMaterial { age: 0.0 })),
-                    Transform::from_translation(position + normal * 0.09),
-                ));
-            }
-            CombatFeedback::PlayerHurt => {
-                if let Ok((mut visibility, handle)) = overlay.single_mut()
-                    && let Some(mut material) = pulses.get_mut(&handle.0)
-                {
-                    material.age = 0.0;
-                    *visibility = Visibility::Visible;
-                }
-            }
+    for event in events.read() {
+        if let Some(contact) = event.contact {
+            commands.spawn((
+                Name::new("Landed attack impact"),
+                AttackImpact,
+                Mesh3d(mesh.0.clone()),
+                MeshMaterial3d(materials.add(ImpactMaterial { age: 0.0 })),
+                Transform::from_translation(contact.position + contact.normal * 0.09),
+            ));
+        }
+        if players.contains(event.target)
+            && let Ok((mut visibility, handle)) = overlay.single_mut()
+            && let Some(mut material) = pulses.get_mut(&handle.0)
+        {
+            material.age = 0.0;
+            *visibility = Visibility::Visible;
         }
     }
 }

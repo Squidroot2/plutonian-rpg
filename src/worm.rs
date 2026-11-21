@@ -1,16 +1,15 @@
 use crate::{
     GameState,
-    combat_feedback::CombatFeedback,
-    equipment::Equipment,
+    combat::{CombatSystems, Dead, DeathLifetime, Health, Hit, HitReaction, RemoveColliderOnDeath},
+    combat_feedback::DeathAnimation,
     inventory::scene_ready,
     loading::{GameAssets, PendingScene},
-    player::{BiteOutcome, Player},
+    player::Player,
     quest::Dialogue,
-    spear::{SpearHit, SpearSystems, Thrust},
     world::{SpawnWorld, WorldLayout},
 };
 use avian3d::prelude::*;
-use bevy::{gltf::Gltf, prelude::*};
+use bevy::{gltf::Gltf, prelude::*, world_serialization::WorldInstanceReady};
 use std::time::Duration;
 
 pub const CLIPS: [&str; 4] = ["WormIdle", "WormCrawl", "WormBite", "WormDeath"];
@@ -27,7 +26,7 @@ const BITE_RANGE: f32 = 1.5;
 const WINDUP: f32 = 0.55;
 const RECOVERY: f32 = 0.85;
 const COLLAPSE: f32 = 0.70;
-const THRUST_DAMAGE: u16 = 10;
+const BITE_DAMAGE: u16 = 20;
 
 #[derive(Resource)]
 pub struct WormAnimations {
@@ -37,11 +36,8 @@ pub struct WormAnimations {
 
 #[derive(Component)]
 pub struct Worm {
-    pub(crate) hp: u16,
     pub(crate) phase: WormPhase,
     home: Vec3,
-    moving: bool,
-    flash: f32,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -51,7 +47,6 @@ pub(crate) enum WormPhase {
     Returning,
     Windup(f32),
     Recovery(f32),
-    Collapsing(f32),
 }
 
 impl WormPhase {
@@ -80,6 +75,12 @@ impl WormPhase {
     }
 }
 
+#[derive(Component, Default)]
+struct WormMotion {
+    destination: Option<Vec3>,
+    moving: bool,
+}
+
 #[derive(Component)]
 struct WormGlow;
 #[derive(Component)]
@@ -89,25 +90,22 @@ struct WormPlayback {
 }
 
 pub struct WormPlugin;
-#[derive(SystemSet, Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub(crate) struct WormSystems;
-
 impl Plugin for WormPlugin {
     fn build(&self, app: &mut App) {
         app.add_observer(spawn_encounters)
             .add_systems(OnExit(GameState::Loading), ground_encounters)
             .add_systems(
                 FixedUpdate,
-                step.after(crate::player::movement)
+                (plan_actions, move_worms)
+                    .chain()
+                    .after(crate::player::movement)
                     .run_if(in_state(GameState::Playing))
                     .run_if(no_dialogue),
             )
             .add_systems(
                 Update,
-                (receive_hits, animate, light_hits)
-                    .chain()
-                    .after(SpearSystems)
-                    .in_set(WormSystems)
+                (animate, light_hits)
+                    .after(CombatSystems::Resolve)
                     .run_if(in_state(GameState::Playing)),
             );
     }
@@ -163,12 +161,14 @@ pub(crate) fn spawn(
         .spawn((
             Name::new("Ice worm"),
             Worm {
-                hp: 30,
                 phase: WormPhase::Waiting,
                 home,
-                moving: false,
-                flash: 0.0,
             },
+            Health::new(30),
+            WormMotion::default(),
+            HitReaction::new(0.16),
+            DeathLifetime(COLLAPSE),
+            RemoveColliderOnDeath,
             Visibility::default(),
             Transform::from_translation(home),
             RigidBody::Kinematic,
@@ -177,7 +177,8 @@ pub(crate) fn spawn(
         ))
         .with_children(|root| {
             root.spawn((PendingScene, WorldAssetRoot(scene), Transform::default()))
-                .observe(scene_ready);
+                .observe(scene_ready)
+                .observe(bind_animation);
             root.spawn((
                 WormGlow,
                 PointLight {
@@ -219,51 +220,34 @@ fn surface(
         .map(|hit| origin.y - hit.distance + GROUND_OFFSET)
 }
 
-fn step(
+fn plan_actions(
     time: Res<Time<Fixed>>,
-    layout: Res<WorldLayout>,
-    equipment: Res<Equipment>,
-    mut thrust: ResMut<Thrust>,
-    mut feedback: MessageWriter<CombatFeedback>,
     spatial: SpatialQuery,
-    mover: MoveAndSlide,
-    actors: Query<Entity, Or<(With<Player>, With<Worm>)>>,
-    mut player: Query<(Entity, &mut Player, &mut Transform), Without<Worm>>,
-    mut worms: Query<(Entity, &mut Worm, &mut Transform, Option<&Collider>)>,
-    mut commands: Commands,
+    player: Query<(Entity, &Transform), With<Player>>,
+    mut worms: Query<
+        (Entity, &mut Worm, &mut Transform, &mut WormMotion),
+        (Without<Player>, Without<Dead>),
+    >,
+    mut hits: MessageWriter<Hit>,
 ) {
-    let Ok((player_entity, mut player, mut player_transform)) = player.single_mut() else {
+    let Ok((player_entity, player_transform)) = player.single() else {
         return;
     };
     let delta = time.delta_secs();
-    player.vitality.tick(delta);
-    let support = SpatialQueryFilter::from_excluded_entities(actors.iter());
-    for (entity, mut worm, mut transform, collider) in &mut worms {
-        worm.flash = (worm.flash - delta).max(0.0);
-        worm.moving = false;
-        if let WormPhase::Collapsing(remaining) = worm.phase {
-            if remaining <= delta {
-                commands.entity(entity).despawn();
-            } else {
-                worm.phase = WormPhase::Collapsing(remaining - delta);
-            }
-            continue;
-        }
-
+    let target = player_transform.translation;
+    for (entity, mut worm, mut transform, mut motion) in &mut worms {
+        motion.destination = None;
         let position = transform.translation;
-        let target = player_transform.translation;
         let to_target = target - position;
         let sight = SpatialQueryFilter::from_excluded_entities([entity, player_entity]);
         if matches!(worm.phase, WormPhase::Windup(_) | WormPhase::Recovery(_)) {
             if worm.phase.tick_attack(delta) && bite_contact(&spatial, &sight, &transform, target) {
-                let outcome = player.vitality.bite(equipment.total_defense());
-                if outcome != BiteOutcome::Protected {
-                    feedback.write(CombatFeedback::PlayerHurt);
-                }
-                if outcome == BiteOutcome::Defeated {
-                    player.respawn(&mut player_transform, layout.start());
-                    thrust.cancel();
-                }
+                hits.write(Hit {
+                    source: entity,
+                    target: player_entity,
+                    damage: BITE_DAMAGE,
+                    contact: None,
+                });
             }
             continue;
         }
@@ -291,7 +275,25 @@ fn step(
             continue;
         };
 
-        let Some(collider) = collider else { continue };
+        motion.destination = Some(destination);
+    }
+}
+
+fn move_worms(
+    time: Res<Time<Fixed>>,
+    spatial: SpatialQuery,
+    mover: MoveAndSlide,
+    actors: Query<Entity, Or<(With<Player>, With<Worm>)>>,
+    mut worms: Query<(Entity, &mut Transform, &Collider, &mut WormMotion), Without<Dead>>,
+) {
+    let delta = time.delta_secs();
+    let support = SpatialQueryFilter::from_excluded_entities(actors.iter());
+    for (entity, mut transform, collider, mut motion) in &mut worms {
+        motion.moving = false;
+        let Some(destination) = motion.destination else {
+            continue;
+        };
+        let position = transform.translation;
         let toward = (destination - position).with_y(0.0);
         if toward.length_squared() < 0.0001 {
             continue;
@@ -319,7 +321,7 @@ fn step(
         );
         if let Some(y) = surface(&spatial, &support, output.position + Vec3::Y * 0.25, 1.1) {
             transform.translation = output.position.with_y(y);
-            worm.moving = output.position.xz().distance_squared(position.xz()) > 0.000_001;
+            motion.moving = output.position.xz().distance_squared(position.xz()) > 0.000_001;
         }
     }
 }
@@ -355,73 +357,66 @@ fn bite_contact(
         )
 }
 
-fn receive_hits(
-    mut hits: MessageReader<SpearHit>,
-    mut feedback: MessageWriter<CombatFeedback>,
-    mut worms: Query<&mut Worm>,
+fn bind_animation(
+    event: On<WorldInstanceReady>,
+    library: Res<WormAnimations>,
+    parents: Query<&ChildOf>,
+    children: Query<&Children>,
+    mut animations: Query<&mut AnimationPlayer>,
     mut commands: Commands,
 ) {
-    for &hit in hits.read() {
-        let Ok(mut worm) = worms.get_mut(hit.entity) else {
-            continue;
-        };
-        if worm.hp == 0 {
-            continue;
-        }
-        worm.hp = worm.hp.saturating_sub(THRUST_DAMAGE);
-        worm.flash = 0.16;
-        feedback.write(hit.impact());
-        if worm.hp == 0 {
-            worm.phase = WormPhase::Collapsing(COLLAPSE);
-            commands.entity(hit.entity).remove::<Collider>();
+    let Ok(parent) = parents.get(event.entity) else {
+        return;
+    };
+    let mut players = Vec::new();
+    for child in children.iter_descendants(event.entity) {
+        if let Ok(mut animation) = animations.get_mut(child) {
+            players.push(child);
+            let mut transitions = AnimationTransitions::new();
+            transitions
+                .play(&mut animation, library.nodes[0], Duration::ZERO)
+                .repeat();
+            commands.entity(child).insert((
+                AnimationGraphHandle(library.graph.clone()),
+                transitions,
+                WormPlayback {
+                    owner: parent.parent(),
+                    clip: 0,
+                },
+            ));
         }
     }
+    commands.entity(parent.parent()).insert(DeathAnimation {
+        players,
+        clip: library.nodes[3],
+    });
 }
 
 fn animate(
     library: Res<WormAnimations>,
     dialogue: Res<Dialogue>,
-    worms: Query<(Entity, &Worm)>,
-    children: Query<&Children>,
-    mut new: Query<&mut AnimationPlayer, Without<WormPlayback>>,
+    worms: Query<(&Worm, &WormMotion, Has<Dead>)>,
     mut playing: Query<(
         &mut AnimationPlayer,
         &mut AnimationTransitions,
         &mut WormPlayback,
     )>,
-    mut commands: Commands,
 ) {
-    for (entity, _) in &worms {
-        for child in children.iter_descendants(entity) {
-            if let Ok(mut animation) = new.get_mut(child) {
-                let mut transitions = AnimationTransitions::new();
-                transitions
-                    .play(&mut animation, library.nodes[0], Duration::ZERO)
-                    .repeat();
-                commands.entity(child).insert((
-                    AnimationGraphHandle(library.graph.clone()),
-                    transitions,
-                    WormPlayback {
-                        owner: entity,
-                        clip: 0,
-                    },
-                ));
-            }
-        }
-    }
     for (mut animation, mut transitions, mut playback) in &mut playing {
         if dialogue.text.is_some() {
             animation.pause_all();
             continue;
         }
         animation.resume_all();
-        let Ok((_, worm)) = worms.get(playback.owner) else {
+        let Ok((worm, motion, dead)) = worms.get(playback.owner) else {
             continue;
         };
+        if dead {
+            continue;
+        }
         let clip = match worm.phase {
-            WormPhase::Collapsing(_) => 3,
             WormPhase::Windup(_) | WormPhase::Recovery(_) => 2,
-            _ if worm.moving => 1,
+            _ if motion.moving => 1,
             _ => 0,
         };
         if clip != playback.clip {
@@ -441,16 +436,19 @@ fn animate(
 }
 
 fn light_hits(
-    worms: Query<(&Worm, &Children)>,
+    worms: Query<
+        (&HitReaction, &Children, Has<Dead>),
+        (With<Worm>, Or<(Changed<HitReaction>, Added<Dead>)>),
+    >,
     mut lights: Query<&mut PointLight, With<WormGlow>>,
 ) {
-    for (worm, children) in &worms {
+    for (reaction, children, dead) in &worms {
         for child in children.iter() {
             if let Ok(mut light) = lights.get_mut(child) {
-                light.intensity = if worm.hp > 0 {
-                    280.0 + 3500.0 * worm.flash / 0.16
-                } else {
+                light.intensity = if dead {
                     0.0
+                } else {
+                    280.0 + 3500.0 * reaction.strength()
                 };
             }
         }
@@ -461,9 +459,13 @@ fn light_hits(
 mod tests {
     use super::*;
     use crate::{
+        combat::{CombatPlugin, ConfirmedHit, Defense},
+        equipment::Equipment,
         inventory::{Inventory, ItemKind},
-        player::MAX_HEALTH,
+        player::{MAX_HEALTH, respawn_defeated},
         quest::Quest,
+        spear::Thrust,
+        world::WorldLayout,
     };
     use bevy::{
         asset::AssetPlugin, ecs::system::RunSystemOnce, mesh::MeshPlugin, state::app::StatesPlugin,
@@ -492,9 +494,13 @@ mod tests {
         .init_resource::<Dialogue>()
         .init_resource::<Equipment>()
         .init_resource::<Thrust>()
-        .add_message::<SpearHit>()
-        .add_message::<CombatFeedback>()
-        .add_plugins(WormPlugin);
+        .add_plugins((CombatPlugin, WormPlugin))
+        .add_systems(
+            Update,
+            respawn_defeated
+                .after(CombatSystems::Resolve)
+                .run_if(in_state(GameState::Playing)),
+        );
         app.finish();
         app.cleanup();
         app
@@ -552,12 +558,10 @@ mod tests {
         for x in [-0.1, 0.1] {
             world.spawn((
                 Worm {
-                    hp: 30,
                     phase: WormPhase::Windup(0.001),
                     home: Vec3::ZERO,
-                    moving: false,
-                    flash: 0.0,
                 },
+                WormMotion::default(),
                 Transform::from_xyz(x, GROUND_OFFSET, 0.0),
             ));
         }
@@ -565,21 +569,21 @@ mod tests {
             .resource_mut::<NextState<GameState>>()
             .set(GameState::Playing);
         let mut events = world
-            .resource::<Messages<CombatFeedback>>()
+            .resource::<Messages<ConfirmedHit>>()
             .get_cursor_current();
         let mut pulses = 0;
         for _ in 0..5 {
             app.update();
             pulses += events
-                .read(app.world().resource::<Messages<CombatFeedback>>())
-                .filter(|&&feedback| feedback == CombatFeedback::PlayerHurt)
+                .read(app.world().resource::<Messages<ConfirmedHit>>())
+                .filter(|&&feedback| feedback.target == player)
                 .count();
         }
-        let player = app
+        let health = app
             .world()
-            .get::<Player>(player)
+            .get::<Health>(player)
             .expect("the player must survive the bites");
-        assert_eq!(player.vitality.health, 80);
+        assert_eq!(health.current(), 80);
         assert_eq!(pulses, 1, "protection must suppress the second pulse");
     }
 
@@ -590,21 +594,14 @@ mod tests {
             .world_mut()
             .spawn((Player::default(), Transform::from_xyz(0.0, 0.9, 1.3)))
             .id();
-        app.world_mut()
-            .get_mut::<Player>(player)
-            .expect("test player must have vitality")
-            .vitality
-            .health = 1;
         let worm = app
             .world_mut()
             .spawn((
                 Worm {
-                    hp: 30,
                     phase: WormPhase::Windup(0.1),
                     home: Vec3::ZERO,
-                    moving: false,
-                    flash: 0.0,
                 },
+                WormMotion::default(),
                 Transform::from_xyz(0.0, GROUND_OFFSET, 0.0),
             ))
             .id();
@@ -616,6 +613,29 @@ mod tests {
             .equip(&mut bag, ItemKind::FieldArmor)
             .expect("the armor fixture must be equipable");
         app.insert_resource(bag).insert_resource(Quest::ReturnCore);
+        app.world_mut().entity_mut(player).insert((
+            Health::new(MAX_HEALTH),
+            Defense(2),
+            crate::combat::HitProtection::new(0.0),
+        ));
+        app.world_mut()
+            .resource_mut::<NextState<GameState>>()
+            .set(GameState::Playing);
+        app.world_mut().resource_mut::<Dialogue>().text = Some("Talking to Nemi");
+        app.world_mut().write_message(Hit {
+            source: worm,
+            target: player,
+            damage: MAX_HEALTH,
+            contact: None,
+        });
+        app.update();
+        assert_eq!(
+            app.world()
+                .get::<Health>(player)
+                .expect("test player must have health")
+                .current(),
+            2
+        );
 
         app.world_mut().resource_mut::<Dialogue>().text = Some("Talking to Nemi");
         for state in [GameState::Paused, GameState::Inventory, GameState::Playing] {
@@ -636,14 +656,14 @@ mod tests {
         app.world_mut().resource_mut::<Dialogue>().text = None;
         let mut events = app
             .world()
-            .resource::<Messages<CombatFeedback>>()
+            .resource::<Messages<ConfirmedHit>>()
             .get_cursor_current();
         let mut pulses = 0;
         for _ in 0..10 {
             app.update();
             pulses += events
-                .read(app.world().resource::<Messages<CombatFeedback>>())
-                .filter(|&&feedback| feedback == CombatFeedback::PlayerHurt)
+                .read(app.world().resource::<Messages<ConfirmedHit>>())
+                .filter(|&&feedback| feedback.target == player)
                 .count();
         }
         assert_eq!(
@@ -654,10 +674,9 @@ mod tests {
         let world = app.world();
         assert_eq!(
             world
-                .get::<Player>(player)
+                .get::<Health>(player)
                 .expect("defeat keeps the player entity")
-                .vitality
-                .health,
+                .current(),
             MAX_HEALTH
         );
         assert_eq!(
@@ -670,23 +689,5 @@ mod tests {
         assert_eq!(*world.resource::<Quest>(), Quest::ReturnCore);
         assert_eq!(world.resource::<Inventory>().count(ItemKind::BeaconCore), 1);
         assert_eq!(world.resource::<Equipment>().total_defense(), 2);
-    }
-
-    #[test]
-    fn bites_respect_armor_damage_floor_and_protection() {
-        let mut vitality = crate::player::Vitality::default();
-        assert_eq!(vitality.bite(8), BiteOutcome::Damaged);
-        assert_eq!(vitality.health, 88);
-        assert_eq!(vitality.bite(0), BiteOutcome::Protected);
-        assert_eq!(
-            vitality.health, 88,
-            "a second bite during protection does no damage"
-        );
-        vitality.tick(0.75);
-        assert_eq!(vitality.bite(0), BiteOutcome::Damaged);
-        assert_eq!(vitality.health, 68);
-        vitality.tick(0.75);
-        assert_eq!(vitality.bite(u16::MAX), BiteOutcome::Damaged);
-        assert_eq!(vitality.health, 67);
     }
 }

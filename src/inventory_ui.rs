@@ -369,8 +369,10 @@ fn edit_quantity(
     scroll: Res<AccumulatedMouseScroll>,
     mut panels: Query<&mut ScrollPosition, With<BagList>>,
 ) {
-    for mut panel in &mut panels {
-        panel.0.y = (panel.0.y - scroll.delta.y * 30.0).max(0.0);
+    if scroll.delta.y != 0.0 {
+        for mut panel in &mut panels {
+            panel.0.y = (panel.0.y - scroll.delta.y * 30.0).max(0.0);
+        }
     }
     for event in events.read() {
         if event.state != ButtonState::Pressed
@@ -443,6 +445,10 @@ fn sync(
         Query<&mut Text, With<EquipLabel>>,
     )>,
 ) {
+    if !(inventory.is_changed() || equipment.is_changed() || ui.is_changed() || notice.is_changed())
+    {
+        return;
+    }
     if ui.selected.is_none_or(|item| inventory.count(item) == 0) {
         ui.selected = ItemKind::ALL
             .into_iter()

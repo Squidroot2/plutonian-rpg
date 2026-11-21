@@ -103,11 +103,8 @@ fn check(
                 .flat_map(|(outpost, collision)| [outpost, collision]),
         )
         .chain(assets.pickups.values())
-        .chain(assets.worn.values())
-        .collect::<Vec<_>>();
-    for handle in &handles {
-        let handle = *handle;
-
+        .chain(assets.worn.values());
+    for handle in handles.clone() {
         if let Some(LoadState::Failed(error)) = server.get_load_state(handle.id()) {
             status.error = Some(format!("Could not load game assets: {error}"));
         }
@@ -138,21 +135,21 @@ fn check(
         if pending.is_empty()
             && (status.collision_ready || arena_ready)
             && (assets.relay.is_none() || status.relay_collision_ready)
-            && colliders.iter().count() > 1
+            && colliders.iter().nth(1).is_some()
         {
             next.set(GameState::Playing);
         }
         return;
     }
     if !handles
-        .iter()
+        .clone()
         .all(|h| server.is_loaded_with_dependencies(h.id()))
     {
         return;
     }
-    if handles.iter().any(|handle| {
+    if handles.clone().any(|handle| {
         gltfs
-            .get(*handle)
+            .get(handle)
             .is_none_or(|model| model.scenes.is_empty())
     }) {
         status.error = Some("A game model is missing its scene".into());

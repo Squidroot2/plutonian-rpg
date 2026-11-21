@@ -5,6 +5,7 @@ use super::inventory::{InventorySmoke, click, walk};
 use crate::{
     GameState,
     camera::Orbit,
+    combat::HitReaction,
     combat_feedback::AttackImpact,
     equipment::{Equipment, EquipmentSlot, WornEquipment},
     interaction::{InteractionTarget, Nearby},
@@ -83,10 +84,11 @@ fn drive(
     nearby: Res<Nearby>,
     thrust: Res<Thrust>,
     player: Query<(&Transform, &Player)>,
-    (dummy, captures, impacts): (
-        Query<(&PracticeDummy, &Transform)>,
+    (dummy, captures, impacts, windows): (
+        Query<(&HitReaction, &Transform), With<PracticeDummy>>,
         Query<(), With<Screenshot>>,
         Query<&Transform, With<AttackImpact>>,
+        Query<&Window>,
     ),
     pickups: Query<(&Pickup, &Transform)>,
     worn: Query<&WornEquipment, Without<PendingScene>>,
@@ -232,6 +234,14 @@ fn drive(
                 capture(&mut commands, "chamber");
                 *smoke = SpearSmoke::Impact;
             }
+        }
+        SpearSmoke::Chamber | SpearSmoke::Impact if now - *captured_at > 0.3 => {
+            panic!(
+                "the smoke thrust did not reach the dummy: grounded {}, window focused {}, weapon {:?}",
+                controller.grounded,
+                windows.get(window).is_ok_and(|window| window.focused),
+                equipment.get(EquipmentSlot::Weapon)
+            );
         }
         SpearSmoke::Recovery if !thrust.active() && dummy.remaining == 0.0 => {
             assert!(

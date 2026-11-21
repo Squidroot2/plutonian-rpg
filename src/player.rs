@@ -1,6 +1,15 @@
-use crate::{GameState, camera::Orbit, dungeon::Area, quest::Dialogue, world::WorldLayout};
+use crate::{
+    GameState,
+    camera::Orbit,
+    combat::{CombatSystems, Dead, Defense, Health},
+    dungeon::Area,
+    equipment::Equipment,
+    quest::Dialogue,
+    spear::Thrust,
+    world::WorldLayout,
+};
 use avian3d::prelude::*;
-use bevy::prelude::*;
+use bevy::{prelude::*, world_serialization::WorldInstanceReady};
 use std::time::Duration;
 
 pub struct PlayerPlugin;
@@ -18,23 +27,24 @@ impl Plugin for PlayerPlugin {
                     .run_if(in_state(GameState::Playing)),
             )
             .add_systems(FixedUpdate, movement.run_if(in_state(GameState::Playing)))
+            .add_systems(Update, sync_defense.before(CombatSystems::Resolve))
             .add_systems(
                 Update,
-                (attach_animations, animate)
+                (respawn_defeated, animate)
                     .chain()
-                    .after(crate::spear::SpearSystems)
+                    .after(CombatSystems::Resolve)
                     .run_if(in_state(GameState::Playing)),
             );
     }
 }
 #[derive(Component, Default)]
+#[require(Health = Health::new(MAX_HEALTH), Defense, crate::combat::HitProtection = crate::combat::HitProtection::new(0.75))]
 pub struct Player {
     pub(crate) area: Area,
     pub velocity: Vec3,
     pub grounded: bool,
     pub running: bool,
     jumping: bool,
-    pub(crate) vitality: Vitality,
 }
 impl Player {
     pub(crate) fn respawn(&mut self, transform: &mut Transform, start: Vec3) {
@@ -49,46 +59,28 @@ impl Player {
 
 pub(crate) const MAX_HEALTH: u16 = 100;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum BiteOutcome {
-    Protected,
-    Damaged,
-    Defeated,
+fn sync_defense(equipment: Res<Equipment>, mut players: Query<&mut Defense, With<Player>>) {
+    for mut armor in &mut players {
+        if equipment.is_changed() || armor.is_added() {
+            armor.set_if_neq(Defense(equipment.total_defense()));
+        }
+    }
 }
 
-pub(crate) struct Vitality {
-    pub(crate) health: u16,
-    protection: f32,
-}
-impl Default for Vitality {
-    fn default() -> Self {
-        Self {
-            health: MAX_HEALTH,
-            protection: 0.0,
-        }
+pub(crate) fn respawn_defeated(
+    layout: Res<WorldLayout>,
+    mut thrust: ResMut<Thrust>,
+    mut players: Query<(Entity, &mut Player, &mut Transform, &mut Health), Added<Dead>>,
+    mut commands: Commands,
+) {
+    for (entity, mut player, mut transform, mut health) in &mut players {
+        player.respawn(&mut transform, layout.start());
+        health.restore();
+        thrust.cancel();
+        commands.entity(entity).remove::<Dead>();
     }
 }
-impl Vitality {
-    pub(crate) fn tick(&mut self, delta: f32) {
-        self.protection = (self.protection - delta).max(0.0);
-    }
 
-    pub(crate) fn bite(&mut self, defense: u16) -> BiteOutcome {
-        if self.protection > 0.0 {
-            return BiteOutcome::Protected;
-        }
-        self.protection = 0.75;
-        self.health = self
-            .health
-            .saturating_sub(20_u16.saturating_sub(defense).max(1));
-        if self.health == 0 {
-            self.health = MAX_HEALTH;
-            BiteOutcome::Defeated
-        } else {
-            BiteOutcome::Damaged
-        }
-    }
-}
 #[derive(Component)]
 pub struct ActorVisual {
     pub player: bool,
@@ -225,32 +217,35 @@ pub(crate) fn movement(
     }
     input.jump = false;
 }
-fn attach_animations(
-    mut commands: Commands,
+pub(crate) fn bind_actor_animation(
+    event: On<WorldInstanceReady>,
     library: Res<AnimationLibrary>,
-    visuals: Query<(Entity, &ActorVisual)>,
+    visuals: Query<&ActorVisual>,
     children: Query<&Children>,
-    mut players: Query<&mut AnimationPlayer, Without<AnimatedActor>>,
+    mut players: Query<&mut AnimationPlayer>,
+    mut commands: Commands,
 ) {
-    for (root, actor) in &visuals {
-        for child in children.iter_descendants(root) {
-            if let Ok(mut player) = players.get_mut(child) {
-                let mut transitions = AnimationTransitions::new();
-                transitions
-                    .play(&mut player, library.nodes[0], Duration::ZERO)
-                    .repeat();
-                commands.entity(child).insert((
-                    AnimationGraphHandle(library.graph.clone()),
-                    transitions,
-                    AnimatedActor {
-                        player: actor.player,
-                        current: 0,
-                    },
-                ));
-            }
+    let Ok(actor) = visuals.get(event.entity) else {
+        return;
+    };
+    for child in children.iter_descendants(event.entity) {
+        if let Ok(mut player) = players.get_mut(child) {
+            let mut transitions = AnimationTransitions::new();
+            transitions
+                .play(&mut player, library.nodes[0], Duration::ZERO)
+                .repeat();
+            commands.entity(child).insert((
+                AnimationGraphHandle(library.graph.clone()),
+                transitions,
+                AnimatedActor {
+                    player: actor.player,
+                    current: 0,
+                },
+            ));
         }
     }
 }
+
 fn animate(
     library: Res<AnimationLibrary>,
     thrust: Res<crate::spear::Thrust>,
