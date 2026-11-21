@@ -30,7 +30,11 @@ use bevy::{app::AppExit, prelude::*, render::view::screenshot::Screenshot};
 pub(super) enum WorldCheck {
     #[default]
     Spawn,
+    TentView(f64),
+    TentPhoto(Entity),
+    LeaveTent,
     OutpostPhoto(Entity),
+    ReturnToTent,
     InspectLocked,
     LockedNotice,
     OpenDiscoveredJournal,
@@ -92,7 +96,11 @@ pub(super) fn drive(
         Res<QuestSelection>,
         Query<(Entity, &QuestRow)>,
     ),
-    gate: Query<Entity, With<ArchiveGate>>,
+    (gate, names, parents): (
+        Query<Entity, With<ArchiveGate>>,
+        Query<&Name>,
+        Query<&ChildOf>,
+    ),
     worms: Query<(Entity, &Transform, &MeleePursuit), (With<Worm>, Without<Player>)>,
     captures: Query<(), With<Screenshot>>,
     (state, roaches, actions, window, camera): (
@@ -164,7 +172,34 @@ pub(super) fn drive(
 
     match *phase {
         WorldCheck::Spawn if controller.grounded => {
-            assert!(position.xz().distance(WorldLayout::Outpost.start().xz()) < 0.01);
+            let spawn = WorldLayout::Outpost.initial_spawn();
+            assert!(position.distance(spawn) < 0.04);
+            assert!((orbit.yaw - std::f32::consts::FRAC_PI_2).abs() < 0.01);
+            assert!(quest.expects(QuestAction::TalkedToNemi));
+            let filter = SpatialQueryFilter::from_excluded_entities([entity]);
+            for (origin, direction, part) in [
+                (position, Dir3::NEG_Y, "deck"),
+                (position, Dir3::Y, "roof"),
+                (position, Dir3::X, "rear wall"),
+                (position, Dir3::Z, "sidewall"),
+                (position - Vec3::Y * 0.55, Dir3::NEG_Z, "cot base"),
+                (
+                    position - Vec3::X * 2.05 - Vec3::Y * 0.55,
+                    Dir3::Z,
+                    "supply crate",
+                ),
+            ] {
+                let hit = spatial
+                    .cast_ray(origin, direction, 5.0, true, &filter)
+                    .unwrap_or_else(|| panic!("starting tent {part} should have collision"));
+                let node = parents.get(hit.entity).expect("tent collider mesh parent");
+                let name = names.get(node.parent()).expect("named tent node");
+                assert!(
+                    name.as_str()
+                        .starts_with(&format!("Starting tent solid {part}")),
+                    "expected to hit tent {part}, got {name}"
+                );
+            }
             let local_worms: Vec<_> = worms
                 .iter()
                 .filter(|(_, transform, _)| transform.translation.y < -7.0)
@@ -183,9 +218,31 @@ pub(super) fn drive(
                     .expect("each relay worm must have a supporting floor");
                 assert!((support.distance - 1.0 - GROUND_OFFSET).abs() < 0.03);
             }
-            *phase = WorldCheck::OutpostPhoto(capture(&mut commands, "outpost"));
+            // Allow the new scene's render pipelines to compile before the first photo.
+            *phase = WorldCheck::TentView(now + 0.75);
+        }
+        WorldCheck::TentView(ready_at) if now >= ready_at => {
+            *phase = WorldCheck::TentPhoto(capture(&mut commands, "starting-tent"));
+        }
+        WorldCheck::TentPhoto(photo) if captures.get(photo).is_err() => {
+            *phase = WorldCheck::LeaveTent;
+        }
+        WorldCheck::LeaveTent => {
+            if position.x < 5.55 && controller.grounded {
+                orbit.yaw = -std::f32::consts::FRAC_PI_2;
+                *phase = WorldCheck::OutpostPhoto(capture(&mut commands, "outpost"));
+            } else {
+                keys.press(KeyCode::KeyW);
+            }
         }
         WorldCheck::OutpostPhoto(photo) if captures.get(photo).is_err() => {
+            orbit.yaw = std::f32::consts::FRAC_PI_2;
+            *phase = WorldCheck::ReturnToTent;
+        }
+        WorldCheck::ReturnToTent
+            if position.x >= WorldLayout::Outpost.initial_spawn().x && controller.grounded =>
+        {
+            assert!((position.z - WorldLayout::Outpost.initial_spawn().z).abs() < 0.08);
             fixture(
                 &mut controller,
                 &mut dodge,
@@ -193,6 +250,9 @@ pub(super) fn drive(
                 HATCH + Vec3::Z * 1.35,
             );
             *phase = WorldCheck::InspectLocked;
+        }
+        WorldCheck::ReturnToTent => {
+            keys.press(KeyCode::KeyS);
         }
         WorldCheck::InspectLocked if ready(DungeonTarget::Hatch) => {
             keys.press(KeyCode::KeyE);
@@ -476,7 +536,7 @@ pub(super) fn drive(
             assert!(position.xz().distance(WorldLayout::Outpost.start().xz()) < 0.1);
             assert!(quest.is_complete(OLD_RELAY) && progress.gate_open());
             info!(
-                "WORLD SMOKE PASS: shipped map, pillars, and Old Relay exploration verified in {:.2}s",
+                "WORLD SMOKE PASS: starting tent, shipped map, pillars, and Old Relay exploration verified in {:.2}s",
                 run.0.elapsed().as_secs_f64()
             );
             exit.write(AppExit::Success);

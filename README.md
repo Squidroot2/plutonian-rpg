@@ -1,6 +1,6 @@
 # The Plutonian
 
-A third-person exploration RPG prototype built with Bevy 0.20 and Blender. You are a Plutonian returning to Nivalis, a small settlement whose crossing beacon has gone dark. Speak to Nemi, follow the blue waystones to the cavern, and bring its power core home.
+A third-person exploration RPG prototype built with Bevy 0.20 and Blender. You wake in a tent in Nivalis, a small settlement whose crossing beacon has gone dark. Speak to Nemi, follow the blue waystones to the cavern, and bring its power core home.
 
 ## Run
 
@@ -128,6 +128,8 @@ To re-export **your edited `.blend` sources** without regenerating them:
 blender --background -noaudio --factory-startup --python-exit-code 1 --python scripts/assets.py -- --export
 ```
 
+Append `--outpost` to export just the outpost and its collision scene.
+
 To **rebuild all source art and exports from the procedural designs**, overwriting the editable `.blend` sources:
 
 ```sh
@@ -176,7 +178,7 @@ python3 scripts/check_assets.py
 Run the desktop checks on an idle graphical desktop without supplying mouse or keyboard input. Add `--windowed` to a smoke command to run it in a window.
 
 - `--smoke-test` starts a standalone arena with nearby materials, equipment, a practice dummy, and the keeper and core. It checks tab switching, live physics while the menu is open, inventory quantities, equipped rows, and the drop prompt, both weapons' hits and misses, a worm pursuit, dodge, bite, and defeat, armor swaps and attachment during movement, the 640×704 player-menu layout, wall collision, pause/resume, and fall recovery. The short beacon interaction verifies that the core is protected in the bag, consumed on turn-in, and lights the beacon. The run prints `SMOKE PASS` and its duration, or fails within 60 seconds with the current phase.
-- `--smoke-world` loads the shipped outpost, verifies the player and worms start grounded, checks the route past the worms, and checks that every authored pillar blocks the movement capsule from four directions. It then checks the locked hatch, beacon turn-in, gate, archive discovery, return and reentry, and fall recovery. It prints `WORLD SMOKE PASS` on success.
+- `--smoke-world` loads the shipped outpost, walks out of and back into the starting tent, verifies the worms start grounded, checks the route past the worms, and checks that every authored pillar blocks the movement capsule from four directions. It then checks the locked hatch, beacon turn-in, gate, archive discovery, return and reentry, and fall recovery. It prints `WORLD SMOKE PASS` on success.
 - `--smoke-nemi` checks spear damage, fleeing and returning, the failed quest entry, Nemi’s collapse, and opening the relay by installing the core at the beacon. It prints `NEMI SMOKE PASS` on success.
 
 The checks save screenshots in `/tmp/plutonian-*.png`, including the arena, outpost, inventory, beacon, and weapon and armor poses.

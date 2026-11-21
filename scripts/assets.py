@@ -420,6 +420,118 @@ def add_spear_animations(rig):
     reset_character_pose(rig)
 
 
+TENT_SOLID = 'Starting tent solid '
+
+
+def starting_tent():
+    """Build the west-facing shelter on the ice east of the courtyard."""
+    canvas = material('Shelter slate canvas', (.105, .165, .19))
+    lining = material('Shelter insulated lining', (.29, .27, .21))
+    frame = material('Shelter graphite frame', (.065, .092, .108), metal=.5)
+    floor = material('Shelter rubber decking', (.12, .14, .15))
+    stripe = material('Shelter aisle edging', (.32, .23, .105))
+    mattress = material('Shelter mattress', (.17, .21, .23))
+    blanket = material('Shelter rust wool', (.40, .135, .065))
+    pillow = material('Shelter wool pillow', (.38, .37, .30))
+    crate = material('Shelter enamel green', (.13, .23, .205), metal=.25)
+    amber = material('Shelter lantern glass', (1, .53, .18), 4)
+    cyan = material('Shelter entrance marker', (.12, .74, .8), 2)
+
+    # Local X follows the aisle. The floor surface is Z = 0 in this frame.
+    origin = Vector((10, 3, -.825))
+
+    def block(name, location, dimensions, mat):
+        return box('Starting tent ' + name, origin + Vector(location), dimensions, mat)
+
+    def mesh(name, vertices, faces, mat):
+        data = bpy.data.meshes.new(name)
+        data.from_pydata(vertices, [], faces)
+        data.update()
+        obj = bpy.data.objects.new(name, data)
+        bpy.context.collection.objects.link(obj)
+        obj.location = origin
+        obj.data.materials.append(mat)
+        return obj
+
+    def panel(name, x_min, x_max, section, mat):
+        # Extrude a counterclockwise cross section through the wall or roof depth.
+        count = len(section)
+        vertices = [(x, y, z) for x in (x_min, x_max) for y, z in section]
+        faces = [tuple(reversed(range(count))), tuple(range(count, count * 2))]
+        for index in range(count):
+            following = (index + 1) % count
+            faces.append((index, following, following + count, index + count))
+        return mesh(TENT_SOLID + name, vertices, faces, mat)
+
+    block('solid deck', (0, 0, -.09), (7.2, 5.5, .18), floor)
+    mesh(TENT_SOLID + 'threshold ramp',
+         [(-4.23, -.78, -.22), (-3.58, -.78, -.22), (-3.58, .78, -.22), (-4.23, .78, -.22),
+          (-4.23, -.78, -.15), (-3.58, -.78, 0), (-3.58, .78, 0), (-4.23, .78, -.15)],
+         [(3, 2, 1, 0), (4, 5, 6, 7), (0, 1, 5, 4), (1, 2, 6, 5),
+          (2, 3, 7, 6), (3, 0, 4, 7)], frame)
+    for side in (-1, 1):
+        block('solid sidewall', (0, side*2.72, 1.24), (7.2, .16, 2.56), lining)
+        block('sidewall canvas', (0, side*2.801, 1.28), (7.25, .035, 2.5), canvas)
+        block('toe rail', (0, side*2.625, .17), (7.16, .055, .33), frame)
+        block('solid entrance wall', (-3.52, side*1.73, 1.17), (.16, 1.96, 2.34), lining)
+        block('entrance canvas', (-3.611, side*1.73, 1.17), (.03, 1.96, 2.34), canvas)
+        block('entry upright', (-3.61, side*.79, 1.16), (.13, .075, 2.32), frame)
+        block('entry light', (-3.689, side*.85, 1.85), (.035, .065, .56), cyan)
+        block('interior entry light', (-3.429, side*.82, 1.85), (.025, .045, .42), cyan)
+        block('aisle stripe', (-.05, side*.65, .007), (6.94, .042, .012), stripe)
+
+    block('solid rear wall', (3.52, 0, 1.20), (.16, 5.36, 2.4), lining)
+    block('rear canvas', (3.611, 0, 1.20), (.03, 5.36, 2.4), canvas)
+    gable = [(-2.8, 2.33), (2.8, 2.33), (2.8, 2.48), (0, 3.39), (-2.8, 2.48)]
+    panel('front gable', -3.6, -3.44, gable, canvas)
+    panel('rear gable', 3.44, 3.6, gable, canvas)
+    roof = panel('roof', -3.72, 3.72,
+                 [(-2.89, 2.43), (0, 3.36), (2.89, 2.43),
+                  (2.89, 2.54), (0, 3.48), (-2.89, 2.54)], canvas)
+    roof.data.materials.append(lining)
+    for index in (2, 3):
+        roof.data.polygons[index].material_index = 1
+    for x in (-3.52, -1.76, 0, 1.76, 3.52):
+        for side in (-1, 1):
+            block('rib upright', (x, side*2.6, 1.24), (.09, .09, 2.48), frame)
+            rib = block('roof rib', (x, side*1.33, 2.89), (.085, 2.84, .085), frame)
+            rib.rotation_euler.x = -side*math.atan(.325)
+
+    bpy.ops.mesh.primitive_cylinder_add(vertices=16, radius=1, depth=1,
+                                       location=origin + Vector((-3.72, 0, 2.46)))
+    flap = finish('Starting tent rolled flap', canvas, (.12, .12, 1.78))
+    flap.rotation_euler.x = math.pi / 2
+    for side in (-1, 1):
+        strap = block('flap strap', (-3.73, side*.65, 2.46), (.253, .09, .248), frame)
+        strap.rotation_euler.y = .28
+
+    # The large furnishings have matching collision bodies. Small details sit on top.
+    block('solid cot base', (-.55, 1.72, .19), (2.5, 1.19, .38), frame)
+    block('solid mattress', (-.55, 1.72, .435), (2.38, 1.11, .18), mattress)
+    block('folded blanket', (-.16, 1.72, .548), (1.36, 1.12, .05), blanket)
+    block('blanket fold', (-.72, 1.72, .582), (.22, 1.13, .036), blanket)
+    for offset in (-.025, .025):
+        block('blanket seam', (.41+offset, 1.72, .577), (.012, 1.1, .012), pillow)
+    ico('Starting tent pillow', origin + Vector((-1.43, 1.73, .57)), (.29, .45, .12), pillow, 2)
+    for x in (-1.55, .45):
+        block('cot frame trim', (x, 1.12, .28), (.09, .05, .23), stripe)
+
+    for x, y, width, depth, height in [(-2.3, 1.88, .75, .66, .58),
+                                       (-1.85, -1.85, 1.2, .81, .67),
+                                       (-.57, -2.02, .9, .73, .45)]:
+        block('solid supply crate', (x, y, height/2), (width, depth, height), crate)
+        block('crate lid', (x, y, height-.046), (width+.05, depth+.05, .09), frame)
+        for side in (-1, 1):
+            block('crate latch', (x+side*width*.27, y-math.copysign(depth/2, y),
+                                  height-.105), (.09, .05, .12), stripe)
+    block('lantern base', (-2.3, 1.88, .628), (.31, .29, .096), frame)
+    block('lantern glass', (-2.3, 1.88, .79), (.20, .18, .26), amber)
+    block('lantern hood', (-2.3, 1.88, .945), (.31, .29, .08), frame)
+    for x in (-2.42, -2.18):
+        for y in (1.77, 1.99):
+            block('lantern cage', (x, y, .79), (.026, .026, .28), frame)
+
+
 def world():
     reset()
     ice = material('Blue graphite ice', (.075,.13,.19), metal=.25)
@@ -455,6 +567,8 @@ def world():
     solid(ramp)
     # An inhabited outpost, open central courtyard.
     for i, (x,y) in enumerate([(-10,1), (10,3), (-13,-8), (12,-10)]):
+        if i == 1:
+            continue
         solid(cone(f'Habitat {i}', (x,y,2.2), 4.1, 5, wall, 2.8))
         cone('Habitat cap', (x,y,5), 3.1, 1.5, stone, 1)
         box('Lit doorway', (x,y-3.65,1.5), (1.4,.18,2.3), warm)
@@ -496,13 +610,14 @@ def world():
     # A small distant Charon, away from the route.
     ico('Charon', (-72,100,65), (13,13,13), material('Charon rock', (.23,.26,.32)), 3)
     ground_outpost()
+    starting_tent()
     save_export('outpost')
 
 
 def collision_from_world():
     bpy.ops.wm.open_mainfile(filepath=str(ROOT/'art/outpost.blend'))
     prefixes = ('Ice shelf', 'Trail rise', 'Habitat ', 'Beacon foundation', 'Beacon spindle',
-                'Ice escarpment', 'Cavern ', 'Core plinth', 'Waystone')
+                'Ice escarpment', 'Cavern ', 'Core plinth', 'Waystone', TENT_SOLID)
     for o in list(bpy.data.objects):
         if not o.name.startswith(prefixes) or o.name.startswith('Waystone lamp'):
             bpy.data.objects.remove(o, do_unlink=True)
@@ -1092,7 +1207,12 @@ elif '--export' in sys.argv and '--nemi-death' in sys.argv:
     add_nemi_death(rig)
     save_export('plutonian')
 elif '--export' in sys.argv:
-    for name in ['plutonian', 'outpost', 'collision', 'core', 'battery', 'scrap', 'methane_pouch', 'large_boulder', 'practice_dummy', 'ice_worm', 'relay_roach', 'old_relay', 'old_relay_collision', *MEAT_NAMES, *GEAR_NAMES]:
+    names = ['outpost', 'collision'] if '--outpost' in sys.argv else [
+        'plutonian', 'outpost', 'collision', 'core', 'battery', 'scrap', 'methane_pouch',
+        'large_boulder', 'practice_dummy', 'ice_worm', 'relay_roach', 'old_relay',
+        'old_relay_collision', *MEAT_NAMES, *GEAR_NAMES,
+    ]
+    for name in names:
         bpy.ops.wm.open_mainfile(filepath=str(ROOT/'art'/f'{name}.blend'))
         if name in GEAR_NAMES:
             export_equipment(name)

@@ -1,5 +1,6 @@
 use crate::{
     GameState,
+    camera::Orbit,
     equipment::bind_equipment_attachments,
     interaction::Target,
     loading::{GameAssets, LoadStatus, PendingScene},
@@ -22,6 +23,12 @@ impl WorldLayout {
         match self {
             Self::Outpost => Vec3::new(4.0, 0.5, 8.0),
             Self::SmokeArena => Vec3::new(0.0, 0.905, 0.0),
+        }
+    }
+    pub(crate) fn initial_spawn(self) -> Vec3 {
+        match self {
+            Self::Outpost => Vec3::new(9.7, 0.08, -2.72),
+            Self::SmokeArena => self.start(),
         }
     }
     pub fn keeper(self) -> Vec3 {
@@ -70,10 +77,12 @@ fn spawn_world(
     assets: Res<GameAssets>,
     gltfs: Res<Assets<Gltf>>,
     layout: Res<WorldLayout>,
+    mut orbit: ResMut<Orbit>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     if let Some((outpost, collision)) = &assets.outpost {
+        orbit.yaw = std::f32::consts::FRAC_PI_2;
         commands
             .spawn((
                 Name::new("Outpost visuals"),
@@ -113,6 +122,16 @@ fn spawn_world(
                 info!("Collision hierarchy ready");
             },
         );
+        commands.spawn((
+            Name::new("Starting tent lantern"),
+            PointLight {
+                color: Color::srgb(1.0, 0.57, 0.28),
+                intensity: 7_500.0,
+                range: 6.0,
+                ..default()
+            },
+            Transform::from_xyz(7.82, 0.32, -4.50),
+        ));
     } else {
         crate::smoke::spawn_arena(&mut commands, &mut meshes, &mut materials);
     }
@@ -129,7 +148,7 @@ fn spawn_world(
             RigidBody::Kinematic,
             CustomPositionIntegration,
             Collider::capsule(0.32, 1.15),
-            Transform::from_translation(layout.start()),
+            Transform::from_translation(layout.initial_spawn()),
         ))
         .with_children(|parent| {
             parent
@@ -236,7 +255,11 @@ fn spawn_world(
             20.0,
         ),
         (
-            Vec3::new(8.0, 3.0, -2.0),
+            if *layout == WorldLayout::Outpost {
+                Vec3::new(4.5, 3.0, -1.5)
+            } else {
+                Vec3::new(8.0, 3.0, -2.0)
+            },
             Color::srgb(1.0, 0.45, 0.15),
             60000.0,
             20.0,
@@ -269,6 +292,7 @@ fn spawn_world(
 // Running this on resume would incorrectly teleport a player paused mid-jump.
 fn ground_spawned_models(
     spatial: SpatialQuery,
+    layout: Res<WorldLayout>,
     mut actors: Query<
         (Entity, &mut Transform, Option<&Target>),
         (Or<(With<Player>, With<Target>)>, Without<Beacon>),
@@ -277,7 +301,12 @@ fn ground_spawned_models(
     nodes: Query<(&Name, &GlobalTransform)>,
 ) {
     for (entity, mut transform, target) in &mut actors {
-        let origin = transform.translation + Vec3::Y * 3.0;
+        // The new-game position is inside the shelter, below its roof.
+        let origin = if target.is_none() && *layout == WorldLayout::Outpost {
+            transform.translation
+        } else {
+            transform.translation + Vec3::Y * 3.0
+        };
         if let Some(hit) = spatial.cast_ray(
             origin,
             Dir3::NEG_Y,

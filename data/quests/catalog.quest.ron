@@ -12,7 +12,7 @@
             (
                 id: "meet_nemi",
                 title: "Speak to Nemi",
-                directions: "Find Nemi in the outpost courtyard, northeast of the tall beacon tower. Approach and use your Interact key.",
+                directions: "Step out of your tent and find Nemi in the courtyard, northeast of the tall beacon tower. Approach and use your Interact key.",
                 transitions: [(when: Action(TalkedToNemi), to: Objective("recover_core"))],
             ),
             (
