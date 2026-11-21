@@ -81,50 +81,56 @@ fn setup(mut commands: Commands) {
                 Pickable::IGNORE,
             ));
             hud.spawn((
-                HealthBar,
-                Node {
-                    flex_direction: FlexDirection::Column,
-                    row_gap: px(4),
-                    ..default()
-                },
-                Visibility::Hidden,
-                Pickable::IGNORE,
-            ))
-            .with_children(|bar| {
-                bar.spawn((
-                    HealthLabel,
-                    Text::default(),
-                    text_style(16.0),
-                    Pickable::IGNORE,
-                ));
-                bar.spawn((
-                    Node {
-                        width: px(184),
-                        height: px(10),
-                        border: UiRect::all(px(1)),
-                        border_radius: BorderRadius::all(px(2)),
-                        overflow: Overflow::clip(),
-                        ..default()
-                    },
-                    BackgroundColor(Color::srgb(0.045, 0.065, 0.09)),
-                    BorderColor::all(Color::srgb(0.30, 0.38, 0.44)),
-                    Pickable::IGNORE,
-                ))
-                .with_child((
-                    HealthBarFill,
-                    Node {
-                        width: percent(0),
-                        height: percent(100),
-                        ..default()
-                    },
-                    BackgroundColor(Color::srgb(0.94, 0.32, 0.35)),
-                    Pickable::IGNORE,
-                ));
-            });
-            hud.spawn((
                 HudText::Objective,
                 Text::default(),
                 text_style(18.0),
+                Pickable::IGNORE,
+            ));
+        });
+    commands
+        .spawn((
+            HealthBar,
+            Node {
+                position_type: PositionType::Absolute,
+                left: px(0),
+                right: px(0),
+                bottom: px(24),
+                flex_direction: FlexDirection::Column,
+                align_items: AlignItems::Center,
+                row_gap: px(4),
+                ..default()
+            },
+            Visibility::Hidden,
+            Pickable::IGNORE,
+        ))
+        .with_children(|bar| {
+            bar.spawn((
+                HealthLabel,
+                Text::default(),
+                text_style(16.0),
+                Pickable::IGNORE,
+            ));
+            bar.spawn((
+                Node {
+                    width: px(184),
+                    height: px(10),
+                    border: UiRect::all(px(1)),
+                    border_radius: BorderRadius::all(px(2)),
+                    overflow: Overflow::clip(),
+                    ..default()
+                },
+                BackgroundColor(Color::srgb(0.045, 0.065, 0.09)),
+                BorderColor::all(Color::srgb(0.30, 0.38, 0.44)),
+                Pickable::IGNORE,
+            ))
+            .with_child((
+                HealthBarFill,
+                Node {
+                    width: percent(0),
+                    height: percent(100),
+                    ..default()
+                },
+                BackgroundColor(Color::srgb(0.94, 0.32, 0.35)),
                 Pickable::IGNORE,
             ));
         });
