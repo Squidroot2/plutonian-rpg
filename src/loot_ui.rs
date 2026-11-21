@@ -158,6 +158,7 @@ fn click(
                 return;
             }
             loot.stack = None;
+            commands.trigger(crate::combat_audio::ItemPickedUp);
             if let Ok(mut text) = contents.single_mut() {
                 **text = "Looted".into();
             }

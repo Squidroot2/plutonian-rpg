@@ -23,6 +23,7 @@ impl Plugin for CombatAudioPlugin {
     fn build(&self, app: &mut App) {
         app.add_audio_source::<Effect>()
             .add_systems(Startup, setup)
+            .add_observer(play_pickup)
             .add_systems(
                 Update,
                 play.after(CombatSystems::Resolve)
@@ -36,6 +37,7 @@ enum Effect {
     Thrust,
     Hit,
     Death,
+    Pickup,
 }
 
 #[derive(Resource)]
@@ -43,6 +45,7 @@ struct Sounds {
     thrust: Handle<Effect>,
     hit: Handle<Effect>,
     death: Handle<Effect>,
+    pickup: Handle<Effect>,
 }
 
 fn setup(mut commands: Commands, mut assets: ResMut<Assets<Effect>>) {
@@ -50,7 +53,22 @@ fn setup(mut commands: Commands, mut assets: ResMut<Assets<Effect>>) {
         thrust: assets.add(Effect::Thrust),
         hit: assets.add(Effect::Hit),
         death: assets.add(Effect::Death),
+        pickup: assets.add(Effect::Pickup),
     });
+}
+
+#[derive(Event)]
+pub(crate) struct ItemPickedUp;
+
+fn play_pickup(_: On<ItemPickedUp>, sounds: Res<Sounds>, mut commands: Commands) {
+    spawn_sound(&mut commands, &sounds.pickup);
+}
+
+fn spawn_sound(commands: &mut Commands, sound: &Handle<Effect>) {
+    commands.spawn((
+        AudioPlayer(sound.clone()),
+        PlaybackSettings::DESPAWN.with_volume(Volume::Linear(0.2)),
+    ));
 }
 
 fn play(
@@ -60,20 +78,14 @@ fn play(
     mut hits: MessageReader<ConfirmedHit>,
     deaths: Query<(), (Added<Dead>, Or<(With<Worm>, With<Roach>)>)>,
 ) {
-    let mut play = |sound: &Handle<Effect>| {
-        commands.spawn((
-            AudioPlayer(sound.clone()),
-            PlaybackSettings::DESPAWN.with_volume(Volume::Linear(0.2)),
-        ));
-    };
     if thrust.just_started() {
-        play(&sounds.thrust);
+        spawn_sound(&mut commands, &sounds.thrust);
     }
     for _ in hits.read() {
-        play(&sounds.hit);
+        spawn_sound(&mut commands, &sounds.hit);
     }
     for () in &deaths {
-        play(&sounds.death);
+        spawn_sound(&mut commands, &sounds.death);
     }
 }
 
@@ -95,6 +107,7 @@ impl Decodable for Effect {
             Self::Thrust => 3_600,
             Self::Hit => 2_880,
             Self::Death => 9_600,
+            Self::Pickup => 3_840,
         };
         Samples {
             effect: *self,
@@ -127,6 +140,10 @@ impl Iterator for Samples {
         let sample = match self.effect {
             Effect::Thrust => (noise - self.filtered) * (4.0 * progress * tail) * tail,
             Effect::Hit => (0.7 * sweep(150.0, 95.0) + 0.3 * noise) * tail.powi(4),
+            Effect::Pickup => {
+                let phase = TAU * seconds * (620.0 + 220.0 * progress);
+                (0.55 * phase.sin() + 0.15 * (phase * 2.0).sin()) * tail.powi(3)
+            }
             Effect::Death => (0.55 * sweep(125.0, 95.0) + 0.45 * self.filtered) * tail.powi(2),
         };
         Some(sample * (seconds * 350.0).min(1.0))

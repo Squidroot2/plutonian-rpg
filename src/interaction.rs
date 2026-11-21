@@ -188,6 +188,7 @@ fn interact(
                     && *quest == Quest::ReturnCore
                 {
                     commands.entity(entity).despawn();
+                    commands.trigger(crate::combat_audio::ItemPickedUp);
                 }
             }
             InteractionTarget::Pickup(_) if interact_pressed => {
@@ -195,6 +196,7 @@ fn interact(
                 if let Ok(pickup) = pickups.get(entity) {
                     if inventory.add(pickup.item, pickup.quantity) {
                         commands.entity(entity).despawn();
+                        commands.trigger(crate::combat_audio::ItemPickedUp);
                     }
                 }
             }
