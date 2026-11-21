@@ -32,6 +32,7 @@ impl Plugin for PlayerPlugin {
                     .run_if(in_state(GameState::Playing)),
             )
             .add_systems(FixedUpdate, movement.run_if(in_state(GameState::Playing)))
+            .add_systems(Update, footsteps.run_if(in_state(GameState::Playing)))
             .add_systems(
                 Update,
                 face_camera
@@ -124,6 +125,30 @@ impl Dodge {
                 self.hop = None;
             }
         }
+    }
+}
+
+fn footsteps(
+    time: Res<Time>,
+    assets: Res<AssetServer>,
+    players: Query<&Player>,
+    mut elapsed: Local<f32>,
+    mut commands: Commands,
+) {
+    let Some(player) = players.iter().next() else {
+        return;
+    };
+    if !player.grounded || player.movement_direction == Vec2::ZERO {
+        *elapsed = 0.0;
+        return;
+    }
+    *elapsed -= time.delta_secs();
+    if *elapsed <= 0.0 {
+        commands.spawn((
+            AudioPlayer::new(assets.load("sounds/footstep05.ogg")),
+            PlaybackSettings::DESPAWN,
+        ));
+        *elapsed = if player.running { 0.32 } else { 0.5 };
     }
 }
 
@@ -544,6 +569,7 @@ mod tests {
         .add_plugins((CombatPlugin, SpearPlugin))
         .add_systems(PreUpdate, input.run_if(in_state(GameState::Playing)))
         .add_systems(FixedUpdate, movement.run_if(in_state(GameState::Playing)))
+        .add_systems(Update, footsteps.run_if(in_state(GameState::Playing)))
         .add_systems(Update, face_camera.before(CombatSystems::Detect))
         .add_systems(OnEnter(GameState::Paused), freeze)
         .add_systems(OnEnter(GameState::Inventory), freeze);

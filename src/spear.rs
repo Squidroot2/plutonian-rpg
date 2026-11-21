@@ -154,14 +154,14 @@ fn thrust_contact(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::combat::TrainingTarget;
+    use crate::practice_dummy::PracticeDummy;
     use crate::{camera::Orbit, inventory::ItemKind, player::face_camera};
     use bevy::{
         asset::AssetPlugin, ecs::system::RunSystemOnce, mesh::MeshPlugin, state::app::StatesPlugin,
         time::TimeUpdateStrategy, transform::TransformPlugin,
     };
     use std::time::Duration;
-    use crate::combat::TrainingTarget;
-    use crate::practice_dummy::PracticeDummy;
 
     #[test]
     fn thrust_has_one_impact_and_ignores_clicks_before_recovery() {
