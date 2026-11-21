@@ -23,6 +23,7 @@ pub struct InventoryUiState {
     pub selected: Option<ItemKind>,
     pub quantity: String,
     gear: Option<ItemKind>,
+    equip_slot: Option<EquipmentSlot>,
     drop_open: bool,
     editing: bool,
     replace: bool,
@@ -86,6 +87,15 @@ fn available_to_drop(item: ItemKind, inventory: &Inventory) -> u32 {
     }
 }
 
+fn available_gear_for_slot(
+    slot: EquipmentSlot,
+    inventory: &Inventory,
+) -> impl Iterator<Item = ItemKind> + '_ {
+    ItemKind::GEAR.into_iter().filter(move |&item| {
+        inventory.count(item) > 0 && item.gear().is_some_and(|gear| gear.slot == slot)
+    })
+}
+
 fn equipped(item: ItemKind, equipment: &Equipment) -> bool {
     item.gear()
         .is_some_and(|gear| equipment.get(gear.slot) == Some(item))
@@ -100,7 +110,9 @@ pub enum InventoryAction {
     Select(ItemKind),
     SelectGear(ItemKind),
     Equip,
-    Unequip(EquipmentSlot),
+    ToggleSlot(EquipmentSlot),
+    EquipFromSlot(EquipmentSlot, ItemKind),
+    CloseSlotPicker(EquipmentSlot),
     Minus,
     Plus,
     Quantity,
@@ -112,7 +124,11 @@ pub enum InventoryAction {
 impl InventoryAction {
     fn tab(self) -> MenuTab {
         match self {
-            Self::SelectGear(_) | Self::Equip | Self::Unequip(_) => MenuTab::Equipment,
+            Self::SelectGear(_)
+            | Self::Equip
+            | Self::ToggleSlot(_)
+            | Self::EquipFromSlot(_, _)
+            | Self::CloseSlotPicker(_) => MenuTab::Equipment,
             _ => MenuTab::Inventory,
         }
     }
@@ -125,6 +141,7 @@ enum PanelText {
     ItemStatus(ItemKind),
     Gear(ItemKind),
     Slot(EquipmentSlot),
+    SlotAction(EquipmentSlot),
     Defense,
     Load,
     Detail,
@@ -140,6 +157,8 @@ struct EmptyList(MenuTab);
 struct DropControls;
 #[derive(Component)]
 struct ItemList;
+#[derive(Component)]
+struct SlotPicker(EquipmentSlot);
 
 impl Plugin for InventoryUiPlugin {
     fn build(&self, app: &mut App) {
@@ -325,23 +344,65 @@ pub(crate) fn spawn_equipment(page: &mut ChildSpawnerCommands) {
             for slot in EquipmentSlot::ALL {
                 details
                     .spawn(Node {
-                        align_items: AlignItems::Center,
-                        column_gap: px(8),
+                        flex_direction: FlexDirection::Column,
+                        row_gap: px(6),
                         flex_shrink: 0.0,
                         ..default()
                     })
-                    .with_children(|row| {
-                        row.spawn((
-                            PanelText::Slot(slot),
-                            Text::default(),
-                            font(16.0),
-                            Node {
-                                min_width: px(0),
-                                flex_grow: 1.0,
+                    .with_children(|slot_group| {
+                        slot_group
+                            .spawn(Node {
+                                align_items: AlignItems::Center,
+                                column_gap: px(8),
                                 ..default()
-                            },
-                        ));
-                        action_button(row, InventoryAction::Unequip(slot), Text::new("Unequip"));
+                            })
+                            .with_children(|row| {
+                                row.spawn((
+                                    PanelText::Slot(slot),
+                                    Text::default(),
+                                    font(16.0),
+                                    Node {
+                                        min_width: px(0),
+                                        flex_grow: 1.0,
+                                        ..default()
+                                    },
+                                ));
+                                action_button(
+                                    row,
+                                    InventoryAction::ToggleSlot(slot),
+                                    (PanelText::SlotAction(slot), Text::default()),
+                                );
+                            });
+                        slot_group
+                            .spawn((
+                                SlotPicker(slot),
+                                Node {
+                                    display: Display::None,
+                                    flex_wrap: FlexWrap::Wrap,
+                                    column_gap: px(6),
+                                    row_gap: px(6),
+                                    padding: UiRect::all(px(8)),
+                                    ..default()
+                                },
+                                BackgroundColor(menu_ui::BUTTON),
+                            ))
+                            .with_children(|picker| {
+                                picker.spawn((Text::new("Choose equipment"), font(15.0)));
+                                for item in ItemKind::GEAR.into_iter().filter(|&item| {
+                                    item.gear().is_some_and(|gear| gear.slot == slot)
+                                }) {
+                                    action_button(
+                                        picker,
+                                        InventoryAction::EquipFromSlot(slot, item),
+                                        Text::new(item.name()),
+                                    );
+                                }
+                                action_button(
+                                    picker,
+                                    InventoryAction::CloseSlotPicker(slot),
+                                    Text::new("Cancel"),
+                                );
+                            });
                     });
             }
             details.spawn((
@@ -405,8 +466,22 @@ fn action(
                 commands.trigger(EquipRequest(item));
             }
         }
-        InventoryAction::Unequip(slot) if equipment.get(slot).is_some() => {
+        InventoryAction::ToggleSlot(slot) if equipment.get(slot).is_some() => {
             commands.trigger(UnequipRequest(slot));
+        }
+        InventoryAction::ToggleSlot(slot) => {
+            if available_gear_for_slot(slot, &inventory).next().is_some() {
+                ui.equip_slot = (ui.equip_slot != Some(slot)).then_some(slot);
+            }
+        }
+        InventoryAction::EquipFromSlot(slot, item)
+            if item.gear().is_some_and(|gear| gear.slot == slot) && inventory.count(item) > 0 =>
+        {
+            commands.trigger(EquipRequest(item));
+            ui.equip_slot = None;
+        }
+        InventoryAction::CloseSlotPicker(slot) if ui.equip_slot == Some(slot) => {
+            ui.equip_slot = None;
         }
         InventoryAction::Drop => ui.open_drop(&inventory),
         InventoryAction::CancelDrop => {
@@ -567,6 +642,7 @@ fn sync(
         Query<&mut Node, With<DropControls>>,
         Query<(&InventoryAction, &mut Node, &mut BackgroundColor)>,
         Query<(&EmptyList, &mut Node)>,
+        Query<(&SlotPicker, &mut Node)>,
     )>,
     mut texts: Query<(&PanelText, &mut Text)>,
 ) {
@@ -597,6 +673,11 @@ fn sync(
             .into_iter()
             .find(|&item| inventory.count(item) > 0 && !equipped(item, &equipment));
     }
+    if ui.equip_slot.is_some_and(|slot| {
+        equipment.get(slot).is_some() || available_gear_for_slot(slot, &inventory).next().is_none()
+    }) {
+        ui.equip_slot = None;
+    }
     let droppable = ui
         .selected
         .is_some_and(|item| available_to_drop(item, &inventory) > 0);
@@ -619,7 +700,18 @@ fn sync(
                 equipped(item, &equipment),
             ),
             InventoryAction::Equip => (ui.gear.is_some(), false, false),
-            InventoryAction::Unequip(slot) => (true, false, equipment.get(slot).is_none()),
+            InventoryAction::ToggleSlot(slot) => (
+                true,
+                false,
+                equipment.get(slot).is_none()
+                    && available_gear_for_slot(slot, &inventory).next().is_none(),
+            ),
+            InventoryAction::EquipFromSlot(slot, item) => (
+                item.gear().is_some_and(|gear| gear.slot == slot) && inventory.count(item) > 0,
+                false,
+                false,
+            ),
+            InventoryAction::CloseSlotPicker(_) => (true, false, false),
             InventoryAction::Drop => (true, false, !droppable),
             InventoryAction::ConfirmDrop => (true, false, ui.amount(&inventory).is_none()),
             InventoryAction::Quantity => (true, ui.editing, false),
@@ -642,6 +734,9 @@ fn sync(
                 .any(|item| inventory.count(item) > 0),
         });
     }
+    for (picker, mut node) in &mut nodes.p3() {
+        node.display = display(ui.equip_slot == Some(picker.0));
+    }
     let weight = inventory.carried_weight(&equipment);
     let load_status = if weight > IMMOBILE_WEIGHT {
         " / Cannot move"
@@ -661,6 +756,13 @@ fn sync(
             PanelText::ItemStatus(_) => String::new(),
             PanelText::Gear(item) => format!("{}  x{}", item.name(), inventory.count(item)),
             PanelText::Slot(slot) => slot_label(slot, &equipment),
+            PanelText::SlotAction(slot) => {
+                if equipment.get(slot).is_some() {
+                    "Unequip".into()
+                } else {
+                    "Equip".into()
+                }
+            }
             PanelText::Defense => format!("Defense {}", equipment.total_defense()),
             PanelText::Load => format!("Load {weight}/{CARRY_CAPACITY} kg{load_status}"),
             PanelText::Detail => ui.selected.map_or_else(String::new, item_detail),
@@ -793,6 +895,60 @@ mod tests {
                 .count(ItemKind::ReinforcedArmor),
             0
         );
+        assert_eq!(world.resource::<Inventory>().count(ItemKind::FieldArmor), 1);
+    }
+
+    #[test]
+    fn empty_equipment_slot_opens_a_compatible_gear_picker() {
+        use crate::{GameState, equipment::EquipmentPlugin, smoke::pointer_click};
+        use bevy::state::app::StatesPlugin;
+
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, StatesPlugin, EquipmentPlugin))
+            .insert_state(GameState::Playing)
+            .init_resource::<InventoryNotice>()
+            .init_resource::<InventoryUiState>();
+        let world = app.world_mut();
+        let mut menu = PlayerMenu::default();
+        menu.show(MenuTab::Equipment);
+        world.insert_resource(menu);
+        let mut bag = Inventory::default();
+        assert!(bag.add(ItemKind::FieldHelmet, 1));
+        assert!(bag.add(ItemKind::FieldArmor, 1));
+        world.insert_resource(bag);
+
+        let open_picker = world
+            .spawn(InventoryAction::ToggleSlot(EquipmentSlot::Helmet))
+            .observe(action)
+            .id();
+        let equip_helmet = world
+            .spawn(InventoryAction::EquipFromSlot(
+                EquipmentSlot::Helmet,
+                ItemKind::FieldHelmet,
+            ))
+            .observe(action)
+            .id();
+        let window = world.spawn_empty().id();
+        let camera = world.spawn_empty().id();
+
+        world.trigger(pointer_click(open_picker, window, camera));
+        world.flush();
+        assert_eq!(
+            world.resource::<InventoryUiState>().equip_slot,
+            Some(EquipmentSlot::Helmet)
+        );
+
+        world.trigger(pointer_click(equip_helmet, window, camera));
+        world.flush();
+        assert_eq!(
+            world.resource::<Equipment>().get(EquipmentSlot::Helmet),
+            Some(ItemKind::FieldHelmet)
+        );
+        assert_eq!(
+            world.resource::<Inventory>().count(ItemKind::FieldHelmet),
+            0
+        );
+        assert_eq!(world.resource::<InventoryUiState>().equip_slot, None);
         assert_eq!(world.resource::<Inventory>().count(ItemKind::FieldArmor), 1);
     }
 

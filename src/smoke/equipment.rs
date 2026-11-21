@@ -314,11 +314,28 @@ pub(crate) fn drive(
                 .expect("equipment layout checks require one inventory screen");
             screen.width = width;
             screen.height = height;
-            click!(InventoryAction::Unequip(EquipmentSlot::Body));
+            click!(InventoryAction::ToggleSlot(EquipmentSlot::Body));
             smoke.stage = 7;
         }
         7 => {
             assert_eq!(equipment.get(EquipmentSlot::Body), None);
+            assert_eq!(bag.count(ItemKind::FieldArmor), 1);
+            click!(InventoryAction::ToggleSlot(EquipmentSlot::Body));
+            smoke.stage = 700;
+        }
+        700 => {
+            click!(InventoryAction::EquipFromSlot(
+                EquipmentSlot::Body,
+                ItemKind::FieldArmor
+            ));
+            smoke.stage = 701;
+        }
+        701 if equipment.get(EquipmentSlot::Body) == Some(ItemKind::FieldArmor) => {
+            assert_eq!(bag.count(ItemKind::FieldArmor), 0);
+            click!(InventoryAction::ToggleSlot(EquipmentSlot::Body));
+            smoke.stage = 702;
+        }
+        702 if equipment.get(EquipmentSlot::Body).is_none() => {
             assert_eq!(bag.count(ItemKind::FieldArmor), 1);
             click(
                 &mut commands,
@@ -448,7 +465,7 @@ pub(crate) fn drive(
             smoke.stage = 161;
         }
         161 if smoke.captured(&view) => {
-            click!(InventoryAction::Unequip(EquipmentSlot::Helmet));
+            click!(InventoryAction::ToggleSlot(EquipmentSlot::Helmet));
             smoke.stage = 107;
         }
         107 => {

@@ -293,7 +293,7 @@ fn drive(
         SpearSmoke::Unequip if menu.is_on(MenuTab::Equipment) => {
             click(
                 &mut commands,
-                InventoryAction::Unequip(EquipmentSlot::Weapon),
+                InventoryAction::ToggleSlot(EquipmentSlot::Weapon),
                 &actions,
                 window,
                 camera,
