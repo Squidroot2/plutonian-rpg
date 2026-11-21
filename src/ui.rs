@@ -12,7 +12,16 @@ use bevy::{app::AppExit, prelude::*, window::PrimaryWindow};
 
 pub struct GameUiPlugin;
 #[derive(Component)]
-struct Hud;
+enum HudText {
+    Location,
+    Objective,
+}
+#[derive(Component)]
+struct HealthBar;
+#[derive(Component)]
+struct HealthLabel;
+#[derive(Component)]
+pub(crate) struct HealthBarFill;
 #[derive(Component)]
 struct StatusText;
 #[derive(Component)]
@@ -31,7 +40,7 @@ impl Plugin for GameUiPlugin {
             .add_systems(
                 Update,
                 (
-                    refresh_hud.after(respawn_defeated),
+                    (refresh_hud, refresh_health).after(respawn_defeated),
                     refresh_prompt,
                     refresh_dialogue,
                     refresh_pause,
@@ -50,17 +59,75 @@ fn text_style(size: f32) -> (TextFont, TextColor) {
     )
 }
 fn setup(mut commands: Commands) {
-    commands.spawn((
-        Hud,
-        Text::default(),
-        text_style(18.0),
-        Node {
-            position_type: PositionType::Absolute,
-            left: px(30),
-            top: px(24),
-            ..default()
-        },
-    ));
+    commands
+        .spawn((
+            Node {
+                position_type: PositionType::Absolute,
+                left: px(30),
+                right: px(30),
+                top: px(24),
+                flex_direction: FlexDirection::Column,
+                align_items: AlignItems::FlexStart,
+                row_gap: px(8),
+                ..default()
+            },
+            Pickable::IGNORE,
+        ))
+        .with_children(|hud| {
+            hud.spawn((
+                HudText::Location,
+                Text::default(),
+                text_style(18.0),
+                Pickable::IGNORE,
+            ));
+            hud.spawn((
+                HealthBar,
+                Node {
+                    flex_direction: FlexDirection::Column,
+                    row_gap: px(4),
+                    ..default()
+                },
+                Visibility::Hidden,
+                Pickable::IGNORE,
+            ))
+            .with_children(|bar| {
+                bar.spawn((
+                    HealthLabel,
+                    Text::default(),
+                    text_style(16.0),
+                    Pickable::IGNORE,
+                ));
+                bar.spawn((
+                    Node {
+                        width: px(184),
+                        height: px(10),
+                        border: UiRect::all(px(1)),
+                        border_radius: BorderRadius::all(px(2)),
+                        overflow: Overflow::clip(),
+                        ..default()
+                    },
+                    BackgroundColor(Color::srgb(0.045, 0.065, 0.09)),
+                    BorderColor::all(Color::srgb(0.30, 0.38, 0.44)),
+                    Pickable::IGNORE,
+                ))
+                .with_child((
+                    HealthBarFill,
+                    Node {
+                        width: percent(0),
+                        height: percent(100),
+                        ..default()
+                    },
+                    BackgroundColor(Color::srgb(0.94, 0.32, 0.35)),
+                    Pickable::IGNORE,
+                ));
+            });
+            hud.spawn((
+                HudText::Objective,
+                Text::default(),
+                text_style(18.0),
+                Pickable::IGNORE,
+            ));
+        });
     commands.spawn((
         StatusText,
         Text::new("Loading the ice shelf..."),
@@ -185,7 +252,6 @@ struct HudSnapshot {
     location: &'static str,
     objective: &'static str,
     distance: Option<i32>,
-    health: Option<(u16, u16)>,
 }
 
 fn refresh_hud(
@@ -194,21 +260,20 @@ fn refresh_hud(
     layout: Res<WorldLayout>,
     dungeon: Res<DungeonProgress>,
     targets: Query<(&DungeonTarget, &Transform)>,
-    player: Query<(&Player, &Transform, &Health)>,
-    mut hud: Query<&mut Text, With<Hud>>,
+    player: Query<(&Player, &Transform)>,
+    mut hud: Query<(&HudText, &mut Text)>,
     mut last: Local<Option<HudSnapshot>>,
 ) {
-    let Ok(mut text) = hud.single_mut() else {
-        return;
-    };
     if matches!(state.get(), GameState::Title | GameState::Loading) {
         if last.take().is_some() {
-            **text = String::new();
+            for (_, mut text) in &mut hud {
+                text.clear();
+            }
         }
         return;
     }
     let avatar = player.single().ok();
-    let area = avatar.map_or(Area::Surface, |(player, _, _)| player.area);
+    let area = avatar.map_or(Area::Surface, |(player, _)| player.area);
     let show_dungeon = *layout == WorldLayout::Outpost && DungeonProgress::hatch_unlocked(*quest);
     let objective = if show_dungeon {
         dungeon.objective(area)
@@ -230,28 +295,57 @@ fn refresh_hud(
             (WorldLayout::SmokeArena, Area::Surface) => "SMOKE ARENA",
         },
         objective,
-        distance: avatar.and_then(|(_, transform, _)| {
+        distance: avatar.and_then(|(_, transform)| {
             destination.map(|point| transform.translation.distance(point).round() as i32)
         }),
-        health: avatar.map(|(_, _, health)| (health.current(), health.maximum())),
     };
     if last.as_ref() == Some(&snapshot) {
         return;
     }
-    **text = format!(
-        "{}{}\n\n{}{}",
-        snapshot.location,
-        snapshot
-            .health
-            .map_or(String::new(), |(current, maximum)| format!(
-                "\nHealth {current}/{maximum}"
-            )),
-        snapshot.objective,
-        snapshot
-            .distance
-            .map_or(String::new(), |distance| format!("\n{distance} m"))
-    );
+    for (kind, mut text) in &mut hud {
+        let value = match kind {
+            HudText::Location => snapshot.location.to_owned(),
+            HudText::Objective => match snapshot.distance {
+                Some(distance) => format!("{}\n{distance} m", snapshot.objective),
+                None => snapshot.objective.to_owned(),
+            },
+        };
+        text.set_if_neq(Text::new(value));
+    }
     *last = Some(snapshot);
+}
+
+fn refresh_health(
+    state: Res<State<GameState>>,
+    player: Query<&Health, With<Player>>,
+    mut bar: Query<&mut Visibility, With<HealthBar>>,
+    mut label: Query<&mut Text, With<HealthLabel>>,
+    mut fill: Query<&mut Node, With<HealthBarFill>>,
+    mut last: Local<Option<(u16, u16)>>,
+) {
+    let health = match state.get() {
+        GameState::Playing | GameState::Inventory | GameState::Paused => player
+            .single()
+            .ok()
+            .map(|health| (health.current(), health.maximum())),
+        _ => None,
+    };
+    if *last == health {
+        return;
+    }
+    let (Ok(mut bar), Ok(mut label), Ok(mut fill)) =
+        (bar.single_mut(), label.single_mut(), fill.single_mut())
+    else {
+        return;
+    };
+    *last = health;
+    if let Some((current, maximum)) = health {
+        *bar = Visibility::Inherited;
+        **label = format!("Health {current}/{maximum}");
+        fill.width = percent(100.0 * f32::from(current.min(maximum)) / f32::from(maximum.max(1)));
+    } else {
+        *bar = Visibility::Hidden;
+    }
 }
 
 fn refresh_prompt(
