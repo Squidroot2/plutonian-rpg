@@ -14,6 +14,7 @@ mod inventory_ui;
 mod loading;
 mod player;
 mod quest;
+mod settings;
 mod smoke;
 mod spear;
 mod title;
@@ -21,7 +22,7 @@ mod ui;
 mod world;
 mod worm;
 use bevy::prelude::*;
-use bevy::window::{MonitorSelection, WindowMode};
+use bevy::window::WindowMode;
 
 #[derive(States, Default, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum GameState {
@@ -45,7 +46,7 @@ fn main() {
     let mode = if args.iter().any(|arg| arg == "--windowed") {
         WindowMode::Windowed
     } else {
-        WindowMode::BorderlessFullscreen(MonitorSelection::Primary)
+        settings::FULLSCREEN_MODE
     };
 
     let mut app = App::new();
@@ -82,7 +83,11 @@ fn main() {
             title::TitlePlugin,
             ui::GameUiPlugin,
         ))
-        .add_plugins((combat::CombatPlugin, combat_feedback::CombatFeedbackPlugin));
+        .add_plugins((
+            combat::CombatPlugin,
+            combat_feedback::CombatFeedbackPlugin,
+            settings::SettingsPlugin,
+        ));
     if arena || world {
         app.add_plugins(smoke::SmokePlugin { arena });
     }

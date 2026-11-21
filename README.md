@@ -11,6 +11,7 @@ cargo run --locked
 ```
 
 The game opens in borderless fullscreen. Run `cargo run --locked -- --windowed` to open it in a window.
+Open **Settings** from the title screen or pause menu to switch display modes during the current session.
 
 The first build compiles Bevy and its renderer and can take several minutes. Run from the repository root so Bevy finds `assets/`. `Cargo.lock` pins the dependency versions used for this application.
 

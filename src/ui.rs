@@ -6,6 +6,7 @@ use crate::{
     loading::LoadStatus,
     player::{Player, respawn_defeated},
     quest::{Dialogue, Nearby, Quest, Target},
+    settings::SettingsMenu,
     world::WorldLayout,
 };
 use bevy::{app::AppExit, prelude::*, window::PrimaryWindow};
@@ -35,6 +36,7 @@ struct PausePanel;
 #[derive(Component, Clone, Copy)]
 enum Action {
     Resume,
+    Settings,
     Quit,
 }
 impl Plugin for GameUiPlugin {
@@ -53,7 +55,7 @@ impl Plugin for GameUiPlugin {
             );
     }
 }
-fn text_style(size: f32) -> (TextFont, TextColor) {
+pub(crate) fn text_style(size: f32) -> (TextFont, TextColor) {
     (
         TextFont {
             font_size: size.into(),
@@ -179,6 +181,7 @@ fn setup(mut commands: Commands) {
             parent.spawn((Text::new("THE ICE CAN WAIT\n\nPaused"), text_style(30.0)));
             for (label, action) in [
                 ("Resume", Action::Resume),
+                ("Settings", Action::Settings),
                 ("Quit to desktop", Action::Quit),
             ] {
                 parent
@@ -207,7 +210,11 @@ pub(crate) fn pause(
     mut next: ResMut<NextState<GameState>>,
     mut dialogue: ResMut<Dialogue>,
     windows: Query<&Window, With<PrimaryWindow>>,
+    settings: Option<Res<SettingsMenu>>,
 ) {
+    if settings.is_some_and(|menu| menu.is_open()) {
+        return;
+    }
     if smoke.is_none() && *state.get() == GameState::Playing && windows.iter().any(|w| !w.focused) {
         next.set(GameState::Paused);
     }
@@ -236,15 +243,20 @@ fn buttons(
     click: On<PointerClick>,
     query: Query<&Action>,
     state: Res<State<GameState>>,
+    mut settings: ResMut<SettingsMenu>,
     mut next: ResMut<NextState<GameState>>,
     mut exit: MessageWriter<AppExit>,
 ) {
-    if *state.get() != GameState::Paused {
+    if *state.get() != GameState::Paused
+        || settings.is_open()
+        || click.button != PointerButton::Primary
+    {
         return;
     }
     if let Ok(action) = query.get(click.entity) {
         match action {
             Action::Resume => next.set(GameState::Playing),
+            Action::Settings => settings.open(),
             Action::Quit => {
                 exit.write(AppExit::Success);
             }

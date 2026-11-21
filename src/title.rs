@@ -1,4 +1,4 @@
-use crate::GameState;
+use crate::{GameState, settings::SettingsMenu};
 use bevy::{app::AppExit, input::InputSystems, picking::hover::PickingInteraction, prelude::*};
 
 pub struct TitlePlugin;
@@ -13,6 +13,7 @@ pub(crate) struct TitleInput;
 enum MenuAction {
     #[default]
     Start,
+    Settings,
     Quit,
 }
 
@@ -125,6 +126,11 @@ fn setup(mut commands: Commands, assets: Res<AssetServer>) {
                                     "Start Game",
                                     Color::srgb(0.10, 0.06, 0.03),
                                 ),
+                                (
+                                    MenuAction::Settings,
+                                    "Settings",
+                                    Color::srgb(0.81, 0.90, 0.96),
+                                ),
                                 (MenuAction::Quit, "Quit", Color::srgb(0.81, 0.90, 0.96)),
                             ] {
                                 buttons
@@ -163,21 +169,28 @@ fn setup(mut commands: Commands, assets: Res<AssetServer>) {
 fn navigate(
     keys: Res<ButtonInput<KeyCode>>,
     mut selection: ResMut<MenuSelection>,
+    mut settings: ResMut<SettingsMenu>,
     mut next: ResMut<NextState<GameState>>,
     mut exit: MessageWriter<AppExit>,
 ) {
+    if settings.is_open() {
+        return;
+    }
     if keys.just_pressed(KeyCode::ArrowUp) {
-        selection.0 = MenuAction::Start;
-    } else if keys.just_pressed(KeyCode::ArrowDown) {
-        selection.0 = MenuAction::Quit;
-    } else if keys.just_pressed(KeyCode::Tab) {
         selection.0 = match selection.0 {
             MenuAction::Start => MenuAction::Quit,
+            MenuAction::Settings => MenuAction::Start,
+            MenuAction::Quit => MenuAction::Settings,
+        };
+    } else if keys.any_just_pressed([KeyCode::ArrowDown, KeyCode::Tab]) {
+        selection.0 = match selection.0 {
+            MenuAction::Start => MenuAction::Settings,
+            MenuAction::Settings => MenuAction::Quit,
             MenuAction::Quit => MenuAction::Start,
         };
     }
     if keys.any_just_pressed([KeyCode::Enter, KeyCode::NumpadEnter, KeyCode::Space]) {
-        activate(selection.0, &mut next, &mut exit);
+        activate(selection.0, &mut settings, &mut next, &mut exit);
     }
 }
 
@@ -185,24 +198,28 @@ fn click(
     event: On<PointerClick>,
     actions: Query<&MenuAction>,
     state: Res<State<GameState>>,
+    mut settings: ResMut<SettingsMenu>,
     mut next: ResMut<NextState<GameState>>,
     mut exit: MessageWriter<AppExit>,
 ) {
     if *state.get() == GameState::Title
+        && !settings.is_open()
         && event.button == PointerButton::Primary
         && let Ok(&action) = actions.get(event.entity)
     {
-        activate(action, &mut next, &mut exit);
+        activate(action, &mut settings, &mut next, &mut exit);
     }
 }
 
 fn activate(
     action: MenuAction,
+    settings: &mut SettingsMenu,
     next: &mut NextState<GameState>,
     exit: &mut MessageWriter<AppExit>,
 ) {
     match action {
         MenuAction::Start => next.set(GameState::Loading),
+        MenuAction::Settings => settings.open(),
         MenuAction::Quit => {
             exit.write(AppExit::Success);
         }
@@ -226,8 +243,8 @@ fn style_buttons(
         let fill = match (action, pointer_over) {
             (MenuAction::Start, true) => Color::srgb(1.0, 0.78, 0.50),
             (MenuAction::Start, false) => Color::srgb(0.94, 0.65, 0.37),
-            (MenuAction::Quit, true) => Color::srgba(0.18, 0.30, 0.43, 0.95),
-            (MenuAction::Quit, false) => Color::srgba(0.07, 0.12, 0.19, 0.9),
+            (_, true) => Color::srgba(0.18, 0.30, 0.43, 0.95),
+            (_, false) => Color::srgba(0.07, 0.12, 0.19, 0.9),
         };
         let outline = if *action == selection.0 || pointer_over {
             Color::srgb(0.86, 0.94, 1.0)
