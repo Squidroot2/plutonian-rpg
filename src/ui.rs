@@ -4,10 +4,11 @@ use crate::{
     combat::Health,
     controls::{Control, Keybinds},
     dungeon::{Area, DungeonProgress, DungeonTarget},
-    interaction::{InteractionSystems, InteractionTarget},
+    interaction::{InteractionSystems, InteractionTarget, Nearby, Target},
     loading::LoadStatus,
     player::{Player, respawn_defeated},
-    quest::{Dialogue, Nearby, Quest, Target},
+    quest::{Dialogue, LAST_LIGHT, QuestJournal},
+    quest_ui::QuestLog,
     settings::SettingsMenu,
     world::WorldLayout,
 };
@@ -15,10 +16,7 @@ use bevy::{app::AppExit, prelude::*, window::PrimaryWindow};
 
 pub struct GameUiPlugin;
 #[derive(Component)]
-enum HudText {
-    Location,
-    Objective,
-}
+struct LocationText;
 #[derive(Component)]
 struct Compass;
 #[derive(Component)]
@@ -86,7 +84,7 @@ fn setup(mut commands: Commands) {
         ))
         .with_children(|hud| {
             hud.spawn((
-                HudText::Location,
+                LocationText,
                 Text::default(),
                 text_style(18.0),
                 Pickable::IGNORE,
@@ -105,19 +103,6 @@ fn setup(mut commands: Commands) {
                 Pickable::IGNORE,
             ));
         });
-    commands.spawn((
-        HudText::Objective,
-        Text::default(),
-        text_style(18.0),
-        Node {
-            position_type: PositionType::Absolute,
-            left: px(30),
-            right: px(30),
-            top: px(80),
-            ..default()
-        },
-        Pickable::IGNORE,
-    ));
     commands
         .spawn((
             HealthBar,
@@ -237,12 +222,30 @@ pub(crate) fn pause(
     mut dialogue: ResMut<Dialogue>,
     windows: Query<&Window, With<PrimaryWindow>>,
     settings: Option<Res<SettingsMenu>>,
+    log: Option<ResMut<QuestLog>>,
 ) {
     if settings.is_some_and(|menu| menu.is_open()) {
         return;
     }
     if smoke.is_none() && *state.get() == GameState::Playing && windows.iter().any(|w| !w.focused) {
         next.set(GameState::Paused);
+        return;
+    }
+    if *state.get() == GameState::Playing
+        && let Some(mut log) = log
+    {
+        let tab = keys.just_pressed(KeyCode::Tab);
+        let escape = keys.just_pressed(KeyCode::Escape);
+        if log.open {
+            if tab || escape {
+                log.close_requested = true;
+            }
+            return;
+        }
+        if tab && !escape && dialogue.text.is_none() {
+            log.open = true;
+            return;
+        }
     }
     let inventory_pressed = bindings.just_pressed(Control::Inventory, &keys);
     if inventory_pressed && *state.get() == GameState::Playing && dialogue.text.is_none() {
@@ -287,72 +290,25 @@ fn buttons(
         }
     }
 }
-#[derive(PartialEq, Eq)]
-struct HudSnapshot {
-    location: &'static str,
-    objective: &'static str,
-    distance: Option<i32>,
-}
-
 fn refresh_hud(
     state: Res<State<GameState>>,
-    quest: Res<Quest>,
     layout: Res<WorldLayout>,
-    dungeon: Res<DungeonProgress>,
-    targets: Query<(&DungeonTarget, &Transform)>,
-    player: Query<(&Player, &Transform)>,
-    mut hud: Query<(&HudText, &mut Text)>,
-    mut last: Local<Option<HudSnapshot>>,
+    player: Query<&Player>,
+    mut hud: Query<&mut Text, With<LocationText>>,
 ) {
-    if matches!(state.get(), GameState::Title | GameState::Loading) {
-        if last.take().is_some() {
-            for (_, mut text) in &mut hud {
-                text.clear();
-            }
-        }
+    let Ok(mut text) = hud.single_mut() else {
         return;
-    }
-    let avatar = player.single().ok();
-    let area = avatar.map_or(Area::Surface, |(player, _)| player.area);
-    let show_dungeon = *layout == WorldLayout::Outpost && DungeonProgress::hatch_unlocked(*quest);
-    let objective = if show_dungeon {
-        dungeon.objective(area)
-    } else {
-        quest.objective()
     };
-    let destination = if show_dungeon && area == Area::Surface && !dungeon.explored {
-        targets
-            .iter()
-            .find(|(target, _)| **target == DungeonTarget::Hatch)
-            .map(|(_, transform)| transform.translation)
-    } else {
-        quest.destination(*layout)
+    let area = player.single().map_or(Area::Surface, |player| player.area);
+    let location = match (state.get(), *layout, area) {
+        (GameState::Title | GameState::Loading, _, _) => "",
+        (_, _, Area::OldRelay) => "THE OLD RELAY",
+        (_, WorldLayout::Outpost, Area::Surface) => "OUTPOST / NIVALIS",
+        (_, WorldLayout::SmokeArena, Area::Surface) => "SMOKE ARENA",
     };
-    let snapshot = HudSnapshot {
-        location: match (*layout, area) {
-            (_, Area::OldRelay) => "THE OLD RELAY",
-            (WorldLayout::Outpost, Area::Surface) => "OUTPOST / NIVALIS",
-            (WorldLayout::SmokeArena, Area::Surface) => "SMOKE ARENA",
-        },
-        objective,
-        distance: avatar.and_then(|(_, transform)| {
-            destination.map(|point| transform.translation.distance(point).round() as i32)
-        }),
-    };
-    if last.as_ref() == Some(&snapshot) {
-        return;
+    if text.as_str() != location {
+        **text = location.to_owned();
     }
-    for (kind, mut text) in &mut hud {
-        let value = match kind {
-            HudText::Location => snapshot.location.to_owned(),
-            HudText::Objective => match snapshot.distance {
-                Some(distance) => format!("{}\n{distance} m", snapshot.objective),
-                None => snapshot.objective.to_owned(),
-            },
-        };
-        text.set_if_neq(Text::new(value));
-    }
-    *last = Some(snapshot);
 }
 
 fn refresh_compass(
@@ -443,16 +399,18 @@ fn refresh_health(
 fn refresh_prompt(
     state: Res<State<GameState>>,
     status: Res<LoadStatus>,
-    quest: Res<Quest>,
+    quest: Res<QuestJournal>,
     dungeon: Res<DungeonProgress>,
     dialogue: Res<Dialogue>,
     nearby: Res<Nearby>,
     bindings: Res<Keybinds>,
+    log: Res<QuestLog>,
     mut prompts: Query<&mut Text, With<StatusText>>,
 ) {
     if !(state.is_changed()
         || status.is_changed()
         || quest.is_changed()
+        || log.is_changed()
         || dungeon.is_changed()
         || dialogue.is_changed()
         || nearby.is_changed()
@@ -466,10 +424,10 @@ fn refresh_prompt(
     **text = match state.get() {
         GameState::Loading => "Loading the ice shelf...".into(),
         GameState::Failed => format!(
-            "{}\nCheck assets/models and restart the game.",
+            "{}\nCheck the game files and restart the game.",
             status.error.as_deref().unwrap_or("Asset loading failed")
         ),
-        GameState::Playing if dialogue.text.is_none() => {
+        GameState::Playing if dialogue.text.is_none() && !log.is_open() => {
             let key = bindings.get(Control::Interact).label();
             nearby.0.map_or(String::new(), |(_, target)| {
                 let action: String = match target {
@@ -480,7 +438,7 @@ fn refresh_prompt(
                     }
                     InteractionTarget::Corpse => "Loot corpse".into(),
                     InteractionTarget::Dungeon(target) => match target {
-                        DungeonTarget::Hatch if !DungeonProgress::hatch_unlocked(*quest) => {
+                        DungeonTarget::Hatch if !quest.is_complete(LAST_LIGHT) => {
                             "Inspect the sealed hatch".into()
                         }
                         DungeonTarget::Hatch => "Enter the Old Relay".into(),

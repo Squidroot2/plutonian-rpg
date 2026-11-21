@@ -10,6 +10,7 @@ use crate::{
     inventory::{CARRY_CAPACITY, Inventory},
     player::{Dodge, MovementInput, Player},
     quest::Dialogue,
+    quest_ui::QuestLog,
 };
 
 /// Maximum distance the spear thrust's collision shape travels.
@@ -93,6 +94,7 @@ fn attack(
     mut thrust: ResMut<Thrust>,
     player: Query<(Entity, &Player, &Dodge, &Transform)>,
     mut hits: MessageWriter<Hit>,
+    log: Option<Res<QuestLog>>,
 ) {
     let Ok((entity, controller, dodge, transform)) = player.single() else {
         return;
@@ -111,7 +113,8 @@ fn attack(
         {
             hits.write(hit);
         }
-    } else if !dodge.active()
+    } else if !log.is_some_and(|log| log.is_open())
+        && !dodge.active()
         && !(inventory.carried_weight(&equipment) <= CARRY_CAPACITY
             && movement.dodge_pending(controller.grounded, dodge))
     {

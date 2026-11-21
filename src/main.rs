@@ -19,6 +19,7 @@ mod loot_ui;
 mod player;
 mod practice_dummy;
 mod quest;
+mod quest_ui;
 mod roach;
 mod settings;
 mod smoke;
@@ -27,8 +28,8 @@ mod title;
 mod ui;
 mod world;
 mod worm;
-use bevy::prelude::*;
 use bevy::window::WindowMode;
+use bevy::{asset::io::AssetSourceBuilder, prelude::*};
 
 #[derive(States, Default, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum GameState {
@@ -57,7 +58,8 @@ fn main() {
     };
 
     let mut app = App::new();
-    app.insert_resource(ClearColor(Color::srgb(0.008, 0.014, 0.027)))
+    app.register_asset_source("data", AssetSourceBuilder::platform_default("data", None))
+        .insert_resource(ClearColor(Color::srgb(0.008, 0.014, 0.027)))
         .insert_resource(GlobalAmbientLight {
             color: Color::srgb(0.42, 0.65, 0.85),
             brightness: 220.0,
@@ -92,6 +94,7 @@ fn main() {
             inventory_ui::InventoryUiPlugin,
             title::TitlePlugin,
             ui::GameUiPlugin,
+            quest_ui::QuestUiPlugin,
         ))
         .add_plugins((
             combat::CombatPlugin,

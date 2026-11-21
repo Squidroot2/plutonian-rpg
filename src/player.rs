@@ -8,6 +8,7 @@ use crate::{
     interaction::InteractionSystems,
     inventory::{CARRY_CAPACITY, IMMOBILE_WEIGHT, Inventory},
     quest::Dialogue,
+    quest_ui::QuestLog,
     spear::Thrust,
     world::WorldLayout,
 };
@@ -285,10 +286,12 @@ pub(crate) fn input(
     bindings: Res<Keybinds>,
     dialogue: Res<Dialogue>,
     mut input: ResMut<MovementInput>,
+    log: Option<Res<QuestLog>>,
 ) {
     input.direction = Vec2::ZERO;
     input.sprint = false;
     if dialogue.text.is_some()
+        || log.is_some_and(|log| log.is_open())
         || bindings.just_pressed(Control::Inventory, &keys)
         || keys.just_pressed(KeyCode::Escape)
     {

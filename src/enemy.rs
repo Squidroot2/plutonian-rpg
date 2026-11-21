@@ -502,7 +502,7 @@ mod tests {
         equipment::Equipment,
         inventory::{Inventory, ItemKind},
         player::{MAX_HEALTH, MovementInput, respawn_defeated},
-        quest::Quest,
+        quest::{QuestAction, QuestJournal, test_journal},
         roach::{self, Roach},
         spear::Thrust,
         world::WorldLayout,
@@ -669,7 +669,10 @@ mod tests {
             .resource_mut::<Equipment>()
             .equip(&mut bag, ItemKind::FieldArmor)
             .expect("the armor fixture must be equipable");
-        app.insert_resource(bag).insert_resource(Quest::ReturnCore);
+        let mut journal = test_journal();
+        journal.record(QuestAction::TalkedToNemi);
+        journal.record(QuestAction::RecoveredCore);
+        app.insert_resource(bag).insert_resource(journal);
         app.world_mut().entity_mut(player).insert((
             Health::new(MAX_HEALTH),
             Defense(2),
@@ -743,7 +746,11 @@ mod tests {
                 .translation,
             WorldLayout::Outpost.start()
         );
-        assert_eq!(*world.resource::<Quest>(), Quest::ReturnCore);
+        assert!(
+            world
+                .resource::<QuestJournal>()
+                .expects(QuestAction::ReturnedCore)
+        );
         assert_eq!(world.resource::<Inventory>().count(ItemKind::BeaconCore), 1);
         assert_eq!(world.resource::<Equipment>().total_defense(), 2);
     }

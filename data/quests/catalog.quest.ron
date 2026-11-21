@@ -1,0 +1,56 @@
+[
+    (
+        id: "last_light",
+        title: "The Last Light",
+        summary: "Nivalis's beacon has gone dark. The families crossing the ice depend on its light.",
+        starts_when: [SessionStart],
+        objectives: [
+            (
+                title: "Speak to Nemi",
+                directions: "Find Nemi in the outpost courtyard, northeast of the tall beacon tower. Approach and use your Interact key.",
+                advance_on: Action(TalkedToNemi),
+            ),
+            (
+                title: "Recover the beacon core",
+                directions: "Head north from Nivalis and follow the paired blue waystones over the ice shelf. They lead to a shallow cavern lined with blue crystals. The charged core rests on a stone plinth in the middle of the cavern.",
+                advance_on: Action(RecoveredCore),
+            ),
+            (
+                title: "Bring the core back to Nemi",
+                directions: "Follow the blue waystones south to Nivalis. Speak to Nemi northeast of the beacon tower with the core in your pack.",
+                advance_on: Action(ReturnedCore),
+            ),
+        ],
+        completion: "Nemi used the core to relight the beacon. Its signal guides travelers across the ice and powers the Old Relay.",
+    ),
+    (
+        id: "old_relay",
+        title: "Old Relay",
+        summary: "A sealed hatch beneath Nivalis leads to an archive that may hold the first survey log.",
+        outpost_only: true,
+        starts_when: [Action(InspectedSealedHatch), QuestCompleted("last_light")],
+        objectives: [
+            (
+                title: "Restore power to the hatch",
+                directions: "The hatch draws power from Nivalis's beacon. Speak to Nemi northeast of the beacon tower and follow The Last Light in your journal to restore it.",
+                advance_on: QuestCompleted("last_light"),
+            ),
+            (
+                title: "Enter the Old Relay",
+                directions: "From Nemi, head west and slightly south across the outpost courtyard. Look for a round metal hatch with a blue ring in the ice. Use your Interact key to descend.",
+                advance_on: Action(EnteredRelay),
+            ),
+            (
+                title: "Open the archive gate",
+                directions: "If you're on the surface, reenter through the round hatch west and slightly south of Nemi. From the vestibule, head north to the junction and follow the amber floor lights east. The maintenance switch is on the plinth against the far wall.",
+                advance_on: Action(OpenedArchiveGate),
+            ),
+            (
+                title: "Read the archive survey log",
+                directions: "Return west to the junction, then head north through the raised gate between the blue lights. The survey log is on the central pedestal in front of the wall map. If you're on the surface, reenter through the round hatch west and slightly south of Nemi.",
+                advance_on: Action(ReadSurveyLog),
+            ),
+        ],
+        completion: "The first survey log records how the beacon once guided survey crews to shelter. To return to Nivalis, head south through the archive gate and junction to the round hatch in the entry vestibule.",
+    ),
+]

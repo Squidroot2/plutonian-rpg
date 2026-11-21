@@ -5,7 +5,8 @@ use crate::{
     dungeon::{Area, DungeonTarget, UseDungeonTarget},
     inventory::{Inventory, ItemKind, Pickup},
     player::Player,
-    quest::{Dialogue, Quest},
+    quest::{Dialogue, LAST_LIGHT, QuestAction, QuestJournal},
+    quest_ui::QuestLog,
 };
 use avian3d::prelude::*;
 use bevy::prelude::*;
@@ -81,12 +82,13 @@ fn find_target(
             With<CorpseLoot>,
         )>,
     >,
-    quest: Res<Quest>,
+    quest: Res<QuestJournal>,
     dialogue: Res<Dialogue>,
     spatial: SpatialQuery,
+    log: Option<Res<QuestLog>>,
     mut nearby: ResMut<Nearby>,
 ) {
-    if dialogue.text.is_some() {
+    if dialogue.text.is_some() || log.is_some_and(|log| log.is_open()) {
         nearby.set_if_neq(Nearby::default());
         return;
     }
@@ -99,7 +101,7 @@ fn find_target(
     let mut closest = INTERACT_RANGE;
     for (entity, transform, target, pickup, dungeon, corpse, dead) in &targets {
         let (interaction, point) = if let Some(target) = target {
-            if *target == Target::Core && *quest != Quest::FindCore {
+            if *target == Target::Core && !quest.expects(QuestAction::RecoveredCore) {
                 continue;
             }
             (
@@ -164,13 +166,17 @@ fn interact(
     bindings: Res<Keybinds>,
     nearby: Res<Nearby>,
     mut dialogue: ResMut<Dialogue>,
-    mut quest: ResMut<Quest>,
+    mut quest: ResMut<QuestJournal>,
     mut inventory: ResMut<Inventory>,
     mut commands: Commands,
     pickups: Query<&Pickup>,
     mut loot: ResMut<LootTarget>,
     mut next: ResMut<NextState<GameState>>,
+    log: Option<Res<QuestLog>>,
 ) {
+    if log.is_some_and(|log| log.is_open()) {
+        return;
+    }
     let interact_pressed = bindings.just_pressed(Control::Interact, &keys);
     if !interact_pressed && !keys.just_pressed(KeyCode::Enter) {
         return;
@@ -180,13 +186,17 @@ fn interact(
     }
     if let Some((entity, target)) = nearby.0 {
         match target {
-            InteractionTarget::Quest(target) => {
-                let before = *quest;
-                dialogue.text = Some(quest.interact(target, &mut inventory));
-                if target == Target::Core
-                    && before == Quest::FindCore
-                    && *quest == Quest::ReturnCore
+            InteractionTarget::Quest(Target::Keeper) => {
+                dialogue.text = Some(speak_to_nemi(&mut quest, &mut inventory));
+            }
+            InteractionTarget::Quest(Target::Core) => {
+                if quest.expects(QuestAction::RecoveredCore)
+                    && inventory.add(ItemKind::BeaconCore, 1)
                 {
+                    quest.record(QuestAction::RecoveredCore);
+                    dialogue.text = Some(
+                        "POWER CORE RECOVERED\n\nIts light pulses against your hands. There is still warmth inside.\n\nReturn to Nemi at the outpost to restore the beacon.",
+                    );
                     commands.entity(entity).despawn();
                     commands.trigger(crate::combat_audio::ItemPickedUp);
                 }
@@ -212,6 +222,25 @@ fn interact(
     }
 }
 
+fn speak_to_nemi(quest: &mut QuestJournal, inventory: &mut Inventory) -> &'static str {
+    if quest.expects(QuestAction::ReturnedCore) {
+        if inventory.consume_core() {
+            quest.record(QuestAction::ReturnedCore);
+            return "NEMI\n\nThere it is. I thought we had lost that light for good. The crossing is safe again.\n\nThe beacon also powers the Old Relay. Look for the round hatch west and a little south of here. Its archive may still hold the first survey log.\n\nQUEST COMPLETE / THE LAST LIGHT";
+        }
+        return "NEMI\n\nBring the beacon power core back to me first.";
+    }
+    let first_meeting = quest.expects(QuestAction::TalkedToNemi);
+    quest.record(QuestAction::TalkedToNemi);
+    if first_meeting {
+        "NEMI / BEACON KEEPER\n\nYou made it home before the long dark. Our beacon has gone silent. The families here depend on its signal to cross the ice.\n\nA charged core waits in the blue cavern, beyond the waystones. Follow their lights north, then bring it back."
+    } else if quest.is_complete(LAST_LIGHT) {
+        "NEMI\n\nThe light reaches across the ice again. Look for the round Old Relay hatch west and a little south of here."
+    } else {
+        "NEMI\n\nFollow the blue waystones north from the outpost. The core is inside the cavern at the end of the trail."
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -220,6 +249,20 @@ mod tests {
         transform::TransformPlugin,
     };
     use std::time::Duration;
+    #[test]
+    fn turn_in_requires_and_consumes_the_core() {
+        let mut journal = crate::quest::test_journal();
+        let mut inventory = Inventory::default();
+        speak_to_nemi(&mut journal, &mut inventory);
+        journal.record(QuestAction::RecoveredCore);
+        speak_to_nemi(&mut journal, &mut inventory);
+        assert!(journal.expects(QuestAction::ReturnedCore));
+        assert!(inventory.add(ItemKind::BeaconCore, 1));
+        speak_to_nemi(&mut journal, &mut inventory);
+        assert!(journal.is_complete(LAST_LIGHT));
+        assert_eq!(inventory.count(ItemKind::BeaconCore), 0);
+    }
+
     fn test_app() -> App {
         let mut app = App::new();
         app.add_plugins((
@@ -234,7 +277,7 @@ mod tests {
             1.0 / 60.0,
         )))
         .init_state::<GameState>()
-        .init_resource::<Quest>()
+        .insert_resource(crate::quest::test_journal())
         .init_resource::<Dialogue>()
         .init_resource::<Inventory>()
         .init_resource::<Keybinds>()
@@ -427,7 +470,11 @@ mod tests {
                 .count(crate::inventory::ItemKind::Battery),
             2
         );
-        assert_eq!(*app.world().resource::<Quest>(), Quest::MeetKeeper);
+        assert!(
+            app.world()
+                .resource::<QuestJournal>()
+                .expects(QuestAction::TalkedToNemi)
+        );
         assert!(app.world().get_entity(item).is_err());
         // Dismissal must not collect another nearby stack on the same key press.
         app.world_mut().resource_mut::<Dialogue>().text = Some("A conversation");

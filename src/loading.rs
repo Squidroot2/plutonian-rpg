@@ -3,6 +3,7 @@ use crate::{
     enemy::{EnemyAnimations, EnemyModel, EnemyVisual},
     inventory::ItemKind,
     player::{AnimationLibrary, CLIPS},
+    quest::{QuestCatalog, QuestJournal},
     roach,
     world::WorldLayout,
     worm,
@@ -37,6 +38,7 @@ impl Plugin for LoadingPlugin {
 }
 #[derive(Resource)]
 pub struct GameAssets {
+    quests: Handle<QuestCatalog>,
     pub character: Handle<Gltf>,
     pub outpost: Option<(Handle<Gltf>, Handle<Gltf>)>,
     pub relay: Option<(Handle<Gltf>, Handle<Gltf>)>,
@@ -59,6 +61,7 @@ pub struct LoadStatus {
 }
 fn load(mut commands: Commands, server: Res<AssetServer>, layout: Res<WorldLayout>) {
     commands.insert_resource(GameAssets {
+        quests: server.load("data://quests/catalog.quest.ron"),
         character: server.load("models/plutonian.glb"),
         outpost: (*layout == WorldLayout::Outpost).then(|| {
             (
@@ -99,6 +102,8 @@ fn check(
     server: Res<AssetServer>,
     assets: Res<GameAssets>,
     gltfs: Res<Assets<Gltf>>,
+    catalogs: Res<Assets<QuestCatalog>>,
+    layout: Res<WorldLayout>,
     mut graphs: ResMut<Assets<AnimationGraph>>,
     mut status: ResMut<LoadStatus>,
     mut next: ResMut<NextState<GameState>>,
@@ -132,6 +137,9 @@ fn check(
         {
             status.error = Some(format!("Could not load an asset dependency: {error}"));
         }
+    }
+    if let Some(LoadState::Failed(error)) = server.get_load_state(assets.quests.id()) {
+        status.error = Some(format!("Could not load the quest catalog: {error}"));
     }
     if status.error.is_some() {
         next.set(GameState::Failed);
@@ -175,6 +183,9 @@ fn check(
         next.set(GameState::Failed);
         return;
     }
+    let Some(catalog) = catalogs.get(&assets.quests) else {
+        return;
+    };
     let model = gltfs.get(&assets.character).expect(
         "the character glTF must be present after all game models passed loading validation",
     );
@@ -225,6 +236,7 @@ fn check(
             })
             .collect(),
     ));
+    commands.insert_resource(QuestJournal::new(catalog.clone(), *layout));
     status.spawning = true;
     commands.trigger(crate::world::SpawnWorld);
 }

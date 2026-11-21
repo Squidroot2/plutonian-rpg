@@ -1,9 +1,10 @@
 use crate::{
     GameState,
     equipment::bind_equipment_attachments,
+    interaction::Target,
     loading::{GameAssets, LoadStatus, PendingScene},
     player::{ActorVisual, Player, bind_actor_animation},
-    quest::{Beacon, Target},
+    quest::Beacon,
 };
 use avian3d::prelude::*;
 use bevy::{gltf::Gltf, prelude::*, world_serialization::WorldInstanceReady};

@@ -21,7 +21,8 @@ use crate::{
     inventory_ui::{InventoryAction, InventoryUiState},
     loading::LoadStatus,
     player::{DODGE_KEY, Dodge, Player},
-    quest::{Beacon, Dialogue, Quest},
+    quest::{Beacon, Dialogue, LAST_LIGHT, QuestAction, QuestJournal},
+    quest_ui::{QuestLog, QuestRow},
     title::{TitleBackdrop, TitleInput},
     world::WorldLayout,
 };
@@ -115,6 +116,9 @@ enum ArenaStep {
         position: Vec3,
         started: Duration,
     },
+    OpenJournal(Vec3),
+    SelectJournal(Vec3),
+    CloseJournal,
     Quest,
     SelectCore,
     CheckCore,
@@ -256,11 +260,12 @@ fn drive(
     (mut step, mut core_checked, fixed): (ResMut<ArenaStep>, Local<bool>, Res<Time<Fixed>>),
     (state, quest, dialogue, nearby): (
         Res<State<GameState>>,
-        Res<Quest>,
+        Res<QuestJournal>,
         Res<Dialogue>,
         Res<Nearby>,
     ),
     equipment: Res<Equipment>,
+    (journal, rows): (Res<QuestLog>, Query<(Entity, &QuestRow)>),
     mut player: Query<(&mut Transform, &Player, &Dodge)>,
     targets: Query<(&Target, &Transform), Without<Player>>,
     beacon: Query<&PointLight, With<Beacon>>,
@@ -351,15 +356,46 @@ fn drive(
                 info!(
                     "MOVEMENT SMOKE PASS: strafed and backpedaled at walking speed while facing the camera aim"
                 );
-                *step = ArenaStep::Quest;
+                keys.press(KeyCode::Tab);
+                keys.press(KeyCode::KeyE);
+                *step = ArenaStep::OpenJournal(transform.translation);
             }
+        }
+        ArenaStep::OpenJournal(position) => {
+            assert!(journal.is_open());
+            assert!(dialogue.text.is_none());
+            assert_eq!(*state.get(), GameState::Playing);
+            keys.press(KeyCode::KeyW);
+            keys.press(KeyCode::KeyE);
+            let (row, _) = rows
+                .iter()
+                .find(|(_, row)| row.id == LAST_LIGHT && !row.completed)
+                .expect("The Last Light must have an active journal row");
+            let (window, camera) = inventory_smoke.context.expect("smoke UI context");
+            commands.trigger(inventory::pointer_click(row, window, camera));
+            *step = ArenaStep::SelectJournal(position);
+        }
+        ArenaStep::SelectJournal(position) => {
+            assert_eq!(journal.selected(), Some(LAST_LIGHT));
+            assert!(transform.translation.xz().distance(position.xz()) < 0.025);
+            assert!(dialogue.text.is_none());
+            capture(&mut commands, "quest-log");
+            keys.press(KeyCode::Escape);
+            keys.press(KeyCode::KeyE);
+            *step = ArenaStep::CloseJournal;
+        }
+        ArenaStep::CloseJournal => {
+            assert!(!journal.is_open());
+            assert_eq!(*state.get(), GameState::Playing);
+            assert!(dialogue.text.is_none());
+            *step = ArenaStep::Quest;
         }
         ArenaStep::Quest if *state.get() == GameState::Playing => {
             if dialogue.text.is_some() {
                 keys.press(KeyCode::KeyE);
                 return;
             }
-            if *quest == Quest::Complete {
+            if quest.is_complete(LAST_LIGHT) {
                 assert_eq!(inventory.count(ItemKind::BeaconCore), 0);
                 assert!(
                     beacon.single().is_ok_and(|light| light.intensity > 0.0),
@@ -368,16 +404,16 @@ fn drive(
                 *step = ArenaStep::Fall(capture(&mut commands, "beacon"));
                 return;
             }
-            if *quest == Quest::ReturnCore && !*core_checked {
+            if quest.expects(QuestAction::ReturnedCore) && !*core_checked {
                 assert_eq!(inventory.count(ItemKind::BeaconCore), 1);
                 keys.press(KeyCode::KeyI);
                 *step = ArenaStep::SelectCore;
                 return;
             }
-            let target = match *quest {
-                Quest::MeetKeeper | Quest::ReturnCore => Target::Keeper,
-                Quest::FindCore => Target::Core,
-                Quest::Complete => unreachable!(),
+            let target = if quest.expects(QuestAction::RecoveredCore) {
+                Target::Core
+            } else {
+                Target::Keeper
             };
             if matches!(nearby.0, Some((_, InteractionTarget::Quest(current))) if current == target)
             {
@@ -425,7 +461,7 @@ fn drive(
         ArenaStep::Recover
             if controller.grounded && transform.translation.distance(layout.start()) < 0.1 =>
         {
-            assert_eq!(*quest, Quest::Complete);
+            assert!(quest.is_complete(LAST_LIGHT));
             assert_eq!(inventory.count(ItemKind::BeaconCore), 0);
             *step = ArenaStep::CollectBoulder(1);
         }

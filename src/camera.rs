@@ -1,5 +1,5 @@
 use crate::controls::{Control, Keybinds};
-use crate::{GameState, player::Player, quest::Dialogue};
+use crate::{GameState, player::Player, quest::Dialogue, quest_ui::QuestLog};
 use avian3d::prelude::*;
 use bevy::{
     input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll},
@@ -30,7 +30,11 @@ impl Plugin for FollowCameraPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Orbit>()
             .add_systems(Startup, setup)
-            .add_systems(PreUpdate, look.run_if(in_state(GameState::Playing)))
+            .add_systems(
+                PreUpdate,
+                look.after(crate::ui::pause)
+                    .run_if(in_state(GameState::Playing)),
+            )
             .add_systems(Update, cursor)
             .add_systems(
                 PostUpdate,
@@ -67,8 +71,10 @@ fn look(
     bindings: Res<Keybinds>,
     windows: Query<&Window, With<PrimaryWindow>>,
     mut orbit: ResMut<Orbit>,
+    log: Option<Res<QuestLog>>,
 ) {
     if dialogue.text.is_some()
+        || log.is_some_and(|log| log.is_open())
         || bindings.just_pressed(Control::Inventory, &keys)
         || keys.just_pressed(KeyCode::Escape)
         || !windows.iter().any(|w| w.focused)
@@ -83,9 +89,13 @@ fn cursor(
     state: Res<State<GameState>>,
     dialogue: Res<Dialogue>,
     mut windows: Query<(&Window, &mut CursorOptions), With<PrimaryWindow>>,
+    log: Option<Res<QuestLog>>,
 ) {
     for (window, mut options) in &mut windows {
-        let grab = *state.get() == GameState::Playing && dialogue.text.is_none() && window.focused;
+        let grab = *state.get() == GameState::Playing
+            && dialogue.text.is_none()
+            && window.focused
+            && !log.as_ref().is_some_and(|log| log.is_open());
         let mode = if grab {
             CursorGrabMode::Locked
         } else {

@@ -32,17 +32,24 @@ Choose **Start Game** on the title screen to load Nivalis. Click a button or sel
 | E | Speak / collect a nearby item / dismiss dialogue |
 | Enter | Quest interaction / dismiss dialogue |
 | I | Open / close inventory |
-| Escape | Close inventory / dismiss dialogue / pause or resume |
+| Tab | Open / close quest log |
+| Escape | Close inventory or quest log / dismiss dialogue / pause or resume |
 
 The pause menu also has Resume and Quit to desktop buttons. Losing window focus pauses the game. Progress lasts for the current session; relaunching starts a fresh quest. Falling beyond the playable area returns you to the outpost without removing quest progress.
 
 ## World and implementation
 
-The playable route connects the outpost, an inclined ice shelf, and a shallow cavern. Follow the luminous waystones toward the cavern; the objective displays the distance to the current destination. The power core appears in inventory as a protected quest item and disappears from its plinth when collected. Returning it to Nemi consumes the core, lights the beacon, and completes the quest. You can continue exploring afterward.
+The playable route connects the outpost, an inclined ice shelf, and a shallow cavern. Follow the luminous waystones toward the cavern. The quest log records directions and completed steps for each quest. The power core appears in inventory as a protected quest item and disappears from its plinth when collected. Returning it to Nemi consumes the core, lights the beacon, and completes the quest. You can continue exploring afterward.
 
 `src/` separates loading, world assembly, player movement/animation, camera, shared interactions, inventory, equipment, quests, and UI into plugins. Avian's kinematic move-and-slide controller runs at a fixed timestep with capsule ground detection and tuned low gravity. The camera uses a sphere cast to avoid passing through geometry. Interaction requires a nearby target with a clear line of sight. There are no save files or migrations.
 
-The game includes one beacon quest, the Old Relay dungeon, and one speaking NPC. Survival, crafting, levelling, controller support, and persistent saves are deferred. This is fictional Pluto: terrain, illumination, and gravity favor the experience over physical accuracy. Assets are original, generated locally with the included Blender script; no external models or textures are required.
+The game includes The Last Light, the Old Relay quest and dungeon, and one speaking NPC. Survival, crafting, levelling, controller support, and persistent saves are deferred. This is fictional Pluto: terrain, illumination, and gravity favor the experience over physical accuracy. Assets are original, generated locally with the included Blender script; no external models or textures are required.
+
+## Quest log
+
+Press Tab during gameplay to open the log and select an active or completed quest. Tab, Escape, and Close return control to the player. The world continues while the log is open, so find a safe place to read. Inspecting the sealed Old Relay hatch adds that quest alongside The Last Light. Nemi also adds it when you return the core.
+
+Quest definitions live in `data/quests/catalog.quest.ron`. Add a definition with a unique ID, activation rules, and ordered objectives. Definitions can use the catalog’s existing world actions and quest-completion conditions. The game loads the catalog at startup and keeps progress for the current session.
 
 ## Inventory
 
@@ -83,7 +90,7 @@ Two ice worms roam beside the trail and a third waits near the cavern entrance. 
 
 ## The Old Relay
 
-After you restore the beacon, look for the round hatch southwest of Nemi. Use E to enter. Follow the amber lamps to the maintenance switch, then go through the raised gate to discover the archive survey log. Two ice worms and a fast, biting relay roach patrol the relay. Use the hatch in the vestibule to return to Nivalis. Gate progress and the discovery stay with you for the session.
+After you restore the beacon, look for the round hatch west and slightly south of Nemi. Use E to enter. Follow the amber lamps to the maintenance switch, then go through the raised gate to discover the archive survey log. Two ice worms and a fast, biting relay roach patrol the relay. Use the hatch in the vestibule to return to Nivalis. Gate progress and the discovery stay with you for the session.
 
 ## Blender workflow
 

@@ -4,7 +4,7 @@ use crate::{
     inventory::scene_ready,
     loading::{EnemyVisuals, GameAssets, LoadStatus, PendingScene},
     player::{Dodge, MovementInput, Player},
-    quest::{Dialogue, Quest},
+    quest::{Dialogue, LAST_LIGHT, QuestAction, QuestJournal},
     roach,
     spear::Thrust,
     world::SpawnWorld,
@@ -60,14 +60,9 @@ enum GateState {
 #[derive(Resource, Default)]
 pub(crate) struct DungeonProgress {
     gate: GateState,
-    pub(crate) explored: bool,
 }
 
 impl DungeonProgress {
-    pub(crate) fn hatch_unlocked(quest: Quest) -> bool {
-        quest == Quest::Complete
-    }
-
     pub(crate) fn gate_open(&self) -> bool {
         self.gate == GateState::Open
     }
@@ -78,23 +73,8 @@ impl DungeonProgress {
         }
     }
 
-    fn read_log(&mut self) -> Option<&'static str> {
-        if !self.gate_open() {
-            return None;
-        }
-        self.explored = true;
-        Some(ARCHIVE_LOG)
-    }
-
-    pub(crate) fn objective(&self, area: Area) -> &'static str {
-        match (area, self.explored, self.gate) {
-            (Area::Surface, true, _) => "Old Relay explored",
-            (Area::Surface, false, _) => "Explore the Old Relay",
-            (Area::OldRelay, true, _) => "Old Relay explored | Return to Nivalis",
-            (Area::OldRelay, false, GateState::Open) => "Read the archive survey log",
-            (Area::OldRelay, false, GateState::Opening(_)) => "The archive gate is opening",
-            (Area::OldRelay, false, GateState::Closed) => "Find the maintenance switch",
-        }
+    fn read_log(&self) -> Option<&'static str> {
+        self.gate_open().then_some(ARCHIVE_LOG)
     }
 }
 
@@ -311,7 +291,7 @@ fn ground_surface_hatch(
 
 fn use_target(
     event: On<UseDungeonTarget>,
-    quest: Res<Quest>,
+    mut quest: ResMut<QuestJournal>,
     mut progress: ResMut<DungeonProgress>,
     mut dialogue: ResMut<Dialogue>,
     mut player: Query<(Entity, &mut Player, &mut Dodge, &mut Transform)>,
@@ -327,7 +307,8 @@ fn use_target(
         return;
     }
     let (area, probe, yaw) = match event.0 {
-        DungeonTarget::Hatch if !DungeonProgress::hatch_unlocked(*quest) => {
+        DungeonTarget::Hatch if !quest.is_complete(LAST_LIGHT) => {
+            quest.record(QuestAction::InspectedSealedHatch);
             dialogue.text = Some(
                 "OLD RELAY\n\nThe hatch responds to the beacon. Restore the light to release the seal.",
             );
@@ -349,6 +330,9 @@ fn use_target(
         }
         DungeonTarget::SurveyLog => {
             dialogue.text = progress.read_log();
+            if dialogue.text.is_some() {
+                quest.record(QuestAction::ReadSurveyLog);
+            }
             return;
         }
     };
@@ -363,6 +347,9 @@ fn use_target(
         probe - Vec3::Y * (hit.distance - 0.905),
     );
     player.area = area;
+    if area == Area::OldRelay {
+        quest.record(QuestAction::EnteredRelay);
+    }
     orbit.yaw = yaw;
     orbit.pitch = 0.22;
     thrust.cancel();
@@ -373,6 +360,7 @@ fn raise_gate(
     time: Res<Time<Fixed>>,
     mut progress: ResMut<DungeonProgress>,
     mut gate: Query<&mut Transform, With<ArchiveGate>>,
+    mut quest: ResMut<QuestJournal>,
 ) {
     let GateState::Opening(elapsed) = progress.gate else {
         return;
@@ -385,6 +373,7 @@ fn raise_gate(
     let eased = t * t * (3.0 - 2.0 * t);
     transform.translation.y = ORIGIN.y + GATE_LOCAL.y + GATE_LIFT * eased;
     progress.gate = if elapsed >= DURATION {
+        quest.record(QuestAction::OpenedArchiveGate);
         GateState::Open
     } else {
         GateState::Opening(elapsed)
@@ -394,33 +383,15 @@ fn raise_gate(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        interaction::Target,
-        inventory::{Inventory, ItemKind},
-    };
     use bevy::ecs::system::RunSystemOnce;
     use std::time::Duration;
-
-    #[test]
-    fn hatch_unlocks_after_the_core_is_turned_in() {
-        let mut quest = Quest::default();
-        let mut bag = Inventory::default();
-        assert!(!DungeonProgress::hatch_unlocked(quest));
-        quest.interact(Target::Keeper, &mut bag);
-        assert!(!DungeonProgress::hatch_unlocked(quest));
-        quest.interact(Target::Core, &mut bag);
-        assert_eq!(bag.count(ItemKind::BeaconCore), 1);
-        assert!(!DungeonProgress::hatch_unlocked(quest));
-        quest.interact(Target::Keeper, &mut bag);
-        assert_eq!(bag.count(ItemKind::BeaconCore), 0);
-        assert!(DungeonProgress::hatch_unlocked(quest));
-    }
 
     #[test]
     fn gate_latches_and_the_discovery_can_be_reread() {
         let mut world = World::new();
         world.init_resource::<Time<Fixed>>();
         world.init_resource::<DungeonProgress>();
+        world.insert_resource(crate::quest::test_journal());
         let closed = ORIGIN + GATE_LOCAL;
         let gate = world
             .spawn((ArchiveGate, Transform::from_translation(closed)))
@@ -443,10 +414,9 @@ mod tests {
             .expect("the gate fixture must have a transform")
             .translation;
         assert!((opened.y - closed.y - GATE_LIFT).abs() < 0.001);
-        let mut progress = world.resource_mut::<DungeonProgress>();
+        let progress = world.resource::<DungeonProgress>();
         assert!(progress.gate_open());
         assert_eq!(progress.read_log(), Some(ARCHIVE_LOG));
-        assert!(progress.explored);
         assert_eq!(progress.read_log(), Some(ARCHIVE_LOG));
     }
 }

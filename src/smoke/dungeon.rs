@@ -1,7 +1,7 @@
 //! Exercise the shipped relay with the real movement controller and interact input.
 use super::{
     SmokeRun, capture,
-    inventory::{click, walk},
+    inventory::{click, pointer_click, walk},
 };
 use crate::{
     GameState,
@@ -16,7 +16,8 @@ use crate::{
     inventory::{Inventory, ItemKind},
     loot_ui::LootAction,
     player::{Dodge, Player},
-    quest::{Dialogue, Quest},
+    quest::{Dialogue, LAST_LIGHT, OLD_RELAY, QuestAction, QuestJournal},
+    quest_ui::{QuestLog, QuestRow},
     roach::Roach,
     world::WorldLayout,
     worm::{GROUND_OFFSET, Worm},
@@ -31,6 +32,9 @@ pub(super) enum WorldCheck {
     OutpostPhoto(Entity),
     InspectLocked,
     LockedNotice,
+    OpenDiscoveredJournal,
+    CheckDiscoveredJournal,
+    CheckRelaySelection,
     SetUpTurnIn,
     TurnIn,
     ApproachHatch,
@@ -42,6 +46,7 @@ pub(super) enum WorldCheck {
     TakeRoachMeat,
     CloseRoachLoot,
     Switch,
+    OpenGateJournal,
     GateRises,
     ReturnToJunction,
     GateApproach,
@@ -49,6 +54,8 @@ pub(super) enum WorldCheck {
     ApproachLog,
     ReadLog,
     ReadNotice,
+    OpenCompletedJournal,
+    CheckCompletedJournal,
     LeaveArchive,
     LeaveJunction,
     Exit,
@@ -73,12 +80,16 @@ pub(super) fn drive(
         With<Player>,
     >,
     (mut quest, mut inventory, dialogue, nearby): (
-        ResMut<Quest>,
+        ResMut<QuestJournal>,
         ResMut<Inventory>,
         Res<Dialogue>,
         Res<Nearby>,
     ),
-    progress: Res<DungeonProgress>,
+    (progress, journal, rows): (
+        Res<DungeonProgress>,
+        Res<QuestLog>,
+        Query<(Entity, &QuestRow)>,
+    ),
     gate: Query<Entity, With<ArchiveGate>>,
     worms: Query<(Entity, &Transform, &MeleePursuit), (With<Worm>, Without<Player>)>,
     captures: Query<(), With<Screenshot>>,
@@ -191,13 +202,41 @@ pub(super) fn drive(
                 Area::Surface,
                 "an unfinished quest must keep the hatch locked"
             );
-            assert_eq!(*quest, Quest::MeetKeeper);
+            assert!(quest.expects(QuestAction::TalkedToNemi));
+            assert_eq!(quest.entries().count(), 2);
             assert!(
                 dialogue
                     .text
                     .is_some_and(|text| text.contains("Restore the light"))
             );
             keys.press(KeyCode::KeyE);
+            *phase = WorldCheck::OpenDiscoveredJournal;
+        }
+        WorldCheck::OpenDiscoveredJournal if dialogue.text.is_none() => {
+            keys.press(KeyCode::Tab);
+            *phase = WorldCheck::CheckDiscoveredJournal;
+        }
+        WorldCheck::CheckDiscoveredJournal => {
+            assert!(journal.is_open());
+            assert!(
+                rows.iter()
+                    .any(|(_, row)| row.id == LAST_LIGHT && !row.completed)
+            );
+            let (relay, _) = rows
+                .iter()
+                .find(|(_, row)| row.id == OLD_RELAY && !row.completed)
+                .expect("Old Relay must have an active journal row");
+            commands.trigger(pointer_click(
+                relay,
+                window.single().expect("smoke window"),
+                camera.single().expect("player camera"),
+            ));
+            *phase = WorldCheck::CheckRelaySelection;
+        }
+        WorldCheck::CheckRelaySelection => {
+            assert_eq!(journal.selected(), Some(OLD_RELAY));
+            capture(&mut commands, "relay-quest-log");
+            keys.press(KeyCode::Tab);
             *phase = WorldCheck::SetUpTurnIn;
         }
         WorldCheck::SetUpTurnIn if dialogue.text.is_none() => {
@@ -209,10 +248,11 @@ pub(super) fn drive(
                 WorldLayout::Outpost.keeper() + Vec3::Z * 1.65,
             );
             assert!(inventory.add(ItemKind::BeaconCore, 1));
-            *quest = Quest::ReturnCore;
+            quest.record(QuestAction::TalkedToNemi);
+            quest.record(QuestAction::RecoveredCore);
             *phase = WorldCheck::TurnIn;
         }
-        WorldCheck::TurnIn if *quest == Quest::Complete => {
+        WorldCheck::TurnIn if quest.is_complete(LAST_LIGHT) => {
             assert_eq!(inventory.count(ItemKind::BeaconCore), 0);
             assert!(dialogue.text.is_some_and(|text| text.contains("Old Relay")));
             keys.press(KeyCode::KeyE);
@@ -315,12 +355,20 @@ pub(super) fn drive(
         WorldCheck::Switch if *state.get() == GameState::Playing => {
             if ready(DungeonTarget::Switch) {
                 keys.press(KeyCode::KeyE);
-                *phase = WorldCheck::GateRises;
+                *phase = WorldCheck::OpenGateJournal;
             } else {
                 walk_to(&mut keys, &mut orbit, ORIGIN + SWITCH_LOCAL);
             }
         }
+        WorldCheck::OpenGateJournal => {
+            assert!(!progress.gate_open());
+            keys.press(KeyCode::Tab);
+            *phase = WorldCheck::GateRises;
+        }
         WorldCheck::GateRises if progress.gate_open() && passage_hit().is_none() => {
+            assert!(journal.is_open());
+            assert!(quest.expects(QuestAction::ReadSurveyLog));
+            keys.press(KeyCode::Tab);
             capture(&mut commands, "relay-maintenance");
             *phase = WorldCheck::ReturnToJunction;
         }
@@ -356,13 +404,27 @@ pub(super) fn drive(
             *phase = WorldCheck::ReadNotice;
         }
         WorldCheck::ReadNotice => {
-            assert!(progress.explored);
+            assert!(quest.is_complete(OLD_RELAY));
             assert!(
                 dialogue
                     .text
                     .is_some_and(|text| text.starts_with("SURVEY LOG"))
             );
             capture(&mut commands, "relay-discovery");
+            keys.press(KeyCode::KeyE);
+            *phase = WorldCheck::OpenCompletedJournal;
+        }
+        WorldCheck::OpenCompletedJournal if dialogue.text.is_none() => {
+            keys.press(KeyCode::Tab);
+            *phase = WorldCheck::CheckCompletedJournal;
+        }
+        WorldCheck::CheckCompletedJournal => {
+            assert!(journal.is_open());
+            assert!(
+                rows.iter()
+                    .any(|(_, row)| row.id == OLD_RELAY && row.completed)
+            );
+            keys.press(KeyCode::Tab);
             *phase = WorldCheck::LeaveArchive;
         }
         WorldCheck::LeaveArchive => {
@@ -383,7 +445,7 @@ pub(super) fn drive(
         WorldCheck::Exit if controller.grounded => {
             assert_eq!(controller.area, Area::Surface);
             assert!((position.xz().distance(HATCH.xz()) - 2.1).abs() < 0.1);
-            assert!(progress.explored);
+            assert!(quest.is_complete(OLD_RELAY));
             *phase = WorldCheck::Reenter;
         }
         WorldCheck::Reenter if ready(DungeonTarget::Hatch) => {
@@ -392,7 +454,7 @@ pub(super) fn drive(
         }
         WorldCheck::Revisited if controller.grounded => {
             assert_eq!(controller.area, Area::OldRelay);
-            assert!(progress.explored && progress.gate_open());
+            assert!(quest.is_complete(OLD_RELAY) && progress.gate_open());
             assert!(
                 roaches
                     .single()
@@ -410,7 +472,7 @@ pub(super) fn drive(
         }
         WorldCheck::Recover if controller.area == Area::Surface && controller.grounded => {
             assert!(position.xz().distance(WorldLayout::Outpost.start().xz()) < 0.1);
-            assert!(progress.explored && progress.gate_open());
+            assert!(quest.is_complete(OLD_RELAY) && progress.gate_open());
             info!(
                 "WORLD SMOKE PASS: shipped map, pillars, and Old Relay exploration verified in {:.2}s",
                 run.0.elapsed().as_secs_f64()
