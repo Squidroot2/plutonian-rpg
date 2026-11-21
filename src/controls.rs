@@ -14,11 +14,13 @@ pub(crate) enum Control {
     Drop,
     MenuUp,
     MenuDown,
+    MenuLeft,
+    MenuRight,
     Attack,
 }
 
 impl Control {
-    pub(crate) const ALL: [Self; 13] = [
+    pub(crate) const ALL: [Self; 15] = [
         Self::Forward,
         Self::Backward,
         Self::Left,
@@ -31,6 +33,8 @@ impl Control {
         Self::Drop,
         Self::MenuUp,
         Self::MenuDown,
+        Self::MenuLeft,
+        Self::MenuRight,
         Self::Attack,
     ];
 
@@ -48,14 +52,21 @@ impl Control {
             Self::Drop => "Drop item",
             Self::MenuUp => "Menu Up",
             Self::MenuDown => "Menu Down",
+            Self::MenuLeft => "Menu Left",
+            Self::MenuRight => "Menu Right",
             Self::Attack => "Attack",
         }
     }
 
     fn conflicts_with(self, other: Self) -> bool {
-        let menu_navigation = |control| matches!(control, Self::MenuUp | Self::MenuDown);
+        let menu_navigation = |control| {
+            matches!(
+                control,
+                Self::MenuUp | Self::MenuDown | Self::MenuLeft | Self::MenuRight
+            )
+        };
         // Gameplay-only controls are suppressed in Inventory. Its shortcuts
-        // and its two navigation directions still need distinct keys.
+        // and its navigation directions still need distinct keys.
         menu_navigation(self) == menu_navigation(other)
             || matches!(self, Self::Inventory | Self::Drop)
             || matches!(other, Self::Inventory | Self::Drop)
@@ -115,6 +126,8 @@ impl Default for Keybinds {
             (Control::Drop, KeyQ),
             (Control::MenuUp, KeyW),
             (Control::MenuDown, KeyS),
+            (Control::MenuLeft, KeyA),
+            (Control::MenuRight, KeyD),
         ];
         for (control, key) in keys {
             bindings[control as usize] = Binding::Key(key);

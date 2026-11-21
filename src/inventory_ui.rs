@@ -510,6 +510,14 @@ fn edit_quantity(
         events.clear();
         return;
     }
+    if ui.drop_is_open() {
+        if bindings.just_pressed(Control::MenuLeft, &keys) {
+            ui.step(&inventory, -1);
+        }
+        if bindings.just_pressed(Control::MenuRight, &keys) {
+            ui.step(&inventory, 1);
+        }
+    }
     for event in events.read() {
         if event.state != ButtonState::Pressed || !ui.drop_is_open() {
             continue;
@@ -518,12 +526,6 @@ fn edit_quantity(
             Key::Enter if !event.repeat => confirm_drop(&mut ui, &inventory, &mut commands),
             Key::ArrowUp => ui.step(&inventory, 1),
             Key::ArrowDown => ui.step(&inventory, -1),
-            Key::Character(character) if character.eq_ignore_ascii_case("d") => {
-                ui.step(&inventory, 1);
-            }
-            Key::Character(character) if character.eq_ignore_ascii_case("a") => {
-                ui.step(&inventory, -1);
-            }
             Key::Backspace if ui.editing => {
                 if ui.replace {
                     ui.quantity.clear();

@@ -588,6 +588,8 @@ mod tests {
         let bindings = app.world().resource::<Keybinds>();
         assert_eq!(bindings.get(Control::MenuUp).label(), "W");
         assert_eq!(bindings.get(Control::MenuDown).label(), "S");
+        assert_eq!(bindings.get(Control::MenuLeft).label(), "A");
+        assert_eq!(bindings.get(Control::MenuRight).label(), "D");
 
         let mut menu = app.world_mut().resource_mut::<SettingsMenu>();
         menu.open();
@@ -601,9 +603,9 @@ mod tests {
             keys.press(key);
             app.update();
         };
-        press(&mut app, KeyCode::KeyD);
+        press(&mut app, KeyCode::KeyZ);
         let bindings = app.world().resource::<Keybinds>();
-        assert_eq!(bindings.get(Control::MenuUp).label(), "D");
+        assert_eq!(bindings.get(Control::MenuUp).label(), "Z");
         assert_eq!(bindings.get(Control::Right).label(), "D");
 
         app.world_mut()
@@ -616,7 +618,7 @@ mod tests {
             app.world()
                 .resource::<SettingsMenu>()
                 .notice
-                .contains("Menu Up")
+                .contains("Menu Right")
         );
         press(&mut app, KeyCode::KeyQ);
         assert!(
