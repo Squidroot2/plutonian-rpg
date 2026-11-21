@@ -78,7 +78,6 @@ pub fn spawn_arena(
 
 pub struct SmokePlugin {
     pub arena: bool,
-    pub fullscreen: bool,
 }
 
 #[derive(Resource)]
@@ -121,15 +120,6 @@ impl Plugin for SmokePlugin {
                     .before(TitleInput)
                     .run_if(in_state(GameState::Title)),
             );
-        if self.fullscreen {
-            app.add_systems(Startup, |mut windows: Query<&mut Window>| {
-                for mut window in &mut windows {
-                    window.mode = bevy::window::WindowMode::BorderlessFullscreen(
-                        bevy::window::MonitorSelection::Current,
-                    );
-                }
-            });
-        }
         if self.arena {
             app.insert_resource(WorldLayout::SmokeArena)
                 .init_resource::<ArenaStep>()

@@ -10,6 +10,8 @@ Requires Rust 1.97.1 or newer, a Vulkan-capable graphics driver, and a Linux des
 cargo run --locked
 ```
 
+The game opens in borderless fullscreen. Run `cargo run --locked -- --windowed` to open it in a window.
+
 The first build compiles Bevy and its renderer and can take several minutes. Run from the repository root so Bevy finds `assets/`. `Cargo.lock` pins the dependency versions used for this application.
 
 Choose **Start Game** on the title screen to load Nivalis. Click a button or select it with the arrow keys or Tab and activate it with Enter or Space.
@@ -144,7 +146,7 @@ cargo run --locked -- --smoke-world
 python3 scripts/check_assets.py
 ```
 
-Run the desktop checks on an idle graphical desktop without supplying mouse or keyboard input. Add `--smoke-fullscreen` to either command to use the full display.
+Run the desktop checks on an idle graphical desktop without supplying mouse or keyboard input. Add `--windowed` to either command to run it in a window.
 
 - `--smoke-test` starts a standalone arena with nearby materials, equipment, a practice dummy, and the keeper and core. It checks inventory quantities and drops, both weapons' hits and misses, a worm pursuit, dodge, bite, and defeat, armor swaps and attachment during movement, the 640×704 inventory layout, wall collision, pause/resume, and fall recovery. The short beacon interaction verifies that the core is protected in the bag, consumed on turn-in, and lights the beacon. The run prints `SMOKE PASS` and its duration, or fails within 60 seconds with the current phase.
 - `--smoke-world` loads the shipped outpost, verifies the player and worms start grounded, checks the route past the worms, and checks that every authored pillar blocks the movement capsule from four directions. It then checks the locked hatch, beacon turn-in, gate, archive discovery, return and reentry, and fall recovery. It prints `WORLD SMOKE PASS` on success.

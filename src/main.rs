@@ -21,6 +21,7 @@ mod ui;
 mod world;
 mod worm;
 use bevy::prelude::*;
+use bevy::window::{MonitorSelection, WindowMode};
 
 #[derive(States, Default, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum GameState {
@@ -34,6 +35,19 @@ pub enum GameState {
 }
 
 fn main() {
+    let args: Vec<_> = std::env::args().skip(1).collect();
+    let arena = args.iter().any(|arg| arg == "--smoke-test");
+    let world = args.iter().any(|arg| arg == "--smoke-world");
+    assert!(
+        !(arena && world),
+        "choose either --smoke-test or --smoke-world"
+    );
+    let mode = if args.iter().any(|arg| arg == "--windowed") {
+        WindowMode::Windowed
+    } else {
+        WindowMode::BorderlessFullscreen(MonitorSelection::Primary)
+    };
+
     let mut app = App::new();
     app.insert_resource(ClearColor(Color::srgb(0.008, 0.014, 0.027)))
         .insert_resource(GlobalAmbientLight {
@@ -45,6 +59,7 @@ fn main() {
             primary_window: Some(Window {
                 title: "The Plutonian".into(),
                 resolution: (1280, 800).into(),
+                mode,
                 ..default()
             }),
             ..default()
@@ -68,18 +83,8 @@ fn main() {
             ui::GameUiPlugin,
         ))
         .add_plugins((combat::CombatPlugin, combat_feedback::CombatFeedbackPlugin));
-    let args: Vec<_> = std::env::args().skip(1).collect();
-    let arena = args.iter().any(|arg| arg == "--smoke-test");
-    let world = args.iter().any(|arg| arg == "--smoke-world");
-    assert!(
-        !(arena && world),
-        "choose either --smoke-test or --smoke-world"
-    );
     if arena || world {
-        app.add_plugins(smoke::SmokePlugin {
-            arena,
-            fullscreen: args.iter().any(|arg| arg == "--smoke-fullscreen"),
-        });
+        app.add_plugins(smoke::SmokePlugin { arena });
     }
     app.run();
 }
