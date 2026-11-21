@@ -8,6 +8,7 @@ use crate::{
     nemi::Nemi,
     player::Player,
     quest::{Dialogue, LAST_LIGHT, QuestAction, QuestJournal},
+    save::{Bed, SaveAtBed},
     storage::ChestId,
 };
 use avian3d::prelude::*;
@@ -26,6 +27,7 @@ pub enum InteractionTarget {
     Dungeon(DungeonTarget),
     Corpse,
     Chest(ChestId),
+    Bed,
 }
 #[derive(Component)]
 pub(crate) struct CorpseLoot {
@@ -62,6 +64,7 @@ impl Plugin for InteractionPlugin {
         app.init_resource::<Nearby>()
             .init_resource::<LootTarget>()
             .init_resource::<ActiveChest>()
+            .add_message::<SaveAtBed>()
             .add_systems(
                 Update,
                 (find_target, interact)
@@ -72,7 +75,7 @@ impl Plugin for InteractionPlugin {
     }
 }
 fn find_target(
-    players: Query<(Entity, &Transform, &Player)>,
+    players: Query<(Entity, &Transform, &Player), Without<Dead>>,
     targets: Query<
         (
             Entity,
@@ -84,6 +87,7 @@ fn find_target(
             Has<Dead>,
             Option<&Nemi>,
             Option<&ChestId>,
+            Has<Bed>,
         ),
         Or<(
             With<Target>,
@@ -91,6 +95,7 @@ fn find_target(
             With<DungeonTarget>,
             With<CorpseLoot>,
             With<ChestId>,
+            With<Bed>,
         )>,
     >,
     quest: Res<QuestJournal>,
@@ -110,7 +115,7 @@ fn find_target(
     let mut selected = None;
     let origin = transform.translation + Vec3::Y * INTERACT_HEIGHT;
     let mut closest = INTERACT_RANGE;
-    for (entity, transform, target, pickup, dungeon, corpse, dead, nemi, chest) in &targets {
+    for (entity, transform, target, pickup, dungeon, corpse, dead, nemi, chest, bed) in &targets {
         let (interaction, point) = if let Some(target) = target {
             let available = match target {
                 Target::Keeper => !dead && nemi.is_none_or(Nemi::can_talk),
@@ -152,6 +157,8 @@ fn find_target(
             (InteractionTarget::Corpse, transform.translation)
         } else if let Some(&chest) = chest.filter(|_| player.area == Area::Surface) {
             (InteractionTarget::Chest(chest), transform.translation)
+        } else if bed && player.area == Area::Surface {
+            (InteractionTarget::Bed, transform.translation)
         } else {
             continue;
         };
@@ -200,6 +207,7 @@ fn interact(
     keepers: Query<&Nemi, Without<Dead>>,
     mut loot: ResMut<LootTarget>,
     mut chest: ResMut<ActiveChest>,
+    mut saves: MessageWriter<SaveAtBed>,
     mut next: ResMut<NextState<GameState>>,
     log: Option<Res<PlayerMenu>>,
 ) {
@@ -262,6 +270,9 @@ fn interact(
             {
                 chest.0 = Some(entity);
                 next.set(GameState::Storage);
+            }
+            InteractionTarget::Bed if interact_pressed && matches!(*next, NextState::Unchanged) => {
+                saves.write(SaveAtBed(entity));
             }
             _ => (),
         }
@@ -422,6 +433,74 @@ mod tests {
             .resource_mut::<ButtonInput<KeyCode>>()
             .reset_all();
         app.update();
+    }
+
+    #[test]
+    fn bed_requires_the_interact_key_and_clear_reach() {
+        let mut app = test_app();
+        let bed = app
+            .world_mut()
+            .spawn((Bed, Transform::from_xyz(0.0, 0.45, -4.0)))
+            .id();
+        let mut saves = app
+            .world()
+            .resource::<Messages<SaveAtBed>>()
+            .get_cursor_current();
+        press_interact(&mut app);
+        assert_eq!(
+            saves
+                .read(app.world().resource::<Messages<SaveAtBed>>())
+                .count(),
+            0
+        );
+
+        app.world_mut()
+            .get_mut::<Transform>(bed)
+            .expect("bed position")
+            .translation
+            .z = -2.0;
+        let wall = app
+            .world_mut()
+            .spawn((
+                RigidBody::Static,
+                Collider::cuboid(3.0, 3.0, 0.2),
+                Transform::from_xyz(0.0, 0.0, -1.0),
+            ))
+            .id();
+        for _ in 0..3 {
+            app.update();
+        }
+        press_interact(&mut app);
+        assert_eq!(
+            saves
+                .read(app.world().resource::<Messages<SaveAtBed>>())
+                .count(),
+            0
+        );
+
+        app.world_mut().despawn(wall);
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .press(KeyCode::Enter);
+        app.update();
+        assert_eq!(
+            app.world().resource::<Nearby>().0,
+            Some((bed, InteractionTarget::Bed))
+        );
+        assert_eq!(
+            saves
+                .read(app.world().resource::<Messages<SaveAtBed>>())
+                .count(),
+            0
+        );
+        press_interact(&mut app);
+        assert_eq!(
+            saves
+                .read(app.world().resource::<Messages<SaveAtBed>>())
+                .map(|event| event.0)
+                .next(),
+            Some(bed)
+        );
     }
 
     #[test]

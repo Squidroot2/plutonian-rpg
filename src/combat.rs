@@ -29,6 +29,10 @@ impl Health {
     pub(crate) fn restore(&mut self) {
         self.current = self.maximum;
     }
+
+    pub(crate) fn set_current(&mut self, health: u16) {
+        self.current = health.min(self.maximum);
+    }
 }
 
 #[derive(Component)]

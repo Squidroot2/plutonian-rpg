@@ -1,4 +1,7 @@
-use crate::{GameState, world::WorldLayout};
+use crate::{
+    GameState,
+    world::{SessionEntity, WorldLayout},
+};
 use bevy::{
     asset::{AssetLoader, LoadContext, io::Reader},
     prelude::*,
@@ -12,7 +15,18 @@ pub(crate) const LAST_LIGHT: &str = "last_light";
 pub(crate) const OLD_RELAY: &str = "old_relay";
 pub(crate) const RELIGHT_BEACON: &str = "relight_beacon";
 
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    Deserialize,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    bitcode::Encode,
+    bitcode::Decode,
+)]
 pub(crate) enum QuestAction {
     TalkedToNemi,
     RecoveredCore,
@@ -318,6 +332,25 @@ pub(crate) struct QuestJournal {
     occurred: BTreeSet<QuestAction>,
 }
 
+#[derive(bitcode::Encode, bitcode::Decode)]
+pub(crate) struct SavedJournal {
+    progress: BTreeMap<String, SavedQuest>,
+    occurred: BTreeSet<QuestAction>,
+}
+
+#[derive(bitcode::Encode, bitcode::Decode)]
+struct SavedQuest {
+    outcome: SavedOutcome,
+    completed: Vec<String>,
+}
+
+#[derive(bitcode::Encode, bitcode::Decode)]
+enum SavedOutcome {
+    Active(String),
+    Completed,
+    Failed(String),
+}
+
 impl QuestJournal {
     pub(crate) fn new(catalog: QuestCatalog, layout: WorldLayout) -> Self {
         let mut journal = Self {
@@ -327,6 +360,62 @@ impl QuestJournal {
         };
         journal.settle(Some(Condition::SessionStart));
         journal
+    }
+
+    pub(crate) fn snapshot(&self) -> SavedJournal {
+        SavedJournal {
+            progress: self
+                .entries()
+                .map(|(quest, progress)| {
+                    let objective = |index: usize| quest.objectives[index].id.clone();
+                    let outcome = match &progress.outcome {
+                        QuestOutcome::Active(index) => SavedOutcome::Active(objective(*index)),
+                        QuestOutcome::Completed => SavedOutcome::Completed,
+                        QuestOutcome::Failed(reason) => SavedOutcome::Failed(reason.clone()),
+                    };
+                    let completed = progress.completed.iter().copied().map(objective).collect();
+                    (quest.id.clone(), SavedQuest { outcome, completed })
+                })
+                .collect(),
+            occurred: self.occurred.clone(),
+        }
+    }
+
+    pub(crate) fn from_snapshot(
+        catalog: QuestCatalog,
+        layout: WorldLayout,
+        snapshot: &SavedJournal,
+    ) -> Result<Self, String> {
+        let mut progress = BTreeMap::new();
+        for (id, saved) in &snapshot.progress {
+            let quest = catalog
+                .0
+                .iter()
+                .find(|quest| quest.id == *id)
+                .ok_or_else(|| format!("Unknown saved quest {id}"))?;
+            let objective = |name: &str| {
+                quest
+                    .objective_index(name)
+                    .ok_or_else(|| format!("Unknown saved objective {name} in {id}"))
+            };
+            let outcome = match &saved.outcome {
+                SavedOutcome::Active(name) => QuestOutcome::Active(objective(name)?),
+                SavedOutcome::Completed => QuestOutcome::Completed,
+                SavedOutcome::Failed(reason) => QuestOutcome::Failed(reason.clone()),
+            };
+            let completed = saved
+                .completed
+                .iter()
+                .map(|name| objective(name))
+                .collect::<Result<_, _>>()?;
+            progress.insert(id.clone(), QuestProgress { outcome, completed });
+        }
+        Ok(Self {
+            catalog,
+            layout,
+            progress,
+            occurred: snapshot.occurred.clone(),
+        })
     }
 
     pub(crate) fn entries(&self) -> impl Iterator<Item = (&QuestDefinition, &QuestProgress)> {
@@ -496,9 +585,17 @@ impl Plugin for QuestPlugin {
             .init_resource::<Dialogue>()
             .add_observer(spawn_lens)
             .add_systems(
+                OnTransition {
+                    exited: GameState::Loading,
+                    entered: GameState::Playing,
+                },
+                effects,
+            )
+            .add_systems(
                 Update,
                 effects
                     .run_if(in_state(GameState::Playing))
+                    .run_if(resource_changed::<QuestJournal>)
                     .after(crate::interaction::InteractionSystems),
             );
     }
@@ -511,6 +608,7 @@ fn spawn_lens(
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     commands.spawn((
+        SessionEntity,
         BeaconLens,
         Beacon,
         Mesh3d(meshes.add(Sphere::new(0.65))),
@@ -527,15 +625,17 @@ fn effects(
     lens: Query<&MeshMaterial3d<StandardMaterial>, With<BeaconLens>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    if !quest.is_changed() || !quest.beacon_powered() {
-        return;
-    }
+    let powered = quest.beacon_powered();
     for mut light in &mut beacons {
-        light.intensity = 450_000.0;
+        light.intensity = if powered { 450_000.0 } else { 0.0 };
     }
     for handle in &lens {
         if let Some(mut material) = materials.get_mut(&handle.0) {
-            material.emissive = LinearRgba::rgb(3.0, 15.0, 20.0);
+            material.emissive = if powered {
+                LinearRgba::rgb(3.0, 15.0, 20.0)
+            } else {
+                LinearRgba::BLACK
+            };
         }
     }
 }
@@ -543,6 +643,32 @@ fn effects(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn quest_snapshot_survives_catalog_reordering_and_rejects_missing_objectives() {
+        let mut journal = test_journal();
+        journal.record(QuestAction::TalkedToNemi);
+        journal.record(QuestAction::RecoveredCore);
+        let mut saved = journal.snapshot();
+        let mut catalog = journal.catalog;
+        catalog.0.reverse();
+        for quest in &mut catalog.0 {
+            quest.objectives.reverse();
+        }
+        let mut restored =
+            QuestJournal::from_snapshot(catalog.clone(), WorldLayout::Outpost, &saved)
+                .expect("quest IDs and objective IDs are independent of order");
+        assert!(restored.expects(QuestAction::ReturnedCore));
+        restored.record(QuestAction::ReturnedCore);
+        assert!(restored.beacon_powered());
+
+        saved
+            .progress
+            .get_mut(LAST_LIGHT)
+            .expect("Last Light saved")
+            .outcome = SavedOutcome::Active("removed_objective".into());
+        assert!(QuestJournal::from_snapshot(catalog, WorldLayout::Outpost, &saved).is_err());
+    }
 
     #[test]
     fn catalog_validates_the_shipped_definitions_and_rejects_bad_references() {

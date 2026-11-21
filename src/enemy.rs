@@ -8,6 +8,7 @@ use crate::{
     loading::PendingScene,
     player::Player,
     quest::Dialogue,
+    world::SessionEntity,
 };
 use avian3d::prelude::*;
 use bevy::{prelude::*, world_serialization::WorldInstanceReady};
@@ -184,6 +185,7 @@ pub(crate) fn spawn_ground_melee(
             CustomPositionIntegration,
             body,
         ))
+        .insert(SessionEntity)
         .with_children(|root| {
             root.spawn((
                 PendingScene,
@@ -501,9 +503,10 @@ mod tests {
         combat::{CombatPlugin, ConfirmedHit, Defense},
         equipment::Equipment,
         inventory::{Inventory, ItemKind},
-        player::{MAX_HEALTH, MovementInput, respawn_defeated},
+        player::{MAX_HEALTH, MovementInput},
         quest::{QuestAction, QuestJournal, test_journal},
         roach::{self, Roach},
+        save::recover_defeated,
         spear::Thrust,
         world::WorldLayout,
         worm::{CONFIG, GROUND_OFFSET, Worm},
@@ -535,7 +538,7 @@ mod tests {
         .add_plugins((CombatPlugin, EnemyPlugin))
         .add_systems(
             Update,
-            respawn_defeated
+            recover_defeated
                 .after(CombatSystems::Resolve)
                 .run_if(in_state(GameState::Playing)),
         );
@@ -645,7 +648,7 @@ mod tests {
     }
 
     #[test]
-    fn pause_and_dialogue_freeze_windup_and_defeat_preserves_progress() {
+    fn pause_and_dialogue_freeze_windup_and_a_lethal_bite_requests_reload() {
         let mut app = test_app();
         let player = app
             .world_mut()
@@ -728,23 +731,20 @@ mod tests {
         }
         assert_eq!(
             pulses, 1,
-            "a lethal bite must produce one pulse through respawn"
+            "a lethal bite must produce one pulse before reload"
         );
 
         let world = app.world();
         assert_eq!(
             world
                 .get::<Health>(player)
-                .expect("defeat keeps the player entity")
+                .expect("the fixture does not install the world loader")
                 .current(),
-            MAX_HEALTH
+            0
         );
         assert_eq!(
-            world
-                .get::<Transform>(player)
-                .expect("the player must have a transform")
-                .translation,
-            WorldLayout::Outpost.start()
+            *world.resource::<State<GameState>>().get(),
+            GameState::Loading
         );
         assert!(
             world

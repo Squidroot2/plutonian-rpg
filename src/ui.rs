@@ -7,8 +7,9 @@ use crate::{
     interaction::{InteractionSystems, InteractionTarget, Nearby, Target},
     loading::LoadStatus,
     menu_ui::PlayerMenu,
-    player::{Player, respawn_defeated},
+    player::Player,
     quest::{Dialogue, QuestJournal},
+    save::{SaveNotice, save_at_bed},
     settings::SettingsMenu,
     world::WorldLayout,
 };
@@ -48,9 +49,9 @@ impl Plugin for GameUiPlugin {
             .add_systems(
                 Update,
                 (
-                    (refresh_hud, refresh_health).after(respawn_defeated),
+                    (refresh_hud, refresh_health).after(save_at_bed),
                     refresh_compass,
-                    refresh_prompt,
+                    refresh_prompt.after(save_at_bed),
                     refresh_dialogue,
                     refresh_pause,
                 )
@@ -225,7 +226,7 @@ pub(crate) fn pause(
     log: Option<ResMut<PlayerMenu>>,
     drop_prompt: Option<ResMut<crate::inventory_ui::InventoryUiState>>,
 ) {
-    if settings.is_some_and(|menu| menu.is_open()) {
+    if !matches!(*next, NextState::Unchanged) || settings.is_some_and(|menu| menu.is_open()) {
         return;
     }
     if smoke.is_none() && *state.get() == GameState::Playing && windows.iter().any(|w| !w.focused) {
@@ -403,6 +404,7 @@ fn refresh_prompt(
     nearby: Res<Nearby>,
     bindings: Res<Keybinds>,
     log: Res<PlayerMenu>,
+    notice: Res<SaveNotice>,
     mut prompts: Query<&mut Text, With<StatusText>>,
 ) {
     if !(state.is_changed()
@@ -412,6 +414,7 @@ fn refresh_prompt(
         || dungeon.is_changed()
         || dialogue.is_changed()
         || nearby.is_changed()
+        || notice.is_changed()
         || bindings.is_changed())
     {
         return;
@@ -426,6 +429,10 @@ fn refresh_prompt(
             status.error.as_deref().unwrap_or("Asset loading failed")
         ),
         GameState::Playing if dialogue.text.is_none() && !log.is_open() => {
+            if let Some(notice) = notice.text {
+                **text = notice.into();
+                return;
+            }
             let key = bindings.get(Control::Interact).label();
             nearby.0.map_or(String::new(), |(_, target)| {
                 let action: String = match target {
@@ -439,6 +446,7 @@ fn refresh_prompt(
                     }
                     InteractionTarget::Corpse => "Loot corpse".into(),
                     InteractionTarget::Chest(chest) => format!("Open {}", chest.name()),
+                    InteractionTarget::Bed => "Save game".into(),
                     InteractionTarget::Dungeon(target) => match target {
                         DungeonTarget::Hatch if !quest.beacon_powered() => {
                             "Inspect the sealed hatch".into()

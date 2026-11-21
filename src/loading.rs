@@ -5,6 +5,7 @@ use crate::{
     player::{AnimationLibrary, CLIPS},
     quest::{QuestCatalog, QuestJournal},
     roach,
+    save::{self, RunSave, SaveSlot},
     world::WorldLayout,
     worm,
 };
@@ -32,7 +33,7 @@ pub struct LoadingPlugin;
 impl Plugin for LoadingPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<LoadStatus>()
-            .add_systems(OnEnter(GameState::Loading), load)
+            .add_systems(OnEnter(GameState::Loading), load.after(save::reset_session))
             .add_systems(Update, check.run_if(in_state(GameState::Loading)));
     }
 }
@@ -59,7 +60,13 @@ pub struct LoadStatus {
     pub relay_collision_ready: bool,
     pub started: Option<std::time::Instant>,
 }
-fn load(mut commands: Commands, server: Res<AssetServer>, layout: Res<WorldLayout>) {
+fn load(
+    mut commands: Commands,
+    server: Res<AssetServer>,
+    layout: Res<WorldLayout>,
+    mut status: ResMut<LoadStatus>,
+) {
+    *status = LoadStatus::default();
     commands.insert_resource(GameAssets {
         quests: server.load("data://quests/catalog.quest.ron"),
         character: server.load("models/plutonian.glb"),
@@ -111,6 +118,8 @@ fn check(
     spatial: avian3d::prelude::SpatialQuery,
     arena_floor: Query<Entity, With<crate::smoke::ArenaFloor>>,
     colliders: Query<&avian3d::prelude::Collider, Without<crate::player::Player>>,
+    mut run: ResMut<RunSave>,
+    mut slot: ResMut<SaveSlot>,
 ) {
     let started = *status.started.get_or_insert_with(std::time::Instant::now);
     if started.elapsed().as_secs() > 90 {
@@ -186,6 +195,20 @@ fn check(
     let Some(catalog) = catalogs.get(&assets.quests) else {
         return;
     };
+    let journal = if let Some(save) = run.checkpoint() {
+        match QuestJournal::from_snapshot(catalog.clone(), *layout, &save.journal) {
+            Ok(journal) => journal,
+            Err(error) => {
+                slot.reject(error);
+                run.start_fresh();
+                commands.remove_resource::<GameAssets>();
+                next.set(GameState::Title);
+                return;
+            }
+        }
+    } else {
+        QuestJournal::new(catalog.clone(), *layout)
+    };
     let model = gltfs.get(&assets.character).expect(
         "the character glTF must be present after all game models passed loading validation",
     );
@@ -236,7 +259,7 @@ fn check(
             })
             .collect(),
     ));
-    commands.insert_resource(QuestJournal::new(catalog.clone(), *layout));
+    commands.insert_resource(journal);
     status.spawning = true;
     commands.trigger(crate::world::SpawnWorld);
 }

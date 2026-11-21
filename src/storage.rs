@@ -4,7 +4,7 @@ use bevy::prelude::*;
 
 use crate::{
     inventory::{Inventory, ItemKind},
-    world::{SpawnWorld, WorldLayout},
+    world::{SessionEntity, SpawnWorld, WorldLayout},
 };
 
 pub(crate) struct StoragePlugin;
@@ -16,7 +16,9 @@ impl Plugin for StoragePlugin {
     }
 }
 
-#[derive(Component, Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(
+    Component, Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, bitcode::Encode, bitcode::Decode,
+)]
 pub(crate) enum ChestId {
     Lamp,
     Supply,
@@ -33,7 +35,7 @@ impl ChestId {
     }
 }
 
-#[derive(Resource)]
+#[derive(Resource, Clone, bitcode::Encode, bitcode::Decode)]
 pub(crate) struct ChestStorage(BTreeMap<ChestId, Inventory>);
 
 impl Default for ChestStorage {
@@ -56,6 +58,10 @@ impl Default for ChestStorage {
 }
 
 impl ChestStorage {
+    pub(crate) fn valid_stacks(&self) -> bool {
+        self.0.len() == 3 && self.0.values().all(Inventory::valid_stacks)
+    }
+
     pub(crate) fn get(&self, chest: ChestId) -> &Inventory {
         &self.0[&chest]
     }
@@ -78,6 +84,7 @@ fn spawn_chests(_: On<SpawnWorld>, layout: Res<WorldLayout>, mut commands: Comma
         (ChestId::Gear, Vec3::new(9.43, -0.22, -0.98)),
     ] {
         commands.spawn((
+            SessionEntity,
             chest,
             Name::new(chest.name()),
             Transform::from_translation(position),

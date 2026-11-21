@@ -16,10 +16,11 @@ use crate::{
     inventory::{Inventory, ItemKind},
     loot_ui::LootAction,
     menu_ui::{MenuTab, PlayerMenu},
-    player::{Dodge, Player},
+    player::{Dodge, MAX_HEALTH, Player},
     quest::{Dialogue, LAST_LIGHT, OLD_RELAY, QuestAction, QuestJournal, QuestStatus},
     quest_ui::{QuestRow, QuestSelection},
     roach::Roach,
+    save::RunSave,
     storage::{ChestId, ChestStorage},
     storage_ui::{StorageAction, StorageSide, TransferAmount},
     world::WorldLayout,
@@ -32,6 +33,7 @@ use bevy::{app::AppExit, prelude::*, render::view::screenshot::Screenshot};
 pub(super) enum WorldCheck {
     #[default]
     Spawn,
+    FreshRespawn(Entity),
     TentView(f64),
     TentPhoto(Entity),
     InspectChest(ChestId),
@@ -81,6 +83,9 @@ pub(super) enum WorldCheck {
     Reenter,
     Revisited,
     Recover,
+    SaveAtBed,
+    ChangeAfterSave,
+    SavedRespawn(Entity),
 }
 
 pub(super) fn drive(
@@ -98,11 +103,12 @@ pub(super) fn drive(
         ),
         With<Player>,
     >,
-    (quest, inventory, dialogue, nearby): (
+    (quest, inventory, dialogue, nearby, checkpoint): (
         Res<QuestJournal>,
         Res<Inventory>,
         Res<Dialogue>,
         Res<Nearby>,
+        Res<RunSave>,
     ),
     (progress, journal, selection, rows): (
         Res<DungeonProgress>,
@@ -247,6 +253,26 @@ pub(super) fn drive(
                     .expect("each relay worm must have a supporting floor");
                 assert!((support.distance - 1.0 - GROUND_OFFSET).abs() < 0.03);
             }
+            commands.queue(|world: &mut World| {
+                assert!(world.resource_mut::<Inventory>().add(ItemKind::Scrap, 1));
+                world
+                    .resource_mut::<QuestJournal>()
+                    .record(QuestAction::TalkedToNemi);
+            });
+            hits.write(Hit {
+                source: entity,
+                target: entity,
+                damage: u16::MAX,
+                contact: None,
+            });
+            *phase = WorldCheck::FreshRespawn(entity);
+        }
+        WorldCheck::FreshRespawn(old) if entity != old && controller.grounded => {
+            assert!(position.distance(WorldLayout::Outpost.initial_spawn()) < 0.04);
+            assert!(quest.expects(QuestAction::TalkedToNemi));
+            assert_eq!(inventory.count(ItemKind::Scrap), 0);
+            assert!(checkpoint.checkpoint().is_none());
+            assert_eq!(player_health.current(), MAX_HEALTH);
             // Allow the new scene's render pipelines to compile before the first photo.
             *phase = WorldCheck::TentView(now + 0.75);
         }
@@ -254,6 +280,12 @@ pub(super) fn drive(
             *phase = WorldCheck::TentPhoto(capture(&mut commands, "starting-tent"));
         }
         WorldCheck::TentPhoto(photo) if captures.get(photo).is_err() => {
+            fixture(
+                &mut controller,
+                &mut dodge,
+                &mut transform,
+                Vec3::new(9.7, 0.0, -2.40),
+            );
             *phase = WorldCheck::InspectChest(ChestId::Gear);
         }
         WorldCheck::InspectChest(chest) if chest_ready(chest) => {
@@ -701,8 +733,56 @@ pub(super) fn drive(
             assert!(position.xz().distance(WorldLayout::Outpost.start().xz()) < 0.1);
             assert!(quest.is_complete(OLD_RELAY) && progress.gate_open());
             assert_eq!(storage.get(ChestId::Lamp).count(ItemKind::Battery), 1);
+            fixture(
+                &mut controller,
+                &mut dodge,
+                &mut transform,
+                Vec3::new(9.7, 0.0, -3.35),
+            );
+            *phase = WorldCheck::SaveAtBed;
+        }
+        WorldCheck::SaveAtBed
+            if controller.grounded && matches!(nearby.0, Some((_, InteractionTarget::Bed))) =>
+        {
+            keys.press(KeyCode::KeyE);
+            *phase = WorldCheck::ChangeAfterSave;
+        }
+        WorldCheck::ChangeAfterSave => {
+            assert!(
+                checkpoint.checkpoint().is_some(),
+                "the cot must write the checkpoint"
+            );
+            commands.queue(|world: &mut World| {
+                assert!(
+                    world
+                        .resource_mut::<Inventory>()
+                        .remove(ItemKind::RoachMeat, 1)
+                );
+                assert!(
+                    world
+                        .resource_mut::<ChestStorage>()
+                        .get_mut(ChestId::Lamp)
+                        .add(ItemKind::Battery, 1)
+                );
+            });
+            hits.write(Hit {
+                source: entity,
+                target: entity,
+                damage: u16::MAX,
+                contact: None,
+            });
+            *phase = WorldCheck::SavedRespawn(entity);
+        }
+        WorldCheck::SavedRespawn(old) if entity != old && controller.grounded => {
+            assert!(position.distance(WorldLayout::Outpost.initial_spawn()) < 0.04);
+            assert_eq!(player_health.current(), MAX_HEALTH);
+            assert_eq!(inventory.count(ItemKind::RoachMeat), 1);
+            assert_eq!(storage.get(ChestId::Lamp).count(ItemKind::Battery), 1);
+            assert!(quest.is_complete(OLD_RELAY) && progress.gate_open());
+            assert!(roaches.single().expect("saved roach").2);
+            assert_eq!(passage_hit(), None, "restored gate must be clear");
             info!(
-                "WORLD SMOKE PASS: starting tent storage, shipped map, pillars, and Old Relay exploration verified in {:.2}s",
+                "WORLD SMOKE PASS: tent storage, shipped map, Old Relay, and bed save rollback verified in {:.2}s",
                 run.0.elapsed().as_secs_f64()
             );
             exit.write(AppExit::Success);

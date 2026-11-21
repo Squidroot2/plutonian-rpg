@@ -6,8 +6,9 @@ use crate::{
     player::{Dodge, MovementInput, Player},
     quest::{Dialogue, QuestAction, QuestJournal},
     roach,
+    save::EncounterId,
     spear::Thrust,
-    world::SpawnWorld,
+    world::{SessionEntity, SpawnWorld},
     worm,
 };
 use avian3d::prelude::*;
@@ -49,7 +50,7 @@ impl DungeonTarget {
 #[derive(Event)]
 pub(crate) struct UseDungeonTarget(pub DungeonTarget);
 
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, bitcode::Encode, bitcode::Decode)]
 enum GateState {
     #[default]
     Closed,
@@ -57,12 +58,30 @@ enum GateState {
     Open,
 }
 
-#[derive(Resource, Default)]
+impl GateState {
+    fn height(self) -> f32 {
+        let t = match self {
+            Self::Closed => 0.0,
+            Self::Opening(elapsed) => elapsed / DURATION,
+            Self::Open => 1.0,
+        };
+        ORIGIN.y + GATE_LOCAL.y + GATE_LIFT * t * t * (3.0 - 2.0 * t)
+    }
+}
+
+#[derive(Resource, Clone, Copy, Default, bitcode::Encode, bitcode::Decode)]
 pub(crate) struct DungeonProgress {
     gate: GateState,
 }
 
 impl DungeonProgress {
+    pub(crate) fn is_valid(&self) -> bool {
+        match self.gate {
+            GateState::Opening(elapsed) => (0.0..DURATION).contains(&elapsed),
+            _ => true,
+        }
+    }
+
     pub(crate) fn gate_open(&self) -> bool {
         self.gate == GateState::Open
     }
@@ -88,6 +107,13 @@ impl Plugin for DungeonPlugin {
             .add_observer(spawn_relay)
             .add_observer(use_target)
             .add_systems(OnExit(GameState::Loading), ground_surface_hatch)
+            .add_systems(
+                OnTransition {
+                    exited: GameState::Loading,
+                    entered: GameState::Playing,
+                },
+                restore_gate,
+            )
             .add_systems(
                 FixedUpdate,
                 raise_gate
@@ -120,6 +146,7 @@ fn spawn_relay(
     };
     commands
         .spawn((
+            SessionEntity,
             Name::new("Old Relay visuals"),
             PendingScene,
             scene(visual),
@@ -128,6 +155,7 @@ fn spawn_relay(
         .observe(scene_ready);
     commands
         .spawn((
+            SessionEntity,
             Name::new("Old Relay collision"),
             PendingScene,
             scene(collision),
@@ -170,6 +198,7 @@ fn spawn_relay(
     ] {
         commands
             .spawn((
+                SessionEntity,
                 target,
                 Name::new(name),
                 Transform::from_translation(anchor),
@@ -198,6 +227,7 @@ fn spawn_relay(
     let gate_size = Vec3::new(3.77, 3.7, 0.33);
     commands
         .spawn((
+            SessionEntity,
             ArchiveGate,
             Name::new("Archive gate"),
             RigidBody::Kinematic,
@@ -219,6 +249,7 @@ fn spawn_relay(
         });
 
     commands.spawn((
+        SessionEntity,
         DungeonTarget::Switch,
         Name::new("Maintenance switch"),
         Mesh3d(meshes.add(Cuboid::new(0.29, 0.23, 0.28))),
@@ -226,6 +257,7 @@ fn spawn_relay(
         Transform::from_translation(ORIGIN + SWITCH_LOCAL + Vec3::Y * 0.98),
     ));
     commands.spawn((
+        SessionEntity,
         DungeonTarget::SurveyLog,
         Name::new("Survey log"),
         Mesh3d(meshes.add(Cuboid::new(0.74, 0.10, 0.46))),
@@ -246,6 +278,7 @@ fn spawn_relay(
         (Vec3::new(-2.5, 3.5, -26.5), blue, 46_000.0, 8.0),
     ] {
         commands.spawn((
+            SessionEntity,
             PointLight {
                 color: tint,
                 intensity,
@@ -257,14 +290,19 @@ fn spawn_relay(
         ));
     }
 
-    roach::spawn(
+    let roach = roach::spawn(
         &mut commands,
         &enemies,
         ORIGIN + Vec3::new(7.0, 1.2, -12.5),
         Area::OldRelay,
     );
-    for offset in [Vec3::new(-3.5, 1.2, -10.5), Vec3::new(3.65, 1.2, -24.0)] {
-        worm::spawn(&mut commands, &enemies, ORIGIN + offset, Area::OldRelay);
+    commands.entity(roach).insert(EncounterId::RelayRoach);
+    for (id, offset) in [
+        (EncounterId::RelayJunctionWorm, Vec3::new(-3.5, 1.2, -10.5)),
+        (EncounterId::RelayArchiveWorm, Vec3::new(3.65, 1.2, -24.0)),
+    ] {
+        let worm = worm::spawn(&mut commands, &enemies, ORIGIN + offset, Area::OldRelay);
+        commands.entity(worm).insert(id);
     }
 }
 
@@ -369,15 +407,22 @@ fn raise_gate(
         return;
     };
     let elapsed = (elapsed + time.delta_secs()).min(DURATION);
-    let t = elapsed / DURATION;
-    let eased = t * t * (3.0 - 2.0 * t);
-    transform.translation.y = ORIGIN.y + GATE_LOCAL.y + GATE_LIFT * eased;
     progress.gate = if elapsed >= DURATION {
         quest.record(QuestAction::OpenedArchiveGate);
         GateState::Open
     } else {
         GateState::Opening(elapsed)
     };
+    transform.translation.y = progress.gate.height();
+}
+
+fn restore_gate(
+    progress: Res<DungeonProgress>,
+    mut gate: Query<&mut Transform, With<ArchiveGate>>,
+) {
+    if let Ok(mut transform) = gate.single_mut() {
+        transform.translation.y = progress.gate.height();
+    }
 }
 
 #[cfg(test)]

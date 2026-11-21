@@ -499,6 +499,8 @@ mod tests {
             .init_state::<GameState>()
             .init_resource::<ButtonInput<KeyCode>>()
             .init_resource::<ButtonInput<MouseButton>>()
+            .init_resource::<crate::save::SaveSlot>()
+            .init_resource::<crate::save::RunSave>()
             .add_plugins((TitlePlugin, SettingsPlugin));
         let window = app
             .world_mut()

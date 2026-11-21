@@ -26,7 +26,7 @@ use crate::{
     quest::{Beacon, Dialogue, LAST_LIGHT, QuestAction, QuestJournal, QuestStatus},
     quest_ui::{QuestRow, QuestSelection},
     title::{TitleBackdrop, TitleInput},
-    world::WorldLayout,
+    world::{SessionEntity, WorldLayout},
 };
 use avian3d::prelude::*;
 use bevy::{
@@ -75,6 +75,7 @@ pub fn spawn_arena(
 ) {
     let floor = Vec3::new(28.0, 1.0, 28.0);
     commands.spawn((
+        SessionEntity,
         ArenaFloor,
         Name::new("Smoke arena floor"),
         Mesh3d(meshes.add(Cuboid::from_size(floor))),
@@ -85,6 +86,7 @@ pub fn spawn_arena(
     ));
     let wall = Vec3::new(4.0, 2.0, 0.4);
     commands.spawn((
+        SessionEntity,
         Name::new("Smoke arena wall"),
         Mesh3d(meshes.add(Cuboid::from_size(wall))),
         MeshMaterial3d(materials.add(Color::srgb(0.4, 0.24, 0.12))),

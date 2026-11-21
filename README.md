@@ -17,7 +17,7 @@ Under **Keybinds**, select a gameplay action and press its new key. Attack also 
 
 The first build compiles Bevy and its renderer and can take several minutes. Run from the repository root so Bevy finds `assets/`. `Cargo.lock` pins the dependency versions used for this application.
 
-Choose **Start Game** on the title screen to load Nivalis. Click a button or select it with the arrow keys or Tab and activate it with Enter or Space.
+Choose **Start Game** on the title screen to begin a fresh run in Nivalis, or **Load Game** to resume your last bed save. Click a button or select it with the arrow keys or Tab and activate it with Enter or Space.
 
 | Control | Action |
 | --- | --- |
@@ -29,22 +29,28 @@ Choose **Start Game** on the title screen to load Nivalis. Click a button or sel
 | Left click | Thrust with an equipped spear, aiming with the camera through impact |
 | Space | Jump (grounded only) |
 | Left Ctrl | Dodge hop in the WASD direction, or backward with no movement input (grounded only) |
-| E | Speak / collect a nearby item / open storage / dismiss dialogue |
+| E | Speak / collect a nearby item / open storage / save at the bed / dismiss dialogue |
 | Enter | Quest interaction / dismiss dialogue |
 | I | Open or switch to Inventory / close the player menu from Inventory |
 | Q | Open the drop quantity prompt for the selected item in Inventory |
 | Tab | Open the last player-menu tab / close the menu |
 | Escape | Close the player menu / dismiss dialogue / pause or resume |
 
-The pause menu also has Resume and Quit to desktop buttons. Losing window focus pauses the game. Progress lasts for the current session; relaunching starts a fresh quest. Falling beyond the playable area returns you to the outpost without removing quest progress.
+The pause menu also has Resume and Quit to desktop buttons. Losing window focus pauses the game. Falling beyond the playable area returns you to the outpost and preserves current progress.
+
+### Saving
+
+Press E near the bed in the starting tent to save. A successful save restores full health and replaces the single save slot. Starting a fresh run leaves that slot available until you save again. The save file is stored at `$XDG_DATA_HOME/plutonian-rpg/save.bin` or `~/.local/share/plutonian-rpg/save.bin`.
+
+Combat defeat returns you to the tent at full health and restores the last save from your run, including quests, equipment, inventory, chests, pickups, and encounters. If you die before using the bed in a new run, that run restarts from the beginning.
 
 ## World and implementation
 
 The playable route connects the outpost, an inclined ice shelf, and a shallow cavern. Follow the luminous waystones toward the cavern. The quest log records directions and completed steps for each quest. The power core appears in inventory as a protected quest item and disappears from its plinth when collected. Returning it to Nemi consumes the core, lights the beacon, and completes the quest. You can continue exploring afterward.
 
-`src/` separates loading, world assembly, player movement/animation, camera, shared interactions, inventory, equipment, quests, and UI into plugins. Avian's kinematic move-and-slide controller runs at a fixed timestep with capsule ground detection and tuned low gravity. The camera uses a sphere cast to avoid passing through geometry. Interaction requires a nearby target with a clear line of sight. There are no save files or migrations.
+`src/` separates loading, world assembly, player movement/animation, camera, shared interactions, inventory, equipment, quests, and UI into plugins. Avian's kinematic move-and-slide controller runs at a fixed timestep with capsule ground detection and tuned low gravity. The camera uses a sphere cast to avoid passing through geometry. Interaction requires a nearby target with a clear line of sight. Save files use a versioned bitcode format.
 
-The game includes The Last Light, the Old Relay quest and dungeon, and one speaking NPC. Survival, crafting, levelling, controller support, and persistent saves are deferred. This is fictional Pluto: terrain, illumination, and gravity favor the experience over physical accuracy. Assets are original, generated locally with the included Blender script; no external models or textures are required.
+The game includes The Last Light, the Old Relay quest and dungeon, and one speaking NPC. Survival, crafting, levelling, and controller support are deferred. This is fictional Pluto: terrain, illumination, and gravity favor the experience over physical accuracy. Assets are original, generated locally with the included Blender script; no external models or textures are required.
 
 ## Player menu
 
@@ -56,7 +62,7 @@ Select an active, completed, or failed quest to read its details. Inspecting the
 
 A landed attack makes Nemi flee and fails The Last Light if it is active. A surviving Nemi returns after the player backs off, then refuses to help. Follow **Relight the Beacon** to use the charged core at the tower base. If you already restored the beacon with Nemi, attacking them leaves the beacon powered.
 
-Quest definitions live in `data/quests/catalog.quest.ron`. Add a definition with a unique ID, activation rules, named objectives, and conditional transitions. Definitions can use the catalog’s existing world actions and quest-completion conditions. The game loads the catalog at startup and keeps progress for the current session.
+Quest definitions live in `data/quests/catalog.quest.ron`. Add a definition with a unique ID, activation rules, named objectives, and conditional transitions. Definitions can use the catalog’s existing world actions and quest-completion conditions. The game loads the catalog when you start or load a run.
 
 ## Inventory
 
@@ -70,11 +76,11 @@ Select the Inventory tab or press I to jump straight to it. Each row shows the o
 
 Select a row and click **Drop** at the bottom of Inventory or press Q to open the quantity prompt. Type a number or use the minus and plus buttons. Click **Confirm drop** or press Enter to drop that amount. Escape or **Cancel** dismisses the prompt. For equipped gear, the prompt counts only spare copies in the bag.
 
-Dropped quantities become one stationary world stack near the player and can be collected with E. Placement checks supporting ground, free space, and walls; a failed drop leaves the inventory unchanged. The beacon core is marked **Quest item** and cannot be dropped. Inventory, quest, pickup, and chest contents reset when you relaunch the game.
+Dropped quantities become one stationary world stack near the player and can be collected with E. Placement checks supporting ground, free space, and walls; a failed drop leaves the inventory unchanged. The beacon core is marked **Quest item** and cannot be dropped.
 
 ### Tent storage
 
-Press E near one of the three chests in the starting tent. Use **Store 1** or **Store stack** on a backpack item, and **Take 1** or **Take stack** on a chest item. Close the panel with **Close** or Escape. Each chest holds its own stacks. Stored items add no carried weight, and the contents stay where you left them when you return from exploring or respawn.
+Press E near one of the three chests in the starting tent. Use **Store 1** or **Store stack** on a backpack item, and **Take 1** or **Take stack** on a chest item. Close the panel with **Close** or Escape. Each chest holds its own stacks. Stored items add no carried weight, and the contents stay where you left them when you return from exploring.
 
 The Lamp chest starts with two batteries and two methane pouches. The Supply chest holds two scrap and field armor, and the Gear chest holds a field helmet. You can also store the beacon power core. Take it back out before turning it in. Unequip worn gear to move it from your backpack into storage.
 
@@ -91,7 +97,7 @@ Start with empty equipment slots. Find the field armor and helmet in the tent ch
 
 Open the **Equipment** tab, select an available gear item, and click **Equip selected**, or double-click a gear row in **Inventory**. Equipping moves one copy into its matching slot; swapping returns the previous piece to the bag. Click **Unequip** beside a slot to return the worn item before dropping it. Additional bag copies can be dropped without affecting the worn copy. Identical gear stacks in the bag; equipping the same type again is a no-op.
 
-Slots show their equipped piece and defense, with a combined total above them. Each point of defense reduces bite damage by one, to a minimum of one. Equipment survives fall recovery and resets on application restart.
+Slots show their equipped piece and defense, with a combined total above them. Each point of defense reduces bite damage by one, to a minimum of one. Equipment survives fall recovery and is included in bed saves.
 
 Equipped models follow the player's animated spine and head bones; Nemi's appearance stays unchanged. Helmets have open faces and clearance for the alien's eyes and sensory horns.
 
@@ -101,11 +107,11 @@ Find the field spear and trident near the outpost spawn, pick either up with E, 
 
 ## Ice worms
 
-Two ice worms roam beside the trail and a third waits near the cavern entrance. Watch for the worm to rear up, move out of its bite, then thrust during its recovery. Three hits with either weapon defeat a worm. A bite deals 20 damage before armor, and defeat returns you to the outpost at full health with your quest, inventory, and equipment intact. After five seconds without taking damage, you recover 10 health per second. The health bar fades away when you reach full health. Defeated worms and relay roaches leave corpses for the rest of the session. Press E near an unlooted corpse to open its loot panel and take its meat. Meat stacks in the backpack and can be dropped.
+Two ice worms roam beside the trail and a third waits near the cavern entrance. Watch for the worm to rear up, move out of its bite, then thrust during its recovery. Three hits with either weapon defeat a worm. A bite deals 20 damage before armor, and defeat returns you to your last bed save. After five seconds without taking damage, you recover 10 health per second. The health bar fades away when you reach full health. Defeated worms and relay roaches leave corpses that can be carried forward in a bed save. Press E near an unlooted corpse to open its loot panel and take its meat. Meat stacks in the backpack and can be dropped.
 
 ## The Old Relay
 
-After you restore the beacon, look for the round hatch northwest of the beacon tower. Use E to enter. Follow the amber lamps to the maintenance switch, then go through the raised gate to discover the archive survey log. Two ice worms and a fast, biting relay roach patrol the relay. Use the hatch in the vestibule to return to Nivalis. Gate progress and the discovery stay with you for the session.
+After you restore the beacon, look for the round hatch northwest of the beacon tower. Use E to enter. Follow the amber lamps to the maintenance switch, then go through the raised gate to discover the archive survey log. Two ice worms and a fast, biting relay roach patrol the relay. Use the hatch in the vestibule to return to Nivalis. Gate progress and the discovery are included in bed saves.
 
 ## Blender workflow
 

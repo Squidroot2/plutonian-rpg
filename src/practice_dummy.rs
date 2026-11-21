@@ -6,7 +6,7 @@ use crate::{
     combat::{CombatSystems, HitReaction, TrainingTarget},
     inventory::scene_ready,
     loading::{GameAssets, PendingScene},
-    world::{SpawnWorld, WorldLayout},
+    world::{SessionEntity, SpawnWorld, WorldLayout},
 };
 
 const REACTION_DURATION: f32 = 0.42;
@@ -49,6 +49,7 @@ fn spawn_dummy(
         .clone();
     commands
         .spawn((
+            SessionEntity,
             Name::new("Practice dummy"),
             PracticeDummy,
             TrainingTarget,

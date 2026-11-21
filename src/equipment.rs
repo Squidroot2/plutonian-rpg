@@ -10,7 +10,7 @@ use crate::{
     spear::Thrust,
 };
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, bitcode::Encode, bitcode::Decode)]
 pub enum EquipmentSlot {
     Body,
     Helmet,
@@ -57,9 +57,15 @@ impl ItemKind {
         })
     }
 }
-#[derive(Resource, Default, Debug, PartialEq, Eq)]
+#[derive(Resource, Clone, Default, Debug, PartialEq, Eq, bitcode::Encode, bitcode::Decode)]
 pub struct Equipment(BTreeMap<EquipmentSlot, ItemKind>);
 impl Equipment {
+    pub(crate) fn valid_slots(&self) -> bool {
+        self.0
+            .iter()
+            .all(|(&slot, &item)| item.gear().is_some_and(|gear| gear.slot == slot))
+    }
+
     pub fn get(&self, slot: EquipmentSlot) -> Option<ItemKind> {
         self.0.get(&slot).copied()
     }

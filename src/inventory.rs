@@ -9,10 +9,11 @@ use crate::{
     loading::{GameAssets, PendingScene},
     menu_ui::{MenuTab, PlayerMenu},
     player::Player,
-    world::{SpawnWorld, WorldLayout},
+    save::RunSave,
+    world::{SessionEntity, SpawnWorld, WorldLayout},
 };
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, bitcode::Encode, bitcode::Decode)]
 pub enum ItemKind {
     Battery,
     Scrap,
@@ -119,9 +120,13 @@ impl ItemKind {
 pub(crate) const CARRY_CAPACITY: u64 = 60;
 pub(crate) const IMMOBILE_WEIGHT: u64 = CARRY_CAPACITY * 6 / 5;
 
-#[derive(Resource, Default, Debug)]
+#[derive(Resource, Clone, Default, Debug, bitcode::Encode, bitcode::Decode)]
 pub struct Inventory(BTreeMap<ItemKind, u32>);
 impl Inventory {
+    pub(crate) fn valid_stacks(&self) -> bool {
+        self.0.values().all(|&quantity| quantity > 0) && self.count(ItemKind::BeaconCore) <= 1
+    }
+
     pub(crate) fn carried_weight(&self, equipment: &Equipment) -> u64 {
         self.0
             .iter()
@@ -185,7 +190,7 @@ impl Inventory {
         Some(Pickup { item, quantity })
     }
 }
-#[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Component, Clone, Copy, Debug, PartialEq, Eq, bitcode::Encode, bitcode::Decode)]
 pub struct Pickup {
     pub item: ItemKind,
     pub quantity: u32,
@@ -217,7 +222,20 @@ fn spawn_loot(
     assets: Res<GameAssets>,
     gltfs: Res<Assets<Gltf>>,
     layout: Res<WorldLayout>,
+    run: Res<RunSave>,
 ) {
+    if let Some(save) = run.checkpoint() {
+        for pickup in &save.pickups {
+            spawn_pickup(
+                &mut commands,
+                &assets,
+                &gltfs,
+                pickup.stack,
+                pickup.position.into(),
+            );
+        }
+        return;
+    }
     if *layout == WorldLayout::SmokeArena {
         for (item, x, z) in crate::smoke::ARENA_LOOT {
             spawn_pickup(
@@ -273,6 +291,7 @@ pub fn spawn_pickup(
 ) {
     commands
         .spawn((
+            SessionEntity,
             Name::new(pickup.item.name()),
             pickup,
             PendingScene,
@@ -281,7 +300,14 @@ pub fn spawn_pickup(
         ))
         .observe(scene_ready);
 }
-fn ground_pickups(mut pickups: Query<&mut Transform, With<Pickup>>, spatial: SpatialQuery) {
+fn ground_pickups(
+    mut pickups: Query<&mut Transform, With<Pickup>>,
+    spatial: SpatialQuery,
+    run: Res<RunSave>,
+) {
+    if run.checkpoint().is_some() {
+        return;
+    }
     for mut transform in &mut pickups {
         // Stay below the cave roof; the provisional height is 2 m across the whole map.
         let origin = transform.translation + Vec3::Y;

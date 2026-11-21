@@ -1,7 +1,7 @@
 use crate::{
     GameState,
     camera::Orbit,
-    combat::{CombatSystems, Dead, Defense, Health, HealthRecovery},
+    combat::{CombatSystems, Defense, Health, HealthRecovery},
     combat_feedback::DeathAnimation,
     controls::{Control, Keybinds},
     dungeon::Area,
@@ -11,7 +11,6 @@ use crate::{
     menu_ui::PlayerMenu,
     nemi::NemiPlayback,
     quest::Dialogue,
-    spear::Thrust,
     world::WorldLayout,
 };
 use avian3d::prelude::*;
@@ -46,8 +45,7 @@ impl Plugin for PlayerPlugin {
             .add_systems(Update, sync_defense.before(CombatSystems::Resolve))
             .add_systems(
                 Update,
-                (respawn_defeated, animate)
-                    .chain()
+                animate
                     .after(CombatSystems::Resolve)
                     .run_if(in_state(GameState::Playing)),
             );
@@ -160,22 +158,6 @@ fn sync_defense(equipment: Res<Equipment>, mut players: Query<&mut Defense, With
         if equipment.is_changed() || armor.is_added() {
             armor.set_if_neq(Defense(equipment.total_defense()));
         }
-    }
-}
-
-pub(crate) fn respawn_defeated(
-    layout: Res<WorldLayout>,
-    mut thrust: ResMut<Thrust>,
-    mut input: ResMut<MovementInput>,
-    mut players: Query<(Entity, &mut Player, &mut Dodge, &mut Transform, &mut Health), Added<Dead>>,
-    mut commands: Commands,
-) {
-    for (entity, mut player, mut dodge, mut transform, mut health) in &mut players {
-        player.respawn(&mut dodge, &mut transform, layout.start());
-        health.restore();
-        thrust.cancel();
-        *input = MovementInput::default();
-        commands.entity(entity).remove::<Dead>();
     }
 }
 
@@ -551,6 +533,7 @@ fn resume(mut players: Query<&mut AnimationPlayer>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::spear::Thrust;
     use crate::{
         combat::{CombatPlugin, Hit},
         inventory::ItemKind,

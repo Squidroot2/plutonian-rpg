@@ -19,14 +19,14 @@ pub(crate) const GROUND_OFFSET: f32 = 0.9;
 pub(crate) struct NemiPlugin;
 
 #[derive(Component, Default)]
-#[require(Health = Health::new(30), HitReaction = HitReaction::new(0.16), RemoveColliderOnDeath = RemoveColliderOnDeath)]
+#[require(Health = Health::new(Nemi::MAX_HEALTH), HitReaction = HitReaction::new(0.16), RemoveColliderOnDeath = RemoveColliderOnDeath)]
 pub(crate) struct Nemi {
     home: Option<Vec3>,
     behavior: Behavior,
     moving: bool,
 }
 
-#[derive(Default, Clone, Copy)]
+#[derive(Default, Clone, Copy, bitcode::Encode, bitcode::Decode)]
 enum Behavior {
     #[default]
     Peaceful,
@@ -37,7 +37,42 @@ enum Behavior {
     Refuses,
 }
 
+#[derive(bitcode::Encode, bitcode::Decode)]
+pub(crate) struct NemiState {
+    home: Option<[f32; 3]>,
+    behavior: Behavior,
+}
+
+impl NemiState {
+    pub(crate) fn is_valid(&self) -> bool {
+        self.home
+            .is_none_or(|home| Vec3::from_array(home).is_finite())
+            && match self.behavior {
+                Behavior::Peaceful => true,
+                Behavior::Fleeing { safe_for } => {
+                    self.home.is_some() && (0.0..SAFE_TIME).contains(&safe_for)
+                }
+                Behavior::Returning | Behavior::Refuses => self.home.is_some(),
+            }
+    }
+}
+
 impl Nemi {
+    pub(crate) const MAX_HEALTH: u16 = 30;
+
+    pub(crate) fn snapshot(&self) -> NemiState {
+        NemiState {
+            home: self.home.map(|home| home.to_array()),
+            behavior: self.behavior,
+        }
+    }
+
+    pub(crate) fn restore(&mut self, state: &NemiState) {
+        self.home = state.home.map(Vec3::from_array);
+        self.behavior = state.behavior;
+        self.moving = false;
+    }
+
     pub(crate) fn can_talk(&self) -> bool {
         matches!(self.behavior, Behavior::Peaceful | Behavior::Refuses)
     }
@@ -71,7 +106,7 @@ impl Plugin for NemiPlugin {
     }
 }
 
-fn react_to_player_hit(
+pub(crate) fn react_to_player_hit(
     mut hits: MessageReader<ConfirmedHit>,
     players: Query<(), With<Player>>,
     mut keepers: Query<(&mut Nemi, &Transform, Has<Dead>)>,

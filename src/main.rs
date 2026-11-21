@@ -23,6 +23,7 @@ mod practice_dummy;
 mod quest;
 mod quest_ui;
 mod roach;
+mod save;
 mod settings;
 mod smoke;
 mod spear;
@@ -107,6 +108,9 @@ fn main() {
             menu_ui::PlayerMenuPlugin,
             storage::StoragePlugin,
             storage_ui::StorageUiPlugin,
+            save::SavePlugin {
+                smoke: arena || world || nemi,
+            },
         ))
         .add_plugins((
             combat::CombatPlugin,

@@ -1,4 +1,8 @@
-use crate::{GameState, settings::SettingsMenu};
+use crate::{
+    GameState,
+    save::{RunSave, SaveSlot},
+    settings::SettingsMenu,
+};
 use bevy::{app::AppExit, input::InputSystems, picking::hover::PickingInteraction, prelude::*};
 
 pub struct TitlePlugin;
@@ -13,8 +17,17 @@ pub(crate) struct TitleInput;
 enum MenuAction {
     #[default]
     Start,
+    Load,
     Settings,
     Quit,
+}
+
+impl MenuAction {
+    const ALL: [Self; 4] = [Self::Start, Self::Load, Self::Settings, Self::Quit];
+
+    fn enabled(self, slot: &SaveSlot) -> bool {
+        self != Self::Load || slot.available()
+    }
 }
 
 #[derive(Resource, Default)]
@@ -35,7 +48,13 @@ impl Plugin for TitlePlugin {
     }
 }
 
-fn setup(mut commands: Commands, assets: Res<AssetServer>) {
+fn setup(
+    mut commands: Commands,
+    assets: Res<AssetServer>,
+    slot: Res<SaveSlot>,
+    mut selection: ResMut<MenuSelection>,
+) {
+    *selection = MenuSelection::default();
     commands
         .spawn((
             DespawnOnExit(GameState::Title),
@@ -126,6 +145,7 @@ fn setup(mut commands: Commands, assets: Res<AssetServer>) {
                                     "Start Game",
                                     Color::srgb(0.10, 0.06, 0.03),
                                 ),
+                                (MenuAction::Load, "Load Game", Color::srgb(0.81, 0.90, 0.96)),
                                 (
                                     MenuAction::Settings,
                                     "Settings",
@@ -133,9 +153,15 @@ fn setup(mut commands: Commands, assets: Res<AssetServer>) {
                                 ),
                                 (MenuAction::Quit, "Quit", Color::srgb(0.81, 0.90, 0.96)),
                             ] {
+                                let enabled = action.enabled(&slot);
                                 buttons
                                     .spawn((
                                         action,
+                                        if enabled {
+                                            Pickable::default()
+                                        } else {
+                                            Pickable::IGNORE
+                                        },
                                         Node {
                                             width: percent(100),
                                             min_height: px(50),
@@ -156,10 +182,25 @@ fn setup(mut commands: Commands, assets: Res<AssetServer>) {
                                                 font_size: 19.0.into(),
                                                 ..default()
                                             },
-                                            TextColor(color),
+                                            TextColor(if enabled {
+                                                color
+                                            } else {
+                                                Color::srgb(0.45, 0.52, 0.57)
+                                            }),
                                             Pickable::IGNORE,
                                         ));
                                     });
+                            }
+                            if let Some(error) = slot.error() {
+                                buttons.spawn((
+                                    Text::new(error),
+                                    TextFont {
+                                        font_size: 15.0.into(),
+                                        ..default()
+                                    },
+                                    TextColor(Color::srgb(0.97, 0.67, 0.50)),
+                                    Pickable::IGNORE,
+                                ));
                             }
                         });
                 });
@@ -172,26 +213,44 @@ fn navigate(
     mut settings: ResMut<SettingsMenu>,
     mut next: ResMut<NextState<GameState>>,
     mut exit: MessageWriter<AppExit>,
+    slot: Res<SaveSlot>,
+    mut run: ResMut<RunSave>,
 ) {
-    if settings.is_open() {
+    if settings.is_open() || !matches!(*next, NextState::Unchanged) {
         return;
     }
-    if keys.just_pressed(KeyCode::ArrowUp) {
-        selection.0 = match selection.0 {
-            MenuAction::Start => MenuAction::Quit,
-            MenuAction::Settings => MenuAction::Start,
-            MenuAction::Quit => MenuAction::Settings,
-        };
+    let direction = if keys.just_pressed(KeyCode::ArrowUp) {
+        -1
     } else if keys.any_just_pressed([KeyCode::ArrowDown, KeyCode::Tab]) {
-        selection.0 = match selection.0 {
-            MenuAction::Start => MenuAction::Settings,
-            MenuAction::Settings => MenuAction::Quit,
-            MenuAction::Quit => MenuAction::Start,
-        };
+        1
+    } else {
+        0
+    };
+    if direction != 0 {
+        selection.0 = next_action(selection.0, direction, &slot);
     }
     if keys.any_just_pressed([KeyCode::Enter, KeyCode::NumpadEnter, KeyCode::Space]) {
-        activate(selection.0, &mut settings, &mut next, &mut exit);
+        activate(
+            selection.0,
+            &slot,
+            &mut run,
+            &mut settings,
+            &mut next,
+            &mut exit,
+        );
     }
+}
+
+fn next_action(current: MenuAction, direction: isize, slot: &SaveSlot) -> MenuAction {
+    let actions = MenuAction::ALL;
+    let index = actions
+        .iter()
+        .position(|&action| action == current)
+        .expect("menu action is listed") as isize;
+    (1..=actions.len() as isize)
+        .map(|step| actions[(index + direction * step).rem_euclid(actions.len() as isize) as usize])
+        .find(|&action| action.enabled(slot))
+        .expect("there is at least one enabled menu action")
 }
 
 fn click(
@@ -201,24 +260,37 @@ fn click(
     mut settings: ResMut<SettingsMenu>,
     mut next: ResMut<NextState<GameState>>,
     mut exit: MessageWriter<AppExit>,
+    slot: Res<SaveSlot>,
+    mut run: ResMut<RunSave>,
 ) {
     if *state.get() == GameState::Title
         && !settings.is_open()
+        && matches!(*next, NextState::Unchanged)
         && event.button == PointerButton::Primary
         && let Ok(&action) = actions.get(event.entity)
     {
-        activate(action, &mut settings, &mut next, &mut exit);
+        activate(action, &slot, &mut run, &mut settings, &mut next, &mut exit);
     }
 }
 
 fn activate(
     action: MenuAction,
+    slot: &SaveSlot,
+    run: &mut RunSave,
     settings: &mut SettingsMenu,
     next: &mut NextState<GameState>,
     exit: &mut MessageWriter<AppExit>,
 ) {
     match action {
-        MenuAction::Start => next.set(GameState::Loading),
+        MenuAction::Start => {
+            run.start_fresh();
+            next.set(GameState::Loading);
+        }
+        MenuAction::Load => {
+            if slot.load_into(run) {
+                next.set(GameState::Loading);
+            }
+        }
         MenuAction::Settings => settings.open(),
         MenuAction::Quit => {
             exit.write(AppExit::Success);
@@ -228,6 +300,7 @@ fn activate(
 
 fn style_buttons(
     selection: Res<MenuSelection>,
+    slot: Res<SaveSlot>,
     mut buttons: Query<(
         &MenuAction,
         Option<&PickingInteraction>,
@@ -236,6 +309,11 @@ fn style_buttons(
     )>,
 ) {
     for (action, hover, mut background, mut border) in &mut buttons {
+        if !action.enabled(&slot) {
+            background.set_if_neq(BackgroundColor(Color::srgba(0.05, 0.08, 0.12, 0.9)));
+            border.set_if_neq(BorderColor::all(Color::NONE));
+            continue;
+        }
         let pointer_over = matches!(
             hover,
             Some(PickingInteraction::Hovered | PickingInteraction::Pressed)

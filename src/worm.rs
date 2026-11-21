@@ -3,6 +3,7 @@ use crate::{
     enemy::{self, Bite, EnemyModel, GroundMelee, GroundMovement},
     inventory::ItemKind,
     loading::EnemyVisuals,
+    save::EncounterId,
     world::{SpawnWorld, WorldLayout},
 };
 use avian3d::prelude::Collider;
@@ -13,10 +14,10 @@ pub(crate) const MODEL: EnemyModel = EnemyModel {
     clips: ["WormIdle", "WormCrawl", "WormBite", "WormDeath"],
 };
 pub(crate) const GROUND_OFFSET: f32 = 0.56;
-const HOMES: [Vec3; 3] = [
-    Vec3::new(6.0, 2.0, -27.0),
-    Vec3::new(-7.0, 2.0, -71.0),
-    Vec3::new(3.4, 2.0, -110.0),
+const HOMES: [(EncounterId, Vec3); 3] = [
+    (EncounterId::NearTrailWorm, Vec3::new(6.0, 2.0, -27.0)),
+    (EncounterId::FarTrailWorm, Vec3::new(-7.0, 2.0, -71.0)),
+    (EncounterId::CavernWorm, Vec3::new(3.4, 2.0, -110.0)),
 ];
 pub(crate) const CONFIG: GroundMelee = GroundMelee {
     name: "Ice worm",
@@ -49,8 +50,9 @@ fn spawn_encounters(
     visuals: Res<EnemyVisuals>,
 ) {
     if *layout == WorldLayout::Outpost {
-        for home in HOMES {
-            spawn(&mut commands, &visuals, home, Area::Surface);
+        for (id, home) in HOMES {
+            let worm = spawn(&mut commands, &visuals, home, Area::Surface);
+            commands.entity(worm).insert(id);
         }
     }
 }

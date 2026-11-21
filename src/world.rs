@@ -7,6 +7,7 @@ use crate::{
     nemi::{self, Nemi},
     player::{ActorVisual, Player, bind_actor_animation},
     quest::Beacon,
+    save::Bed,
 };
 use avian3d::prelude::*;
 use bevy::{gltf::Gltf, prelude::*, world_serialization::WorldInstanceReady};
@@ -58,6 +59,9 @@ impl WorldLayout {
 }
 
 pub struct WorldPlugin;
+#[derive(Component)]
+pub(crate) struct SessionEntity;
+
 #[derive(Event)]
 pub struct SpawnWorld;
 impl Plugin for WorldPlugin {
@@ -85,6 +89,7 @@ fn spawn_world(
         orbit.yaw = std::f32::consts::FRAC_PI_2;
         commands
             .spawn((
+                SessionEntity,
                 Name::new("Outpost visuals"),
                 PendingScene,
                 WorldAssetRoot(
@@ -100,6 +105,7 @@ fn spawn_world(
             .observe(ready);
         commands
         .spawn((
+                SessionEntity,
             Name::new("Outpost collision"),
             PendingScene,
             WorldAssetRoot(
@@ -123,6 +129,7 @@ fn spawn_world(
             },
         );
         commands.spawn((
+            SessionEntity,
             Name::new("Starting tent lantern"),
             PointLight {
                 color: Color::srgb(1.0, 0.57, 0.28),
@@ -131,6 +138,13 @@ fn spawn_world(
                 ..default()
             },
             Transform::from_xyz(7.82, 0.32, -4.50),
+        ));
+        commands.spawn((
+            SessionEntity,
+            Bed,
+            Name::new("Starting tent bed"),
+            // The interaction point sits just above the mattress on its aisle side.
+            Transform::from_xyz(9.45, -0.12, -4.40),
         ));
     } else {
         crate::smoke::spawn_arena(&mut commands, &mut meshes, &mut materials);
@@ -142,6 +156,7 @@ fn spawn_world(
         .clone();
     commands
         .spawn((
+            SessionEntity,
             Name::new("Player"),
             Player::default(),
             Visibility::default(),
@@ -164,6 +179,7 @@ fn spawn_world(
         });
     commands
         .spawn((
+            SessionEntity,
             Name::new("Keeper Nemi"),
             Target::Keeper,
             Nemi::default(),
@@ -187,6 +203,7 @@ fn spawn_world(
         });
     commands
         .spawn((
+            SessionEntity,
             Name::new("Power core"),
             Target::Core,
             PendingScene,
@@ -203,6 +220,7 @@ fn spawn_world(
         ))
         .observe(ready);
     commands.spawn((
+        SessionEntity,
         Beacon,
         PointLight {
             color: Color::srgb(0.2, 0.85, 1.0),
@@ -219,6 +237,7 @@ fn spawn_world(
     };
     commands
         .spawn((
+            SessionEntity,
             Name::new("Beacon core socket"),
             Target::BeaconSocket,
             Transform::from_translation(layout.beacon().with_y(0.5) + Vec3::Z * socket_offset),
@@ -239,6 +258,7 @@ fn spawn_world(
             Transform::from_xyz(0.0, 0.31, 0.0),
         ));
     commands.spawn((
+        SessionEntity,
         DirectionalLight {
             illuminance: 1800.0,
             color: Color::srgb(0.45, 0.64, 0.9),
@@ -275,6 +295,7 @@ fn spawn_world(
             continue;
         }
         commands.spawn((
+            SessionEntity,
             PointLight {
                 color,
                 intensity,
