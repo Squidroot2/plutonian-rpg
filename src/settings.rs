@@ -1,5 +1,5 @@
 use crate::{
-    controls::{Binding, Control, Keybinds},
+    controls::{Binding, Control, KeybindCategory, Keybinds},
     title::TitleInput,
     ui,
 };
@@ -168,7 +168,11 @@ fn setup(mut commands: Commands) {
             panel
                 .spawn((Section::Keybinds, section_layout()))
                 .with_children(|menu| {
-                    for (header, menu_controls) in [("Gameplay", false), ("Menu", true)] {
+                    for (category, header) in [
+                        (KeybindCategory::Gameplay, "Gameplay"),
+                        (KeybindCategory::Menu, "Menu"),
+                        (KeybindCategory::MenuShortcuts, "Menu shortcuts"),
+                    ] {
                         menu.spawn((Text::new(header), ui::text_style(20.0), Pickable::IGNORE));
                         menu.spawn(Node {
                             width: percent(100),
@@ -180,7 +184,7 @@ fn setup(mut commands: Commands) {
                         .with_children(|grid| {
                             for control in Control::ALL
                                 .into_iter()
-                                .filter(|control| control.is_menu_control() == menu_controls)
+                                .filter(|control| control.keybind_category() == category)
                             {
                                 spawn_button(grid, Action::Rebind(control), percent(49));
                             }
@@ -592,10 +596,16 @@ mod tests {
             .init_resource::<ButtonInput<KeyCode>>()
             .init_resource::<ButtonInput<MouseButton>>();
         let bindings = app.world().resource::<Keybinds>();
-        assert!(!Control::Forward.is_menu_control());
-        assert!(Control::Inventory.is_menu_control());
-        assert!(Control::Drop.is_menu_control());
-        assert!(Control::MenuRight.is_menu_control());
+        assert_eq!(
+            Control::Forward.keybind_category(),
+            KeybindCategory::Gameplay
+        );
+        assert_eq!(
+            Control::Inventory.keybind_category(),
+            KeybindCategory::MenuShortcuts
+        );
+        assert_eq!(Control::Drop.keybind_category(), KeybindCategory::Menu);
+        assert_eq!(Control::MenuRight.keybind_category(), KeybindCategory::Menu);
         assert_eq!(bindings.get(Control::MenuUp).label(), "W");
         assert_eq!(bindings.get(Control::MenuDown).label(), "S");
         assert_eq!(bindings.get(Control::MenuLeft).label(), "A");

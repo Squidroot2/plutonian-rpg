@@ -66,8 +66,14 @@ impl Control {
         }
     }
 
-    pub(crate) fn is_menu_control(self) -> bool {
-        self == Self::Inventory || Self::MENU.contains(&self)
+    pub(crate) fn keybind_category(self) -> KeybindCategory {
+        if self == Self::Inventory {
+            KeybindCategory::MenuShortcuts
+        } else if Self::MENU.contains(&self) {
+            KeybindCategory::Menu
+        } else {
+            KeybindCategory::Gameplay
+        }
     }
 
     fn conflicts_with(self, other: Self) -> bool {
@@ -85,6 +91,13 @@ impl Control {
             ConflictGroup::Gameplay
         }
     }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum KeybindCategory {
+    Gameplay,
+    Menu,
+    MenuShortcuts,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
