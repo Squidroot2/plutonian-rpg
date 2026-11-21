@@ -13,7 +13,7 @@ cargo run --locked
 The game opens in borderless fullscreen. Run `cargo run --locked -- --windowed` to open it in a window.
 Open **Settings** from the title screen or pause menu to switch display modes during the current session.
 The **FPS counter** setting cycles through the four screen corners and Off. It starts in the top left.
-Under **Keybinds**, select a gameplay action and press its new key. Attack also accepts mouse buttons. Press Esc to cancel, or choose **Restore defaults** to reset all bindings. Changes apply immediately for the current session.
+Under **Keybinds**, select a gameplay action and press its new key. Both attack actions also accept mouse buttons. Press Esc to cancel, or choose **Restore defaults** to reset all bindings. Changes apply immediately for the current session.
 
 The first build compiles Bevy and its renderer and can take several minutes. Run from the repository root so Bevy finds `assets/`. `Cargo.lock` pins the dependency versions used for this application.
 
@@ -26,7 +26,8 @@ Choose **Start Game** on the title screen to begin a fresh run in Nivalis, or **
 | Mouse | Orbit camera and turn to face its horizontal look direction |
 | Scroll | Adjust camera distance |
 | Left Shift | Sprint forward or on a forward diagonal |
-| Left click | Thrust with an equipped spear, aiming with the camera through impact |
+| Left click | Attack with the main-hand weapon |
+| Right click | Attack with the off-hand weapon |
 | Space | Jump (grounded only) |
 | Left Ctrl | Dodge hop in the WASD direction, or backward with no movement input (grounded only) |
 | E | Speak / collect a nearby item / open storage / save at the bed / dismiss dialogue |
@@ -95,19 +96,21 @@ Start with empty equipment slots. Find the field armor and helmet in the tent ch
 | Field helmet | Helmet | 1 |
 | Reinforced helmet | Helmet | 3 |
 
-Open the **Equipment** tab, select an available gear item, and click **Equip selected**, or double-click a gear row in **Inventory**. Equipping moves one copy into its matching slot; swapping returns the previous piece to the bag. Click **Unequip** beside a slot to return the worn item before dropping it. Additional bag copies can be dropped without affecting the worn copy. Identical gear stacks in the bag; equipping the same type again is a no-op.
+On the **Equipment** tab, click **Equip** beside an empty slot and choose a compatible item. You can also double-click a gear row in **Inventory**. Equipping moves one copy into a slot and returns any displaced gear to the bag. Click **Unequip** to return an equipped item to the bag before dropping it. You can drop spare bag copies at any time.
 
 Slots show their equipped piece and defense, with a combined total above them. Each point of defense reduces bite damage by one, to a minimum of one. Equipment survives fall recovery and is included in bed saves.
 
-Equipped models follow the player's animated spine and head bones; Nemi's appearance stays unchanged. Helmets have open faces and clearance for the alien's eyes and sensory horns.
+Equipped models follow the player's animated rig. Helmets have open faces and clearance for the alien's eyes and sensory horns.
 
-## Spear practice
+## Weapon practice
 
-Find the field spear and trident near the outpost spawn, pick either up with E, and equip it in the **Weapon** slot on the Equipment tab. Aim the camera at the practice dummy on the other side of the spawn and left click while grounded. Both weapons use the same two-handed grip at the right hip and thrust up to 2.5 m. A hit makes the dummy flash and rock. The thrust briefly locks movement, and a wall stops it before it can hit the dummy. Unequip the weapon before dropping it.
+Find the field spear, trident, and two shortswords in the outpost courtyard and pick them up with E. The spear and trident thrust up to 2.5 m. Each uses both hands and returns both equipped weapons to your bag when you swap it in. A shortsword slashes up to 1.4 m and can be equipped in either hand. Double-click the shortsword row twice in an empty loadout to equip both copies.
+
+Aim at the practice dummy while grounded. Left-click to attack with the main hand or right-click to attack with the off hand. Each attack briefly locks movement and must finish before either hand can attack again. A wall stops the attack, and a hit makes the dummy flash and rock.
 
 ## Ice worms
 
-Two ice worms roam beside the trail and a third waits near the cavern entrance. Watch for the worm to rear up, move out of its bite, then thrust during its recovery. Three hits with either weapon defeat a worm. A bite deals 20 damage before armor, and defeat returns you to your last bed save. After five seconds without taking damage, you recover 10 health per second. The health bar fades away when you reach full health. Defeated worms and relay roaches leave corpses that can be carried forward in a bed save. Press E near an unlooted corpse to open its loot panel and take its meat. Meat stacks in the backpack and can be dropped.
+Two ice worms roam beside the trail and a third waits near the cavern entrance. Watch for the worm to rear up, move out of its bite, then attack during its recovery. Three spear or trident thrusts defeat a worm. A bite deals 20 damage before armor, and defeat returns you to your last bed save. After five seconds without taking damage, you recover 10 health per second. The health bar fades away when you reach full health. Defeated worms and relay roaches leave corpses that can be carried forward in a bed save. Press E near an unlooted corpse to open its loot panel and take its meat. Meat stacks in the backpack and can be dropped.
 
 ## The Old Relay
 
@@ -125,7 +128,7 @@ Blender 5.3 was used for the included editable sources in `art/`. Runtime export
 
 | Source / export | Purpose |
 | --- | --- |
-| `plutonian` | Shared skinned character, with base locomotion, spear carry, `SpearThrust`, and `NemiDeath` actions |
+| `plutonian` | Shared skinned character with locomotion, spear and sword carry, two slash actions, `SpearThrust`, and `NemiDeath` |
 | `outpost` | Ice shelf, habitats, waystones, cavern, beacon tower, distant sky details |
 | `collision` | Simplified static geometry, hidden at runtime |
 | `core` | Collectible beacon power core |
@@ -133,6 +136,7 @@ Blender 5.3 was used for the included editable sources in `art/`. Runtime export
 | `worm_meat`, `roach_meat` | Corpse loot pickup models for dropped meat |
 | `field_armor`, `reinforced_armor`, `field_helmet`, `reinforced_helmet` | Equipment sources, each exporting pickup and `_worn` GLBs |
 | `field_spear`, `trident` | Weapons sharing the spear animations, each exporting pickup and `_worn` GLBs |
+| `shortsword` | One-handed weapon with pickup and `_worn` GLBs for either hand |
 
 To re-export **your edited `.blend` sources** without regenerating them:
 
@@ -141,6 +145,7 @@ blender --background -noaudio --factory-startup --python-exit-code 1 --python sc
 ```
 
 Append `--outpost` to export just the outpost and its collision scene.
+Append `--shortsword` to export just the player rig and the two shortsword models.
 
 To **rebuild all source art and exports from the procedural designs**, overwriting the editable `.blend` sources:
 
@@ -154,9 +159,11 @@ Pass `-- --meat` to regenerate the two meat pickup models.
 
 Pass `-- --locomotion` to regenerate the player's backpedal, strafe, and diagonal actions in `art/plutonian.blend` and re-export `assets/models/plutonian.glb`.
 
-To regenerate only equipment, pass `-- --equipment`. This overwrites equipment sources and exports while preserving character and map art. Each equipment `.blend` stores geometry in its attachment frame (`spine` for armor, `head` for helmets, `spear_grip` for weapons). The generator derives that frame from the exported character rig. `--export` produces the bone-local `_worn.glb` and automatically centers a second, base-origin pickup export from the same source geometry. Recheck fit after changing the character rig. Keep worn sources in their attachment frame.
+To regenerate only equipment, pass `-- --equipment`. This overwrites equipment sources and exports while preserving character and map art. Each equipment `.blend` stores geometry in its attachment frame. Armor uses `spine`, helmets use `head`, polearms use `spear_grip`, and shortswords use matching wrist sockets. The generator derives these frames from the exported character rig. `--export` produces the bone-local `_worn.glb` and automatically centers a second, base-origin pickup export from the same source geometry. Recheck fit after changing the character rig. Keep worn sources in their attachment frame.
 
 Pass `-- --spear` to regenerate the field spear, trident, practice dummy, and the character's spear carry and `SpearThrust` actions. Both weapons attach to `spear_grip` on the spine and use the same two grip points. The spear pose generator bends the upper arm and forearm around each elbow, with blended weights at the joint. Export the pickups flat on the ground using the same sources, and keep the action's contact at frame 6 and recovery at frame 16 (24 fps).
+
+Pass `-- --shortsword` to regenerate the shortsword source, wrist sockets, and sword carry and slash actions. The slashes contact at frame 5 and recover at frame 12 (24 fps).
 
 Append `--nemi-death` to the export command to rebuild the collapse action on the existing shared character rig and export that character alone.
 
@@ -189,7 +196,7 @@ python3 scripts/check_assets.py
 
 Run the desktop checks on an idle graphical desktop without supplying mouse or keyboard input. Add `--windowed` to a smoke command to run it in a window.
 
-- `--smoke-test` starts a standalone arena with nearby materials, equipment, a practice dummy, and the keeper and core. It checks tab switching, live physics while the menu is open, inventory quantities, equipped rows, and the drop prompt, both weapons' hits and misses, a worm pursuit, dodge, bite, and defeat, armor swaps and attachment during movement, the 640×704 player-menu layout, wall collision, pause/resume, and fall recovery. The short beacon interaction verifies that the core is protected in the bag, consumed on turn-in, and lights the beacon. The run prints `SMOKE PASS` and its duration, or fails within 60 seconds with the current phase.
+- `--smoke-test` starts a standalone arena with nearby materials, equipment, a practice dummy, and the keeper and core. It checks tab switching, live physics while the menu is open, inventory quantities, equipped rows, the drop prompt, both polearms' hits and misses, and dual-wield attachment and hits with each shortsword. It also checks a worm pursuit, dodge, bite, and defeat, armor swaps and attachment during movement, the 640×704 player-menu layout, wall collision, pause/resume, and fall recovery. The short beacon interaction verifies that the core is protected in the bag, consumed on turn-in, and lights the beacon. The run prints `SMOKE PASS` and its duration, or fails within 60 seconds with the current phase.
 - `--smoke-world` loads the shipped outpost, checks transfers in all three tent chests, and walks out of and back into the tent to verify stored contents. It also verifies the worms start grounded, checks the route past the worms, and checks that every authored pillar blocks the movement capsule from four directions. It then checks the locked hatch, beacon turn-in, gate, archive discovery, return and reentry, and fall recovery. It prints `WORLD SMOKE PASS` on success.
 - `--smoke-nemi` checks spear damage, fleeing and returning, the failed quest entry, Nemi’s collapse, and opening the relay by installing the core at the beacon. It prints `NEMI SMOKE PASS` on success.
 

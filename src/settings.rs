@@ -269,7 +269,7 @@ fn navigate(
             .copied()
             .map(Binding::Key)
             .or_else(|| {
-                if control == Control::Attack {
+                if control.accepts_mouse() {
                     mouse.get_just_pressed().next().copied().map(Binding::Mouse)
                 } else {
                     None
@@ -383,7 +383,7 @@ fn refresh(
         if let Some(control) = settings.capture
             && let Ok(mut text) = prompt.single_mut()
         {
-            let input = if control == Control::Attack {
+            let input = if control.accepts_mouse() {
                 "a key or mouse button"
             } else {
                 "a key"

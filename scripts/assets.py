@@ -142,6 +142,7 @@ def character():
     rig.animation_data.action = None
     add_directional_walks(rig)
     add_spear_animations(rig)
+    add_sword_animations(rig)
     add_nemi_death(rig)
     save_export('plutonian')
 
@@ -294,7 +295,7 @@ def add_spear_joints(rig):
                     lower.add([vertex.index], bend, 'REPLACE')
 
 
-def bend_arm(rig, side, target):
+def bend_arm(rig, side, target, shoulder_offset=None):
     arm = rig.pose.bones[f'arm{side}']
     forearm = rig.pose.bones[f'forearm{side}']
     shoulder = arm.bone.head_local
@@ -303,7 +304,8 @@ def bend_arm(rig, side, target):
     upper = rest_elbow - shoulder
     lower = rest_hand - rest_elbow
     # Bring the supporting shoulder forward to let the left arm reach across.
-    shoulder_offset = Vector((-.065, -.15, -.045)) if side == 1 else Vector((-.02, -.04, 0))
+    if shoulder_offset is None:
+        shoulder_offset = Vector((-.065, -.15, -.045)) if side == 1 else Vector((-.02, -.04, 0))
     posed_shoulder = shoulder + shoulder_offset
     reach = target - posed_shoulder
     direction = reach.normalized()
@@ -329,7 +331,13 @@ def bend_arm(rig, side, target):
     arm.matrix_basis = arm.bone.matrix_local.inverted() @ upper_pose
     forearm.matrix_basis = (forearm.bone.matrix_local.inverted() @ arm.bone.matrix_local
                             @ upper_pose.inverted() @ lower_pose)
-    return arm, forearm
+    return arm, forearm, lower_pose
+
+
+def key_arm(arm, forearm, frame):
+    for bone in [arm, forearm]:
+        for channel in ['location', 'rotation_euler', 'scale']:
+            bone.keyframe_insert(channel, frame=frame, group=bone.name)
 
 
 def set_spear_grip(rig, frame, advance=0.0, lift=0.0, yaw=SPEAR_CARRY_ANGLE, lean=0.0):
@@ -345,34 +353,109 @@ def set_spear_grip(rig, frame, advance=0.0, lift=0.0, yaw=SPEAR_CARRY_ANGLE, lea
         grip.keyframe_insert(channel, frame=frame, group=grip.name)
     for side, spacing in [(-1, 0.0), (1, SPEAR_HAND_SPACING)]:
         target = rear + shaft_rotation @ Vector((0, -spacing, 0))
-        for bone in bend_arm(rig, side, target):
-            for channel in ['location', 'rotation_euler', 'scale']:
-                bone.keyframe_insert(channel, frame=frame, group=bone.name)
+        arm, forearm, _ = bend_arm(rig, side, target)
+        key_arm(arm, forearm, frame)
+
+
+def copy_locomotion_for_arms(rig, prefix, base):
+    from bpy_extras.anim_utils import action_get_channelbag_for_slot
+
+    name = prefix + base
+    previous = bpy.data.actions.get(name)
+    if previous is not None:
+        bpy.data.actions.remove(previous)
+    source = bpy.data.actions[base]
+    action = source.copy()
+    action.name = name
+    action.use_fake_user = True
+    rig.animation_data.action = action
+    channelbag = action_get_channelbag_for_slot(action, rig.animation_data.action_slot)
+    for curve in list(channelbag.fcurves):
+        if curve.data_path.startswith(('pose.bones["arm1"]', 'pose.bones["arm-1"]')):
+            channelbag.fcurves.remove(curve)
+    return source.frame_range
 
 
 def add_spear_locomotion(rig, bases):
-    from bpy_extras.anim_utils import action_get_channelbag_for_slot
-
     rig.animation_data_create()
     rig.animation_data.action = None
     for base in bases:
-        name = 'Spear' + base
-        previous = bpy.data.actions.get(name)
-        if previous is not None:
-            bpy.data.actions.remove(previous)
-        source = bpy.data.actions[base]
-        action = source.copy()
-        action.name = name
-        action.use_fake_user = True
-        rig.animation_data.action = action
-        channelbag = action_get_channelbag_for_slot(action, rig.animation_data.action_slot)
-        for curve in list(channelbag.fcurves):
-            if curve.data_path.startswith(('pose.bones["arm1"]', 'pose.bones["arm-1"]')):
-                channelbag.fcurves.remove(curve)
         # Both arms hold the same shaft-relative pose as their shared spine moves.
-        for frame in source.frame_range:
+        for frame in copy_locomotion_for_arms(rig, 'Spear', base):
             set_spear_grip(rig, frame)
     reset_character_pose(rig)
+
+
+SWORD_GRIPS = {-1: 'sword_grip_right', 1: 'sword_grip_left'}
+SWORD_GUARD = (.42, -.27, .78, 16, -20, 0)
+
+
+def add_sword_joints(rig):
+    bpy.context.view_layer.objects.active = rig
+    bpy.ops.object.mode_set(mode='EDIT')
+    bones = rig.data.edit_bones
+    for side, name in SWORD_GRIPS.items():
+        forearm = bones[f'forearm{side}']
+        grip = bones.get(name) or bones.new(name)
+        grip.parent = forearm
+        grip.head = forearm.tail
+        grip.tail = grip.head + Vector((0, 0, .12))
+        grip.roll = 0
+    bpy.ops.object.mode_set(mode='OBJECT')
+    bpy.context.view_layer.update()
+
+
+def set_sword_pose(rig, side, pose, frame):
+    width, depth, height, yaw, pitch, _ = pose
+    target = Vector((side * width, depth, height))
+    arm, forearm, lower_pose = bend_arm(rig, side, target, Vector((side * .015, -.025, 0)))
+    key_arm(arm, forearm, frame)
+    grip = rig.pose.bones[SWORD_GRIPS[side]]
+    rest = grip.bone.matrix_local.to_3x3()
+    lower_rotation = lower_pose.to_3x3().normalized()
+    inherited = lower_rotation @ forearm.bone.matrix_local.to_3x3().inverted() @ rest
+    blade = (Matrix.Rotation(math.radians(side * yaw), 3, 'Z')
+             @ Matrix.Rotation(math.radians(pitch), 3, 'X'))
+    grip.rotation_mode = 'XYZ'
+    grip.rotation_euler = (inherited.inverted() @ blade @ rest).to_euler('XYZ')
+    grip.scale = (1 / lower_pose.to_scale().x,) * 3
+    for channel in ['rotation_euler', 'scale']:
+        grip.keyframe_insert(channel, frame=frame, group=grip.name)
+
+
+def add_sword_locomotion(rig, bases):
+    rig.animation_data_create()
+    rig.animation_data.action = None
+    for base in bases:
+        for frame in copy_locomotion_for_arms(rig, 'Sword', base):
+            for side in SWORD_GRIPS:
+                set_sword_pose(rig, side, SWORD_GUARD, frame)
+    reset_character_pose(rig)
+
+
+def add_sword_animations(rig):
+    add_sword_joints(rig)
+    add_sword_locomotion(rig, ['Idle', 'Walk', 'Run', 'Jump', *DIRECTIONAL_WALKS])
+    poses = [
+        (0, SWORD_GUARD),
+        (2, (.54, .015, 1.10, 85, -30, 12)),
+        (5, (.33, -.52, .87, 9, -5, -10)),
+        (7, (.14, -.42, .78, -58, 18, -16)),
+        (12, SWORD_GUARD),
+    ]
+    for side, name in [(-1, 'SwordMainSlash'), (1, 'SwordOffSlash')]:
+        new_action(rig, name)
+        for frame in range(13):
+            (start, before), (end, after) = next(
+                (a, b) for a, b in zip(poses, poses[1:]) if a[0] <= frame <= b[0])
+            blend = (frame - start) / (end - start)
+            blend = blend * blend * (3 - 2 * blend)
+            pose = tuple(a + (b - a) * blend for a, b in zip(before, after))
+            twist = Matrix.Rotation(math.radians(side * pose[-1]), 3, 'Z')
+            key_pose(rig.pose.bones['spine'], Vector((0, 0, 0)), twist, frame)
+            set_sword_pose(rig, side, pose, frame)
+            set_sword_pose(rig, -side, SWORD_GUARD, frame)
+        reset_character_pose(rig)
 
 
 def add_spear_animations(rig):
@@ -788,10 +871,12 @@ def large_boulder():
 
 
 SPEAR_NAMES = ['field_spear', 'trident']
-GEAR_NAMES = ['field_armor', 'reinforced_armor', 'field_helmet', 'reinforced_helmet', *SPEAR_NAMES]
+SHORTSWORD_NAME = 'shortsword'
+GEAR_NAMES = ['field_armor', 'reinforced_armor', 'field_helmet', 'reinforced_helmet',
+              *SPEAR_NAMES, SHORTSWORD_NAME]
 
 
-def attachment_frames():
+def attachment_frames(bones=('spine', 'head', 'spear_grip')):
     """Read the exported rig's actual rest frames; do not guess Blender bone axis conversion."""
     data = (ROOT / 'assets/models/plutonian.glb').read_bytes()
     document = json.loads(data[20:20+struct.unpack_from('<I', data, 12)[0]])
@@ -809,10 +894,15 @@ def attachment_frames():
         return world(parents[index]) @ matrix if index in parents else matrix
     convert = Matrix.Rotation(-math.pi/2, 4, 'X')
     result = {}
-    for bone in ['spine', 'head', 'spear_grip']:
+    for bone in bones:
         index = next(i for i,node in enumerate(nodes) if node.get('name') == bone)
         result[bone] = convert.inverted() @ world(index).inverted() @ convert
     return result
+
+
+def sword_attachment_rotation():
+    name = SWORD_GRIPS[-1]
+    return attachment_frames((name,))[name].to_3x3().to_4x4()
 
 
 def export_equipment(name):
@@ -822,8 +912,9 @@ def export_equipment(name):
     objects = [obj for obj in bpy.context.scene.objects if obj.type == 'MESH']
     matrices = {obj: obj.matrix_world.copy() for obj in objects}
     # Convert the worn mesh to character space before grounding the pickup.
-    if name in SPEAR_NAMES:
-        frame = attachment_frames()['spear_grip'].inverted()
+    if name in SPEAR_NAMES or name == SHORTSWORD_NAME:
+        frame = (attachment_frames()['spear_grip'] if name in SPEAR_NAMES
+                 else sword_attachment_rotation()).inverted()
         for obj in objects:
             obj.matrix_world = frame @ matrices[obj]
         bpy.context.view_layer.update()
@@ -846,6 +937,9 @@ def equipment():
     for name in GEAR_NAMES:
         if name in SPEAR_NAMES:
             spear_model(frames['spear_grip'], name)
+            continue
+        if name == SHORTSWORD_NAME:
+            shortsword_model()
             continue
         reset()
         reinforced = name.startswith('reinforced')
@@ -927,6 +1021,46 @@ def spear_model(frame, name):
     bpy.context.view_layer.update()
     bpy.ops.wm.save_as_mainfile(filepath=str(ROOT / 'art' / f'{name}.blend'))
     export_equipment(name)
+
+
+def shortsword_model():
+    reset()
+    steel = material('Frosted blade alloy', (.40, .57, .61), metal=.7)
+    hilt = material('Basalt hilt', (.06, .10, .13), metal=.55)
+    wrap = material('Insulated grip', (.04, .07, .08))
+    inlay = material('Shortsword identification', (.16, .83, .70), emission=2.4)
+
+    vertices = []
+    for y, width, ridge in [(-.105, .077, .024), (-.48, .066, .020), (-.58, .043, .016)]:
+        vertices.extend([(0, y, ridge), (-width, y, 0), (0, y, -ridge), (width, y, 0)])
+    vertices.append((0, -.675, 0))
+    faces = [(3, 2, 1, 0)]
+    for ring in (0, 4):
+        for index in range(4):
+            following = (index + 1) % 4
+            faces.append((ring + index, ring + following, ring + 4 + following, ring + 4 + index))
+    faces.extend((8 + index, 8 + (index + 1) % 4, 12) for index in range(4))
+    mesh = bpy.data.meshes.new('Double-edged blade')
+    mesh.from_pydata(vertices, [], faces)
+    mesh.update()
+    blade = bpy.data.objects.new('Double-edged blade', mesh)
+    bpy.context.collection.objects.link(blade)
+    blade.data.materials.append(steel)
+
+    box('Guard', (0, -.096, 0), (.23, .053, .065), hilt)
+    box('Guard inlay', (0, -.096, .032), (.12, .020, .010), inlay)
+    box('Hand wrap', (0, 0, 0), (.083, .16, .077), wrap)
+    for y in [-.054, -.027, 0, .027, .054]:
+        box('Grip rib', (0, y, 0), (.089, .012, .083), hilt)
+    ico('Pommel', (0, .094, 0), (.055, .033, .046), steel, 2)
+
+    frame = sword_attachment_rotation()
+    bpy.context.view_layer.update()
+    for obj in bpy.context.scene.objects:
+        obj.matrix_world = frame @ obj.matrix_world
+    bpy.context.view_layer.update()
+    bpy.ops.wm.save_as_mainfile(filepath=str(ROOT / 'art' / f'{SHORTSWORD_NAME}.blend'))
+    export_equipment(SHORTSWORD_NAME)
 
 
 def practice_dummy():
@@ -1239,6 +1373,14 @@ elif '--worm' in sys.argv:
     ice_worm()
 elif '--spear' in sys.argv:
     spear_assets()
+elif '--shortsword' in sys.argv and '--export' not in sys.argv:
+    bpy.context.preferences.filepaths.save_version = 0
+    bpy.context.preferences.filepaths.file_preview_type = 'NONE'
+    bpy.ops.wm.open_mainfile(filepath=str(ROOT / 'art/plutonian.blend'))
+    rig = next(obj for obj in bpy.context.scene.objects if obj.type == 'ARMATURE')
+    add_sword_animations(rig)
+    save_export('plutonian')
+    shortsword_model()
 elif '--locomotion' in sys.argv:
     bpy.context.preferences.filepaths.save_version = 0
     bpy.context.preferences.filepaths.file_preview_type = 'NONE'
@@ -1246,6 +1388,7 @@ elif '--locomotion' in sys.argv:
     rig = next(obj for obj in bpy.context.scene.objects if obj.type == 'ARMATURE')
     add_directional_walks(rig)
     add_spear_locomotion(rig, DIRECTIONAL_WALKS)
+    add_sword_locomotion(rig, DIRECTIONAL_WALKS)
     save_export('plutonian')
 elif '--equipment' in sys.argv:
     equipment()
@@ -1285,6 +1428,8 @@ elif '--export' in sys.argv:
         'large_boulder', 'practice_dummy', 'ice_worm', 'relay_roach', 'old_relay',
         'old_relay_collision', *MEAT_NAMES, *GEAR_NAMES,
     ]
+    if '--shortsword' in sys.argv:
+        names = ['plutonian', SHORTSWORD_NAME]
     for name in names:
         bpy.ops.wm.open_mainfile(filepath=str(ROOT/'art'/f'{name}.blend'))
         if name in GEAR_NAMES:

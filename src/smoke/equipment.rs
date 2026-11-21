@@ -3,7 +3,8 @@ use super::inventory::{InventorySmoke, click, pointer_click, walk};
 use crate::{
     GameState,
     camera::Orbit,
-    equipment::{Equipment, EquipmentSlot, WornEquipment},
+    combat::HitReaction,
+    equipment::{Equipment, EquipmentSlot, WeaponKind, WornEquipment},
     interaction::{InteractionTarget, Nearby},
     inventory::{Inventory, ItemKind, Pickup},
     inventory_ui::InventoryAction,
@@ -11,12 +12,38 @@ use crate::{
     menu_ui::PlayerMenuScreen,
     menu_ui::{MenuTab, PlayerMenu},
     player::Player,
+    practice_dummy::PracticeDummy,
+    weapon::WeaponAttack,
 };
 use bevy::{
     ecs::system::SystemParam, input::InputSystems, prelude::*, render::view::screenshot::Screenshot,
 };
 
 pub struct EquipmentSmokePlugin;
+
+#[derive(Resource, Default, Debug, PartialEq)]
+pub(super) enum ShortswordStep {
+    #[default]
+    Collect,
+    EquipMain,
+    OpenEquipment,
+    PickOffHand,
+    EquipOffHand,
+    CheckWorn,
+    Approach,
+    Swing {
+        hand: EquipmentSlot,
+        landed: bool,
+    },
+    Unequip,
+    SelectDrop,
+    OpenDrop,
+    SetDropQuantity,
+    ConfirmDrop,
+    CloseBag,
+    Done,
+}
+
 #[derive(Resource)]
 pub(crate) struct EquipmentSmoke {
     stage: u16,
@@ -73,11 +100,15 @@ impl Plugin for EquipmentSmokePlugin {
             screenshot: None,
             screen_size: None,
         })
+        .init_resource::<ShortswordStep>()
         .add_systems(
             PreUpdate,
-            drive
+            (drive_shortswords, drive)
+                .chain()
                 .after(InputSystems)
                 .after(super::inventory::drive)
+                .after(super::spear::drive)
+                .before(crate::player::input)
                 .before(crate::ui::pause),
         );
     }
@@ -94,9 +125,21 @@ fn collect(
     if bag.count(item) > 0 {
         return true;
     }
+    approach_pickup(item, nearby, view, keys, orbit, position);
+    false
+}
+
+fn approach_pickup(
+    item: ItemKind,
+    nearby: &Nearby,
+    view: &View,
+    keys: &mut ButtonInput<KeyCode>,
+    orbit: &mut Orbit,
+    position: Vec3,
+) {
     if matches!(nearby.0, Some((_,InteractionTarget::Pickup(pickup))) if pickup.item == item) {
         keys.press(KeyCode::KeyE);
-        return false;
+        return;
     }
     let target = view
         .pickups
@@ -111,7 +154,6 @@ fn collect(
         .1
         .translation;
     walk(keys, orbit, position, target);
-    false
 }
 fn check_worn(view: &View, equipment: &Equipment, player: Entity) -> bool {
     for slot in EquipmentSlot::ALL {
@@ -130,7 +172,11 @@ fn check_worn(view: &View, equipment: &Equipment, player: Entity) -> bool {
                 .nodes
                 .get(parent.parent())
                 .expect("worn equipment must be parented to a named rig bone");
-            assert_eq!(name.as_str(), slot.bone());
+            assert!(crate::equipment::EQUIPMENT_SOCKETS.contains(&(
+                name.as_str(),
+                slot,
+                item.weapon().map(WeaponKind::handedness)
+            )));
             assert!(
                 view.parents
                     .iter_ancestors(parent.parent())
@@ -150,8 +196,191 @@ fn check_worn(view: &View, equipment: &Equipment, player: Entity) -> bool {
     }
     true
 }
-pub(crate) fn drive(
+
+fn drive_shortswords(
     spear_smoke: Res<super::spear::SpearSmoke>,
+    mut step: ResMut<ShortswordStep>,
+    inventory_smoke: Res<InventorySmoke>,
+    (menu, bag, equipment, nearby): (Res<PlayerMenu>, Res<Inventory>, Res<Equipment>, Res<Nearby>),
+    attack: Res<WeaponAttack>,
+    dummy: Query<(&HitReaction, &Transform), With<PracticeDummy>>,
+    view: View,
+    (mut keys, mut buttons, mut orbit): (
+        ResMut<ButtonInput<KeyCode>>,
+        ResMut<ButtonInput<MouseButton>>,
+        ResMut<Orbit>,
+    ),
+    mut commands: Commands,
+) {
+    use EquipmentSlot::{MainHand, OffHand};
+    use ItemKind::Shortsword;
+
+    if !spear_smoke.done() || *step == ShortswordStep::Done {
+        return;
+    }
+    let (player, transform, controller) = view.player.single().expect("arena player");
+    let (dummy, dummy_transform) = dummy.single().expect("arena practice dummy");
+    let (window, camera) = inventory_smoke.context.expect("arena UI context");
+    keys.reset_all();
+    buttons.reset_all();
+    macro_rules! click {
+        ($action:expr) => {
+            click(&mut commands, $action, &view.actions, window, camera)
+        };
+    }
+
+    match *step {
+        ShortswordStep::Collect if bag.count(Shortsword) < 2 => {
+            approach_pickup(
+                Shortsword,
+                &nearby,
+                &view,
+                &mut keys,
+                &mut orbit,
+                transform.translation,
+            );
+        }
+        ShortswordStep::Collect => {
+            keys.press(KeyCode::KeyI);
+            *step = ShortswordStep::EquipMain;
+        }
+        ShortswordStep::EquipMain if menu.accepts(MenuTab::Inventory) => {
+            let row = view
+                .actions
+                .iter()
+                .find(|(_, action)| **action == InventoryAction::Select(Shortsword))
+                .expect("shortsword inventory row")
+                .0;
+            commands.trigger(PointerClick {
+                count: 2,
+                ..pointer_click(row, window, camera)
+            });
+            *step = ShortswordStep::OpenEquipment;
+        }
+        ShortswordStep::OpenEquipment => {
+            assert_eq!(equipment.get(MainHand), Some(Shortsword));
+            click(
+                &mut commands,
+                MenuTab::Equipment,
+                &view.tabs,
+                window,
+                camera,
+            );
+            *step = ShortswordStep::PickOffHand;
+        }
+        ShortswordStep::PickOffHand if menu.accepts(MenuTab::Equipment) => {
+            click!(InventoryAction::ToggleSlot(OffHand));
+            *step = ShortswordStep::EquipOffHand;
+        }
+        ShortswordStep::EquipOffHand => {
+            click!(InventoryAction::EquipFromSlot(OffHand, Shortsword));
+            *step = ShortswordStep::CheckWorn;
+        }
+        ShortswordStep::CheckWorn => {
+            assert_eq!(equipment.get(OffHand), Some(Shortsword));
+            assert_eq!(bag.count(Shortsword), 0);
+            if check_worn(&view, &equipment, player) {
+                keys.press(KeyCode::Tab);
+                *step = ShortswordStep::Approach;
+            }
+        }
+        ShortswordStep::Approach if !menu.is_open() => {
+            let position = dummy_transform.translation - Vec3::Z * 1.2;
+            if transform.translation.xz().distance(position.xz()) > 0.17 {
+                walk(&mut keys, &mut orbit, transform.translation, position);
+            } else if controller.grounded {
+                orbit.yaw = std::f32::consts::PI;
+                orbit.distance = 3.5;
+                buttons.press(MouseButton::Left);
+                *step = ShortswordStep::Swing {
+                    hand: MainHand,
+                    landed: false,
+                };
+            }
+        }
+        ShortswordStep::Swing {
+            hand,
+            landed: false,
+        } => {
+            assert_eq!(
+                attack
+                    .current()
+                    .expect("mouse click must start a swing")
+                    .hand,
+                hand
+            );
+            if dummy.remaining > 0.0 {
+                let side = if hand == MainHand { "main" } else { "off" };
+                super::capture(&mut commands, &format!("shortsword-{side}-hit"));
+                *step = ShortswordStep::Swing { hand, landed: true };
+            }
+        }
+        ShortswordStep::Swing { hand, landed: true }
+            if !attack.active() && dummy.remaining == 0.0 =>
+        {
+            if hand == MainHand {
+                buttons.press(MouseButton::Right);
+                *step = ShortswordStep::Swing {
+                    hand: OffHand,
+                    landed: false,
+                };
+            } else {
+                keys.press(KeyCode::Tab);
+                *step = ShortswordStep::Unequip;
+            }
+        }
+        ShortswordStep::Unequip if menu.accepts(MenuTab::Equipment) => {
+            if let Some(slot) = EquipmentSlot::HANDS
+                .into_iter()
+                .find(|&slot| equipment.get(slot).is_some())
+            {
+                click!(InventoryAction::ToggleSlot(slot));
+            } else if check_worn(&view, &equipment, player) {
+                assert_eq!(bag.count(Shortsword), 2);
+                click(
+                    &mut commands,
+                    MenuTab::Inventory,
+                    &view.tabs,
+                    window,
+                    camera,
+                );
+                *step = ShortswordStep::SelectDrop;
+            }
+        }
+        ShortswordStep::SelectDrop if menu.accepts(MenuTab::Inventory) => {
+            click!(InventoryAction::Select(Shortsword));
+            *step = ShortswordStep::OpenDrop;
+        }
+        ShortswordStep::OpenDrop => {
+            click!(InventoryAction::Drop);
+            *step = ShortswordStep::SetDropQuantity;
+        }
+        ShortswordStep::SetDropQuantity => {
+            click!(InventoryAction::Plus);
+            *step = ShortswordStep::ConfirmDrop;
+        }
+        ShortswordStep::ConfirmDrop => {
+            click!(InventoryAction::ConfirmDrop);
+            *step = ShortswordStep::CloseBag;
+        }
+        ShortswordStep::CloseBag => {
+            assert_eq!(
+                bag.count(Shortsword),
+                0,
+                "return the arena carry load to its starting weight"
+            );
+            keys.press(KeyCode::Tab);
+            info!(
+                "SHORTSWORD SMOKE PASS: collected, equipped and dropped both swords and landed an attack with each hand"
+            );
+            *step = ShortswordStep::Done;
+        }
+        _ => {}
+    }
+}
+
+pub(super) fn drive(
+    swords: Res<ShortswordStep>,
     mut smoke: ResMut<EquipmentSmoke>,
     inventory_smoke: Res<InventorySmoke>,
     (state, menu): (Res<State<GameState>>, Res<PlayerMenu>),
@@ -165,7 +394,11 @@ pub(crate) fn drive(
     mut commands: Commands,
     mut last_log: Local<f32>,
 ) {
-    if !spear_smoke.done() || !inventory_smoke.done || smoke.done() {
+    if *swords != ShortswordStep::Done
+        || !inventory_smoke.done
+        || smoke.done()
+        || keys.just_pressed(KeyCode::Tab)
+    {
         return;
     }
     let Ok((player, transform, controller)) = view.player.single() else {

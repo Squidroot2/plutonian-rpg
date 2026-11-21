@@ -13,7 +13,7 @@ use crate::{
     player::{Dodge, Player},
     quest::{Beacon, Dialogue, LAST_LIGHT, OLD_RELAY, QuestJournal, QuestStatus, RELIGHT_BEACON},
     quest_ui::{QuestRow, QuestSelection},
-    spear::{GRIP_SIDE, Thrust},
+    weapon::{GRIP_SIDE, WeaponAttack},
 };
 use avian3d::prelude::*;
 use bevy::{app::AppExit, prelude::*};
@@ -65,7 +65,7 @@ pub(super) fn drive(
         Res<PlayerMenu>,
         Res<QuestSelection>,
     ),
-    (mut bag, mut equipment, thrust): (ResMut<Inventory>, ResMut<Equipment>, Res<Thrust>),
+    (mut bag, mut equipment, thrust): (ResMut<Inventory>, ResMut<Equipment>, Res<WeaponAttack>),
     (lights, animations, rows): (
         Query<&PointLight, With<Beacon>>,
         Query<&AnimationPlayer>,

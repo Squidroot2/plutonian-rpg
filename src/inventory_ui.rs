@@ -1,6 +1,6 @@
 use crate::{
     controls::{Control, Keybinds},
-    equipment::{EquipRequest, Equipment, EquipmentSlot, UnequipRequest},
+    equipment::{EquipRequest, Equipment, EquipmentSlot, Handedness, UnequipRequest},
     inventory::{
         CARRY_CAPACITY, DropRequest, IMMOBILE_WEIGHT, Inventory, InventoryNotice, ItemKind,
     },
@@ -86,22 +86,24 @@ fn available_to_drop(item: ItemKind, inventory: &Inventory) -> u32 {
     }
 }
 
-fn available_gear_for_slot(
+fn can_equip_from_bag(
+    item: ItemKind,
     slot: EquipmentSlot,
     inventory: &Inventory,
-) -> impl Iterator<Item = ItemKind> + '_ {
-    ItemKind::GEAR.into_iter().filter(move |&item| {
-        inventory.count(item) > 0 && item.gear().is_some_and(|gear| gear.slot == slot)
-    })
+    equipment: &Equipment,
+) -> bool {
+    let reserved = slot == EquipmentSlot::OffHand && equipment.off_hand_reserved();
+    !reserved && item.fits_slot(slot) && inventory.count(item) > 0
 }
 
-fn equipped(item: ItemKind, equipment: &Equipment) -> bool {
-    item.gear()
-        .is_some_and(|gear| equipment.get(gear.slot) == Some(item))
+fn has_gear_for_slot(slot: EquipmentSlot, inventory: &Inventory, equipment: &Equipment) -> bool {
+    ItemKind::GEAR
+        .into_iter()
+        .any(|item| can_equip_from_bag(item, slot, inventory, equipment))
 }
 
 fn owned(item: ItemKind, inventory: &Inventory, equipment: &Equipment) -> u64 {
-    u64::from(inventory.count(item)) + u64::from(equipped(item, equipment))
+    u64::from(inventory.count(item)) + u64::from(equipment.count(item))
 }
 
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
@@ -361,9 +363,10 @@ pub(crate) fn spawn_equipment(page: &mut ChildSpawnerCommands) {
                             ))
                             .with_children(|picker| {
                                 picker.spawn((Text::new("Choose equipment"), font(15.0)));
-                                for item in ItemKind::GEAR.into_iter().filter(|&item| {
-                                    item.gear().is_some_and(|gear| gear.slot == slot)
-                                }) {
+                                for item in ItemKind::GEAR
+                                    .into_iter()
+                                    .filter(|&item| item.fits_slot(slot))
+                                {
                                     action_button(
                                         picker,
                                         InventoryAction::EquipFromSlot(slot, item),
@@ -423,23 +426,23 @@ fn action(
             if click.count == 2
                 && item.gear().is_some()
                 && inventory.count(item) > 0
-                && !equipped(item, &equipment)
+                && (equipment.count(item) == 0 || item.fits_slot(EquipmentSlot::OffHand))
             {
-                commands.trigger(EquipRequest(item));
+                commands.trigger(EquipRequest::Quick(item));
             }
         }
         InventoryAction::ToggleSlot(slot) if equipment.get(slot).is_some() => {
             commands.trigger(UnequipRequest(slot));
         }
         InventoryAction::ToggleSlot(slot) => {
-            if available_gear_for_slot(slot, &inventory).next().is_some() {
+            if has_gear_for_slot(slot, &inventory, &equipment) {
                 ui.equip_slot = (ui.equip_slot != Some(slot)).then_some(slot);
             }
         }
         InventoryAction::EquipFromSlot(slot, item)
-            if item.gear().is_some_and(|gear| gear.slot == slot) && inventory.count(item) > 0 =>
+            if can_equip_from_bag(item, slot, &inventory, &equipment) =>
         {
-            commands.trigger(EquipRequest(item));
+            commands.trigger(EquipRequest::InSlot(slot, item));
             ui.equip_slot = None;
         }
         InventoryAction::CloseSlotPicker(slot) if ui.equip_slot == Some(slot) => {
@@ -628,7 +631,7 @@ fn sync(
         ui.cancel_drop();
     }
     if ui.equip_slot.is_some_and(|slot| {
-        equipment.get(slot).is_some() || available_gear_for_slot(slot, &inventory).next().is_none()
+        equipment.get(slot).is_some() || !has_gear_for_slot(slot, &inventory, &equipment)
     }) {
         ui.equip_slot = None;
     }
@@ -649,13 +652,12 @@ fn sync(
                 false,
             ),
             InventoryAction::ToggleSlot(slot) => (
-                true,
+                slot != EquipmentSlot::OffHand || !equipment.off_hand_reserved(),
                 false,
-                equipment.get(slot).is_none()
-                    && available_gear_for_slot(slot, &inventory).next().is_none(),
+                equipment.get(slot).is_none() && !has_gear_for_slot(slot, &inventory, &equipment),
             ),
             InventoryAction::EquipFromSlot(slot, item) => (
-                item.gear().is_some_and(|gear| gear.slot == slot) && inventory.count(item) > 0,
+                can_equip_from_bag(item, slot, &inventory, &equipment),
                 false,
                 false,
             ),
@@ -694,7 +696,8 @@ fn sync(
             PanelText::ItemWeight(item) => {
                 format!("{} kg", item.weight() * owned(item, &inventory, &equipment))
             }
-            PanelText::ItemStatus(item) if equipped(item, &equipment) => "Equipped".into(),
+            PanelText::ItemStatus(item) if equipment.count(item) == 1 => "Equipped".into(),
+            PanelText::ItemStatus(item) if equipment.count(item) == 2 => "Equipped ×2".into(),
             PanelText::ItemStatus(ItemKind::BeaconCore) => "Quest item".into(),
             PanelText::ItemStatus(_) => String::new(),
             PanelText::Slot(slot) => slot_label(slot, &equipment),
@@ -736,13 +739,17 @@ fn display(shown: bool) -> Display {
 fn item_detail(item: ItemKind) -> String {
     let weight = item.weight();
     let description = item.description();
+    if let Some(weapon) = item.weapon() {
+        let hands = match weapon.handedness() {
+            Handedness::OneHanded => "One-handed",
+            Handedness::TwoHanded => "Two-handed",
+        };
+        return format!(
+            "{weight} kg each / {hands} / Reach {:.1} m / {description}",
+            weapon.reach()
+        );
+    }
     match item.gear() {
-        Some(gear) if gear.slot == EquipmentSlot::Weapon => {
-            format!(
-                "{weight} kg each / Reach {:.1} m / {description}",
-                crate::spear::REACH
-            )
-        }
         Some(gear) => format!(
             "{weight} kg each / Defense {} / {description}",
             gear.defense
@@ -752,11 +759,14 @@ fn item_detail(item: ItemKind) -> String {
 }
 
 fn slot_label(slot: EquipmentSlot, equipment: &Equipment) -> String {
+    if slot == EquipmentSlot::OffHand && equipment.off_hand_reserved() {
+        return "Off hand: Used by main-hand weapon".into();
+    }
     equipment.get(slot).map_or_else(
         || format!("{}: Empty", slot.name()),
         |item| {
             let gear = item.gear().expect("only gear can occupy equipment slots");
-            if slot == EquipmentSlot::Weapon {
+            if item.weapon().is_some() {
                 format!("{}: {}", slot.name(), item.name())
             } else {
                 format!("{}: {} (+{})", slot.name(), item.name(), gear.defense)
@@ -838,6 +848,26 @@ mod tests {
             0
         );
         assert_eq!(world.resource::<Inventory>().count(ItemKind::FieldArmor), 1);
+
+        let sword = ItemKind::Shortsword;
+        assert!(world.resource_mut::<Inventory>().add(sword, 2));
+        let sword_row = world
+            .spawn(InventoryAction::Select(sword))
+            .observe(action)
+            .id();
+        for _ in 0..2 {
+            world.trigger(PointerClick {
+                count: 2,
+                ..pointer_click(sword_row, window, camera)
+            });
+            world.flush();
+        }
+        let equipment = world.resource::<Equipment>();
+        let inventory = world.resource::<Inventory>();
+        assert_eq!(equipment.get(EquipmentSlot::MainHand), Some(sword));
+        assert_eq!(equipment.get(EquipmentSlot::OffHand), Some(sword));
+        assert_eq!(owned(sword, inventory, equipment), 2);
+        assert_eq!(available_to_drop(sword, inventory), 0);
     }
 
     #[test]
@@ -907,7 +937,7 @@ mod tests {
             ..default()
         };
         assert_eq!(owned(ItemKind::FieldArmor, &inventory, &equipment), 3);
-        assert!(equipped(ItemKind::FieldArmor, &equipment));
+        assert_eq!(equipment.count(ItemKind::FieldArmor), 1);
         assert!(!ui.drop_is_open());
         ui.open_drop(&inventory);
         for text in ["", "0", "3", "-1", "1.5", "4294967296"] {

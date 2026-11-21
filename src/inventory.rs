@@ -28,18 +28,20 @@ pub enum ItemKind {
     LargeBoulder,
     WormMeat,
     RoachMeat,
+    Shortsword,
 }
 impl ItemKind {
     pub const MATERIALS: [Self; 3] = [Self::Battery, Self::Scrap, Self::MethanePouch];
-    pub const GEAR: [Self; 6] = [
+    pub const GEAR: [Self; 7] = [
         Self::FieldArmor,
         Self::ReinforcedArmor,
         Self::FieldHelmet,
         Self::ReinforcedHelmet,
         Self::FieldSpear,
         Self::Trident,
+        Self::Shortsword,
     ];
-    pub const ALL: [Self; 13] = [
+    pub const ALL: [Self; 14] = [
         Self::Battery,
         Self::Scrap,
         Self::MethanePouch,
@@ -49,6 +51,7 @@ impl ItemKind {
         Self::ReinforcedHelmet,
         Self::FieldSpear,
         Self::Trident,
+        Self::Shortsword,
         Self::BeaconCore,
         Self::LargeBoulder,
         Self::WormMeat,
@@ -62,6 +65,7 @@ impl ItemKind {
             Self::BeaconCore => "Beacon power core",
             Self::FieldSpear => "Field spear",
             Self::Trident => "Trident",
+            Self::Shortsword => "Shortsword",
             Self::LargeBoulder => "Large Boulder",
             Self::WormMeat => "Worm meat",
             Self::RoachMeat => "Roach meat",
@@ -79,6 +83,7 @@ impl ItemKind {
             Self::BeaconCore => "core",
             Self::FieldSpear => "field_spear",
             Self::Trident => "trident",
+            Self::Shortsword => "shortsword",
             Self::LargeBoulder => "large_boulder",
             Self::WormMeat => "worm_meat",
             Self::RoachMeat => "roach_meat",
@@ -91,7 +96,7 @@ impl ItemKind {
     pub fn weight(self) -> u64 {
         match self {
             Self::Battery | Self::MethanePouch | Self::WormMeat | Self::RoachMeat => 1,
-            Self::Scrap | Self::FieldHelmet => 2,
+            Self::Scrap | Self::FieldHelmet | Self::Shortsword => 2,
             Self::FieldSpear | Self::ReinforcedHelmet => 3,
             Self::Trident => 4,
             Self::FieldArmor => 5,
@@ -110,6 +115,7 @@ impl ItemKind {
             Self::MethanePouch => "A reinforced pouch of condensed methane.",
             Self::BeaconCore => "Quest item. This charged core can restore the Nivalis beacon.",
             Self::FieldSpear | Self::Trident => "Aim with the camera to thrust.",
+            Self::Shortsword => "A short field blade that can be wielded in either hand.",
             Self::FieldArmor => "Light fitted plates used by outpost explorers.",
             Self::ReinforcedArmor => "A reinforced cuirass for crossing the deep ice.",
             Self::FieldHelmet => "An open-face helmet with space for sensory horns.",
@@ -216,6 +222,39 @@ impl Plugin for InventoryPlugin {
 pub fn scene_ready(event: On<WorldInstanceReady>, mut commands: Commands) {
     commands.entity(event.entity).remove::<PendingScene>();
 }
+
+#[derive(Component)]
+struct NeedsPickupGrounding;
+
+fn spawn_initial_pickup(
+    commands: &mut Commands,
+    assets: &GameAssets,
+    gltfs: &Assets<Gltf>,
+    item: ItemKind,
+    position: Vec3,
+) {
+    let entity = spawn_pickup(
+        commands,
+        assets,
+        gltfs,
+        Pickup { item, quantity: 1 },
+        position,
+    );
+    commands.entity(entity).insert(NeedsPickupGrounding);
+}
+
+fn spawn_shortswords(commands: &mut Commands, assets: &GameAssets, gltfs: &Assets<Gltf>) {
+    for x in [3.25, 5.25] {
+        spawn_initial_pickup(
+            commands,
+            assets,
+            gltfs,
+            ItemKind::Shortsword,
+            Vec3::new(x, 2.0, 6.5),
+        );
+    }
+}
+
 fn spawn_loot(
     _: On<SpawnWorld>,
     mut commands: Commands,
@@ -234,17 +273,14 @@ fn spawn_loot(
                 pickup.position.into(),
             );
         }
+        if save.add_shortswords_on_spawn {
+            spawn_shortswords(&mut commands, &assets, &gltfs);
+        }
         return;
     }
     if *layout == WorldLayout::SmokeArena {
         for (item, x, z) in crate::smoke::ARENA_LOOT {
-            spawn_pickup(
-                &mut commands,
-                &assets,
-                &gltfs,
-                Pickup { item, quantity: 1 },
-                Vec3::new(x, 2.0, z),
-            );
+            spawn_initial_pickup(&mut commands, &assets, &gltfs, item, Vec3::new(x, 2.0, z));
         }
         return;
     }
@@ -257,13 +293,7 @@ fn spawn_loot(
                     2.0,
                     region_z - index as f32 * 4.0 - if side > 0.0 { 1.5 } else { 0.0 },
                 );
-                spawn_pickup(
-                    &mut commands,
-                    &assets,
-                    &gltfs,
-                    Pickup { item, quantity: 1 },
-                    position,
-                );
+                spawn_initial_pickup(&mut commands, &assets, &gltfs, item, position);
             }
         }
     }
@@ -273,14 +303,9 @@ fn spawn_loot(
         (ItemKind::ReinforcedArmor, Vec3::new(-3.0, 2.0, -115.0)),
         (ItemKind::ReinforcedHelmet, Vec3::new(3.0, 2.0, -120.0)),
     ] {
-        spawn_pickup(
-            &mut commands,
-            &assets,
-            &gltfs,
-            Pickup { item, quantity: 1 },
-            position,
-        );
+        spawn_initial_pickup(&mut commands, &assets, &gltfs, item, position);
     }
+    spawn_shortswords(&mut commands, &assets, &gltfs);
 }
 pub fn spawn_pickup(
     commands: &mut Commands,
@@ -288,7 +313,7 @@ pub fn spawn_pickup(
     gltfs: &Assets<Gltf>,
     pickup: Pickup,
     position: Vec3,
-) {
+) -> Entity {
     commands
         .spawn((
             SessionEntity,
@@ -298,17 +323,15 @@ pub fn spawn_pickup(
             WorldAssetRoot(gltfs.get(&assets.pickups[&pickup.item]).expect("pickup glTF assets must remain loaded after validation so initial and dropped pickups can be spawned").scenes[0].clone()),
             Transform::from_translation(position),
         ))
-        .observe(scene_ready);
+        .observe(scene_ready)
+        .id()
 }
 fn ground_pickups(
-    mut pickups: Query<&mut Transform, With<Pickup>>,
+    mut pickups: Query<(Entity, &mut Transform), With<NeedsPickupGrounding>>,
     spatial: SpatialQuery,
-    run: Res<RunSave>,
+    mut commands: Commands,
 ) {
-    if run.checkpoint().is_some() {
-        return;
-    }
-    for mut transform in &mut pickups {
+    for (entity, mut transform) in &mut pickups {
         // Stay below the cave roof; the provisional height is 2 m across the whole map.
         let origin = transform.translation + Vec3::Y;
         if let Some(hit) = spatial.cast_ray(
@@ -320,6 +343,7 @@ fn ground_pickups(
         ) {
             transform.translation.y = origin.y - hit.distance + 0.012;
         }
+        commands.entity(entity).remove::<NeedsPickupGrounding>();
     }
 }
 pub fn find_drop_position(

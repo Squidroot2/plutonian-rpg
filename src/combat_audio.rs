@@ -13,7 +13,7 @@ use crate::{
     GameState,
     combat::{CombatSystems, ConfirmedHit, Dead},
     enemy::Enemy,
-    spear::Thrust,
+    weapon::WeaponAttack,
 };
 
 pub(crate) struct CombatAudioPlugin;
@@ -73,7 +73,7 @@ fn spawn_sound(commands: &mut Commands, sound: &Handle<Effect>) {
 fn play(
     mut commands: Commands,
     sounds: Res<Sounds>,
-    thrust: Res<Thrust>,
+    thrust: Res<WeaponAttack>,
     mut hits: MessageReader<ConfirmedHit>,
     deaths: Query<(), (Added<Dead>, With<Enemy>)>,
 ) {

@@ -7,7 +7,7 @@ use crate::{
     quest::{Dialogue, QuestAction, QuestJournal},
     roach,
     save::EncounterId,
-    spear::Thrust,
+    weapon::WeaponAttack,
     world::{SessionEntity, SpawnWorld},
     worm,
 };
@@ -334,7 +334,7 @@ fn use_target(
     mut dialogue: ResMut<Dialogue>,
     mut player: Query<(Entity, &mut Player, &mut Dodge, &mut Transform)>,
     mut orbit: ResMut<Orbit>,
-    mut thrust: ResMut<Thrust>,
+    mut thrust: ResMut<WeaponAttack>,
     mut input: ResMut<MovementInput>,
     spatial: SpatialQuery,
 ) {

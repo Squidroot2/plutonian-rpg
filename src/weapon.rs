@@ -4,8 +4,8 @@ use bevy::{prelude::*, window::PrimaryWindow};
 use crate::{
     GameState,
     combat::{CombatSystems, Contact, Hit},
-    controls::{Binding, Control, Keybinds},
-    equipment::Equipment,
+    controls::{Control, Keybinds},
+    equipment::{Equipment, EquipmentSlot, WeaponKind},
     interaction::InteractionSystems,
     inventory::{CARRY_CAPACITY, Inventory},
     menu_ui::PlayerMenu,
@@ -13,26 +13,41 @@ use crate::{
     quest::Dialogue,
 };
 
-/// Maximum distance the spear thrust's collision shape travels.
-pub const REACH: f32 = 2.5;
-/// Elapsed attack time when the thrust checks for a hit (6 frames at 24 FPS).
-const IMPACT_AT: f32 = 6.0 / 24.0;
-/// Elapsed attack time when the thrust recovery ends (16 frames at 24 FPS).
-const RECOVERY_AT: f32 = 16.0 / 24.0;
-/// Vertical offset of the thrust collision origin from the player position.
 const GRIP_HEIGHT: f32 = -0.05;
-/// Sideways offset of the thrust collision origin from the player position.
 pub(crate) const GRIP_SIDE: f32 = -0.40;
-/// Damage dealt by a spear thrust.
-const THRUST_DAMAGE: u16 = 10;
 
-pub struct SpearPlugin;
-impl Plugin for SpearPlugin {
+impl WeaponKind {
+    pub(crate) fn reach(self) -> f32 {
+        match self {
+            Self::Spear => 2.5,
+            Self::Shortsword => 1.4,
+        }
+    }
+
+    fn timing(self) -> (f32, f32) {
+        match self {
+            Self::Spear => (6.0 / 24.0, 16.0 / 24.0),
+            Self::Shortsword => (5.0 / 24.0, 12.0 / 24.0),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct WeaponMove {
+    pub(crate) hand: EquipmentSlot,
+    pub(crate) weapon: WeaponKind,
+}
+
+pub struct WeaponPlugin;
+impl Plugin for WeaponPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<Thrust>()
-            .add_systems(OnExit(GameState::Playing), |mut thrust: ResMut<Thrust>| {
-                thrust.cancel();
-            })
+        app.init_resource::<WeaponAttack>()
+            .add_systems(
+                OnExit(GameState::Playing),
+                |mut attack: ResMut<WeaponAttack>| {
+                    attack.cancel();
+                },
+            )
             .add_systems(
                 Update,
                 attack
@@ -44,39 +59,43 @@ impl Plugin for SpearPlugin {
 }
 
 #[derive(Default, Resource)]
-pub struct Thrust {
-    elapsed: Option<f32>,
+pub struct WeaponAttack {
+    swing: Option<(WeaponMove, f32)>,
 }
-impl Thrust {
+impl WeaponAttack {
     pub fn active(&self) -> bool {
-        self.elapsed.is_some()
+        self.swing.is_some()
+    }
+
+    pub(crate) fn current(&self) -> Option<WeaponMove> {
+        self.swing.map(|(attack, _)| attack)
     }
 
     pub(crate) fn just_started(&self) -> bool {
-        self.elapsed == Some(0.0)
+        self.swing.is_some_and(|(_, elapsed)| elapsed == 0.0)
     }
 
     pub(crate) fn cancel(&mut self) {
-        self.elapsed = None;
+        self.swing = None;
     }
 
-    fn begin(&mut self, grounded: bool, clicked: bool) {
-        if !self.active() && grounded && clicked {
-            self.elapsed = Some(0.0);
+    fn begin(&mut self, attack: WeaponMove) {
+        if !self.active() {
+            self.swing = Some((attack, 0.0));
         }
     }
 
-    fn advance(&mut self, delta: f32) -> bool {
-        let Some(elapsed) = self.elapsed.as_mut() else {
-            return false;
-        };
+    fn advance(&mut self, delta: f32) -> Option<WeaponMove> {
+        let (attack, elapsed) = self.swing.as_mut()?;
+        let attack = *attack;
+        let (impact_at, recovery_at) = attack.weapon.timing();
         let previous = *elapsed;
         *elapsed += delta;
-        let impact = previous < IMPACT_AT && *elapsed >= IMPACT_AT;
-        if *elapsed >= RECOVERY_AT {
+        let impact = previous < impact_at && *elapsed >= impact_at;
+        if *elapsed >= recovery_at {
             self.cancel();
         }
-        impact
+        impact.then_some(attack)
     }
 }
 
@@ -91,66 +110,93 @@ fn attack(
     time: Res<Time>,
     spatial: SpatialQuery,
     movement: Res<MovementInput>,
-    mut thrust: ResMut<Thrust>,
+    mut swing: ResMut<WeaponAttack>,
     player: Query<(Entity, &Player, &Dodge, &Transform)>,
     mut hits: MessageWriter<Hit>,
     log: Option<Res<PlayerMenu>>,
 ) {
     let Ok((entity, controller, dodge, transform)) = player.single() else {
+        swing.cancel();
         return;
     };
     if dialogue.text.is_some()
-        || !equipment.has_spear()
         || !windows.iter().any(|window| window.focused)
+        || swing
+            .current()
+            .is_some_and(|attack| equipment.weapon(attack.hand) != Some(attack.weapon))
     {
-        thrust.cancel();
+        swing.cancel();
         return;
     }
-    if thrust.active() {
-        if thrust.advance(time.delta_secs())
-            && let Some(hit) =
-                thrust_contact(&spatial, entity, transform.translation, transform.rotation)
+    if swing.active() {
+        if let Some(attack) = swing.advance(time.delta_secs())
+            && let Some(hit) = weapon_contact(
+                attack,
+                &spatial,
+                entity,
+                transform.translation,
+                transform.rotation,
+            )
         {
             hits.write(hit);
         }
-    } else if !log.is_some_and(|log| log.is_open())
+    } else if controller.grounded
+        && !log.is_some_and(|log| log.is_open())
         && !dodge.active()
         && !(inventory.carried_weight(&equipment) <= CARRY_CAPACITY
             && movement.dodge_pending(controller.grounded, dodge))
     {
-        let attack = match bindings.get(Control::Attack) {
-            Binding::Key(key) => keys.just_pressed(key),
-            Binding::Mouse(button) => buttons.just_pressed(button),
-        };
-        thrust.begin(controller.grounded, attack);
+        for (hand, control) in [
+            (EquipmentSlot::MainHand, Control::Attack),
+            (EquipmentSlot::OffHand, Control::OffHandAttack),
+        ] {
+            if bindings.get(control).just_pressed(&keys, &buttons)
+                && let Some(weapon) = equipment.weapon(hand)
+            {
+                swing.begin(WeaponMove { hand, weapon });
+                break;
+            }
+        }
     }
 }
 
-fn thrust_contact(
+fn weapon_contact(
+    attack: WeaponMove,
     spatial: &SpatialQuery,
     player: Entity,
     position: Vec3,
     facing: Quat,
 ) -> Option<Hit> {
-    let direction = Dir3::new(facing * Vec3::Z).ok()?;
-    // Match the shaft's offset in the two-handed thrust pose.
-    let origin = position + facing * Vec3::new(GRIP_SIDE, GRIP_HEIGHT, 0.0);
+    let (side, local_direction, radius, damage) = match attack.weapon {
+        WeaponKind::Spear => (GRIP_SIDE, Vec3::Z, 0.12, 10),
+        WeaponKind::Shortsword => {
+            // Sweep inward from the striking hand at close range.
+            let sign = if attack.hand == EquipmentSlot::MainHand {
+                -1.0
+            } else {
+                1.0
+            };
+            (0.36 * sign, Vec3::new(-0.40 * sign, 0.0, 1.0), 0.18, 7)
+        }
+    };
+    let direction = Dir3::new(facing * local_direction).ok()?;
+    let origin = position + facing * Vec3::new(side, GRIP_HEIGHT, 0.0);
     spatial
         .cast_shape(
-            &Collider::sphere(0.12),
+            &Collider::sphere(radius),
             origin,
             Quat::IDENTITY,
             direction,
             &ShapeCastConfig {
                 compute_contact_on_penetration: true,
-                ..ShapeCastConfig::from_max_distance(REACH)
+                ..ShapeCastConfig::from_max_distance(attack.weapon.reach())
             },
             &SpatialQueryFilter::from_excluded_entities([player]),
         )
         .map(|hit| Hit {
             source: player,
             target: hit.entity,
-            damage: THRUST_DAMAGE,
+            damage,
             contact: Some(Contact {
                 position: hit.point1,
                 normal: hit.normal1,
@@ -162,30 +208,49 @@ fn thrust_contact(
 mod tests {
     use super::*;
     use crate::combat::TrainingTarget;
+    use crate::equipment::{EquipmentPlugin, UnequipRequest};
     use crate::practice_dummy::PracticeDummy;
-    use crate::{camera::Orbit, inventory::ItemKind, player::face_camera};
+    use crate::{
+        camera::Orbit,
+        inventory::{InventoryNotice, ItemKind},
+        player::face_camera,
+    };
     use bevy::{
         asset::AssetPlugin, ecs::system::RunSystemOnce, mesh::MeshPlugin, state::app::StatesPlugin,
         time::TimeUpdateStrategy, transform::TransformPlugin,
     };
     use std::time::Duration;
 
+    const SPEAR_THRUST: WeaponMove = WeaponMove {
+        hand: EquipmentSlot::MainHand,
+        weapon: WeaponKind::Spear,
+    };
+
+    fn thrust_contact(
+        spatial: &SpatialQuery,
+        player: Entity,
+        position: Vec3,
+        facing: Quat,
+    ) -> Option<Hit> {
+        weapon_contact(SPEAR_THRUST, spatial, player, position, facing)
+    }
+
     #[test]
     fn thrust_has_one_impact_and_ignores_clicks_before_recovery() {
-        let mut thrust = Thrust::default();
-        thrust.begin(false, true);
-        assert!(!thrust.active(), "airborne attacks must be rejected");
-        thrust.begin(true, false);
-        assert!(!thrust.active(), "holding the mouse is not a new click");
-        thrust.begin(true, true);
-        assert!(!thrust.advance(0.2));
-        thrust.begin(true, true);
-        assert!(
+        let mut thrust = WeaponAttack::default();
+        thrust.begin(SPEAR_THRUST);
+        assert_eq!(thrust.advance(0.2), None);
+        thrust.begin(WeaponMove {
+            hand: EquipmentSlot::OffHand,
+            weapon: WeaponKind::Shortsword,
+        });
+        assert_eq!(
             thrust.advance(0.06),
+            Some(SPEAR_THRUST),
             "crossing full extension must report an impact"
         );
-        assert!(!thrust.advance(0.2));
-        assert!(!thrust.advance(0.3));
+        assert_eq!(thrust.advance(0.2), None);
+        assert_eq!(thrust.advance(0.3), None);
         assert!(!thrust.active());
     }
 
@@ -202,16 +267,17 @@ mod tests {
         .insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_millis(
             20,
         )))
+        .init_asset::<AudioSource>()
         .init_state::<GameState>()
         .init_resource::<Dialogue>()
-        .init_resource::<Equipment>()
         .init_resource::<Inventory>()
+        .init_resource::<InventoryNotice>()
         .init_resource::<Orbit>()
         .init_resource::<MovementInput>()
         .init_resource::<Keybinds>()
         .init_resource::<ButtonInput<KeyCode>>()
         .init_resource::<ButtonInput<MouseButton>>()
-        .add_plugins((crate::combat::CombatPlugin, SpearPlugin))
+        .add_plugins((crate::combat::CombatPlugin, EquipmentPlugin, WeaponPlugin))
         .add_systems(Update, face_camera.before(CombatSystems::Detect));
         app.finish();
         app.cleanup();
@@ -376,7 +442,7 @@ mod tests {
                 if frame == 5
                     && let Some(yaw) = turn_to
                 {
-                    assert!(app.world().resource::<Thrust>().active());
+                    assert!(app.world().resource::<WeaponAttack>().active());
                     app.world_mut().resource_mut::<Orbit>().yaw = yaw;
                 }
                 app.update();
@@ -439,7 +505,7 @@ mod tests {
             .resource_mut::<ButtonInput<MouseButton>>()
             .press(MouseButton::Left);
         app.update();
-        assert!(!app.world().resource::<Thrust>().active());
+        assert!(!app.world().resource::<WeaponAttack>().active());
 
         let world = app.world_mut();
         let mut bag = crate::inventory::Inventory::default();
@@ -452,25 +518,180 @@ mod tests {
         );
         world.resource_mut::<Dialogue>().text = Some("Talking");
         app.update();
-        assert!(!app.world().resource::<Thrust>().active());
+        assert!(!app.world().resource::<WeaponAttack>().active());
         app.world_mut().resource_mut::<Dialogue>().text = None;
         app.update();
-        assert!(app.world().resource::<Thrust>().active());
+        assert!(app.world().resource::<WeaponAttack>().active());
         app.world_mut().resource_mut::<Dialogue>().text = Some("Talking");
         app.update();
-        assert!(!app.world().resource::<Thrust>().active());
+        assert!(!app.world().resource::<WeaponAttack>().active());
 
         app.world_mut().resource_mut::<Dialogue>().text = None;
         app.update();
-        assert!(app.world().resource::<Thrust>().active());
+        assert!(app.world().resource::<WeaponAttack>().active());
         let mut menu = PlayerMenu::default();
         menu.show(crate::menu_ui::MenuTab::Inventory);
         app.insert_resource(menu);
         app.update();
-        assert!(app.world().resource::<Thrust>().active());
+        assert!(app.world().resource::<WeaponAttack>().active());
         for _ in 0..60 {
             app.update();
         }
-        assert!(!app.world().resource::<Thrust>().active());
+        assert!(!app.world().resource::<WeaponAttack>().active());
+    }
+
+    #[test]
+    fn each_button_attacks_from_its_own_hand_and_both_share_recovery() {
+        use crate::combat::Health;
+        use EquipmentSlot::{MainHand, OffHand};
+        use ItemKind::{FieldSpear, Shortsword};
+        use MouseButton::{Left, Right};
+
+        fn click(app: &mut App, buttons: &[MouseButton]) {
+            let mut input = app.world_mut().resource_mut::<ButtonInput<MouseButton>>();
+            for &button in buttons {
+                input.press(button);
+            }
+            app.update();
+            app.world_mut()
+                .resource_mut::<ButtonInput<MouseButton>>()
+                .reset_all();
+        }
+
+        let mut app = test_app();
+        let world = app.world_mut();
+        world.spawn((
+            PrimaryWindow,
+            Window {
+                focused: true,
+                ..default()
+            },
+        ));
+        let mut player = Player::default();
+        player.grounded = true;
+        world.spawn((player, Transform::default()));
+        let target = world
+            .spawn((
+                Health::new(30),
+                RigidBody::Static,
+                Collider::cuboid(0.7, 1.5, 0.3),
+                Transform::from_xyz(0.0, 0.0, 1.1),
+            ))
+            .id();
+        world.resource_mut::<Orbit>().yaw = std::f32::consts::PI;
+        world
+            .resource_mut::<NextState<GameState>>()
+            .set(GameState::Playing);
+
+        let mut bag = Inventory::default();
+        assert!(bag.add(Shortsword, 2));
+        assert!(bag.add(FieldSpear, 1));
+        let mut equipment = Equipment::default();
+        assert_eq!(equipment.equip(&mut bag, FieldSpear), Ok(true));
+        app.insert_resource(equipment.clone());
+        for _ in 0..3 {
+            app.update();
+        }
+        click(&mut app, &[Right]);
+        assert_eq!(app.world().resource::<WeaponAttack>().current(), None);
+
+        assert_eq!(equipment.unequip(&mut bag, MainHand), Ok(true));
+        assert_eq!(equipment.equip_in(&mut bag, OffHand, Shortsword), Ok(true));
+        app.insert_resource(equipment.clone());
+        click(&mut app, &[Left]);
+        assert_eq!(app.world().resource::<WeaponAttack>().current(), None);
+        click(&mut app, &[Right]);
+        assert_eq!(
+            app.world()
+                .resource::<WeaponAttack>()
+                .current()
+                .unwrap()
+                .hand,
+            OffHand
+        );
+        for _ in 0..30 {
+            app.update();
+        }
+        assert_eq!(app.world().get::<Health>(target).unwrap().current(), 23);
+
+        assert_eq!(equipment.equip_in(&mut bag, MainHand, Shortsword), Ok(true));
+        app.insert_resource(equipment);
+        click(&mut app, &[Right, Left]);
+        assert_eq!(
+            app.world()
+                .resource::<WeaponAttack>()
+                .current()
+                .unwrap()
+                .hand,
+            MainHand
+        );
+        for _ in 0..12 {
+            app.update();
+        }
+        assert_eq!(app.world().get::<Health>(target).unwrap().current(), 16);
+        click(&mut app, &[Right]);
+        for _ in 0..30 {
+            app.update();
+        }
+        assert_eq!(app.world().get::<Health>(target).unwrap().current(), 16);
+        assert!(!app.world().resource::<WeaponAttack>().active());
+
+        click(&mut app, &[Right]);
+        assert!(app.world().resource::<WeaponAttack>().active());
+        let mut menu = PlayerMenu::default();
+        menu.show(crate::menu_ui::MenuTab::Equipment);
+        app.insert_resource(menu);
+        app.world_mut().trigger(UnequipRequest(MainHand));
+        assert!(!app.world().resource::<WeaponAttack>().active());
+        for _ in 0..30 {
+            app.update();
+        }
+        assert_eq!(app.world().get::<Health>(target).unwrap().current(), 16);
+    }
+
+    #[test]
+    fn a_sword_uses_the_correct_side_and_stops_at_walls_and_short_reach() {
+        let mut app = test_app();
+        let player = app.world_mut().spawn(Transform::default()).id();
+        let close = app
+            .world_mut()
+            .spawn((
+                RigidBody::Static,
+                Collider::sphere(0.11),
+                Transform::from_xyz(0.4, 0.0, 0.45),
+            ))
+            .id();
+        app.world_mut().spawn((
+            RigidBody::Static,
+            Collider::cuboid(1.0, 1.0, 0.2),
+            Transform::from_xyz(0.0, 0.0, 1.9),
+        ));
+        let close_hits = |app: &mut App| {
+            for _ in 0..3 {
+                app.update();
+            }
+            app.world_mut()
+                .run_system_once(move |spatial: SpatialQuery| {
+                    EquipmentSlot::HANDS.map(|hand| {
+                        let attack = WeaponMove {
+                            hand,
+                            weapon: WeaponKind::Shortsword,
+                        };
+                        weapon_contact(attack, &spatial, player, Vec3::ZERO, Quat::IDENTITY)
+                            .map(|hit| hit.target)
+                    })
+                })
+                .expect("run the contact queries")
+        };
+        assert_eq!(close_hits(&mut app), [None, Some(close)]);
+        let wall = app
+            .world_mut()
+            .spawn((
+                RigidBody::Static,
+                Collider::cuboid(2.0, 2.0, 0.1),
+                Transform::from_xyz(0.0, 0.0, 0.2),
+            ))
+            .id();
+        assert_eq!(close_hits(&mut app), [Some(wall), Some(wall)]);
     }
 }

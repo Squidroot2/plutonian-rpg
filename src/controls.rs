@@ -18,10 +18,11 @@ pub(crate) enum Control {
     MenuLeft,
     MenuRight,
     Attack,
+    OffHandAttack,
 }
 
 impl Control {
-    pub(crate) const ALL: [Self; 16] = [
+    pub(crate) const ALL: [Self; 17] = [
         Self::Forward,
         Self::Backward,
         Self::Left,
@@ -38,6 +39,7 @@ impl Control {
         Self::MenuLeft,
         Self::MenuRight,
         Self::Attack,
+        Self::OffHandAttack,
     ];
 
     const MENU: [Self; 5] = [
@@ -66,8 +68,13 @@ impl Control {
             Self::MenuDown => "Menu Down",
             Self::MenuLeft => "Menu Left",
             Self::MenuRight => "Menu Right",
-            Self::Attack => "Attack",
+            Self::Attack => "Main-hand attack",
+            Self::OffHandAttack => "Off-hand attack",
         }
+    }
+
+    pub(crate) fn accepts_mouse(self) -> bool {
+        matches!(self, Self::Attack | Self::OffHandAttack)
     }
 
     pub(crate) fn keybind_category(self) -> KeybindCategory {
@@ -120,6 +127,17 @@ pub(crate) enum Binding {
 }
 
 impl Binding {
+    pub(crate) fn just_pressed(
+        self,
+        keys: &ButtonInput<KeyCode>,
+        mouse: &ButtonInput<MouseButton>,
+    ) -> bool {
+        match self {
+            Self::Key(key) => keys.just_pressed(key),
+            Self::Mouse(button) => mouse.just_pressed(button),
+        }
+    }
+
     pub(crate) fn label(self) -> String {
         match self {
             Self::Key(key) => match key {
@@ -173,6 +191,7 @@ impl Default for Keybinds {
         for (control, key) in keys {
             bindings[control as usize] = Binding::Key(key);
         }
+        bindings[Control::OffHandAttack as usize] = Binding::Mouse(MouseButton::Right);
         Self(bindings)
     }
 }
@@ -200,7 +219,7 @@ impl Keybinds {
             ) => {
                 return Err("That key is reserved.".into());
             }
-            Binding::Mouse(_) if control != Control::Attack => {
+            Binding::Mouse(_) if !control.accepts_mouse() => {
                 return Err("Press a keyboard key for this action.".into());
             }
             _ => {}

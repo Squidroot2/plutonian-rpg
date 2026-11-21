@@ -15,8 +15,8 @@ use crate::{
     loading::EnemyVisuals,
     loot_ui::LootAction,
     player::{DODGE_KEY, Player},
-    spear::{GRIP_SIDE, Thrust},
     ui::{HealthBar, HealthBarFill},
+    weapon::{GRIP_SIDE, WeaponAttack},
     worm::{self, GROUND_OFFSET, Worm},
 };
 use avian3d::prelude::{Collider, SpatialQuery, SpatialQueryFilter};
@@ -112,7 +112,7 @@ pub(super) fn fight(
         ),
         With<Worm>,
     >,
-    thrust: Res<Thrust>,
+    thrust: Res<WeaponAttack>,
     (state, time, nearby, bag): (
         Res<State<GameState>>,
         Res<Time>,

@@ -6,7 +6,8 @@ import struct
 
 root = Path(__file__).resolve().parents[1]
 documents = {}
-gear_names = ['field_armor', 'reinforced_armor', 'field_helmet', 'reinforced_helmet', 'field_spear', 'trident']
+gear_names = ['field_armor', 'reinforced_armor', 'field_helmet', 'reinforced_helmet',
+              'field_spear', 'trident', 'shortsword']
 meat_names = ['worm_meat', 'roach_meat']
 directional_walks = {'WalkBack', 'StrafeLeft', 'StrafeRight', 'WalkForwardLeft',
                      'WalkForwardRight', 'WalkBackLeft', 'WalkBackRight'}
@@ -33,13 +34,19 @@ for name in ['plutonian', 'outpost', 'collision', 'core', 'battery', 'scrap', 'm
     if name == 'plutonian':
         animations = {clip['name']: clip for clip in document.get('animations', [])}
         locomotion = {'Idle', 'Walk', 'Run', 'Jump'} | directional_walks
-        assert animations.keys() == locomotion | {'Spear'+clip for clip in locomotion} | {'SpearThrust', 'NemiDeath'}, animations.keys()
+        sword_slashes = {'SwordMainSlash', 'SwordOffSlash'}
+        carry = {prefix + clip for prefix in ['Spear', 'Sword'] for clip in locomotion}
+        assert animations.keys() == locomotion | carry | sword_slashes | {'SpearThrust', 'NemiDeath'}, animations.keys()
         assert len(animations) == len(document['animations']), 'Duplicate character animation names'
         assert document.get('skins'), 'Character must be rigged'
         assert any(node.get('name') == 'spear_grip' for node in document['nodes']), 'Spear grip bone is missing'
         thrust = animations['SpearThrust']
         duration = max(document['accessors'][sampler['input']]['max'][0] for sampler in thrust['samplers'])
         assert abs(duration-16/24) < .001, 'SpearThrust duration must match the in-game recovery'
+        for clip in sword_slashes:
+            duration = max(document['accessors'][sampler['input']]['max'][0]
+                           for sampler in animations[clip]['samplers'])
+            assert abs(duration-12/24) < .001, f'{clip} duration must match the in-game recovery'
         death = animations['NemiDeath']
         duration = max(document['accessors'][sampler['input']]['max'][0] for sampler in death['samplers'])
         assert abs(duration-1) < .001, 'NemiDeath must be a one-second collapse'
@@ -133,7 +140,7 @@ print(f'Old Relay static collision matches visuals: {len(relay_solids)} bodies')
 
 limits = {'field_armor': [.86,.76,.8], 'reinforced_armor': [1.02,.8,.84],
           'field_helmet': [.9,.58,.72], 'reinforced_helmet': [1,.64,.8],
-          'field_spear': [.28,.23,2.3], 'trident': [.58,.23,2.3]}
+          'field_spear': [.28,.23,2.3], 'trident': [.58,.23,2.3], 'shortsword': [.26,.2,.9]}
 for name in gear_names:
     low, high = mesh_bounds(documents[name])
     assert abs(low[1]) < .001, f'{name}: pickup must have a base origin'
@@ -182,7 +189,7 @@ def read_samples(index):
 
 for animation in character['animations']:
     clip = animation['name']
-    if clip.removeprefix('Spear') not in directional_walks:
+    if clip.removeprefix('Spear').removeprefix('Sword') not in directional_walks:
         continue
     tracks = {(channel['target']['node'], channel['target']['path']):
               read_samples(animation['samplers'][channel['sampler']]['output'])
@@ -272,3 +279,39 @@ for animation in character['animations']:
         assert thrust_grips[6][2] - thrust_grips[3][2] > .45, "SpearThrust: impact must drive the shaft forward"
         assert dist(thrust_grips[0], thrust_grips[16]) < .001, "SpearThrust: recovery must return to the carry pose"
 print('Both hands align with the shaft and both elbows clear the body throughout the spear clips')
+
+# The same worn mesh must center its hilt on either wrist. Check that the
+# authored strikes move those wrists and return both to their guard positions.
+wrap = next(node for node in documents['shortsword_worn']['nodes'] if node['name'] == 'Hand wrap')
+assert dist(transform_point(local_matrix(wrap), (0, 0, 0)), (0, 0, 0)) < .001
+parents = {child: index for index, node in enumerate(character['nodes']) for child in node.get('children', [])}
+for hand, forearm in [('right', 'forearm-1'), ('left', 'forearm1')]:
+    assert parents[nodes[f'sword_grip_{hand}']] == nodes[forearm], f'{hand} sword grip must follow the wrist'
+
+def sword_wrist(animation, hand, frame):
+    index = nodes[f'sword_grip_{hand}']
+    tracks = {}
+    for channel in animation['channels']:
+        target = channel['target']
+        sampler = animation['samplers'][channel['sampler']]
+        times = [round(sample[0] * 24) for sample in read_samples(sampler['input'])]
+        samples = read_samples(sampler['output'])
+        tracks[target['node'], target['path']] = dict(zip(times, samples))
+
+    def world(index):
+        node = character['nodes'][index].copy()
+        for path in ['translation', 'rotation', 'scale']:
+            track = tracks.get((index, path))
+            if track:
+                node[path] = track.get(frame, next(iter(track.values())))
+        matrix = local_matrix(node)
+        return multiply(world(parents[index]), matrix) if index in parents else matrix
+
+    return transform_point(world(index), (0, 0, 0))
+
+for name, hand in [('SwordMainSlash', 'right'), ('SwordOffSlash', 'left')]:
+    animation = next(clip for clip in character['animations'] if clip['name'] == name)
+    guard, chamber, impact, recovery = [sword_wrist(animation, hand, frame) for frame in [0, 2, 5, 12]]
+    assert impact[2] - chamber[2] > .4, f'{name}: striking hand must advance through contact'
+    assert dist(guard, recovery) < .001, f'{name}: striking hand must return to guard'
+print('Shortsword exports fit both animated wrist sockets')

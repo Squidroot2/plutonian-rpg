@@ -15,7 +15,7 @@ use crate::{
     menu_ui::{MenuTab, PlayerMenu},
     player::Player,
     practice_dummy::PracticeDummy,
-    spear::{GRIP_SIDE, Thrust},
+    weapon::{GRIP_SIDE, WeaponAttack},
 };
 
 pub struct SpearSmokePlugin;
@@ -73,7 +73,7 @@ impl Plugin for SpearSmokePlugin {
     }
 }
 
-fn drive(
+pub(super) fn drive(
     materials: Res<InventorySmoke>,
     mut smoke: ResMut<SpearSmoke>,
     (state, menu): (Res<State<GameState>>, Res<PlayerMenu>),
@@ -86,7 +86,7 @@ fn drive(
     inventory: Res<Inventory>,
     equipment: Res<Equipment>,
     nearby: Res<Nearby>,
-    thrust: Res<Thrust>,
+    thrust: Res<WeaponAttack>,
     player: Query<(&Transform, &Player)>,
     (dummy, captures, impacts, windows): (
         Query<(&HitReaction, &Transform), With<PracticeDummy>>,
@@ -134,7 +134,7 @@ fn drive(
         {
             if inventory.count(weapon) == 1 {
                 if *smoke == SpearSmoke::Recollect {
-                    assert_eq!(equipment.get(EquipmentSlot::Weapon), None);
+                    assert_eq!(equipment.get(EquipmentSlot::MainHand), None);
                     info!(
                         "SPEAR SMOKE PASS: collected, equipped, hit, missed, unequipped, dropped and recollected {}",
                         weapon.name()
@@ -171,7 +171,7 @@ fn drive(
         SpearSmoke::Select if menu.is_on(MenuTab::Equipment) => {
             click(
                 &mut commands,
-                InventoryAction::ToggleSlot(EquipmentSlot::Weapon),
+                InventoryAction::ToggleSlot(EquipmentSlot::MainHand),
                 &actions,
                 window,
                 camera,
@@ -181,7 +181,7 @@ fn drive(
         SpearSmoke::Equip => {
             click(
                 &mut commands,
-                InventoryAction::EquipFromSlot(EquipmentSlot::Weapon, weapon),
+                InventoryAction::EquipFromSlot(EquipmentSlot::MainHand, weapon),
                 &actions,
                 window,
                 camera,
@@ -189,7 +189,7 @@ fn drive(
             *smoke = SpearSmoke::Close;
         }
         SpearSmoke::Close if worn.iter().any(|piece| piece.item == weapon) => {
-            assert_eq!(equipment.get(EquipmentSlot::Weapon), Some(weapon));
+            assert_eq!(equipment.get(EquipmentSlot::MainHand), Some(weapon));
             assert_eq!(inventory.count(weapon), 0);
             *screenshot = Some(capture(&mut commands, "inventory"));
             *smoke = SpearSmoke::CaptureInventory;
@@ -249,7 +249,7 @@ fn drive(
                 "the smoke thrust did not reach the dummy: grounded {}, window focused {}, weapon {:?}",
                 controller.grounded,
                 windows.get(window).is_ok_and(|window| window.focused),
-                equipment.get(EquipmentSlot::Weapon)
+                equipment.get(EquipmentSlot::MainHand)
             );
         }
         SpearSmoke::Recovery if !thrust.active() && dummy.remaining == 0.0 => {
@@ -293,7 +293,7 @@ fn drive(
         SpearSmoke::Unequip if menu.is_on(MenuTab::Equipment) => {
             click(
                 &mut commands,
-                InventoryAction::ToggleSlot(EquipmentSlot::Weapon),
+                InventoryAction::ToggleSlot(EquipmentSlot::MainHand),
                 &actions,
                 window,
                 camera,

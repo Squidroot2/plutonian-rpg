@@ -507,7 +507,7 @@ mod tests {
         quest::{QuestAction, QuestJournal, test_journal},
         roach::{self, Roach},
         save::recover_defeated,
-        spear::Thrust,
+        weapon::WeaponAttack,
         world::WorldLayout,
         worm::{CONFIG, GROUND_OFFSET, Worm},
     };
@@ -533,7 +533,7 @@ mod tests {
         .init_resource::<WorldLayout>()
         .init_resource::<Dialogue>()
         .init_resource::<Equipment>()
-        .init_resource::<Thrust>()
+        .init_resource::<WeaponAttack>()
         .init_resource::<MovementInput>()
         .add_plugins((CombatPlugin, EnemyPlugin))
         .add_systems(

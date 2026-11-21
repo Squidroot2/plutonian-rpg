@@ -26,11 +26,11 @@ mod roach;
 mod save;
 mod settings;
 mod smoke;
-mod spear;
 mod storage;
 mod storage_ui;
 mod title;
 mod ui;
+mod weapon;
 mod world;
 mod worm;
 use bevy::window::WindowMode;
@@ -96,7 +96,7 @@ fn main() {
             inventory::InventoryPlugin,
             equipment::EquipmentPlugin,
             practice_dummy::PracticeDummyPlugin,
-            spear::SpearPlugin,
+            weapon::WeaponPlugin,
             worm::WormPlugin,
             interaction::InteractionPlugin,
         ))

@@ -3,7 +3,7 @@ use crate::{
     camera::Orbit,
     combat::{CombatSystems, ConfirmedHit, Dead, Health, Hit},
     dungeon::{Area, DungeonProgress},
-    equipment::Equipment,
+    equipment::{Equipment, EquipmentSlot},
     interaction::{ActiveChest, CorpseLoot, InteractionSystems, LootTarget, Nearby, Target},
     inventory::{Inventory, InventoryNotice, ItemKind, Pickup},
     inventory_ui::InventoryUiState,
@@ -13,8 +13,8 @@ use crate::{
     quest::{Dialogue, QuestAction, QuestJournal, SavedJournal},
     quest_ui::QuestSelection,
     roach,
-    spear::Thrust,
     storage::ChestStorage,
+    weapon::WeaponAttack,
     world::SessionEntity,
     worm,
 };
@@ -30,7 +30,8 @@ use std::{
 };
 
 // Four magic bytes followed by the little-endian save schema version.
-const HEADER: &[u8; 6] = b"PLUT\x01\x00";
+const HEADER: &[u8; 6] = b"PLUT\x02\x00";
+const LEGACY_HEADER: &[u8; 6] = b"PLUT\x01\x00";
 const MAX_SAVE_BYTES: usize = 1024 * 1024;
 
 #[derive(Component)]
@@ -105,16 +106,57 @@ struct SavedEncounter {
 }
 
 #[derive(bitcode::Encode, bitcode::Decode)]
-pub(crate) struct Snapshot {
+pub(crate) struct Snapshot<E = Equipment> {
     pub(crate) journal: SavedJournal,
     inventory: Inventory,
-    equipment: Equipment,
+    equipment: E,
     chests: ChestStorage,
     dungeon: DungeonProgress,
     pub(crate) pickups: Vec<SavedPickup>,
     nemi: SavedActor,
     nemi_state: NemiState,
     encounters: BTreeMap<EncounterId, SavedEncounter>,
+    #[bitcode(skip)]
+    pub(crate) add_shortswords_on_spawn: bool,
+}
+
+// Bitcode packs three slot variants differently from four. ItemKind stays within
+// the same packing width as v1, and its original variants keep their order.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, bitcode::Decode)]
+#[cfg_attr(test, derive(bitcode::Encode))]
+enum LegacyEquipmentSlot {
+    Body,
+    Helmet,
+    Weapon,
+}
+
+impl From<Snapshot<BTreeMap<LegacyEquipmentSlot, ItemKind>>> for Snapshot {
+    fn from(old: Snapshot<BTreeMap<LegacyEquipmentSlot, ItemKind>>) -> Self {
+        Self {
+            journal: old.journal,
+            inventory: old.inventory,
+            equipment: Equipment(
+                old.equipment
+                    .into_iter()
+                    .map(|(slot, item)| {
+                        let slot = match slot {
+                            LegacyEquipmentSlot::Body => EquipmentSlot::Body,
+                            LegacyEquipmentSlot::Helmet => EquipmentSlot::Helmet,
+                            LegacyEquipmentSlot::Weapon => EquipmentSlot::MainHand,
+                        };
+                        (slot, item)
+                    })
+                    .collect(),
+            ),
+            chests: old.chests,
+            dungeon: old.dungeon,
+            pickups: old.pickups,
+            nemi: old.nemi,
+            nemi_state: old.nemi_state,
+            encounters: old.encounters,
+            add_shortswords_on_spawn: true,
+        }
+    }
 }
 
 impl Snapshot {
@@ -241,14 +283,19 @@ fn read_save(path: &Path) -> io::Result<Snapshot> {
             "Save file is too large",
         ));
     }
-    let payload = data.strip_prefix(HEADER).ok_or_else(|| {
-        io::Error::new(
+    let snapshot: Snapshot = if let Some(payload) = data.strip_prefix(HEADER) {
+        bitcode::decode(payload)
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?
+    } else if let Some(payload) = data.strip_prefix(LEGACY_HEADER) {
+        let legacy: Snapshot<BTreeMap<LegacyEquipmentSlot, ItemKind>> = bitcode::decode(payload)
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+        legacy.into()
+    } else {
+        return Err(io::Error::new(
             io::ErrorKind::InvalidData,
             "Invalid or unsupported save header",
-        )
-    })?;
-    let snapshot: Snapshot = bitcode::decode(payload)
-        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+        ));
+    };
     if !snapshot.is_valid() {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
@@ -413,6 +460,7 @@ pub(crate) fn save_at_bed(
                 )
             })
             .collect(),
+        add_shortswords_on_spawn: false,
     };
     let text = match slot.save(snapshot, &mut run) {
         Ok(()) => {
@@ -459,7 +507,7 @@ pub(crate) fn reset_session(world: &mut World) {
     world.insert_resource(QuestSelection::default());
     world.insert_resource(MovementInput::default());
     world.insert_resource(Orbit::default());
-    world.resource_mut::<Thrust>().cancel();
+    world.resource_mut::<WeaponAttack>().cancel();
     world.resource_mut::<Messages<Hit>>().clear();
     world.resource_mut::<Messages<ConfirmedHit>>().clear();
 }
@@ -770,6 +818,68 @@ mod tests {
 
         fs::write(dir.path(), HEADER).expect("write header only");
         assert!(!SaveSlot::open(Some(dir.path())).available());
+    }
+
+    #[test]
+    fn v1_equipment_loads_into_main_hand_and_v2_persists_both_swords() {
+        use EquipmentSlot::{MainHand, OffHand};
+        use ItemKind::{FieldArmor, FieldHelmet, FieldSpear, Shortsword};
+
+        let dir = TestDirectory::new();
+        let file = dir.path();
+        let (mut world, bed, _, _) = bed_world(file.clone());
+        interact_with(&mut world, bed);
+        let base = read_save(&file).expect("read initial save");
+        let legacy = Snapshot {
+            journal: base.journal,
+            inventory: base.inventory,
+            equipment: BTreeMap::from([
+                (LegacyEquipmentSlot::Body, FieldArmor),
+                (LegacyEquipmentSlot::Helmet, FieldHelmet),
+                (LegacyEquipmentSlot::Weapon, FieldSpear),
+            ]),
+            chests: base.chests,
+            dungeon: base.dungeon,
+            pickups: base.pickups,
+            nemi: base.nemi,
+            nemi_state: base.nemi_state,
+            encounters: base.encounters,
+            add_shortswords_on_spawn: false,
+        };
+        let mut bytes = LEGACY_HEADER.to_vec();
+        bytes.extend(bitcode::encode(&legacy));
+        fs::write(&file, bytes).expect("write legacy save");
+
+        let mut migrated = read_save(&file).expect("migrate legacy save");
+        assert_eq!(migrated.equipment.get(MainHand), Some(FieldSpear));
+        assert_eq!(migrated.equipment.get(OffHand), None);
+        assert_eq!(
+            migrated.equipment.get(EquipmentSlot::Body),
+            Some(FieldArmor)
+        );
+        assert_eq!(
+            migrated.equipment.get(EquipmentSlot::Helmet),
+            Some(FieldHelmet)
+        );
+        assert!(migrated.add_shortswords_on_spawn);
+
+        assert!(migrated.inventory.add(Shortsword, 2));
+        for _ in 0..2 {
+            assert_eq!(
+                migrated
+                    .equipment
+                    .equip(&mut migrated.inventory, Shortsword),
+                Ok(true)
+            );
+        }
+        write_save(&file, &migrated).expect("save dual-wield loadout");
+        let saved = read_save(&file).expect("read the v2 loadout");
+        assert!(fs::read(&file).expect("new save bytes").starts_with(HEADER));
+        assert_eq!(saved.equipment.get(MainHand), Some(Shortsword));
+        assert_eq!(saved.equipment.get(OffHand), Some(Shortsword));
+        assert_eq!(saved.inventory.count(FieldSpear), 1);
+        assert_eq!(saved.inventory.count(Shortsword), 0);
+        assert!(!saved.add_shortswords_on_spawn);
     }
 
     #[test]

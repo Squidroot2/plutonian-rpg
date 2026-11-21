@@ -5,7 +5,7 @@ use crate::{
     combat_feedback::DeathAnimation,
     controls::{Control, Keybinds},
     dungeon::Area,
-    equipment::Equipment,
+    equipment::{Equipment, EquipmentSlot, WeaponKind},
     interaction::InteractionSystems,
     inventory::{CARRY_CAPACITY, IMMOBILE_WEIGHT, Inventory},
     menu_ui::PlayerMenu,
@@ -219,8 +219,11 @@ impl Gait {
 const SPEAR_LOCOMOTION_START: usize = Gait::WalkBackRight as usize + 1;
 pub(crate) const WALK_CLIP: usize = Gait::Walk as usize;
 pub(crate) const RUN_CLIP: usize = Gait::Run as usize;
-const SPEAR_THRUST_CLIP: usize = SPEAR_LOCOMOTION_START * 2;
-const NEMI_DEATH_CLIP: usize = SPEAR_THRUST_CLIP + 1;
+const SWORD_LOCOMOTION_START: usize = SPEAR_LOCOMOTION_START * 2;
+const SPEAR_THRUST_CLIP: usize = SPEAR_LOCOMOTION_START * 3;
+const SWORD_MAIN_SLASH_CLIP: usize = SPEAR_THRUST_CLIP + 1;
+const SWORD_OFF_SLASH_CLIP: usize = SWORD_MAIN_SLASH_CLIP + 1;
+const NEMI_DEATH_CLIP: usize = SWORD_OFF_SLASH_CLIP + 1;
 pub const CLIPS: [&str; NEMI_DEATH_CLIP + 1] = [
     "Idle",
     "Walk",
@@ -244,7 +247,20 @@ pub const CLIPS: [&str; NEMI_DEATH_CLIP + 1] = [
     "SpearWalkForwardRight",
     "SpearWalkBackLeft",
     "SpearWalkBackRight",
+    "SwordIdle",
+    "SwordWalk",
+    "SwordRun",
+    "SwordJump",
+    "SwordWalkBack",
+    "SwordStrafeLeft",
+    "SwordStrafeRight",
+    "SwordWalkForwardLeft",
+    "SwordWalkForwardRight",
+    "SwordWalkBackLeft",
+    "SwordWalkBackRight",
     "SpearThrust",
+    "SwordMainSlash",
+    "SwordOffSlash",
     "NemiDeath",
 ];
 
@@ -320,7 +336,7 @@ pub(crate) fn movement(
     time: Res<Time>,
     orbit: Res<Orbit>,
     dialogue: Res<Dialogue>,
-    thrust: Res<crate::spear::Thrust>,
+    thrust: Res<crate::weapon::WeaponAttack>,
     layout: Res<WorldLayout>,
     inventory: Res<Inventory>,
     equipment: Res<Equipment>,
@@ -463,8 +479,8 @@ pub(crate) fn bind_actor_animation(
 
 fn animate(
     library: Res<AnimationLibrary>,
-    thrust: Res<crate::spear::Thrust>,
-    equipment: Res<crate::equipment::Equipment>,
+    attack: Res<crate::weapon::WeaponAttack>,
+    equipment: Res<Equipment>,
     players: Query<(&Player, &Dodge)>,
     mut animations: Query<(
         &mut AnimationPlayer,
@@ -476,25 +492,38 @@ fn animate(
         return;
     };
     let gait = Gait::for_player(player);
-    let desired = if thrust.active() {
-        SPEAR_THRUST_CLIP
-    } else if equipment.has_spear() {
-        SPEAR_LOCOMOTION_START + gait as usize
-    } else {
-        gait as usize
+    let desired = match attack.current() {
+        Some(attack) => match attack.weapon {
+            WeaponKind::Spear => SPEAR_THRUST_CLIP,
+            WeaponKind::Shortsword if attack.hand == EquipmentSlot::MainHand => {
+                SWORD_MAIN_SLASH_CLIP
+            }
+            WeaponKind::Shortsword => SWORD_OFF_SLASH_CLIP,
+        },
+        None => {
+            let carry = equipment
+                .weapon(EquipmentSlot::MainHand)
+                .or_else(|| equipment.weapon(EquipmentSlot::OffHand));
+            let start = match carry {
+                Some(WeaponKind::Spear) => SPEAR_LOCOMOTION_START,
+                Some(WeaponKind::Shortsword) => SWORD_LOCOMOTION_START,
+                None => 0,
+            };
+            start + gait as usize
+        }
     };
     for (mut animation, mut transitions, mut actor) in &mut animations {
         let index = desired;
+        let is_attack = index >= SPEAR_THRUST_CLIP;
         if index != actor.current {
-            if index == SPEAR_THRUST_CLIP {
+            if is_attack {
                 transitions
                     .play(&mut animation, library.nodes[index], Duration::ZERO)
                     .replay();
             } else {
-                // Do not blend free arm swings into the two-hand grip.
                 let changes_grip =
-                    (actor.current >= SPEAR_LOCOMOTION_START) != (index >= SPEAR_LOCOMOTION_START);
-                let blend = if changes_grip || actor.current == SPEAR_THRUST_CLIP {
+                    actor.current / SPEAR_LOCOMOTION_START != index / SPEAR_LOCOMOTION_START;
+                let blend = if changes_grip {
                     Duration::ZERO
                 } else if dodge.active() {
                     Duration::from_millis(50)
@@ -507,7 +536,7 @@ fn animate(
             }
             actor.current = index;
         }
-        if index != SPEAR_THRUST_CLIP {
+        if !is_attack {
             let speed = gait.playback_speed(player.running);
             if let Some(clip) = animation.animation_mut(library.nodes[index])
                 && clip.speed() != speed
@@ -533,11 +562,11 @@ fn resume(mut players: Query<&mut AnimationPlayer>) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::spear::Thrust;
+    use crate::weapon::WeaponAttack;
     use crate::{
         combat::{CombatPlugin, Hit},
         inventory::ItemKind,
-        spear::SpearPlugin,
+        weapon::WeaponPlugin,
     };
     use bevy::{
         asset::{AssetApp, AssetPlugin},
@@ -572,7 +601,7 @@ mod tests {
         .init_resource::<Keybinds>()
         .init_resource::<ButtonInput<KeyCode>>()
         .init_resource::<ButtonInput<MouseButton>>()
-        .add_plugins((CombatPlugin, SpearPlugin))
+        .add_plugins((CombatPlugin, WeaponPlugin))
         .add_systems(PreUpdate, input.run_if(in_state(GameState::Playing)))
         .add_systems(FixedUpdate, movement.run_if(in_state(GameState::Playing)))
         .add_systems(Update, footsteps.run_if(in_state(GameState::Playing)))
@@ -857,7 +886,7 @@ mod tests {
         tick(&mut app, 1);
         assert!(!active(&app, player), "no fixed step has run yet");
         assert!(
-            !app.world().resource::<Thrust>().active(),
+            !app.world().resource::<WeaponAttack>().active(),
             "a pending dodge must reserve the player's action"
         );
         app.insert_resource(TimeUpdateStrategy::ManualDuration(STEP));
@@ -868,7 +897,7 @@ mod tests {
         mouse.release(MouseButton::Left);
         mouse.press(MouseButton::Left);
         tick(&mut app, 1);
-        assert!(app.world().resource::<Thrust>().active());
+        assert!(app.world().resource::<WeaponAttack>().active());
         release(&mut app, DODGE_KEY);
         press(&mut app, &[DODGE_KEY]);
         tick(&mut app, 1);

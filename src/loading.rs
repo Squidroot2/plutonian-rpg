@@ -212,8 +212,7 @@ fn check(
     let model = gltfs.get(&assets.character).expect(
         "the character glTF must be present after all game models passed loading validation",
     );
-    for slot in crate::equipment::EquipmentSlot::ALL {
-        let bone = slot.bone();
+    for (bone, _, _) in crate::equipment::EQUIPMENT_SOCKETS {
         if !model.named_nodes.contains_key(bone) {
             status.error = Some(format!(
                 "The player rig is missing equipment attachment bone {bone}"

@@ -39,13 +39,15 @@ use std::time::{Duration, Instant};
 
 const BOULDER_SITES: [Vec3; 2] = [Vec3::new(2.5, 0.0, -2.0), Vec3::new(2.5, 0.0, 2.0)];
 
-pub const ARENA_LOOT: [(ItemKind, f32, f32); 12] = [
+pub const ARENA_LOOT: [(ItemKind, f32, f32); 14] = [
     (ItemKind::MethanePouch, -2.0, 0.0),
     (ItemKind::Scrap, -3.0, 1.3),
     (ItemKind::Battery, -4.0, 0.0),
     (ItemKind::Battery, -5.0, 1.3),
     (ItemKind::FieldSpear, 4.0, 0.0),
     (ItemKind::Trident, 7.5, 1.0),
+    (ItemKind::Shortsword, 4.0, 2.5),
+    (ItemKind::Shortsword, 7.5, 2.7),
     (ItemKind::FieldArmor, -3.0, -4.0),
     (ItemKind::FieldHelmet, 0.0, -4.0),
     (ItemKind::ReinforcedArmor, 3.0, -4.0),
@@ -241,6 +243,7 @@ fn watchdog(
     status: Res<LoadStatus>,
     inventory: Option<Res<InventorySmoke>>,
     weapons: Option<Res<SpearSmoke>>,
+    swords: Option<Res<equipment::ShortswordStep>>,
     armor: Option<Res<EquipmentSmoke>>,
     arena: Option<Res<ArenaStep>>,
     world: Option<Res<dungeon::WorldCheck>>,
@@ -254,10 +257,11 @@ fn watchdog(
     );
     assert!(
         run.0.elapsed() < TIMEOUT,
-        "smoke test timed out in {:?}; inventory {:?}, weapons {:?}, armor {:?}, arena {:?}, world {:?}, Nemi {:?}",
+        "smoke test timed out in {:?}; inventory {:?}, spears {:?}, shortswords {:?}, armor {:?}, arena {:?}, world {:?}, Nemi {:?}",
         state.get(),
         inventory.as_deref().map(InventorySmoke::phase),
         weapons.as_deref(),
+        swords.as_deref(),
         armor.as_deref().map(EquipmentSmoke::stage),
         arena.as_deref(),
         world.as_deref(),
