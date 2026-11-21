@@ -238,6 +238,7 @@ pub(crate) fn pause(
     {
         let tab = keys.just_pressed(KeyCode::Tab);
         let inventory = bindings.just_pressed(Control::Inventory, &keys);
+        let quest_log = bindings.just_pressed(Control::QuestLog, &keys);
         let escape = keys.just_pressed(KeyCode::Escape);
         if escape
             && menu.is_on(crate::menu_ui::MenuTab::Inventory)
@@ -245,7 +246,8 @@ pub(crate) fn pause(
         {
             return;
         }
-        if ((tab || inventory || escape) && menu.shortcuts(tab, inventory, escape))
+        if ((tab || inventory || quest_log || escape)
+            && menu.shortcuts(tab, inventory, quest_log, escape))
             || menu.is_open()
         {
             return;

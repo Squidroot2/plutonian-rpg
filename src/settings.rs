@@ -604,12 +604,18 @@ mod tests {
             Control::Inventory.keybind_category(),
             KeybindCategory::MenuShortcuts
         );
+        assert_eq!(
+            Control::QuestLog.keybind_category(),
+            KeybindCategory::MenuShortcuts
+        );
         assert_eq!(Control::Drop.keybind_category(), KeybindCategory::Menu);
         assert_eq!(Control::MenuRight.keybind_category(), KeybindCategory::Menu);
         assert_eq!(bindings.get(Control::MenuUp).label(), "W");
         assert_eq!(bindings.get(Control::MenuDown).label(), "S");
         assert_eq!(bindings.get(Control::MenuLeft).label(), "A");
         assert_eq!(bindings.get(Control::MenuRight).label(), "D");
+        assert_eq!(bindings.get(Control::Inventory).label(), "I");
+        assert_eq!(bindings.get(Control::QuestLog).label(), "L");
 
         let mut menu = app.world_mut().resource_mut::<SettingsMenu>();
         menu.open();

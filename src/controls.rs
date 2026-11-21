@@ -11,6 +11,7 @@ pub(crate) enum Control {
     Dodge,
     Interact,
     Inventory,
+    QuestLog,
     Drop,
     MenuUp,
     MenuDown,
@@ -20,7 +21,7 @@ pub(crate) enum Control {
 }
 
 impl Control {
-    pub(crate) const ALL: [Self; 15] = [
+    pub(crate) const ALL: [Self; 16] = [
         Self::Forward,
         Self::Backward,
         Self::Left,
@@ -30,6 +31,7 @@ impl Control {
         Self::Dodge,
         Self::Interact,
         Self::Inventory,
+        Self::QuestLog,
         Self::Drop,
         Self::MenuUp,
         Self::MenuDown,
@@ -45,6 +47,7 @@ impl Control {
         Self::MenuRight,
         Self::Drop,
     ];
+    const MENU_SHORTCUTS: [Self; 2] = [Self::Inventory, Self::QuestLog];
 
     pub(crate) fn label(self) -> &'static str {
         match self {
@@ -57,6 +60,7 @@ impl Control {
             Self::Dodge => "Dodge",
             Self::Interact => "Interact",
             Self::Inventory => "Inventory",
+            Self::QuestLog => "Quest Log",
             Self::Drop => "Drop item",
             Self::MenuUp => "Menu Up",
             Self::MenuDown => "Menu Down",
@@ -67,7 +71,7 @@ impl Control {
     }
 
     pub(crate) fn keybind_category(self) -> KeybindCategory {
-        if self == Self::Inventory {
+        if Self::MENU_SHORTCUTS.contains(&self) {
             KeybindCategory::MenuShortcuts
         } else if Self::MENU.contains(&self) {
             KeybindCategory::Menu
@@ -85,7 +89,7 @@ impl Control {
     fn conflict_group(self) -> ConflictGroup {
         if Self::MENU.contains(&self) {
             ConflictGroup::Menu
-        } else if self == Self::Inventory {
+        } else if Self::MENU_SHORTCUTS.contains(&self) {
             ConflictGroup::Exclusive
         } else {
             ConflictGroup::Gameplay
@@ -159,6 +163,7 @@ impl Default for Keybinds {
             (Control::Dodge, crate::player::DODGE_KEY),
             (Control::Interact, KeyE),
             (Control::Inventory, KeyI),
+            (Control::QuestLog, KeyL),
             (Control::Drop, KeyQ),
             (Control::MenuUp, KeyW),
             (Control::MenuDown, KeyS),

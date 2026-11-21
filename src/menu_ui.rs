@@ -61,7 +61,13 @@ impl PlayerMenu {
     }
 
     // Keep capturing raw input until the end of the closing frame.
-    pub(crate) fn shortcuts(&mut self, tab: bool, inventory: bool, escape: bool) -> bool {
+    pub(crate) fn shortcuts(
+        &mut self,
+        tab: bool,
+        inventory: bool,
+        quest_log: bool,
+        escape: bool,
+    ) -> bool {
         if escape {
             if self.open {
                 self.close_requested = true;
@@ -80,6 +86,12 @@ impl PlayerMenu {
                 self.close_requested = true;
             } else {
                 self.show(MenuTab::Inventory);
+            }
+        } else if quest_log {
+            if self.is_on(MenuTab::Quest) {
+                self.close_requested = true;
+            } else {
+                self.show(MenuTab::Quest);
             }
         }
         self.open
@@ -336,22 +348,27 @@ mod tests {
     #[test]
     fn tab_reopens_the_last_page_and_inventory_toggles_its_own_page() {
         let mut menu = PlayerMenu::default();
-        assert!(menu.shortcuts(true, false, false));
+        assert!(menu.shortcuts(true, false, false, false));
         assert!(menu.is_on(MenuTab::Quest));
         menu.show(MenuTab::Character);
-        assert!(menu.shortcuts(true, false, false));
+        assert!(menu.shortcuts(true, false, false, false));
         assert!(menu.is_open());
         menu.hide();
-        assert!(menu.shortcuts(true, false, false));
+        assert!(menu.shortcuts(true, false, false, false));
         assert!(menu.is_on(MenuTab::Character));
 
-        assert!(menu.shortcuts(false, true, false));
+        assert!(menu.shortcuts(false, true, false, false));
         assert!(menu.accepts(MenuTab::Inventory));
-        assert!(menu.shortcuts(false, true, false));
+        assert!(menu.shortcuts(false, true, false, false));
         assert!(menu.is_open());
         assert!(!menu.accepts(MenuTab::Inventory));
         menu.hide();
-        assert!(menu.shortcuts(true, false, false));
+        assert!(menu.shortcuts(true, false, false, false));
         assert!(menu.is_on(MenuTab::Inventory));
+
+        assert!(menu.shortcuts(false, false, true, false));
+        assert!(menu.is_on(MenuTab::Quest));
+        assert!(menu.shortcuts(false, false, true, false));
+        assert!(!menu.accepts(MenuTab::Quest));
     }
 }
