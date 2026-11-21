@@ -38,11 +38,12 @@ impl Control {
         Self::Attack,
     ];
 
-    const MENU: [Self; 4] = [
+    const MENU: [Self; 5] = [
         Self::MenuUp,
         Self::MenuDown,
         Self::MenuLeft,
         Self::MenuRight,
+        Self::Drop,
     ];
 
     pub(crate) fn label(self) -> &'static str {
@@ -74,7 +75,7 @@ impl Control {
     fn conflict_group(self) -> ConflictGroup {
         if Self::MENU.contains(&self) {
             ConflictGroup::Menu
-        } else if matches!(self, Self::Inventory | Self::Drop) {
+        } else if self == Self::Inventory {
             ConflictGroup::Exclusive
         } else {
             ConflictGroup::Gameplay
@@ -86,8 +87,8 @@ impl Control {
 enum ConflictGroup {
     Gameplay,
     Menu,
-    // Inventory and Drop are active in the gameplay context and the inventory
-    // menu, so their bindings must remain unique across both groups.
+    // Inventory is active in both gameplay and menu contexts, so its binding
+    // must remain unique across both groups.
     Exclusive,
 }
 
