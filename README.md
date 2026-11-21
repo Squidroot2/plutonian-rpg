@@ -74,7 +74,7 @@ Find the field spear and trident near the outpost spawn, pick either up with E, 
 
 ## Ice worms
 
-Two ice worms roam beside the trail and a third waits near the cavern entrance. Watch for the worm to rear up, move out of its bite, then thrust during its recovery. Three hits with either weapon defeat a worm. A bite deals 20 damage before armor, and defeat returns you to the outpost at full health with your quest, inventory, and equipment intact. Defeated worms stay gone for the session.
+Two ice worms roam beside the trail and a third waits near the cavern entrance. Watch for the worm to rear up, move out of its bite, then thrust during its recovery. Three hits with either weapon defeat a worm. A bite deals 20 damage before armor, and defeat returns you to the outpost at full health with your quest, inventory, and equipment intact. After five seconds without taking damage, you recover 10 health per second. The health bar fades away when you reach full health. Defeated worms stay gone for the session.
 
 ## The Old Relay
 

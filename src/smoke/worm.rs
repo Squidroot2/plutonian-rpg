@@ -6,7 +6,7 @@ use crate::{
     loading::GameAssets,
     player::{DODGE_KEY, Player},
     spear::{GRIP_SIDE, Thrust},
-    ui::HealthBarFill,
+    ui::{HealthBar, HealthBarFill},
     worm::{self, GROUND_OFFSET, Worm, WormPhase},
 };
 use avian3d::prelude::{Collider, SpatialQuery, SpatialQueryFilter};
@@ -98,6 +98,7 @@ pub(super) fn fight(
     )>,
     thrust: Res<Thrust>,
     health_bar: Query<&Node, With<HealthBarFill>>,
+    bar_visibility: Query<&Visibility, With<HealthBar>>,
     feedback: (
         Query<&Visibility, With<BitePulse>>,
         Query<(), With<AttackImpact>>,
@@ -149,10 +150,7 @@ pub(super) fn fight(
                 "worm must pursue before biting"
             );
             assert_eq!(player_health.current(), 100, "wind-up must not deal damage");
-            assert_eq!(
-                health_bar.single().map(|bar| bar.width).ok(),
-                Some(percent(100))
-            );
+            assert_eq!(bar_visibility.single().ok(), Some(&Visibility::Hidden));
             orbit.yaw = 1.1;
             orbit.pitch = 0.44;
             capture(&mut commands, "worm-windup");
@@ -197,6 +195,7 @@ pub(super) fn fight(
                 health_bar.single().map(|bar| bar.width).ok(),
                 Some(percent(80))
             );
+            assert_eq!(bar_visibility.single().ok(), Some(&Visibility::Inherited));
             assert_eq!(
                 pulse.single().ok(),
                 Some(&Visibility::Visible),

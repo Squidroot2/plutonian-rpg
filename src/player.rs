@@ -1,7 +1,7 @@
 use crate::{
     GameState,
     camera::Orbit,
-    combat::{CombatSystems, Dead, Defense, Health},
+    combat::{CombatSystems, Dead, Defense, Health, HealthRecovery},
     dungeon::Area,
     equipment::Equipment,
     interaction::InteractionSystems,
@@ -47,6 +47,7 @@ impl Plugin for PlayerPlugin {
 }
 #[derive(Component, Default)]
 #[require(Dodge, Health = Health::new(MAX_HEALTH), Defense, crate::combat::HitProtection = crate::combat::HitProtection::new(0.75))]
+#[require(HealthRecovery = HealthRecovery::new(Duration::from_secs(5), Duration::from_millis(100)))]
 pub struct Player {
     pub(crate) area: Area,
     pub velocity: Vec3,

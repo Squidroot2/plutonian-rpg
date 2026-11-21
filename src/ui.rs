@@ -17,11 +17,15 @@ enum HudText {
     Objective,
 }
 #[derive(Component)]
-struct HealthBar;
+pub(crate) struct HealthBar;
 #[derive(Component)]
-struct HealthLabel;
+struct HealthBarTrack;
 #[derive(Component)]
 pub(crate) struct HealthBarFill;
+const HEALTH_BAR_FADE_SECONDS: f32 = 0.65;
+const HEALTH_TRACK_COLOR: Color = Color::srgb(0.045, 0.065, 0.09);
+const HEALTH_BORDER_COLOR: Color = Color::srgb(0.30, 0.38, 0.44);
+const HEALTH_FILL_COLOR: Color = Color::srgb(0.94, 0.32, 0.35);
 #[derive(Component)]
 struct StatusText;
 #[derive(Component)]
@@ -95,9 +99,8 @@ fn setup(mut commands: Commands) {
                 left: px(0),
                 right: px(0),
                 bottom: px(24),
-                flex_direction: FlexDirection::Column,
                 align_items: AlignItems::Center,
-                row_gap: px(4),
+                justify_content: JustifyContent::Center,
                 ..default()
             },
             Visibility::Hidden,
@@ -105,12 +108,7 @@ fn setup(mut commands: Commands) {
         ))
         .with_children(|bar| {
             bar.spawn((
-                HealthLabel,
-                Text::default(),
-                text_style(16.0),
-                Pickable::IGNORE,
-            ));
-            bar.spawn((
+                HealthBarTrack,
                 Node {
                     width: px(184),
                     height: px(10),
@@ -119,8 +117,8 @@ fn setup(mut commands: Commands) {
                     overflow: Overflow::clip(),
                     ..default()
                 },
-                BackgroundColor(Color::srgb(0.045, 0.065, 0.09)),
-                BorderColor::all(Color::srgb(0.30, 0.38, 0.44)),
+                BackgroundColor(HEALTH_TRACK_COLOR),
+                BorderColor::all(HEALTH_BORDER_COLOR),
                 Pickable::IGNORE,
             ))
             .with_child((
@@ -130,7 +128,7 @@ fn setup(mut commands: Commands) {
                     height: percent(100),
                     ..default()
                 },
-                BackgroundColor(Color::srgb(0.94, 0.32, 0.35)),
+                BackgroundColor(HEALTH_FILL_COLOR),
                 Pickable::IGNORE,
             ));
         });
@@ -323,34 +321,49 @@ fn refresh_hud(
 
 fn refresh_health(
     state: Res<State<GameState>>,
+    time: Res<Time>,
     player: Query<&Health, With<Player>>,
     mut bar: Query<&mut Visibility, With<HealthBar>>,
-    mut label: Query<&mut Text, With<HealthLabel>>,
-    mut fill: Query<&mut Node, With<HealthBarFill>>,
-    mut last: Local<Option<(u16, u16)>>,
+    mut track: Query<(&mut BackgroundColor, &mut BorderColor), With<HealthBarTrack>>,
+    mut fill: Query<
+        (&mut Node, &mut BackgroundColor),
+        (With<HealthBarFill>, Without<HealthBarTrack>),
+    >,
+    mut opacity: Local<f32>,
 ) {
-    let health = match state.get() {
-        GameState::Playing | GameState::Inventory | GameState::Paused => player
-            .single()
-            .ok()
-            .map(|health| (health.current(), health.maximum())),
-        _ => None,
+    let Ok(mut bar) = bar.single_mut() else {
+        return;
     };
-    if *last == health {
+    let Some(health) = player.single().ok().filter(|health| health.maximum() > 0) else {
+        *opacity = 0.0;
+        bar.set_if_neq(Visibility::Hidden);
+        return;
+    };
+    match state.get() {
+        GameState::Playing | GameState::Inventory | GameState::Paused => {
+            if health.current() < health.maximum() {
+                *opacity = 1.0;
+            } else if *state.get() == GameState::Playing {
+                *opacity = (*opacity - time.delta_secs() / HEALTH_BAR_FADE_SECONDS).max(0.0);
+            }
+        }
+        _ => *opacity = 0.0,
+    }
+    if *opacity == 0.0 {
+        bar.set_if_neq(Visibility::Hidden);
         return;
     }
-    let (Ok(mut bar), Ok(mut label), Ok(mut fill)) =
-        (bar.single_mut(), label.single_mut(), fill.single_mut())
-    else {
-        return;
-    };
-    *last = health;
-    if let Some((current, maximum)) = health {
-        *bar = Visibility::Inherited;
-        **label = format!("Health {current}/{maximum}");
-        fill.width = percent(100.0 * f32::from(current.min(maximum)) / f32::from(maximum.max(1)));
-    } else {
-        *bar = Visibility::Hidden;
+    if let (Ok((mut track_color, mut border)), Ok((mut fill, mut fill_color))) =
+        (track.single_mut(), fill.single_mut())
+    {
+        bar.set_if_neq(Visibility::Inherited);
+        let width = percent(100.0 * f32::from(health.current()) / f32::from(health.maximum()));
+        if fill.width != width {
+            fill.width = width;
+        }
+        track_color.set_if_neq(BackgroundColor(HEALTH_TRACK_COLOR.with_alpha(*opacity)));
+        border.set_if_neq(BorderColor::all(HEALTH_BORDER_COLOR.with_alpha(*opacity)));
+        fill_color.set_if_neq(BackgroundColor(HEALTH_FILL_COLOR.with_alpha(*opacity)));
     }
 }
 
@@ -436,5 +449,110 @@ fn refresh_pause(
         } else {
             Visibility::Hidden
         };
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::combat::{CombatPlugin, Hit};
+    use bevy::{state::app::StatesPlugin, time::TimeUpdateStrategy};
+    use std::time::Duration;
+
+    #[test]
+    fn the_bar_stays_hidden_at_full_health_then_shows_damage_recovery_and_fade() {
+        let step = Duration::from_millis(125);
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, StatesPlugin, CombatPlugin))
+            .insert_state(GameState::Playing)
+            .init_resource::<Dialogue>()
+            .insert_resource(Time::<Fixed>::from_duration(step))
+            .insert_resource(TimeUpdateStrategy::ManualDuration(step))
+            .add_systems(Startup, setup)
+            .add_systems(
+                Update,
+                refresh_health.after(crate::combat::CombatSystems::Resolve),
+            );
+        let target = app.world_mut().spawn(Player::default()).id();
+        let source = app.world_mut().spawn_empty().id();
+        let hit = Hit {
+            source,
+            target,
+            damage: 20,
+            contact: None,
+        };
+        let bar = |app: &mut App| {
+            let world = app.world_mut();
+            *world
+                .query_filtered::<&Visibility, With<HealthBar>>()
+                .single(world)
+                .expect("HUD setup must spawn one health bar")
+        };
+        let fill = |app: &mut App| {
+            let world = app.world_mut();
+            let (node, color) = world
+                .query_filtered::<(&Node, &BackgroundColor), With<HealthBarFill>>()
+                .single(world)
+                .expect("HUD setup must spawn one health fill");
+            (node.width, color.0.alpha())
+        };
+        let health = |app: &App| {
+            app.world()
+                .get::<Health>(target)
+                .expect("the player must have health")
+                .current()
+        };
+
+        app.update();
+        assert_eq!(bar(&mut app), Visibility::Hidden);
+        app.world_mut().write_message(hit);
+        app.update();
+        assert_eq!(bar(&mut app), Visibility::Inherited);
+        assert_eq!(fill(&mut app), (percent(80), 1.0));
+        for _ in 0..16 {
+            app.update();
+        }
+        app.world_mut().write_message(hit);
+        app.update();
+        assert_eq!(health(&app), 60);
+        app.world_mut()
+            .resource_mut::<NextState<GameState>>()
+            .set(GameState::Paused);
+        for _ in 0..45 {
+            app.update();
+        }
+        assert_eq!(health(&app), 60, "recovery must wait while paused");
+        app.world_mut()
+            .resource_mut::<NextState<GameState>>()
+            .set(GameState::Playing);
+        for _ in 0..40 {
+            app.update();
+        }
+        assert_eq!(
+            health(&app),
+            60,
+            "the second hit must restart the five-second delay"
+        );
+        for _ in 0..8 {
+            app.update();
+        }
+        assert_eq!(health(&app), 70, "one active second must recover 10 health");
+        assert_eq!(fill(&mut app), (percent(70), 1.0));
+        for _ in 0..24 {
+            app.update();
+        }
+        assert_eq!(health(&app), 100);
+        assert_eq!(bar(&mut app), Visibility::Inherited);
+        let (width, opacity) = fill(&mut app);
+        assert_eq!(width, percent(100));
+        assert!(opacity > 0.0 && opacity < 1.0);
+        for _ in 0..6 {
+            app.update();
+        }
+        assert_eq!(bar(&mut app), Visibility::Hidden);
+        app.world_mut().write_message(hit);
+        app.update();
+        assert_eq!(bar(&mut app), Visibility::Inherited);
+        assert_eq!(fill(&mut app), (percent(80), 1.0));
     }
 }

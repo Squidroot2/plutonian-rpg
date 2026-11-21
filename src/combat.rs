@@ -2,6 +2,7 @@
 use crate::{GameState, quest::Dialogue};
 use avian3d::prelude::Collider;
 use bevy::prelude::*;
+use std::time::Duration;
 
 #[derive(Component)]
 pub(crate) struct Health {
@@ -27,6 +28,23 @@ impl Health {
 
     pub(crate) fn restore(&mut self) {
         self.current = self.maximum;
+    }
+}
+
+#[derive(Component)]
+pub(crate) struct HealthRecovery {
+    delay: Duration,
+    wait: Duration,
+    healing: Timer,
+}
+
+impl HealthRecovery {
+    pub(crate) fn new(delay: Duration, per_point: Duration) -> Self {
+        Self {
+            delay,
+            wait: Duration::ZERO,
+            healing: Timer::new(per_point, TimerMode::Repeating),
+        }
     }
 }
 
@@ -119,7 +137,7 @@ impl Plugin for CombatPlugin {
             )
             .add_systems(
                 FixedUpdate,
-                (tick_protection, expire_corpses)
+                (tick_protection, recover_health, expire_corpses)
                     .run_if(in_state(GameState::Playing))
                     .run_if(|dialogue: Res<Dialogue>| dialogue.text.is_none()),
             )
@@ -127,6 +145,7 @@ impl Plugin for CombatPlugin {
                 Update,
                 (
                     resolve_hits,
+                    delay_recovery_on_hit,
                     mark_deaths,
                     release_dead_colliders,
                     update_hit_reactions,
@@ -177,6 +196,37 @@ fn resolve_hits(
             target: hit.target,
             contact: hit.contact,
         });
+    }
+}
+
+fn delay_recovery_on_hit(
+    mut hits: MessageReader<ConfirmedHit>,
+    mut recovery: Query<&mut HealthRecovery>,
+) {
+    for hit in hits.read() {
+        if let Ok(mut recovery) = recovery.get_mut(hit.target) {
+            recovery.wait = recovery.delay;
+            recovery.healing.reset();
+        }
+    }
+}
+
+fn recover_health(
+    time: Res<Time<Fixed>>,
+    mut actors: Query<(&mut Health, &mut HealthRecovery), Without<Dead>>,
+) {
+    for (mut health, mut recovery) in &mut actors {
+        if health.current == 0 || health.current >= health.maximum {
+            continue;
+        }
+        let delta = time.delta();
+        let active = delta.saturating_sub(recovery.wait);
+        recovery.wait = recovery.wait.saturating_sub(delta);
+        let points = recovery.healing.tick(active).times_finished_this_tick();
+        if points > 0 {
+            let missing = u32::from(health.maximum - health.current);
+            health.current += points.min(missing) as u16;
+        }
     }
 }
 
