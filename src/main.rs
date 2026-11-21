@@ -85,6 +85,8 @@ fn main() {
             spear::SpearPlugin,
             worm::WormPlugin,
             interaction::InteractionPlugin,
+        ))
+        .add_plugins((
             inventory_ui::InventoryUiPlugin,
             title::TitlePlugin,
             ui::GameUiPlugin,

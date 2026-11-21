@@ -9,7 +9,6 @@ use crate::{
     interaction::InteractionSystems,
     inventory::{CARRY_CAPACITY, Inventory},
     player::{Dodge, MovementInput, Player},
-    practice_dummy::PracticeDummy,
     quest::Dialogue,
 };
 
@@ -161,6 +160,8 @@ mod tests {
         time::TimeUpdateStrategy, transform::TransformPlugin,
     };
     use std::time::Duration;
+    use crate::combat::TrainingTarget;
+    use crate::practice_dummy::PracticeDummy;
 
     #[test]
     fn thrust_has_one_impact_and_ignores_clicks_before_recovery() {
