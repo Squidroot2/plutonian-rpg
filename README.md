@@ -43,6 +43,8 @@ The game includes one beacon quest, the Old Relay dungeon, and one speaking NPC.
 
 ## Inventory
 
+You can carry 60 kg, including equipped gear. Above 60 kg you can still walk. Sprinting, jumping, and dodging require a load of 60 kg or less. Above 72 kg, drop items to move again. The smoke arena has two 40 kg Large Boulders.
+
 E picks up the nearest eligible item within three meters and clear line of sight. E also speaks to Nemi and collects the quest core; one press performs one action. E or Enter dismisses an open conversation before any other interaction.
 
 Batteries, scrap, and methane pouches are scattered around the outpost, trail, and cavern: two of each material in each region, for 18 initial pickups. Pickups transfer their whole stack. Inventory starts empty, stacks by item type, and has no capacity limit. Materials have no crafting or consumption effects yet.

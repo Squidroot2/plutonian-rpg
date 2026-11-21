@@ -60,9 +60,9 @@ fn load(mut commands: Commands, server: Res<AssetServer>, layout: Res<WorldLayou
         core: server.load("models/core.glb"),
         dummy: server.load("models/practice_dummy.glb"),
         worm: server.load("models/ice_worm.glb"),
-        pickups: ItemKind::MATERIALS
+        pickups: ItemKind::ALL
             .into_iter()
-            .chain(ItemKind::GEAR)
+            .filter(|&item| item != ItemKind::BeaconCore)
             .map(|item| (item, server.load(format!("models/{}.glb", item.asset()))))
             .collect(),
         worn: ItemKind::GEAR

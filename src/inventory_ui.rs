@@ -1,7 +1,9 @@
 use crate::{
     GameState,
     equipment::{EquipRequest, Equipment, EquipmentSlot, UnequipRequest},
-    inventory::{DropRequest, Inventory, InventoryNotice, ItemKind},
+    inventory::{
+        CARRY_CAPACITY, DropRequest, IMMOBILE_WEIGHT, Inventory, InventoryNotice, ItemKind,
+    },
 };
 use bevy::{
     input::{
@@ -530,7 +532,7 @@ fn sync(
     }
     for mut text in &mut texts.p1() {
         **text = ui.selected.map_or(String::new(), |item| {
-            item.gear().map_or_else(
+            let description = item.gear().map_or_else(
                 || item.description().into(),
                 |gear| {
                     if gear.slot == EquipmentSlot::Weapon {
@@ -548,7 +550,8 @@ fn sync(
                         )
                     }
                 },
-            )
+            );
+            format!("{} kg each\n{description}", item.weight())
         });
     }
     for mut text in &mut texts.p2() {
@@ -580,7 +583,18 @@ fn sync(
         );
     }
     for mut text in &mut texts.p5() {
-        **text = format!("Total defense: {}", equipment.total_defense());
+        let weight = inventory.carried_weight(&equipment);
+        let status = if weight > IMMOBILE_WEIGHT {
+            " / Cannot move"
+        } else if weight > CARRY_CAPACITY {
+            " / Walking only"
+        } else {
+            ""
+        };
+        **text = format!(
+            "Defense {}  /  Load {weight}/{CARRY_CAPACITY} kg{status}",
+            equipment.total_defense()
+        );
     }
     for mut text in &mut texts.p6() {
         **text = if ui.selected.is_some_and(|item| {

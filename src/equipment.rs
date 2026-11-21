@@ -67,6 +67,10 @@ impl Equipment {
             Some(ItemKind::FieldSpear | ItemKind::Trident)
         )
     }
+    pub(crate) fn weight(&self) -> u64 {
+        self.0.values().map(|item| item.weight()).sum()
+    }
+
     pub fn total_defense(&self) -> u16 {
         self.0
             .values()

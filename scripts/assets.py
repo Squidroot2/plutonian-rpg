@@ -534,6 +534,16 @@ def items():
         save_export(name)
 
 
+def large_boulder():
+    reset()
+    stone = material('Icebound rock', (.16, .21, .25), metal=.12)
+    rock = ico('Large Boulder', (0, 0, .40), (.54, .47, .40), stone, 2)
+    for vertex in rock.data.vertices:
+        vertex.co *= random.uniform(.87, 1.0)
+    rock.location.z = -min(vertex.co.z for vertex in rock.data.vertices)
+    save_export('large_boulder')
+
+
 SPEAR_NAMES = ['field_spear', 'trident']
 GEAR_NAMES = ['field_armor', 'reinforced_armor', 'field_helmet', 'reinforced_helmet', *SPEAR_NAMES]
 
@@ -928,6 +938,8 @@ elif '--equipment' in sys.argv:
     equipment()
 elif '--pillars' in sys.argv:
     add_pillar_collision()
+elif '--boulder' in sys.argv:
+    large_boulder()
 elif '--items' in sys.argv:
     items()
 elif '--ground' in sys.argv:
@@ -946,7 +958,7 @@ elif '--ground' in sys.argv:
     bpy.context.view_layer.update()
     save_export('collision')
 elif '--export' in sys.argv:
-    for name in ['plutonian', 'outpost', 'collision', 'core', 'battery', 'scrap', 'methane_pouch', 'practice_dummy', 'ice_worm', 'old_relay', 'old_relay_collision', *GEAR_NAMES]:
+    for name in ['plutonian', 'outpost', 'collision', 'core', 'battery', 'scrap', 'methane_pouch', 'large_boulder', 'practice_dummy', 'ice_worm', 'old_relay', 'old_relay_collision', *GEAR_NAMES]:
         bpy.ops.wm.open_mainfile(filepath=str(ROOT/'art'/f'{name}.blend'))
         if name in GEAR_NAMES:
             export_equipment(name)
@@ -958,6 +970,7 @@ else:
     collision_from_world()
     core()
     items()
+    large_boulder()
     equipment()
     practice_dummy()
     ice_worm()

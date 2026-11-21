@@ -6,7 +6,7 @@ use crate::{
     combat::{CombatSystems, Contact, Hit, HitReaction, TrainingTarget},
     equipment::Equipment,
     interaction::InteractionSystems,
-    inventory::scene_ready,
+    inventory::{CARRY_CAPACITY, Inventory, scene_ready},
     loading::{GameAssets, PendingScene},
     player::{Dodge, MovementInput, Player},
     quest::Dialogue,
@@ -148,6 +148,7 @@ fn attack(
     buttons: Res<ButtonInput<MouseButton>>,
     windows: Query<&Window, With<PrimaryWindow>>,
     equipment: Res<Equipment>,
+    inventory: Res<Inventory>,
     dialogue: Res<Dialogue>,
     time: Res<Time>,
     spatial: SpatialQuery,
@@ -173,7 +174,10 @@ fn attack(
         {
             hits.write(hit);
         }
-    } else if !dodge.active() && !movement.dodge_pending(controller.grounded, dodge) {
+    } else if !dodge.active()
+        && !(inventory.carried_weight(&equipment) <= CARRY_CAPACITY
+            && movement.dodge_pending(controller.grounded, dodge))
+    {
         thrust.begin(controller.grounded, buttons.just_pressed(MouseButton::Left));
     }
 }
@@ -274,6 +278,7 @@ mod tests {
         .init_state::<GameState>()
         .init_resource::<Dialogue>()
         .init_resource::<Equipment>()
+        .init_resource::<Inventory>()
         .init_resource::<Orbit>()
         .init_resource::<MovementInput>()
         .init_resource::<ButtonInput<MouseButton>>()

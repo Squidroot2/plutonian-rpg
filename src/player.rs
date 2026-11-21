@@ -5,6 +5,7 @@ use crate::{
     dungeon::Area,
     equipment::Equipment,
     interaction::InteractionSystems,
+    inventory::{CARRY_CAPACITY, IMMOBILE_WEIGHT, Inventory},
     quest::Dialogue,
     spear::Thrust,
     world::WorldLayout,
@@ -301,6 +302,8 @@ pub(crate) fn movement(
     dialogue: Res<Dialogue>,
     thrust: Res<crate::spear::Thrust>,
     layout: Res<WorldLayout>,
+    inventory: Res<Inventory>,
+    equipment: Res<Equipment>,
     mut input: ResMut<MovementInput>,
     spatial: SpatialQuery,
     mover: MoveAndSlide,
@@ -309,7 +312,9 @@ pub(crate) fn movement(
     let dodge_request = input.dodge.take();
     let jump_requested = std::mem::take(&mut input.jump);
     let delta = time.delta_secs();
-    let can_move = dialogue.text.is_none() && !thrust.active();
+    let weight = inventory.carried_weight(&equipment);
+    let agile = weight <= CARRY_CAPACITY;
+    let can_move = weight <= IMMOBILE_WEIGHT && dialogue.text.is_none() && !thrust.active();
     for (entity, mut transform, collider, mut player, mut dodge) in &mut players {
         dodge.cooldown = (dodge.cooldown - delta).max(0.0);
         let filter = SpatialQueryFilter::from_excluded_entities([entity]);
@@ -325,14 +330,14 @@ pub(crate) fn movement(
         );
         player.grounded = (!player.jumping || player.velocity.y <= 0.1)
             && ground.is_some_and(|h| h.normal1.y > 0.7);
-        if player.grounded || dialogue.text.is_some() {
+        if player.grounded || !can_move || !agile {
             dodge.hop = None;
         }
         if player.grounded {
             player.jumping = false;
             player.velocity.y = -0.6;
         }
-        if can_move && player.grounded {
+        if can_move && agile && player.grounded {
             if let Some(direction) = dodge_request.filter(|_| dodge.ready()) {
                 let heading = if direction == Vec2::ZERO {
                     camera_heading(Vec2::NEG_Y, orbit.yaw)
@@ -356,7 +361,7 @@ pub(crate) fn movement(
                 Vec2::ZERO
             };
             player.movement_direction = direction;
-            player.running = input.sprint && direction.y > 0.0;
+            player.running = agile && input.sprint && direction.y > 0.0;
             let speed = if player.running {
                 SPRINT_SPEED
             } else {
@@ -499,7 +504,7 @@ mod tests {
     use super::*;
     use crate::{
         combat::{CombatPlugin, Hit},
-        inventory::{Inventory, ItemKind},
+        inventory::ItemKind,
         spear::SpearPlugin,
     };
     use bevy::{
@@ -525,6 +530,7 @@ mod tests {
         .init_resource::<Dialogue>()
         .init_resource::<Orbit>()
         .init_resource::<Equipment>()
+        .init_resource::<Inventory>()
         .init_resource::<MovementInput>()
         .init_resource::<ButtonInput<KeyCode>>()
         .init_resource::<ButtonInput<MouseButton>>()

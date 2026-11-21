@@ -13,11 +13,12 @@ use self::{
 use crate::{
     GameState,
     camera::Orbit,
+    equipment::Equipment,
     interaction::{InteractionTarget, Nearby, Target},
-    inventory::{Inventory, ItemKind},
+    inventory::{CARRY_CAPACITY, DropRequest, IMMOBILE_WEIGHT, Inventory, ItemKind},
     inventory_ui::{InventoryAction, InventoryUiState},
     loading::LoadStatus,
-    player::Player,
+    player::{DODGE_KEY, Dodge, Player},
     quest::{Beacon, Dialogue, Quest},
     title::{TitleBackdrop, TitleInput},
     world::WorldLayout,
@@ -31,7 +32,9 @@ use bevy::{
 };
 use std::time::{Duration, Instant};
 
-pub const ARENA_LOOT: [(ItemKind, f32, f32); 10] = [
+const BOULDER_SITES: [Vec3; 2] = [Vec3::new(2.5, 0.0, -2.0), Vec3::new(2.5, 0.0, 2.0)];
+
+pub const ARENA_LOOT: [(ItemKind, f32, f32); 12] = [
     (ItemKind::MethanePouch, -2.0, 0.0),
     (ItemKind::Scrap, -3.0, 1.3),
     (ItemKind::Battery, -4.0, 0.0),
@@ -42,6 +45,16 @@ pub const ARENA_LOOT: [(ItemKind, f32, f32); 10] = [
     (ItemKind::FieldHelmet, 0.0, -4.0),
     (ItemKind::ReinforcedArmor, 3.0, -4.0),
     (ItemKind::ReinforcedHelmet, 6.0, -4.0),
+    (
+        ItemKind::LargeBoulder,
+        BOULDER_SITES[0].x,
+        BOULDER_SITES[0].z,
+    ),
+    (
+        ItemKind::LargeBoulder,
+        BOULDER_SITES[1].x,
+        BOULDER_SITES[1].z,
+    ),
 ];
 
 const WALL: Vec3 = Vec3::new(0.0, 1.0, 9.0);
@@ -107,6 +120,15 @@ enum ArenaStep {
     CloseCore,
     Fall(Entity),
     Recover,
+    CollectBoulder(u32),
+    CheckBurden {
+        count: u32,
+        after_drop: bool,
+        position: Vec3,
+        started: Duration,
+    },
+    DropBoulder(u32),
+    ResumeAfterDrop(u32),
 }
 
 impl Plugin for SmokePlugin {
@@ -234,7 +256,8 @@ fn drive(
         Res<Dialogue>,
         Res<Nearby>,
     ),
-    mut player: Query<(&mut Transform, &Player), With<Player>>,
+    equipment: Res<Equipment>,
+    mut player: Query<(&mut Transform, &Player, &Dodge)>,
     targets: Query<(&Target, &Transform), Without<Player>>,
     beacon: Query<&PointLight, With<Beacon>>,
     layout: Res<WorldLayout>,
@@ -247,7 +270,8 @@ fn drive(
     if !armor.done() {
         return;
     }
-    let (mut transform, controller) = player.single_mut().expect("the arena must have one player");
+    let (mut transform, controller, dodge) =
+        player.single_mut().expect("the arena must have one player");
     keys.reset_all();
     let click_action = |commands: &mut Commands, action| {
         let (window, camera) = inventory_smoke
@@ -399,11 +423,104 @@ fn drive(
         {
             assert_eq!(*quest, Quest::Complete);
             assert_eq!(inventory.count(ItemKind::BeaconCore), 0);
-            info!(
-                "SMOKE PASS: arena gameplay checks completed in {:.2}s",
-                run.0.elapsed().as_secs_f64()
+            *step = ArenaStep::CollectBoulder(1);
+        }
+        ArenaStep::CollectBoulder(count) => {
+            if inventory.count(ItemKind::LargeBoulder) == count {
+                *step = ArenaStep::CheckBurden {
+                    count,
+                    after_drop: false,
+                    position: transform.translation,
+                    started: fixed.elapsed(),
+                };
+            } else if matches!(nearby.0, Some((_, InteractionTarget::Pickup(pickup))) if pickup.item == ItemKind::LargeBoulder)
+            {
+                keys.press(KeyCode::KeyE);
+            } else {
+                walk(
+                    &mut keys,
+                    &mut orbit,
+                    transform.translation,
+                    BOULDER_SITES[count as usize - 1],
+                );
+            }
+        }
+        ArenaStep::CheckBurden {
+            count,
+            after_drop,
+            position,
+            started,
+        } if *state.get() == GameState::Playing => {
+            orbit.yaw = 0.0;
+            keys.press(KeyCode::KeyW);
+            keys.press(KeyCode::ShiftLeft);
+            if count > 0 {
+                keys.press(KeyCode::Space);
+                keys.press(DODGE_KEY);
+            }
+            if fixed.elapsed() - started >= fixed.timestep() * 10 {
+                let weight = inventory.carried_weight(&equipment);
+                let travel = transform.translation - position;
+                match count {
+                    2 => {
+                        assert!(
+                            weight > IMMOBILE_WEIGHT && travel.length() < 0.02,
+                            "the severe load must prevent movement, load {weight}, travel {travel:?}"
+                        );
+                        keys.press(KeyCode::KeyI);
+                        *step = ArenaStep::DropBoulder(1);
+                    }
+                    1 => {
+                        assert!(
+                            (CARRY_CAPACITY + 1..=IMMOBILE_WEIGHT).contains(&weight)
+                                && travel.z < -0.2,
+                            "the moderate load must allow walking, load {weight}, travel {travel:?}"
+                        );
+                        assert!(
+                            !controller.running && controller.grounded && !dodge.active(),
+                            "a load above capacity must prevent sprinting, jumping and dodging"
+                        );
+                        if !after_drop {
+                            *step = ArenaStep::CollectBoulder(2);
+                        } else {
+                            keys.press(KeyCode::KeyI);
+                            *step = ArenaStep::DropBoulder(0);
+                        }
+                    }
+                    _ => {
+                        assert!(
+                            controller.running && travel.z < -0.4,
+                            "dropping the boulders must restore sprinting"
+                        );
+                        info!(
+                            "SMOKE PASS: arena gameplay and carrying limits verified in {:.2}s",
+                            run.0.elapsed().as_secs_f64()
+                        );
+                        exit.write(AppExit::Success);
+                    }
+                }
+            }
+        }
+        ArenaStep::DropBoulder(remaining) if *state.get() == GameState::Inventory => {
+            commands.trigger(DropRequest {
+                item: ItemKind::LargeBoulder,
+                quantity: 1,
+            });
+            *step = ArenaStep::ResumeAfterDrop(remaining);
+        }
+        ArenaStep::ResumeAfterDrop(remaining) => {
+            assert_eq!(
+                inventory.count(ItemKind::LargeBoulder),
+                remaining,
+                "the overloaded player must still be able to drop a boulder"
             );
-            exit.write(AppExit::Success);
+            keys.press(KeyCode::KeyI);
+            *step = ArenaStep::CheckBurden {
+                count: remaining,
+                after_drop: true,
+                position: transform.translation,
+                started: fixed.elapsed(),
+            };
         }
         _ => {}
     }

@@ -5,6 +5,7 @@ use bevy::{gltf::Gltf, prelude::*, world_serialization::WorldInstanceReady};
 
 use crate::{
     GameState,
+    equipment::Equipment,
     loading::{GameAssets, PendingScene},
     player::Player,
     world::{SpawnWorld, WorldLayout},
@@ -22,6 +23,7 @@ pub enum ItemKind {
     ReinforcedHelmet,
     FieldSpear,
     Trident,
+    LargeBoulder,
 }
 impl ItemKind {
     pub const MATERIALS: [Self; 3] = [Self::Battery, Self::Scrap, Self::MethanePouch];
@@ -33,7 +35,7 @@ impl ItemKind {
         Self::FieldSpear,
         Self::Trident,
     ];
-    pub const ALL: [Self; 10] = [
+    pub const ALL: [Self; 11] = [
         Self::Battery,
         Self::Scrap,
         Self::MethanePouch,
@@ -44,6 +46,7 @@ impl ItemKind {
         Self::FieldSpear,
         Self::Trident,
         Self::BeaconCore,
+        Self::LargeBoulder,
     ];
     pub fn name(self) -> &'static str {
         match self {
@@ -53,6 +56,7 @@ impl ItemKind {
             Self::BeaconCore => "Beacon power core",
             Self::FieldSpear => "Field spear",
             Self::Trident => "Trident",
+            Self::LargeBoulder => "Large Boulder",
             Self::FieldArmor => "Field armor",
             Self::ReinforcedArmor => "Reinforced armor",
             Self::FieldHelmet => "Field helmet",
@@ -67,14 +71,28 @@ impl ItemKind {
             Self::BeaconCore => "core",
             Self::FieldSpear => "field_spear",
             Self::Trident => "trident",
+            Self::LargeBoulder => "large_boulder",
             Self::FieldArmor => "field_armor",
             Self::ReinforcedArmor => "reinforced_armor",
             Self::FieldHelmet => "field_helmet",
             Self::ReinforcedHelmet => "reinforced_helmet",
         }
     }
+    pub fn weight(self) -> u64 {
+        match self {
+            Self::Battery | Self::MethanePouch => 1,
+            Self::Scrap | Self::FieldHelmet => 2,
+            Self::FieldSpear | Self::ReinforcedHelmet => 3,
+            Self::Trident => 4,
+            Self::FieldArmor => 5,
+            Self::BeaconCore => 6,
+            Self::ReinforcedArmor => 8,
+            Self::LargeBoulder => 40,
+        }
+    }
     pub fn description(self) -> &'static str {
         match self {
+            Self::LargeBoulder => "A dense chunk of icebound rock.",
             Self::Battery => "A sealed cell holding a little warmth and charge.",
             Self::Scrap => "Salvaged metal from the outpost's machines.",
             Self::MethanePouch => "A reinforced pouch of condensed methane.",
@@ -87,9 +105,20 @@ impl ItemKind {
         }
     }
 }
+pub(crate) const CARRY_CAPACITY: u64 = 60;
+pub(crate) const IMMOBILE_WEIGHT: u64 = CARRY_CAPACITY * 6 / 5;
+
 #[derive(Resource, Default, Debug)]
 pub struct Inventory(BTreeMap<ItemKind, u32>);
 impl Inventory {
+    pub(crate) fn carried_weight(&self, equipment: &Equipment) -> u64 {
+        self.0
+            .iter()
+            .map(|(&item, &quantity)| item.weight() * u64::from(quantity))
+            .sum::<u64>()
+            + equipment.weight()
+    }
+
     pub fn count(&self, item: ItemKind) -> u32 {
         self.0.get(&item).copied().unwrap_or(0)
     }
@@ -249,9 +278,12 @@ pub fn find_drop_position(
     transform: &Transform,
     item: ItemKind,
 ) -> Option<Vec3> {
-    let size = item
-        .gear()
-        .map_or(Vec3::new(0.62, 0.6, 0.62), |gear| gear.pickup_size);
+    let size = if item == ItemKind::LargeBoulder {
+        Vec3::new(1.12, 0.85, 0.98)
+    } else {
+        item.gear()
+            .map_or(Vec3::new(0.62, 0.6, 0.62), |gear| gear.pickup_size)
+    };
     let shape = Collider::cuboid(size.x, size.y, size.z);
     let forward = transform.rotation * Vec3::Z;
     let right = transform.rotation * Vec3::X;
