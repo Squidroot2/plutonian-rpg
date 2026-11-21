@@ -146,7 +146,7 @@ fn footsteps(
     if *elapsed <= 0.0 {
         commands.spawn((
             AudioPlayer::new(assets.load("sounds/footstep05.ogg")),
-            PlaybackSettings::DESPAWN.with_volume(Volume::Linear(0.2)),
+            PlaybackSettings::DESPAWN.with_volume(bevy::audio::Volume::Linear(0.2)),
         ));
         *elapsed = if player.running { 0.32 } else { 0.5 };
     }
