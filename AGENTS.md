@@ -16,7 +16,7 @@ Run from the repository root with Rust 1.97.1 or newer:
 - `cargo run --locked -- --smoke-test` exercises the gameplay arena.
 - `cargo run --locked -- --smoke-world` exercises the shipped map and Old Relay. Both smoke modes require a desktop and save screenshots in `/tmp/plutonian-*.png`.
 
-Always run at least `cargo test --locked` after every change
+Always run at least `cargo test --locked` after every change. If there are any errors, fix them
 
 ## Coding Style & Naming Conventions
 
