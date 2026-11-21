@@ -4,6 +4,7 @@ use crate::{
     ui,
 };
 use bevy::{
+    diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin},
     input::InputSystems,
     picking::hover::PickingInteraction,
     prelude::*,
@@ -14,6 +15,41 @@ pub(crate) const FULLSCREEN_MODE: WindowMode =
     WindowMode::BorderlessFullscreen(MonitorSelection::Primary);
 
 pub(crate) struct SettingsPlugin;
+
+#[derive(Resource, Default, Clone, Copy, PartialEq, Eq)]
+enum FpsPosition {
+    #[default]
+    TopLeft,
+    TopRight,
+    BottomRight,
+    BottomLeft,
+    Disabled,
+}
+
+impl FpsPosition {
+    fn next(self) -> Self {
+        match self {
+            Self::TopLeft => Self::TopRight,
+            Self::TopRight => Self::BottomRight,
+            Self::BottomRight => Self::BottomLeft,
+            Self::BottomLeft => Self::Disabled,
+            Self::Disabled => Self::TopLeft,
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::TopLeft => "Top left",
+            Self::TopRight => "Top right",
+            Self::BottomRight => "Bottom right",
+            Self::BottomLeft => "Bottom left",
+            Self::Disabled => "Off",
+        }
+    }
+}
+
+#[derive(Component)]
+struct FpsCounter;
 
 #[derive(Resource, Default)]
 pub(crate) struct SettingsMenu {
@@ -55,6 +91,7 @@ struct CapturePrompt;
 #[derive(Component, Clone, Copy)]
 enum Action {
     ToggleDisplay,
+    CycleFps,
     Keybinds,
     Rebind(Control),
     ResetBindings,
@@ -63,7 +100,9 @@ enum Action {
 
 impl Plugin for SettingsPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<SettingsMenu>()
+        app.add_plugins(FrameTimeDiagnosticsPlugin::default())
+            .init_resource::<FpsPosition>()
+            .init_resource::<SettingsMenu>()
             .init_resource::<Keybinds>()
             .add_systems(Startup, setup)
             .add_systems(
@@ -73,11 +112,24 @@ impl Plugin for SettingsPlugin {
                     .after(TitleInput)
                     .after(ui::pause),
             )
-            .add_systems(Update, refresh);
+            .add_systems(Update, (refresh, refresh_fps));
     }
 }
 
 fn setup(mut commands: Commands) {
+    commands.spawn((
+        FpsCounter,
+        Text::new("FPS: --"),
+        ui::text_style(15.0),
+        Node {
+            position_type: PositionType::Absolute,
+            left: px(12),
+            top: px(4),
+            ..default()
+        },
+        GlobalZIndex(100),
+        Pickable::IGNORE,
+    ));
     commands
         .spawn((
             SettingsPanel,
@@ -104,7 +156,12 @@ fn setup(mut commands: Commands) {
             panel
                 .spawn((Section::General, section_layout()))
                 .with_children(|menu| {
-                    for action in [Action::ToggleDisplay, Action::Keybinds, Action::Back] {
+                    for action in [
+                        Action::ToggleDisplay,
+                        Action::CycleFps,
+                        Action::Keybinds,
+                        Action::Back,
+                    ] {
                         spawn_button(menu, action, percent(100));
                     }
                 });
@@ -178,13 +235,20 @@ fn navigate(
     mouse: Res<ButtonInput<MouseButton>>,
     mut settings: ResMut<SettingsMenu>,
     mut bindings: ResMut<Keybinds>,
+    mut fps: ResMut<FpsPosition>,
     mut windows: Query<&mut Window, With<PrimaryWindow>>,
 ) {
     if !settings.is_open() {
         return;
     }
     if keys.just_pressed(KeyCode::Escape) {
-        activate(Action::Back, &mut settings, &mut bindings, &mut windows);
+        activate(
+            Action::Back,
+            &mut settings,
+            &mut bindings,
+            &mut fps,
+            &mut windows,
+        );
     } else if let Some(control) = settings.capture {
         if settings.is_changed() {
             return;
@@ -218,6 +282,7 @@ fn navigate(
             Action::ToggleDisplay,
             &mut settings,
             &mut bindings,
+            &mut fps,
             &mut windows,
         );
     }
@@ -228,13 +293,14 @@ fn click(
     actions: Query<&Action>,
     mut settings: ResMut<SettingsMenu>,
     mut bindings: ResMut<Keybinds>,
+    mut fps: ResMut<FpsPosition>,
     mut windows: Query<&mut Window, With<PrimaryWindow>>,
 ) {
     if settings.is_open()
         && event.button == PointerButton::Primary
         && let Ok(&action) = actions.get(event.entity)
     {
-        activate(action, &mut settings, &mut bindings, &mut windows);
+        activate(action, &mut settings, &mut bindings, &mut fps, &mut windows);
     }
 }
 
@@ -242,12 +308,14 @@ fn activate(
     action: Action,
     settings: &mut SettingsMenu,
     bindings: &mut Keybinds,
+    fps: &mut FpsPosition,
     windows: &mut Query<&mut Window, With<PrimaryWindow>>,
 ) {
     match action {
         Action::Back if settings.capture.take().is_some() => settings.notice.clear(),
         Action::Back if settings.keybinds => settings.keybinds = false,
         Action::Back => settings.open = false,
+        Action::CycleFps => *fps = fps.next(),
         Action::Keybinds => settings.keybinds = true,
         Action::Rebind(control) => {
             settings.capture = Some(control);
@@ -269,6 +337,7 @@ fn activate(
 fn refresh(
     settings: Res<SettingsMenu>,
     bindings: Res<Keybinds>,
+    fps: Res<FpsPosition>,
     mut panel: Query<&mut Visibility, With<SettingsPanel>>,
     mut sections: Query<(&Section, &mut Node)>,
     windows: Query<Ref<Window>, With<PrimaryWindow>>,
@@ -320,6 +389,7 @@ fn refresh(
     if settings.is_open()
         && (settings.is_changed()
             || bindings.is_changed()
+            || fps.is_changed()
             || window.as_ref().is_some_and(|window| window.is_changed()))
     {
         for (label, mut text) in &mut labels {
@@ -332,6 +402,7 @@ fn refresh(
                     "Display mode: Windowed".into()
                 }
                 Action::ToggleDisplay => "Display mode: Fullscreen".into(),
+                Action::CycleFps => format!("FPS counter: {}", fps.label()),
                 Action::Keybinds => "Keybinds".into(),
                 Action::Rebind(control) => {
                     format!("{}  ·  {}", control.label(), bindings.get(control).label())
@@ -351,11 +422,64 @@ fn refresh(
     }
 }
 
+fn refresh_fps(
+    diagnostics: Res<DiagnosticsStore>,
+    position: Res<FpsPosition>,
+    mut counter: Query<(&mut Text, &mut Node, &mut Visibility), With<FpsCounter>>,
+    mut last_fps: Local<Option<u32>>,
+) {
+    let Ok((mut text, mut node, mut visibility)) = counter.single_mut() else {
+        return;
+    };
+    if position.is_changed() {
+        let left = matches!(*position, FpsPosition::TopLeft | FpsPosition::BottomLeft);
+        let top = matches!(*position, FpsPosition::TopLeft | FpsPosition::TopRight);
+        node.left = if left { px(12) } else { Val::Auto };
+        node.right = if left { Val::Auto } else { px(12) };
+        node.top = if top { px(4) } else { Val::Auto };
+        node.bottom = if top { Val::Auto } else { px(4) };
+        *visibility = if *position == FpsPosition::Disabled {
+            Visibility::Hidden
+        } else {
+            Visibility::Inherited
+        };
+    }
+    if *position == FpsPosition::Disabled {
+        return;
+    }
+    let fps = diagnostics
+        .get(&FrameTimeDiagnosticsPlugin::FPS)
+        .and_then(|diagnostic| diagnostic.smoothed())
+        .filter(|fps| fps.is_finite())
+        .map(|fps| fps.round() as u32);
+    if *last_fps != fps {
+        **text = fps.map_or_else(|| "FPS: --".into(), |fps| format!("FPS: {fps}"));
+        *last_fps = fps;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::{GameState, title::TitlePlugin};
     use bevy::{asset::AssetPlugin, state::app::StatesPlugin};
+
+    #[test]
+    fn fps_position_cycles_through_corners_and_disabled() {
+        let mut position = FpsPosition::default();
+        let labels = [
+            "Top left",
+            "Top right",
+            "Bottom right",
+            "Bottom left",
+            "Off",
+            "Top left",
+        ];
+        for label in labels {
+            assert_eq!(position.label(), label);
+            position = position.next();
+        }
+    }
 
     #[test]
     fn title_settings_open_without_toggling_and_return_to_title() {
