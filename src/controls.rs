@@ -38,6 +38,13 @@ impl Control {
         Self::Attack,
     ];
 
+    const MENU: [Self; 4] = [
+        Self::MenuUp,
+        Self::MenuDown,
+        Self::MenuLeft,
+        Self::MenuRight,
+    ];
+
     pub(crate) fn label(self) -> &'static str {
         match self {
             Self::Forward => "Move forward",
@@ -59,18 +66,29 @@ impl Control {
     }
 
     fn conflicts_with(self, other: Self) -> bool {
-        let menu_navigation = |control| {
-            matches!(
-                control,
-                Self::MenuUp | Self::MenuDown | Self::MenuLeft | Self::MenuRight
-            )
-        };
-        // Gameplay-only controls are suppressed in Inventory. Its shortcuts
-        // and its navigation directions still need distinct keys.
-        menu_navigation(self) == menu_navigation(other)
-            || matches!(self, Self::Inventory | Self::Drop)
-            || matches!(other, Self::Inventory | Self::Drop)
+        let left = self.conflict_group();
+        let right = other.conflict_group();
+        left == ConflictGroup::Exclusive || right == ConflictGroup::Exclusive || left == right
     }
+
+    fn conflict_group(self) -> ConflictGroup {
+        if Self::MENU.contains(&self) {
+            ConflictGroup::Menu
+        } else if matches!(self, Self::Inventory | Self::Drop) {
+            ConflictGroup::Exclusive
+        } else {
+            ConflictGroup::Gameplay
+        }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ConflictGroup {
+    Gameplay,
+    Menu,
+    // Inventory and Drop are active in the gameplay context and the inventory
+    // menu, so their bindings must remain unique across both groups.
+    Exclusive,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
