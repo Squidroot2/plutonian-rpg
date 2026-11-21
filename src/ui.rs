@@ -179,7 +179,7 @@ fn setup(mut commands: Commands) {
             Visibility::Hidden,
         ))
         .with_children(|parent| {
-            parent.spawn((Text::new("THE ICE CAN WAIT\n\nPaused"), text_style(30.0)));
+            parent.spawn((Text::new("Paused"), text_style(30.0)));
             for (label, action) in [
                 ("Resume", Action::Resume),
                 ("Settings", Action::Settings),
