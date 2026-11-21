@@ -1,5 +1,6 @@
 use crate::{
     GameState,
+    camera::Orbit,
     combat::Health,
     controls::{Control, Keybinds},
     dungeon::{Area, DungeonProgress, DungeonTarget},
@@ -18,6 +19,8 @@ enum HudText {
     Location,
     Objective,
 }
+#[derive(Component)]
+struct Compass;
 #[derive(Component)]
 pub(crate) struct HealthBar;
 #[derive(Component)]
@@ -48,6 +51,7 @@ impl Plugin for GameUiPlugin {
                 Update,
                 (
                     (refresh_hud, refresh_health).after(respawn_defeated),
+                    refresh_compass,
                     refresh_prompt,
                     refresh_dialogue,
                     refresh_pause,
@@ -70,12 +74,12 @@ fn setup(mut commands: Commands) {
         .spawn((
             Node {
                 position_type: PositionType::Absolute,
-                left: px(30),
-                right: px(30),
+                left: px(0),
+                right: px(0),
                 top: px(24),
                 flex_direction: FlexDirection::Column,
-                align_items: AlignItems::FlexStart,
-                row_gap: px(8),
+                align_items: AlignItems::Center,
+                row_gap: px(4),
                 ..default()
             },
             Pickable::IGNORE,
@@ -88,12 +92,32 @@ fn setup(mut commands: Commands) {
                 Pickable::IGNORE,
             ));
             hud.spawn((
-                HudText::Objective,
+                Compass,
                 Text::default(),
-                text_style(18.0),
+                text_style(15.0),
+                Node {
+                    padding: UiRect::axes(px(10), px(2)),
+                    border_radius: BorderRadius::all(px(3)),
+                    ..default()
+                },
+                BackgroundColor(Color::srgba(0.018, 0.035, 0.055, 0.82)),
+                Visibility::Hidden,
                 Pickable::IGNORE,
             ));
         });
+    commands.spawn((
+        HudText::Objective,
+        Text::default(),
+        text_style(18.0),
+        Node {
+            position_type: PositionType::Absolute,
+            left: px(30),
+            right: px(30),
+            top: px(80),
+            ..default()
+        },
+        Pickable::IGNORE,
+    ));
     commands
         .spawn((
             HealthBar,
@@ -331,6 +355,43 @@ fn refresh_hud(
     *last = Some(snapshot);
 }
 
+fn refresh_compass(
+    state: Res<State<GameState>>,
+    orbit: Res<Orbit>,
+    mut compass: Query<(&mut Text, &mut Visibility), With<Compass>>,
+    mut last_bearing: Local<Option<u16>>,
+) {
+    let Ok((mut text, mut visibility)) = compass.single_mut() else {
+        return;
+    };
+    let visible = matches!(
+        state.get(),
+        GameState::Playing | GameState::Inventory | GameState::Paused
+    );
+    visibility.set_if_neq(if visible {
+        Visibility::Inherited
+    } else {
+        Visibility::Hidden
+    });
+    if !visible {
+        return;
+    }
+    let (degrees, direction) = camera_bearing(orbit.yaw);
+    if *last_bearing != Some(degrees) {
+        **text = format!("{direction}  {degrees:03} deg");
+        *last_bearing = Some(degrees);
+    }
+}
+
+fn camera_bearing(yaw: f32) -> (u16, &'static str) {
+    const DIRECTIONS: [&str; 8] = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
+    // At zero yaw the camera looks toward -Z. Positive orbit yaw turns west.
+    let bearing = (-yaw).to_degrees().rem_euclid(360.0);
+    let degrees = bearing.round() as u16 % 360;
+    let direction = (f32::from(degrees) / 45.0).round() as usize % DIRECTIONS.len();
+    (degrees, DIRECTIONS[direction])
+}
+
 fn refresh_health(
     state: Res<State<GameState>>,
     time: Res<Time>,
@@ -478,6 +539,15 @@ mod tests {
     use crate::combat::{CombatPlugin, Hit};
     use bevy::{state::app::StatesPlugin, time::TimeUpdateStrategy};
     use std::time::Duration;
+
+    #[test]
+    fn compass_uses_camera_facing_and_wraps_at_north() {
+        assert_eq!(camera_bearing(0.0), (0, "N"));
+        assert_eq!(camera_bearing(90_f32.to_radians()), (270, "W"));
+        assert_eq!(camera_bearing((-45_f32).to_radians()), (45, "NE"));
+        assert_eq!(camera_bearing(180_f32.to_radians()), (180, "S"));
+        assert_eq!(camera_bearing(360.2_f32.to_radians()), (0, "N"));
+    }
 
     #[test]
     fn the_bar_stays_hidden_at_full_health_then_shows_damage_recovery_and_fade() {
