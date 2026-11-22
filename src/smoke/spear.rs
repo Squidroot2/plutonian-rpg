@@ -10,11 +10,11 @@ use crate::{
     equipment::{Equipment, EquipmentSlot, WornEquipment},
     interaction::{InteractionTarget, Nearby},
     inventory::{Inventory, ItemKind, Pickup},
-    inventory_ui::{InventoryAction, InventoryRow},
     loading::PendingScene,
-    menu_ui::{MenuTab, PlayerMenu},
     player::Player,
     practice_dummy::PracticeDummy,
+    ui::inventory_ui::{InventoryAction, InventoryRow},
+    ui::menu_ui::{MenuTab, PlayerMenu},
     weapon::{GRIP_SIDE, WeaponAttack, WeaponStance},
 };
 

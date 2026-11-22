@@ -8,8 +8,8 @@ use crate::{
     combat::{CombatSystems, Dead},
     inventory::{Inventory, InventoryNotice, ItemKind},
     loading::{GameAssets, PendingScene, scene_ready},
-    menu_ui::{MenuTab, PlayerMenu},
     player::Player,
+    ui::menu_ui::{MenuTab, PlayerMenu},
     weapon::{WeaponAttack, WeaponStance},
 };
 

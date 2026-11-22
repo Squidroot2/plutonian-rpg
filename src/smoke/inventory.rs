@@ -4,9 +4,9 @@ use crate::{
     camera::{FollowCamera, Orbit},
     interaction::{InteractionTarget, Nearby},
     inventory::{Inventory, ItemKind, Pickup},
-    inventory_ui::{InventoryAction, InventoryRow, InventoryUiState},
-    menu_ui::{MenuTab, PlayerMenu},
     player::Player,
+    ui::inventory_ui::{InventoryAction, InventoryRow, InventoryUiState},
+    ui::menu_ui::{MenuTab, PlayerMenu},
 };
 use bevy::{
     camera::NormalizedRenderTarget,

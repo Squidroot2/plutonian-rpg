@@ -4,12 +4,12 @@ use crate::{
     controls::{Control, Keybinds},
     dungeon::{Area, DungeonTarget, UseDungeonTarget},
     inventory::{Inventory, ItemKind, Pickup},
-    menu_ui::PlayerMenu,
     nemi::Nemi,
     player::Player,
     quest::{Dialogue, LAST_LIGHT, QuestAction, QuestJournal},
     save::{Bed, SaveAtBed},
     storage::ChestId,
+    ui::menu_ui::PlayerMenu,
 };
 use avian3d::prelude::*;
 use bevy::{ecs::query::QueryData, prelude::*};
@@ -331,7 +331,7 @@ mod tests {
     use super::*;
     use crate::{
         storage::{ChestStorage, StoragePlugin},
-        storage_ui::{StorageAction, StorageSide, StorageUiPlugin, TransferAmount},
+        ui::storage_ui::{StorageAction, StorageSide, StorageUiPlugin, TransferAmount},
     };
     use bevy::{
         asset::AssetPlugin, input::mouse::AccumulatedMouseScroll, mesh::MeshPlugin,
@@ -419,7 +419,7 @@ mod tests {
         .init_resource::<AccumulatedMouseScroll>()
         .add_plugins((
             InteractionPlugin,
-            crate::loot_ui::LootUiPlugin,
+            crate::ui::loot_ui::LootUiPlugin,
             StoragePlugin,
             StorageUiPlugin,
         ));
@@ -694,7 +694,7 @@ mod tests {
 
     #[test]
     fn loot_panel_transfers_each_corpse_stack_once_and_keeps_the_body() {
-        use crate::{loot_ui::LootAction, smoke::pointer_click};
+        use crate::{smoke::pointer_click, ui::loot_ui::LootAction};
 
         let mut app = test_app();
         let window = app.world_mut().spawn_empty().id();
@@ -865,7 +865,7 @@ mod tests {
         app.world_mut().despawn(wall);
         app.world_mut()
             .resource_mut::<PlayerMenu>()
-            .show(crate::menu_ui::MenuTab::Inventory);
+            .show(crate::ui::menu_ui::MenuTab::Inventory);
         for _ in 0..3 {
             app.update();
         }
@@ -899,7 +899,7 @@ mod tests {
         assert!(
             app.world()
                 .resource::<PlayerMenu>()
-                .is_on(crate::menu_ui::MenuTab::Inventory)
+                .is_on(crate::ui::menu_ui::MenuTab::Inventory)
         );
         assert_eq!(
             app.world()

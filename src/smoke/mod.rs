@@ -20,13 +20,13 @@ use crate::{
     equipment::Equipment,
     interaction::{InteractionTarget, Nearby, Target},
     inventory::{DropRequest, Inventory, ItemKind},
-    inventory_ui::{InventoryAction, InventoryRow, InventoryUiState},
     loading::LoadStatus,
-    menu_ui::{MenuTab, PlayerMenu},
     player::{DODGE_KEY, Dodge, Pace, Player},
     quest::{Beacon, Dialogue, LAST_LIGHT, QuestAction, QuestJournal, QuestStatus},
-    quest_ui::{QuestRow, QuestSelection},
-    title::{TitleBackdrop, TitleInput},
+    ui::inventory_ui::{InventoryAction, InventoryRow, InventoryUiState},
+    ui::menu_ui::{MenuTab, PlayerMenu},
+    ui::quest_ui::{QuestRow, QuestSelection},
+    ui::title::{TitleBackdrop, TitleInput},
     world::{SessionEntity, WorldLayout},
 };
 use avian3d::prelude::*;

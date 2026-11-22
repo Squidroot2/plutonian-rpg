@@ -7,9 +7,9 @@ use crate::{
     GameState,
     equipment::Equipment,
     loading::{GameAssets, PendingScene, scene_ready},
-    menu_ui::{MenuTab, PlayerMenu},
     player::Player,
     save::RunSave,
+    ui::menu_ui::{MenuTab, PlayerMenu},
     world::{SessionEntity, SpawnWorld, WorldLayout},
 };
 

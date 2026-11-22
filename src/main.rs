@@ -15,23 +15,16 @@ mod enemy;
 mod equipment;
 mod interaction;
 mod inventory;
-mod inventory_ui;
 mod loading;
-mod loot_ui;
-mod menu_ui;
 mod nemi;
 mod player;
 mod practice_dummy;
 mod quest;
-mod quest_ui;
 mod roach;
 mod save;
-mod settings;
 mod smoke;
 mod storage;
-mod storage_ui;
 mod terrain;
-mod title;
 mod ui;
 mod weapon;
 mod world;
@@ -67,7 +60,7 @@ fn main() {
     let mode = if args.iter().any(|arg| arg == "--windowed") {
         WindowMode::Windowed
     } else {
-        settings::FULLSCREEN_MODE
+        ui::settings::FULLSCREEN_MODE
     };
 
     let mut app = App::new();
@@ -104,13 +97,13 @@ fn main() {
             interaction::InteractionPlugin,
         ))
         .add_plugins((
-            inventory_ui::InventoryUiPlugin,
-            title::TitlePlugin,
+            ui::inventory_ui::InventoryUiPlugin,
+            ui::title::TitlePlugin,
             ui::GameUiPlugin,
-            quest_ui::QuestUiPlugin,
-            menu_ui::PlayerMenuPlugin,
+            ui::quest_ui::QuestUiPlugin,
+            ui::menu_ui::PlayerMenuPlugin,
             storage::StoragePlugin,
-            storage_ui::StorageUiPlugin,
+            ui::storage_ui::StorageUiPlugin,
             save::SavePlugin {
                 smoke: arena || world || nemi,
             },
@@ -119,11 +112,11 @@ fn main() {
             combat::CombatPlugin,
             combat_feedback::CombatFeedbackPlugin,
             combat_audio::CombatAudioPlugin,
-            settings::SettingsPlugin,
+            ui::settings::SettingsPlugin,
             enemy::EnemyPlugin,
             attributes::AttributesPlugin,
             nemi::NemiPlugin,
-            loot_ui::LootUiPlugin,
+            ui::loot_ui::LootUiPlugin,
         ));
     if arena || world || nemi {
         app.add_plugins(smoke::SmokePlugin { arena, nemi });

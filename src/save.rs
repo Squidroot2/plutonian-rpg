@@ -7,14 +7,14 @@ use crate::{
     equipment::{Equipment, EquipmentSlot},
     interaction::{ActiveChest, CorpseLoot, InteractionSystems, LootTarget, Nearby, Target},
     inventory::{Inventory, InventoryNotice, ItemKind, Pickup},
-    inventory_ui::InventoryUiState,
-    menu_ui::PlayerMenu,
     nemi::{self, Nemi, NemiState},
     player::{MovementInput, Player},
     quest::{Dialogue, QuestAction, QuestJournal, SavedJournal},
-    quest_ui::QuestSelection,
     roach,
     storage::ChestStorage,
+    ui::inventory_ui::InventoryUiState,
+    ui::menu_ui::PlayerMenu,
+    ui::quest_ui::QuestSelection,
     world::SessionEntity,
     worm,
 };
@@ -596,8 +596,8 @@ fn restore_actors(
 mod tests {
     use super::*;
     use crate::{
-        equipment::EquipmentSlot, quest::test_journal, settings::SettingsMenu, storage::ChestId,
-        title::TitlePlugin, world::WorldLayout,
+        equipment::EquipmentSlot, quest::test_journal, storage::ChestId,
+        ui::settings::SettingsMenu, ui::title::TitlePlugin, world::WorldLayout,
     };
     use bevy::{asset::AssetPlugin, ecs::system::RunSystemOnce, state::app::StatesPlugin};
 

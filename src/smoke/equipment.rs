@@ -8,12 +8,12 @@ use crate::{
     equipment::{Equipment, EquipmentSlot, Handedness, WeaponKind, WornEquipment},
     interaction::{InteractionTarget, Nearby},
     inventory::{Inventory, ItemKind, Pickup},
-    inventory_ui::{InventoryAction, InventoryRow},
     loading::PendingScene,
-    menu_ui::PlayerMenuScreen,
-    menu_ui::{MenuTab, PlayerMenu},
     player::{Pace, Player},
     practice_dummy::PracticeDummy,
+    ui::inventory_ui::{InventoryAction, InventoryRow},
+    ui::menu_ui::PlayerMenuScreen,
+    ui::menu_ui::{MenuTab, PlayerMenu},
     weapon::{Hand, WeaponAttack, WeaponStance},
 };
 use bevy::{

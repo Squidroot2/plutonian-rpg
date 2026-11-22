@@ -1,7 +1,7 @@
 use crate::{
     GameState,
     save::{RunSave, SaveSlot},
-    settings::SettingsMenu,
+    ui::settings::SettingsMenu,
 };
 use bevy::{app::AppExit, input::InputSystems, picking::hover::PickingInteraction, prelude::*};
 

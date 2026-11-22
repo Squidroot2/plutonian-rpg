@@ -1,8 +1,8 @@
 use crate::{
     controls::{Binding, Control, KeybindCategory, Keybinds},
-    menu_ui::set_display,
-    title::TitleInput,
     ui,
+    ui::menu_ui::set_display,
+    ui::title::TitleInput,
 };
 use bevy::{
     diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin},
@@ -525,7 +525,7 @@ fn refresh_fps(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{GameState, title::TitlePlugin};
+    use crate::{GameState, ui::title::TitlePlugin};
     use bevy::{asset::AssetPlugin, state::app::StatesPlugin};
 
     #[test]

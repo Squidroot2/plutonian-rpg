@@ -11,9 +11,9 @@ use crate::{
     equipment::{Equipment, EquipmentSlot, WeaponKind},
     interaction::InteractionSystems,
     inventory::Inventory,
-    menu_ui::PlayerMenu,
     nemi::NemiPlayback,
     quest::Dialogue,
+    ui::menu_ui::PlayerMenu,
     weapon::{Hand, WeaponAttack, WeaponStance},
     world::WorldLayout,
 };

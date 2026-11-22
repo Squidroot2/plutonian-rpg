@@ -1,4 +1,4 @@
-use crate::{GameState, menu_ui::PlayerMenu, player::Player, quest::Dialogue};
+use crate::{GameState, player::Player, quest::Dialogue, ui::menu_ui::PlayerMenu};
 use avian3d::prelude::*;
 use bevy::{
     input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll},

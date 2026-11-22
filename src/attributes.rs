@@ -6,8 +6,8 @@ use bevy::prelude::*;
 use crate::{
     GameState,
     combat::{CombatSystems, Dead, Health, HealthRecovery},
-    menu_ui::{MenuTab, PlayerMenu},
     player::{Player, Stamina},
+    ui::menu_ui::{MenuTab, PlayerMenu},
 };
 
 pub(crate) const DEFAULT_RANK: u8 = 5;
@@ -368,7 +368,7 @@ enum CharacterText {
 struct SpendButton(AttributeId);
 
 pub(crate) fn spawn_character(page: &mut ChildSpawnerCommands) {
-    use crate::{menu_ui, ui::text_style};
+    use crate::{ui::menu_ui, ui::text_style};
 
     page.spawn(menu_ui::scroll_pane(MenuTab::Character, percent(100)))
         .with_children(|pane| {
@@ -422,7 +422,7 @@ fn refresh_character(
     mut texts: Query<(&CharacterText, &mut Text)>,
     mut buttons: Query<(&SpendButton, &mut BackgroundColor)>,
 ) {
-    use crate::menu_ui::{BUTTON, DISABLED};
+    use crate::ui::menu_ui::{BUTTON, DISABLED};
     let Ok((ranks, progress)) = players.single() else {
         return;
     };

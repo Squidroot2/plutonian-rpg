@@ -1,4 +1,7 @@
-use crate::{GameState, inventory_ui, quest_ui, ui::text_style};
+use crate::{
+    GameState,
+    ui::{inventory_ui, quest_ui, text_style},
+};
 use bevy::{
     input::mouse::AccumulatedMouseScroll,
     prelude::*,

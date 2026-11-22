@@ -1,6 +1,6 @@
 use crate::{
-    menu_ui::{BUTTON, MenuTab, PlayerMenu, SELECTED, button, scroll_pane},
     quest::{QuestJournal, QuestOutcome, QuestStatus},
+    ui::menu_ui::{BUTTON, MenuTab, PlayerMenu, SELECTED, button, scroll_pane},
     ui::text_style,
 };
 use bevy::prelude::*;

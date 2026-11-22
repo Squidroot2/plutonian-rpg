@@ -1,3 +1,11 @@
+pub(crate) mod inventory_ui;
+pub(crate) mod loot_ui;
+pub(crate) mod menu_ui;
+pub(crate) mod quest_ui;
+pub(crate) mod settings;
+pub(crate) mod storage_ui;
+pub(crate) mod title;
+
 use crate::{
     GameState,
     camera::Orbit,
@@ -6,11 +14,11 @@ use crate::{
     dungeon::{Area, DungeonProgress, DungeonTarget},
     interaction::{InteractionSystems, InteractionTarget, Nearby, Target},
     loading::LoadStatus,
-    menu_ui::PlayerMenu,
     player::{Player, Stamina},
     quest::{Dialogue, QuestJournal},
     save::{SaveNotice, save_at_bed},
-    settings::SettingsMenu,
+    ui::menu_ui::PlayerMenu,
+    ui::settings::SettingsMenu,
     world::WorldLayout,
 };
 use bevy::{app::AppExit, prelude::*, window::PrimaryWindow};
@@ -272,7 +280,7 @@ pub(crate) fn pause(
     windows: Query<&Window, With<PrimaryWindow>>,
     settings: Option<Res<SettingsMenu>>,
     log: Option<ResMut<PlayerMenu>>,
-    drop_prompt: Option<ResMut<crate::inventory_ui::InventoryUiState>>,
+    drop_prompt: Option<ResMut<crate::ui::inventory_ui::InventoryUiState>>,
 ) {
     if !matches!(*next, NextState::Unchanged) || settings.is_some_and(|menu| menu.is_open()) {
         return;
@@ -290,7 +298,7 @@ pub(crate) fn pause(
         let quest_log = bindings.just_pressed(Control::QuestLog, &keys);
         let escape = keys.just_pressed(KeyCode::Escape);
         if escape
-            && menu.is_on(crate::menu_ui::MenuTab::Inventory)
+            && menu.is_on(crate::ui::menu_ui::MenuTab::Inventory)
             && drop_prompt.is_some_and(|mut ui| ui.cancel_drop())
         {
             return;

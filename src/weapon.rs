@@ -9,9 +9,9 @@ use crate::{
     equipment::{Equipment, EquipmentSlot, WeaponKind},
     interaction::InteractionSystems,
     inventory::Inventory,
-    menu_ui::PlayerMenu,
     player::{Dodge, MovementInput, Player, Stamina},
     quest::Dialogue,
+    ui::menu_ui::PlayerMenu,
 };
 
 const GRIP_HEIGHT: f32 = -0.05;
@@ -628,7 +628,7 @@ mod tests {
         app.update();
         assert!(player_attack(&app, player).active());
         let mut menu = PlayerMenu::default();
-        menu.show(crate::menu_ui::MenuTab::Inventory);
+        menu.show(crate::ui::menu_ui::MenuTab::Inventory);
         app.insert_resource(menu);
         app.update();
         assert!(player_attack(&app, player).active());
@@ -779,7 +779,7 @@ mod tests {
         assert!(player_attack(&app, player).current(Hand::Main).is_some());
 
         let mut menu = PlayerMenu::default();
-        menu.show(crate::menu_ui::MenuTab::Equipment);
+        menu.show(crate::ui::menu_ui::MenuTab::Equipment);
         app.insert_resource(menu);
         app.world_mut().trigger(UnequipRequest(MainHand));
         assert!(!player_attack(&app, player).active());
@@ -922,7 +922,7 @@ mod tests {
             Ok(true)
         );
         let mut menu = PlayerMenu::default();
-        menu.show(crate::menu_ui::MenuTab::Inventory);
+        menu.show(crate::ui::menu_ui::MenuTab::Inventory);
         app.insert_resource(menu);
         frame(&mut app, Some(KeyX), &[]);
         assert_eq!(stance(&app), Drawn, "the inventory takes precedence");

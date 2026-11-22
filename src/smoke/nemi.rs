@@ -8,11 +8,11 @@ use crate::{
     equipment::Equipment,
     interaction::{InteractionTarget, Nearby, Target},
     inventory::{Inventory, ItemKind},
-    menu_ui::{MenuTab, PlayerMenu},
     nemi::Nemi,
     player::{Dodge, Player},
     quest::{Beacon, Dialogue, LAST_LIGHT, OLD_RELAY, QuestJournal, QuestStatus, RELIGHT_BEACON},
-    quest_ui::{QuestRow, QuestSelection},
+    ui::menu_ui::{MenuTab, PlayerMenu},
+    ui::quest_ui::{QuestRow, QuestSelection},
     weapon::{GRIP_SIDE, WeaponAttack},
 };
 use avian3d::prelude::*;

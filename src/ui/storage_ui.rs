@@ -6,11 +6,11 @@ use crate::{
     dungeon::Area,
     interaction::{ActiveChest, INTERACT_HEIGHT, INTERACT_RANGE, unobstructed},
     inventory::{Inventory, ItemKind},
-    menu_ui::{
-        button, interaction_modal, scroll_hovered, scrollable_pane, set_display, wide_panel,
-    },
     player::Player,
     storage::{ChestId, ChestStorage},
+    ui::menu_ui::{
+        button, interaction_modal, scroll_hovered, scrollable_pane, set_display, wide_panel,
+    },
     ui::text_style,
 };
 

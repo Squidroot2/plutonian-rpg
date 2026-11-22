@@ -3,8 +3,8 @@ use crate::{
     combat::{Dead, LootedCorpseFade},
     interaction::{CorpseLoot, INTERACT_HEIGHT, INTERACT_RANGE, LootTarget},
     inventory::Inventory,
-    menu_ui::{PANEL, interaction_modal},
     player::Player,
+    ui::menu_ui::{PANEL, interaction_modal},
     ui::text_style,
 };
 use bevy::prelude::*;

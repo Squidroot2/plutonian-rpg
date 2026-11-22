@@ -6,10 +6,10 @@ use crate::{
     controls::{Control, Keybinds},
     equipment::{EquipRequest, Equipment, EquipmentSlot, Handedness, UnequipRequest},
     inventory::{DropRequest, Inventory, InventoryNotice, ItemKind},
-    menu_ui::{
+    player::Player,
+    ui::menu_ui::{
         self, BUTTON, DISABLED, MenuTab, PlayerMenu, SELECTED, column, scroll_pane, set_display,
     },
-    player::Player,
     ui::text_style as font,
 };
 use bevy::{
