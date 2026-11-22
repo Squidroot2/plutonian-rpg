@@ -10,7 +10,6 @@ use crate::{
         self, BUTTON, DISABLED, MenuTab, PlayerMenu, SELECTED, column, scroll_pane, set_display,
     },
     player::Player,
-    quest::Dialogue,
     ui::text_style as font,
 };
 use bevy::{
@@ -468,6 +467,9 @@ pub(crate) fn spawn(page: &mut ChildSpawnerCommands) {
                 Visibility::Hidden,
             ))
             .insert(Node {
+                position_type: PositionType::Absolute,
+                width: percent(100),
+                height: percent(100),
                 flex_direction: FlexDirection::Column,
                 align_items: AlignItems::Center,
                 justify_content: JustifyContent::Center,
@@ -484,6 +486,11 @@ pub(crate) fn spawn(page: &mut ChildSpawnerCommands) {
                     .observe(close_strength_warning_click)
                     .with_child((Text::new("Close"), font(16.0), Pickable::IGNORE));
             });
+        panel.spawn((
+            PanelText::Notice(MenuTab::Inventory),
+            Text::default(),
+            font(14.0),
+        ));
         panel
             .spawn(Node {
                 align_items: AlignItems::Center,
@@ -586,19 +593,6 @@ pub(crate) fn spawn_equipment(page: &mut ChildSpawnerCommands) {
         });
 }
 
-fn show_strength_warning(
-    menu: Res<PlayerMenu>,
-    dialogue: Res<Dialogue>,
-    mut warnings: Query<&mut Visibility, With<StrengthWarning>>,
-) {
-    if menu.accepts(MenuTab::Inventory)
-        && dialogue.text.is_none()
-        && let Ok(mut visibility) = warnings.single_mut()
-    {
-        visibility.set_if_neq(Visibility::Inherited);
-    }
-}
-
 fn close_strength_warning_click(
     click: On<PointerClick>,
     buttons: Query<(), With<StrengthWarningClose>>,
@@ -619,8 +613,7 @@ fn close_strength_warning(
     menu: Res<PlayerMenu>,
     mut warnings: Query<&mut Visibility, With<StrengthWarning>>,
 ) {
-    if menu.is_open()
-        && keys.just_pressed(KeyCode::Escape)
+    if (!menu.is_on(MenuTab::Inventory) || keys.just_pressed(KeyCode::Escape))
         && let Ok(mut visibility) = warnings.single_mut()
     {
         visibility.set_if_neq(Visibility::Hidden);
@@ -649,6 +642,7 @@ fn action(
     equipment: Res<Equipment>,
     mut ui: ResMut<InventoryUiState>,
     mut notice: ResMut<InventoryNotice>,
+    mut warnings: Query<&mut Visibility, With<StrengthWarning>>,
     mut commands: Commands,
 ) {
     let Ok(&action) = actions.get(click.entity) else {
@@ -675,7 +669,9 @@ fn action(
             notice.0.clear();
             if click.count == 2 && matches!(row, InventoryRow::BagGear(..)) {
                 if !item.meets_strength(strength) {
-                    commands.run_system_cached(show_strength_warning);
+                    if let Ok(mut visibility) = warnings.single_mut() {
+                        visibility.set_if_neq(Visibility::Inherited);
+                    }
                 } else if equipment.count(item) == 0 || item.fits_slot(EquipmentSlot::OffHand) {
                     commands.trigger(EquipRequest::Quick(item));
                 }
