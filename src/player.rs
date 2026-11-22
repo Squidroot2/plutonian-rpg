@@ -547,7 +547,12 @@ pub(crate) fn movement(
             } else {
                 Pace::Walk
             };
-            if agile && input.sprint && direction.y > 0.0 && !player.sprint_exhausted {
+            if agile
+                && input.sprint
+                && direction.y > 0.0
+                && direction.x == 0.0
+                && !player.sprint_exhausted
+            {
                 if !stamina.is_empty() {
                     player.pace = Pace::Sprint;
                     stamina.drain_sprint(delta);
@@ -1068,13 +1073,13 @@ mod tests {
                 &[KeyCode::KeyW, KeyCode::KeyA],
                 Vec3::NEG_X + Vec3::Z,
                 Gait::WalkForwardLeft,
-                Pace::Sprint,
+                Pace::Walk,
             ),
             (
                 &[KeyCode::KeyW, KeyCode::KeyD],
                 Vec3::NEG_X + Vec3::NEG_Z,
                 Gait::WalkForwardRight,
-                Pace::Sprint,
+                Pace::Walk,
             ),
             (
                 &[KeyCode::KeyS, KeyCode::KeyA],
