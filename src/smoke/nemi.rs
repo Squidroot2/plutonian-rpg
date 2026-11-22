@@ -6,6 +6,7 @@ use crate::{
     combat_feedback::DeathAnimation,
     dungeon::{Area, DungeonTarget, HATCH},
     equipment::Equipment,
+    experience::Experience,
     interaction::{InteractionTarget, Nearby, Target},
     inventory::{Inventory, ItemKind},
     nemi::Nemi,
@@ -51,6 +52,7 @@ pub(super) fn drive(
             &mut Dodge,
             &mut Transform,
             &WeaponAttack,
+            &Experience,
         ),
         Without<Nemi>,
     >,
@@ -93,12 +95,13 @@ pub(super) fn drive(
     commands: Commands,
     exit: MessageWriter<AppExit>,
 ) {
-    let Ok((entity, player, dodge, transform, thrust)) = avatar.single_mut() else {
+    let Ok((entity, player, dodge, transform, thrust, xp)) = avatar.single_mut() else {
         return;
     };
     let (keeper, nemi, health, keeper_transform, dead, collider, death) = nemi
         .single()
         .expect("the shipped outpost must spawn a skinned Nemi");
+    assert_eq!(*xp, Experience(if dead { 35 } else { 0 }));
     let position = keeper_transform.translation;
     keys.reset_all();
     mouse.reset_all();
@@ -390,7 +393,9 @@ fn check_solo_route(
         }
         Check::Done => {
             assert_eq!(player.area, Area::OldRelay);
-            info!("NEMI SMOKE PASS: fled, returned, died, and the solo route opened the relay");
+            info!(
+                "NEMI SMOKE PASS: fled, returned, awarded XP on death, and the solo route opened the relay"
+            );
             exit.write(AppExit::Success);
         }
         _ => {}

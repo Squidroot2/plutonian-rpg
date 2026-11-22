@@ -2,9 +2,10 @@ use crate::{
     GameState,
     attributes::{AttributeId, AttributeRanks, CharacterProgress, SavedProgress},
     camera::Orbit,
-    combat::{CombatSystems, ConfirmedHit, Dead, Health, Hit},
+    combat::{ActorDefeated, CombatSystems, ConfirmedHit, Dead, Health, Hit},
     dungeon::{Area, DungeonProgress},
     equipment::{Equipment, EquipmentSlot},
+    experience::{Experience, ExperienceNotice, ExperienceReward, ExperienceUpdates},
     interaction::{ActiveChest, CorpseLoot, InteractionSystems, LootTarget, Nearby, Target},
     inventory::{Inventory, InventoryNotice, ItemKind, Pickup},
     nemi::{self, Nemi, NemiState},
@@ -21,7 +22,7 @@ use crate::{
 use avian3d::prelude::Collider;
 use bevy::prelude::*;
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     fs::{self, File, OpenOptions},
     io::{self, Read, Write},
     path::{Path, PathBuf},
@@ -30,7 +31,8 @@ use std::{
 };
 
 // Four magic bytes followed by the little-endian save schema version.
-const HEADER: &[u8; 6] = b"PLUT\x03\x00";
+const HEADER: &[u8; 6] = b"PLUT\x04\x00";
+const V3_HEADER: &[u8; 6] = b"PLUT\x03\x00";
 const V2_HEADER: &[u8; 6] = b"PLUT\x02\x00";
 const LEGACY_HEADER: &[u8; 6] = b"PLUT\x01\x00";
 const MAX_SAVE_BYTES: usize = 1024 * 1024;
@@ -107,7 +109,7 @@ struct SavedEncounter {
 }
 
 #[derive(bitcode::Encode, bitcode::Decode)]
-pub(crate) struct Snapshot<E = Equipment, P = SavedProgress> {
+pub(crate) struct Snapshot<E = Equipment, P = SavedProgress, X = SavedExperience> {
     pub(crate) journal: SavedJournal,
     inventory: Inventory,
     equipment: E,
@@ -118,8 +120,17 @@ pub(crate) struct Snapshot<E = Equipment, P = SavedProgress> {
     nemi_state: NemiState,
     encounters: BTreeMap<EncounterId, SavedEncounter>,
     pub(crate) progression: P,
+    experience: X,
     #[bitcode(skip)]
     pub(crate) add_shortswords_on_spawn: bool,
+}
+
+#[derive(Default, bitcode::Encode, bitcode::Decode)]
+pub(crate) struct SavedExperience {
+    player: Experience,
+    nemi_contributed: bool,
+    // Use stable encounter IDs because checkpoint loading recreates the actors.
+    encounter_contributions: BTreeSet<EncounterId>,
 }
 
 // Bitcode packs three slot variants differently from four. ItemKind stays within
@@ -133,23 +144,16 @@ enum LegacyEquipmentSlot {
 }
 
 fn migrate<E>(
-    old: Snapshot<E, ()>,
+    old: Snapshot<E, (), ()>,
     equipment: Equipment,
     add_shortswords_on_spawn: bool,
 ) -> io::Result<Snapshot> {
-    let mut snapshot = Snapshot {
-        journal: old.journal,
-        inventory: old.inventory,
+    let mut snapshot = upgrade_snapshot(
+        old,
         equipment,
-        chests: old.chests,
-        dungeon: old.dungeon,
-        pickups: old.pickups,
-        nemi: old.nemi,
-        nemi_state: old.nemi_state,
-        encounters: old.encounters,
-        progression: SavedProgress::default(),
+        SavedProgress::default(),
         add_shortswords_on_spawn,
-    };
+    );
     if !snapshot.equipment.valid_slots() {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
@@ -170,10 +174,44 @@ fn migrate<E>(
     Ok(snapshot)
 }
 
+// Unit fields consume no bitcode bytes in schemas that predate the corresponding data.
+fn upgrade_snapshot<E, P>(
+    old: Snapshot<E, P, ()>,
+    equipment: Equipment,
+    progression: SavedProgress,
+    add_shortswords_on_spawn: bool,
+) -> Snapshot {
+    Snapshot {
+        journal: old.journal,
+        inventory: old.inventory,
+        equipment,
+        chests: old.chests,
+        dungeon: old.dungeon,
+        pickups: old.pickups,
+        nemi: old.nemi,
+        nemi_state: old.nemi_state,
+        encounters: old.encounters,
+        progression,
+        experience: SavedExperience::default(),
+        add_shortswords_on_spawn,
+    }
+}
+
 impl Snapshot {
+    pub(crate) fn player_experience(&self) -> Experience {
+        self.experience.player
+    }
+
     fn is_valid(&self) -> bool {
         self.inventory.valid_stacks()
             && self.progression.is_valid()
+            && self.experience.player.is_valid(self.progression.level())
+            && (!self.experience.nemi_contributed || self.nemi.health > 0)
+            && self.experience.encounter_contributions.iter().all(|id| {
+                self.encounters
+                    .get(id)
+                    .is_some_and(|encounter| encounter.actor.health > 0)
+            })
             && self.equipment.valid_slots()
             && self.equipment.0.values().all(|item| {
                 item.meets_strength(self.progression.ranks().rank(AttributeId::Strength))
@@ -301,12 +339,19 @@ fn read_save(path: &Path) -> io::Result<Snapshot> {
     let invalid_data = |error| io::Error::new(io::ErrorKind::InvalidData, error);
     let snapshot: Snapshot = if let Some(payload) = data.strip_prefix(HEADER) {
         bitcode::decode(payload).map_err(invalid_data)?
+    } else if let Some(payload) = data.strip_prefix(V3_HEADER) {
+        let mut old: Snapshot<Equipment, SavedProgress, ()> =
+            bitcode::decode(payload).map_err(invalid_data)?;
+        let equipment = std::mem::take(&mut old.equipment);
+        let progression = std::mem::take(&mut old.progression);
+        upgrade_snapshot(old, equipment, progression, false)
     } else if let Some(payload) = data.strip_prefix(V2_HEADER) {
-        let old: Snapshot<Equipment, ()> = bitcode::decode(payload).map_err(invalid_data)?;
-        let equipment = old.equipment.clone();
+        let mut old: Snapshot<Equipment, (), ()> =
+            bitcode::decode(payload).map_err(invalid_data)?;
+        let equipment = std::mem::take(&mut old.equipment);
         migrate(old, equipment, false)?
     } else if let Some(payload) = data.strip_prefix(LEGACY_HEADER) {
-        let old: Snapshot<BTreeMap<LegacyEquipmentSlot, ItemKind>, ()> =
+        let old: Snapshot<BTreeMap<LegacyEquipmentSlot, ItemKind>, (), ()> =
             bitcode::decode(payload).map_err(invalid_data)?;
         let equipment = Equipment(
             old.equipment
@@ -419,6 +464,7 @@ impl Plugin for SavePlugin {
                     .chain()
                     .after(InteractionSystems)
                     .after(CombatSystems::Resolve)
+                    .after(ExperienceUpdates)
                     .after(nemi::react_to_player_hit)
                     .run_if(in_state(GameState::Playing)),
             );
@@ -438,11 +484,23 @@ pub(crate) fn save_at_bed(
     mut requests: MessageReader<SaveAtBed>,
     beds: Query<(), With<Bed>>,
     mut player: Query<
-        (&Player, &mut Health, &AttributeRanks, &CharacterProgress),
+        (
+            &Player,
+            &mut Health,
+            &AttributeRanks,
+            &CharacterProgress,
+            &Experience,
+        ),
         (Without<Dead>, Without<Nemi>, Without<EncounterId>),
     >,
-    nemi: Query<(&Transform, &Health, &Nemi)>,
-    encounters: Query<(&EncounterId, &Transform, &Health, &CorpseLoot)>,
+    nemi: Query<(&Transform, &Health, &Nemi, &ExperienceReward)>,
+    encounters: Query<(
+        &EncounterId,
+        &Transform,
+        &Health,
+        &CorpseLoot,
+        &ExperienceReward,
+    )>,
     pickups: Query<(&Pickup, &Transform)>,
     next: Res<NextState<GameState>>,
     journal: Res<QuestJournal>,
@@ -459,10 +517,10 @@ pub(crate) fn save_at_bed(
     {
         return;
     }
-    let Ok((player, mut player_health, ranks, progress)) = player.single_mut() else {
+    let Ok((player, mut player_health, ranks, progress, experience)) = player.single_mut() else {
         return;
     };
-    let Ok((pose, health, nemi)) = nemi.single() else {
+    let Ok((pose, health, nemi, nemi_reward)) = nemi.single() else {
         return;
     };
     if player.area != Area::Surface {
@@ -485,7 +543,7 @@ pub(crate) fn save_at_bed(
         nemi_state: nemi.snapshot(),
         encounters: encounters
             .iter()
-            .map(|(&id, transform, health, loot)| {
+            .map(|(&id, transform, health, loot, _)| {
                 (
                     id,
                     SavedEncounter {
@@ -496,6 +554,17 @@ pub(crate) fn save_at_bed(
             })
             .collect(),
         progression: SavedProgress::capture(ranks, *progress),
+        experience: SavedExperience {
+            player: *experience,
+            nemi_contributed: health.current() > 0 && nemi_reward.player_contributed,
+            encounter_contributions: encounters
+                .iter()
+                .filter(|(_, _, health, _, reward)| {
+                    health.current() > 0 && reward.player_contributed
+                })
+                .map(|(&id, ..)| id)
+                .collect(),
+        },
         add_shortswords_on_spawn: false,
     };
     let text = match slot.save(snapshot, &mut run) {
@@ -538,6 +607,7 @@ pub(crate) fn reset_session(world: &mut World) {
     world.insert_resource(ActiveChest::default());
     world.insert_resource(InventoryNotice::default());
     world.insert_resource(SaveNotice::default());
+    world.insert_resource(ExperienceNotice::default());
     world.insert_resource(PlayerMenu::default());
     world.insert_resource(InventoryUiState::default());
     world.insert_resource(QuestSelection::default());
@@ -545,12 +615,22 @@ pub(crate) fn reset_session(world: &mut World) {
     world.insert_resource(Orbit::default());
     world.resource_mut::<Messages<Hit>>().clear();
     world.resource_mut::<Messages<ConfirmedHit>>().clear();
+    world.resource_mut::<Messages<ActorDefeated>>().clear();
 }
 
 fn restore_actors(
     run: Res<RunSave>,
     journal: Res<QuestJournal>,
-    mut nemi: Query<(Entity, &mut Transform, &mut Health, &mut Nemi), Without<EncounterId>>,
+    mut nemi: Query<
+        (
+            Entity,
+            &mut Transform,
+            &mut Health,
+            &mut Nemi,
+            &mut ExperienceReward,
+        ),
+        Without<EncounterId>,
+    >,
     mut encounters: Query<
         (
             Entity,
@@ -558,6 +638,7 @@ fn restore_actors(
             &mut Transform,
             &mut Health,
             &mut CorpseLoot,
+            &mut ExperienceReward,
         ),
         Without<Nemi>,
     >,
@@ -567,16 +648,18 @@ fn restore_actors(
     let Some(save) = run.checkpoint() else {
         return;
     };
-    if let Ok((entity, mut transform, mut health, mut nemi)) = nemi.single_mut() {
+    if let Ok((entity, mut transform, mut health, mut nemi, mut reward)) = nemi.single_mut() {
         save.nemi
             .restore(&mut transform, &mut health, &mut commands.entity(entity));
         nemi.restore(&save.nemi_state);
+        reward.player_contributed = save.experience.nemi_contributed;
     }
-    for (entity, id, mut transform, mut health, mut loot) in &mut encounters {
+    for (entity, id, mut transform, mut health, mut loot, mut reward) in &mut encounters {
         if let Some(encounter) = save.encounters.get(id) {
             encounter
                 .actor
                 .restore(&mut transform, &mut health, &mut commands.entity(entity));
+            reward.player_contributed = save.experience.encounter_contributions.contains(id);
             if !encounter.has_loot {
                 loot.stack = None;
                 commands.entity(entity).insert(Visibility::Hidden);
@@ -659,6 +742,7 @@ mod tests {
                 Transform::default(),
                 Health::new(id.max_health()),
                 CorpseLoot::new(item, Area::Surface),
+                ExperienceReward::new(10),
                 Collider::sphere(0.5),
             ));
             if id == RelayRoach {
@@ -881,6 +965,7 @@ mod tests {
             nemi_state: base.nemi_state,
             encounters: base.encounters,
             progression: (),
+            experience: (),
             add_shortswords_on_spawn: false,
         };
         let mut bytes = LEGACY_HEADER.to_vec();
@@ -943,6 +1028,7 @@ mod tests {
             nemi_state: base.nemi_state,
             encounters: base.encounters,
             progression: (),
+            experience: (),
             add_shortswords_on_spawn: false,
         };
         let mut bytes = V2_HEADER.to_vec();
@@ -976,12 +1062,20 @@ mod tests {
             level: 8,
             unspent: 9,
         };
-        world.entity_mut(player).insert((ranks.clone(), progress));
+        let xp = Experience(41);
+        world
+            .entity_mut(player)
+            .insert((ranks.clone(), progress, xp));
         interact_with(&mut world, bed);
         let saved = read_save(&file).expect("read the saved progression");
-        let restored = world.spawn((Player::default(), saved.progression.player_components()));
+        let restored = world.spawn((
+            Player::default(),
+            saved.progression.player_components(),
+            saved.player_experience(),
+        ));
         assert_eq!(restored.get::<AttributeRanks>(), Some(&ranks));
         assert_eq!(restored.get::<CharacterProgress>(), Some(&progress));
+        assert_eq!(restored.get::<Experience>(), Some(&xp));
         assert_eq!(
             restored.get::<Health>().expect("derived health").current(),
             128
@@ -997,6 +1091,88 @@ mod tests {
                 .fraction(),
             1.0
         );
+    }
+
+    #[test]
+    fn v4_restores_damage_credit_for_living_encounters_and_nemi() {
+        let dir = TestDirectory::new();
+        let (mut world, bed, _, corpse) = bed_world(dir.path());
+        let nemi = world
+            .query_filtered::<Entity, With<Nemi>>()
+            .single(&world)
+            .expect("Nemi");
+        let worm = world
+            .query::<(Entity, &EncounterId)>()
+            .iter(&world)
+            .find_map(|(entity, id)| (*id == EncounterId::NearTrailWorm).then_some(entity))
+            .expect("near trail encounter");
+        for actor in [nemi, worm, corpse] {
+            world
+                .get_mut::<ExperienceReward>(actor)
+                .expect("actor XP")
+                .player_contributed = true;
+        }
+        interact_with(&mut world, bed);
+        let loaded = read_save(&dir.path()).expect("valid XP checkpoint");
+        world.insert_resource(RunSave(Some(Arc::new(loaded))));
+        for actor in [nemi, worm] {
+            world
+                .get_mut::<ExperienceReward>(actor)
+                .expect("actor XP")
+                .player_contributed = false;
+        }
+        world
+            .run_system_once(restore_actors)
+            .expect("restore actors");
+        for (actor, credited) in [(nemi, true), (worm, true), (corpse, false)] {
+            assert_eq!(
+                world
+                    .get::<ExperienceReward>(actor)
+                    .expect("actor XP")
+                    .player_contributed,
+                credited
+            );
+        }
+    }
+
+    #[test]
+    fn v3_migration_keeps_levels_and_attributes_and_starts_at_zero_xp() {
+        let dir = TestDirectory::new();
+        let path = dir.path();
+        let (mut world, bed, player, _) = bed_world(path.clone());
+        let ranks = AttributeRanks::default().with_rank(AttributeId::Vitality, 7);
+        let progress = CharacterProgress {
+            level: 4,
+            unspent: 7,
+        };
+        world.entity_mut(player).insert((ranks.clone(), progress));
+        interact_with(&mut world, bed);
+        let base = read_save(&path).expect("read the fixture save");
+        let legacy = Snapshot {
+            journal: base.journal,
+            inventory: base.inventory,
+            equipment: base.equipment,
+            chests: base.chests,
+            dungeon: base.dungeon,
+            pickups: base.pickups,
+            nemi: base.nemi,
+            nemi_state: base.nemi_state,
+            encounters: base.encounters,
+            progression: base.progression,
+            experience: (),
+            add_shortswords_on_spawn: false,
+        };
+        let mut bytes = V3_HEADER.to_vec();
+        bytes.extend(bitcode::encode(&legacy));
+        fs::write(&path, &bytes).expect("write v3 save");
+        let migrated = read_save(&path).expect("migrate v3 save");
+        assert_eq!(migrated.player_experience(), Experience(0));
+        assert!(!migrated.experience.nemi_contributed);
+        assert!(migrated.experience.encounter_contributions.is_empty());
+        let player = world.spawn(migrated.progression.player_components());
+        assert_eq!(player.get::<AttributeRanks>(), Some(&ranks));
+        assert_eq!(player.get::<CharacterProgress>(), Some(&progress));
+        assert_eq!(fs::read(path).expect("unaltered v3 save"), bytes);
     }
 
     #[test]

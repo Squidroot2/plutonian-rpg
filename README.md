@@ -54,7 +54,7 @@ The playable route connects the outpost, an inclined ice shelf, and a shallow ca
 
 `src/` separates loading, world assembly, player movement/animation, camera, shared interactions, inventory, equipment, quests, and UI into plugins. Avian's kinematic move-and-slide controller runs at a fixed timestep with capsule ground detection and tuned low gravity. The camera uses a sphere cast to avoid passing through geometry. Interaction requires a nearby target with a clear line of sight. Save files use a versioned bitcode format.
 
-The game includes The Last Light, the Old Relay quest and dungeon, and one speaking NPC. Survival, crafting, levelling, and controller support are deferred. This is a fictional Pluto with terrain, illumination, and gravity tuned for play. The included Blender scripts generate the original models and title backdrop. Audio includes procedural combat and pickup effects and bundled footsteps and equipment sounds. See [Credits](CREDITS.md) for the bundled sound sources.
+The game includes The Last Light, the Old Relay quest and dungeon, and one speaking NPC. Survival, crafting, and controller support are deferred. This is a fictional Pluto with terrain, illumination, and gravity tuned for play. The included Blender scripts generate the original models and title backdrop. Audio includes procedural combat and pickup effects and bundled footsteps and equipment sounds. See [Credits](CREDITS.md) for the bundled sound sources.
 
 ## Player menu
 
@@ -65,7 +65,9 @@ Press Tab during gameplay to open the player menu. Choose **Quest**, **Inventory
 View Vitality, Endurance, Agility, and Strength and preview each next rank.
 New characters start at rank 5, and ranks cap at 100. Use **+** to spend
 available points. The progression system awards three points per level gained.
-XP sources and level pacing are planned separately.
+You earn XP when an actor you've damaged dies. The Character tab shows your
+level and progress toward the next one, and the cot saves that progress with
+your attributes. See [Experience and Leveling](docs/design/experience.md).
 
 ### Quest
 
@@ -213,9 +215,9 @@ Clippy enforces a 150-line function limit, including smoke drivers. GitHub Actio
 
 Run one smoke scenario at a time on an idle graphical desktop without supplying mouse or keyboard input. Add `--windowed` to a smoke command to run it in a window. Each scenario uses a temporary save slot.
 
-- `--smoke-test` starts a standalone arena with nearby materials, equipment, a practice dummy, and the keeper and core. It checks tab switching, live physics while the menu is open, inventory quantities, equipped rows, the drop prompt, both polearms' hits and misses, and shortsword attachment and hits, including simultaneous strikes. It also checks a worm pursuit, dodge, bite, and defeat, armor swaps and attachment during movement, the 640×704 player-menu layout, wall collision, pause/resume, and fall recovery. The short beacon interaction verifies that the core is protected in the bag, consumed on turn-in, and lights the beacon. The run prints `SMOKE PASS` and its duration, or fails within 60 seconds with the current phase.
-- `--smoke-world` loads the shipped outpost, checks transfers in all three tent chests, and walks out of and back into the tent to verify stored contents. It checks grounded worm spawns, traversable routes, and pillar collision from four directions. It also checks hatch unlocking, the relay encounters and roach loot, archive discovery, return and reentry, fall recovery, and combat defeat with and without a bed save. It prints `WORLD SMOKE PASS` on success.
-- `--smoke-nemi` checks spear damage, fleeing and returning, the failed quest entry, Nemi’s collapse, and opening the relay by installing the core at the beacon. It prints `NEMI SMOKE PASS` on success.
+- `--smoke-test` starts a standalone arena with nearby materials, equipment, a practice dummy, and the keeper and core. It checks tab switching, live physics while the menu is open, inventory quantities, equipped rows, the drop prompt, both polearms' hits and misses, and shortsword attachment and hits, including simultaneous strikes. It also checks a worm pursuit, dodge, bite, and defeat, the Character tab's XP total, armor swaps and attachment during movement, the 640×704 player-menu layout, wall collision, pause/resume, and fall recovery. The short beacon interaction verifies that the core is protected in the bag, consumed on turn-in, and lights the beacon. The run prints `SMOKE PASS` and its duration, or fails within 60 seconds with the current phase.
+- `--smoke-world` loads the shipped outpost, checks transfers in all three tent chests, and walks out of and back into the tent to verify stored contents. It checks grounded worm spawns, traversable routes, and pillar collision from four directions. It also checks hatch unlocking, the relay encounters, roach loot and XP, archive discovery, return and reentry, fall recovery, and combat defeat with and without a bed save. It verifies that combat defeat restores saved XP and prints `WORLD SMOKE PASS` on success.
+- `--smoke-nemi` checks spear damage, fleeing and returning, the failed quest entry, Nemi’s collapse and XP reward, and opening the relay by installing the core at the beacon. It prints `NEMI SMOKE PASS` on success.
 
 The checks save screenshots in `/tmp/plutonian-*.png`, including the arena, outpost, inventory, beacon, and weapon and armor poses.
 

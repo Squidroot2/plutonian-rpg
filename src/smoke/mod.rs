@@ -292,11 +292,12 @@ fn drive(
         Res<Nearby>,
     ),
     equipment: Res<Equipment>,
-    (menu, selection, rows, tabs): (
+    (menu, selection, rows, tabs, texts): (
         Res<PlayerMenu>,
         Res<QuestSelection>,
         Query<(Entity, &QuestRow)>,
         Query<(Entity, &MenuTab)>,
+        Query<&Text>,
     ),
     mut player: Query<(&mut Transform, &Player, &Dodge, &CarryLimits)>,
     targets: Query<(&Target, &Transform), Without<Player>>,
@@ -344,6 +345,7 @@ fn drive(
             selection,
             rows,
             tabs,
+            texts,
             keys,
             commands,
             transform,
@@ -483,6 +485,7 @@ fn check_journal(
     selection: Res<QuestSelection>,
     rows: Query<(Entity, &QuestRow)>,
     tabs: Query<(Entity, &MenuTab)>,
+    texts: Query<&Text>,
     mut keys: ResMut<ButtonInput<KeyCode>>,
     mut commands: Commands,
     transform: Mut<Transform>,
@@ -505,6 +508,12 @@ fn check_journal(
         }
         ArenaStep::CloseCharacter(batteries) => {
             assert!(menu.is_on(MenuTab::Character));
+            assert!(
+                texts
+                    .iter()
+                    .any(|text| text.0 == "Level 1 | 35 / 70 XP | 0 unspent points"),
+                "the Character tab must show XP from the arena worm"
+            );
             assert_eq!(
                 inventory.count(ItemKind::Battery),
                 batteries,

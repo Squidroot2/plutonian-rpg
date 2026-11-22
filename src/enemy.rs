@@ -165,6 +165,7 @@ fn no_dialogue(dialogue: Res<Dialogue>) -> bool {
 pub(crate) struct GroundMelee {
     pub(crate) name: &'static str,
     pub(crate) health: u16,
+    pub(crate) experience: u16,
     pub(crate) loot: ItemKind,
     pub(crate) movement: GroundMovement,
     pub(crate) bite: Bite,
@@ -197,7 +198,10 @@ pub(crate) fn spawn_ground_melee(
             CustomPositionIntegration,
             body,
         ))
-        .insert(SessionEntity)
+        .insert((
+            SessionEntity,
+            crate::experience::ExperienceReward::new(config.experience),
+        ))
         .with_children(|root| {
             root.spawn((
                 PendingScene,

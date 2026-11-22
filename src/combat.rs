@@ -117,6 +117,10 @@ pub(crate) struct ConfirmedHit {
 #[derive(Component)]
 pub(crate) struct Dead;
 
+/// A new death in combat resolution. Loading a corpse only restores its marker.
+#[derive(Message)]
+pub(crate) struct ActorDefeated(pub(crate) Entity);
+
 #[derive(Component)]
 pub(crate) struct RemoveColliderOnDeath;
 
@@ -159,6 +163,7 @@ impl Plugin for CombatPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<Hit>()
             .add_message::<ConfirmedHit>()
+            .add_message::<ActorDefeated>()
             .configure_sets(
                 Update,
                 (CombatSystems::Detect, CombatSystems::Resolve).chain(),
@@ -272,10 +277,12 @@ fn tick_protection(time: Res<Time<Fixed>>, mut windows: Query<&mut HitProtection
 fn mark_deaths(
     mut commands: Commands,
     health: Query<(Entity, &Health), (Changed<Health>, Without<Dead>)>,
+    mut defeats: MessageWriter<ActorDefeated>,
 ) {
     for (entity, health) in &health {
         if health.current == 0 {
             commands.entity(entity).insert(Dead);
+            defeats.write(ActorDefeated(entity));
         }
     }
 }

@@ -12,6 +12,7 @@ use crate::{
     combat::Health,
     controls::{Control, Keybinds},
     dungeon::{Area, DungeonProgress, DungeonTarget},
+    experience::{ExperienceNotice, ExperienceUpdates},
     interaction::{InteractionSystems, InteractionTarget, Nearby, Target},
     loading::LoadStatus,
     player::{Player, Stamina},
@@ -69,6 +70,8 @@ const BAR_BORDER_COLOR: Color = Color::srgb(0.30, 0.38, 0.44);
 #[derive(Component)]
 struct StatusText;
 #[derive(Component)]
+struct ExperienceText;
+#[derive(Component)]
 struct DialogueText;
 #[derive(Component)]
 struct PausePanel;
@@ -88,6 +91,7 @@ impl Plugin for GameUiPlugin {
                     (refresh_hud, refresh_status_bars).after(save_at_bed),
                     refresh_compass,
                     refresh_prompt.after(save_at_bed),
+                    refresh_experience_notice.after(ExperienceUpdates),
                     refresh_dialogue,
                     refresh_pause,
                 )
@@ -146,6 +150,22 @@ fn setup(mut commands: Commands) {
     let (bar, fill) = spawn_status_bar(&mut commands, StatusBarKind::Stamina, 10);
     commands.entity(bar).insert(StaminaBar);
     commands.entity(fill).insert(StaminaBarFill);
+    commands.spawn((
+        ExperienceText,
+        Text::default(),
+        text_style(18.0),
+        Node {
+            position_type: PositionType::Absolute,
+            top: px(24),
+            right: px(30),
+            padding: UiRect::axes(px(10), px(4)),
+            border_radius: BorderRadius::all(px(3)),
+            ..default()
+        },
+        BackgroundColor(Color::srgba(0.018, 0.035, 0.055, 0.82)),
+        Visibility::Hidden,
+        Pickable::IGNORE,
+    ));
     commands.spawn((
         StatusText,
         Text::new("Loading the ice shelf..."),
@@ -453,6 +473,24 @@ fn refresh_status_bars(
                 bar.kind.fill_color().with_alpha(bar.opacity),
             ));
         }
+    }
+}
+
+fn refresh_experience_notice(
+    state: Res<State<GameState>>,
+    notice: Res<ExperienceNotice>,
+    mut label: Single<(&mut Text, &mut Visibility), With<ExperienceText>>,
+) {
+    let (text, visibility) = &mut *label;
+    if *state.get() == GameState::Playing
+        && let Some(value) = &notice.text
+    {
+        if text.0 != *value {
+            text.0.clone_from(value);
+        }
+        visibility.set_if_neq(Visibility::Inherited);
+    } else {
+        visibility.set_if_neq(Visibility::Hidden);
     }
 }
 

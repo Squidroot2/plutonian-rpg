@@ -20,12 +20,14 @@ const MIN_TRAVEL_FRACTION: f32 = 0.35;
 const GROUND_PROBE_RANGE: f32 = GROUND_OFFSET + 0.6;
 const TURN_SPEED: f32 = 12.0;
 const HIT_REACTION_SECONDS: f32 = 0.16;
+const EXPERIENCE_REWARD: u16 = 35;
 pub(crate) const GROUND_OFFSET: f32 = 0.9;
 
 pub(crate) struct NemiPlugin;
 
 #[derive(Component, Default)]
 #[require(Health = Health::new(Nemi::MAX_HEALTH), HitReaction = HitReaction::new(HIT_REACTION_SECONDS), RemoveColliderOnDeath = RemoveColliderOnDeath)]
+#[require(crate::experience::ExperienceReward = crate::experience::ExperienceReward::new(EXPERIENCE_REWARD))]
 pub(crate) struct Nemi {
     home: Option<Vec3>,
     behavior: Behavior,

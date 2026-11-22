@@ -13,6 +13,7 @@ mod controls;
 mod dungeon;
 mod enemy;
 mod equipment;
+mod experience;
 mod interaction;
 mod inventory;
 mod loading;
@@ -115,6 +116,7 @@ fn main() {
             ui::settings::SettingsPlugin,
             enemy::EnemyPlugin,
             attributes::AttributesPlugin,
+            experience::ExperiencePlugin,
             nemi::NemiPlugin,
             ui::loot_ui::LootUiPlugin,
         ));

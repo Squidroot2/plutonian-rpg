@@ -6,6 +6,7 @@ use bevy::prelude::*;
 use crate::{
     GameState,
     combat::{CombatSystems, Dead, Health, HealthRecovery},
+    experience::{Experience, ExperienceUpdates},
     player::{Player, Stamina},
     ui::menu_ui::{MenuTab, PlayerMenu},
 };
@@ -92,6 +93,20 @@ impl Default for CharacterProgress {
     }
 }
 
+impl CharacterProgress {
+    /// Record an absolute level and grant points for each newly reached level.
+    pub(crate) fn advance_to(&mut self, level: u32) -> u32 {
+        if level <= self.level {
+            return 0;
+        }
+        let previous_points = self.unspent;
+        let points = (level - self.level).saturating_mul(POINTS_PER_LEVEL);
+        self.level = level;
+        self.unspent = self.unspent.saturating_add(points);
+        self.unspent - previous_points
+    }
+}
+
 #[derive(Clone, Default, bitcode::Encode, bitcode::Decode)]
 pub(crate) struct SavedProgress {
     ranks: BTreeMap<String, u8>,
@@ -99,6 +114,10 @@ pub(crate) struct SavedProgress {
 }
 
 impl SavedProgress {
+    pub(crate) fn level(&self) -> u32 {
+        self.progress.level
+    }
+
     pub(crate) fn capture(ranks: &AttributeRanks, progress: CharacterProgress) -> Self {
         Self {
             ranks: AttributeId::ALL
@@ -250,13 +269,6 @@ impl AttributeEffects {
     }
 }
 
-/// The leveling system reports the resulting absolute level, including multi-level gains.
-#[derive(Message)]
-pub(crate) struct LevelGained {
-    pub(crate) player: Entity,
-    pub(crate) level: u32,
-}
-
 #[derive(Message)]
 struct SpendAttribute {
     player: Entity,
@@ -270,48 +282,36 @@ pub(crate) struct AttributesPlugin;
 
 impl Plugin for AttributesPlugin {
     fn build(&self, app: &mut App) {
-        app.add_message::<LevelGained>()
-            .add_message::<SpendAttribute>()
+        app.add_message::<SpendAttribute>()
             .add_systems(
                 Update,
-                (apply_progression, sync_capabilities)
+                (apply_spends, sync_capabilities)
                     .chain()
                     .in_set(AttributeUpdates)
                     .before(CombatSystems::Detect)
                     .run_if(in_state(GameState::Playing)),
             )
-            .add_systems(Update, refresh_character.after(AttributeUpdates));
+            .add_systems(
+                Update,
+                refresh_character
+                    .after(AttributeUpdates)
+                    .after(ExperienceUpdates),
+            );
     }
 }
 
-fn apply_progression(
+fn apply_spends(
     mut players: Query<
         (Entity, &mut AttributeRanks, &mut CharacterProgress),
         (With<Player>, Without<Dead>),
     >,
-    mut levels: MessageReader<LevelGained>,
     mut spends: MessageReader<SpendAttribute>,
     menu: Res<PlayerMenu>,
 ) {
     let Ok((player, mut ranks, mut progress)) = players.single_mut() else {
-        levels.clear();
         spends.clear();
         return;
     };
-    for gain in levels.read().filter(|gain| gain.player == player) {
-        let bonus = gain
-            .level
-            .saturating_sub(progress.level)
-            .checked_mul(POINTS_PER_LEVEL);
-        if let Some(bonus) = bonus.filter(|&bonus| bonus > 0)
-            && let Some(unspent) = progress.unspent.checked_add(bonus)
-        {
-            *progress = CharacterProgress {
-                level: gain.level,
-                unspent,
-            };
-        }
-    }
     if !menu.accepts(MenuTab::Character) {
         spends.clear();
         return;
@@ -418,26 +418,35 @@ fn spend_click(
 
 fn refresh_character(
     menu: Res<PlayerMenu>,
-    players: Query<(Ref<AttributeRanks>, Ref<CharacterProgress>), (With<Player>, Without<Dead>)>,
+    players: Query<
+        (Ref<AttributeRanks>, Ref<CharacterProgress>, Ref<Experience>),
+        (With<Player>, Without<Dead>),
+    >,
     mut texts: Query<(&CharacterText, &mut Text)>,
     mut buttons: Query<(&SpendButton, &mut BackgroundColor)>,
 ) {
     use crate::ui::menu_ui::{BUTTON, DISABLED};
-    let Ok((ranks, progress)) = players.single() else {
+    let Ok((ranks, progress, xp)) = players.single() else {
         return;
     };
     if !menu.is_on(MenuTab::Character)
-        || !(menu.is_changed() || ranks.is_changed() || progress.is_changed())
+        || !(menu.is_changed() || ranks.is_changed() || progress.is_changed() || xp.is_changed())
     {
         return;
     }
     let current = ranks.effects();
     for (label, mut text) in &mut texts {
         let value = match *label {
-            CharacterText::Progress => format!(
-                "Level {} / {} unspent points",
-                progress.level, progress.unspent
-            ),
+            CharacterText::Progress => {
+                let experience = Experience::required(progress.level).map_or_else(
+                    || "Max level".into(),
+                    |required| format!("{} / {required} XP", xp.0),
+                );
+                format!(
+                    "Level {} | {experience} | {} unspent points",
+                    progress.level, progress.unspent
+                )
+            }
             CharacterText::Attribute(id) => {
                 let rank = ranks.rank(id);
                 let description = current.describe(id);
@@ -511,7 +520,7 @@ mod tests {
     }
 
     #[test]
-    fn level_messages_and_character_clicks_apply_once_without_refilling_health() {
+    fn level_gains_and_character_clicks_apply_once_without_refilling_health() {
         let mut app = App::new();
         app.add_plugins((MinimalPlugins, StatesPlugin, AttributesPlugin))
             .insert_state(GameState::Playing)
@@ -529,9 +538,12 @@ mod tests {
             .id();
         let window = world.spawn_empty().id();
         let camera = world.spawn_empty().id();
-        for level in [3, 3, 2] {
-            world.write_message(LevelGained { player, level });
-        }
+        let mut progress = world
+            .get_mut::<CharacterProgress>(player)
+            .expect("player progress");
+        assert_eq!(progress.advance_to(3), 6);
+        assert_eq!(progress.advance_to(3), 0);
+        assert_eq!(progress.advance_to(2), 0);
         for _ in 0..7 {
             world.trigger(pointer_click(button, window, camera));
         }

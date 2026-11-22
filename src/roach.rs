@@ -15,6 +15,7 @@ pub(crate) const GROUND_OFFSET: f32 = 0.32;
 pub(crate) const CONFIG: GroundMelee = GroundMelee {
     name: "Relay roach",
     health: 20,
+    experience: 25,
     loot: ItemKind::RoachMeat,
     movement: GroundMovement::new(3.5, GROUND_OFFSET),
     bite: Bite {

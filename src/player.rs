@@ -61,6 +61,7 @@ impl Plugin for PlayerPlugin {
 #[require(
     AttributeRanks,
     CharacterProgress,
+    crate::experience::Experience,
     CarryLimits,
     MovementCosts,
     MeleeDamageMultiplier

@@ -13,6 +13,7 @@ use crate::{
         SWITCH_LOCAL,
     },
     enemy::{MeleePhase, MeleePursuit},
+    experience::Experience,
     interaction::{INTERACT_HEIGHT, INTERACT_RANGE, InteractionTarget, Nearby, Target},
     inventory::{Inventory, ItemKind},
     player::{Dodge, Player},
@@ -103,6 +104,7 @@ pub(super) fn drive(
             &Health,
             &AttributeRanks,
             &CharacterProgress,
+            &Experience,
         ),
         With<Player>,
     >,
@@ -146,7 +148,7 @@ pub(super) fn drive(
     commands: Commands,
     exit: MessageWriter<AppExit>,
 ) {
-    let Ok((entity, controller, dodge, transform, capsule, player_health, ranks, attributes)) =
+    let Ok((entity, controller, dodge, transform, capsule, player_health, ranks, attributes, xp)) =
         player.single_mut()
     else {
         return;
@@ -178,6 +180,7 @@ pub(super) fn drive(
         player_health,
         ranks,
         attributes,
+        xp,
         position,
         now,
         storage,
@@ -282,6 +285,7 @@ struct WorldFrame<'w, 's, 'a> {
     player_health: &'a Health,
     ranks: &'a AttributeRanks,
     attributes: &'a CharacterProgress,
+    xp: &'a Experience,
     position: Vec3,
     now: f64,
     storage: Res<'w, ChestStorage>,
@@ -817,6 +821,7 @@ fn check_relay_encounters(frame: WorldFrame) {
         mut commands,
         entity,
         player_health,
+        xp,
         position,
         spatial,
         capsule,
@@ -869,6 +874,7 @@ fn check_relay_encounters(frame: WorldFrame) {
         WorldCheck::ApproachRoach => {
             let (roach, corpse, dead) = roaches.single().expect("persistent Old Relay roach");
             assert!(dead);
+            assert_eq!(*xp, Experience(25));
             if nearby.0 == Some((roach, InteractionTarget::Corpse)) {
                 keys.press(KeyCode::KeyE);
                 *phase = WorldCheck::TakeRoachMeat;
@@ -1108,6 +1114,7 @@ fn check_bed_rollback(frame: WorldFrame) {
         player_health,
         ranks,
         attributes,
+        xp,
         position,
         spatial,
         capsule,
@@ -1150,12 +1157,14 @@ fn check_bed_rollback(frame: WorldFrame) {
                 checkpoint.checkpoint().is_some(),
                 "the cot must write the checkpoint"
             );
+            assert_eq!(*xp, Experience(25));
             commands.entity(entity).insert((
                 AttributeRanks::default().with_rank(AttributeId::Vitality, 8),
                 CharacterProgress {
                     level: 2,
                     unspent: 0,
                 },
+                Experience(90),
             ));
             commands.queue(|world: &mut World| {
                 assert!(
@@ -1182,6 +1191,7 @@ fn check_bed_rollback(frame: WorldFrame) {
             assert!(position.distance(WorldLayout::Outpost.initial_spawn()) < 0.04);
             assert_eq!(ranks.rank(AttributeId::Vitality), SAVED_VITALITY);
             assert_eq!(*attributes, SAVED_PROGRESS);
+            assert_eq!(*xp, Experience(25));
             assert_eq!(
                 (player_health.current(), player_health.maximum()),
                 (108, 108)
@@ -1196,7 +1206,7 @@ fn check_bed_rollback(frame: WorldFrame) {
                 "restored gate must be clear"
             );
             info!(
-                "WORLD SMOKE PASS: tent storage, shipped map, Old Relay, and bed save rollback verified in {:.2}s",
+                "WORLD SMOKE PASS: tent storage, shipped map, Old Relay, and bed save rollback including XP verified in {:.2}s",
                 run.0.elapsed().as_secs_f64()
             );
             exit.write(AppExit::Success);

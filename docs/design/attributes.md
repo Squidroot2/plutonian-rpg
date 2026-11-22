@@ -11,8 +11,9 @@ The player starts at character level 1 with zero unspent points. Each level
 gained grants **3 attribute points** to a shared pool. One point raises one
 attribute by one rank. Players can bank points or spend them in the **Character**
 tab, which shows their level, unspent points, and the current and next rank's
-effects for each attribute. Each spend takes effect immediately. A separate
-design will define XP sources, thresholds, and level pacing.
+effects for each attribute. Each spend takes effect immediately. See the
+[experience design](experience.md) for XP sources, thresholds, and level
+pacing.
 
 ## Scaling
 
@@ -83,14 +84,14 @@ moving any items. Characters can carry gear they have yet to qualify for.
 
 - Keep ranks, character level, and unspent points on the player entity. Grant
   points for each newly reached level and record the new level in the same
-  operation. Repeated or older level notifications award zero points. Check
+  operation. Repeated or older levels award zero points. Check
   the point balance and rank cap when applying each spend.
 - Define attributes centrally with stable IDs, default ranks, display text,
   and tuning. Gameplay systems and Character tab previews use the same
   derived values. To add an attribute, register its definition and connect
   its effects to the systems that use them.
 - Store actual ranks by stable ID alongside character level and unspent points
-  in the next bitcode bed-save version. Missing ranks use their configured
+  in bitcode bed saves. Missing ranks use their configured
   defaults. Migrate v1 and v2 saves to level 1, ranks of 5, and zero unspent
   points. Return newly ineligible equipped items to the backpack through
   checked transfers. If a transfer fails, report the load error and preserve
@@ -135,20 +136,21 @@ The shared recovery system continues to query `Health` and
 
 | Schedule | Work |
 | --- | --- |
-| `Update`, before `CombatSystems::Detect` | Apply level gains and spend requests, then synchronize capabilities for changed ranks. Chain these systems so weapon detection reads the updated values. |
+| `Update`, before `CombatSystems::Detect` | Apply spend requests, then synchronize capabilities for changed ranks. Chain these systems so weapon detection reads the updated values. |
 | `FixedUpdate` | Movement reads `MovementCosts` and `CarryLimits` and spends or recovers `Stamina`. Keep the existing grounded, action, and walk-pace checks for stamina recovery. Health recovery uses `Time<Fixed>` and `HealthRecovery` to apply whole points to living actors. A fixed tick uses the latest committed values. |
 | `Update`, `CombatSystems::Detect` | Weapon detection uses the same dodge cost and carrying limits as movement. At contact, scale that hand's base weapon damage and emit the existing `Hit` message. |
 | `Update`, `CombatSystems::Resolve` | Shared combat applies defense and hit protection, emits `ConfirmedHit`, resets the recovery wait on a damaging hit, and marks deaths. |
-| `Update`, after capability synchronization | Refresh the Character and inventory panels. Keep the HUD refresh after bed saves so it sees both the derived maxima and any health restored by the cot. |
+| `Update`, after `CombatSystems::Resolve` | Award XP and apply level gains before saving or refreshing the Character panel. |
+| `Update`, after capability synchronization | Refresh inventory. Keep the HUD refresh after bed saves so it sees both the derived maxima and any health restored by the cot. |
 
 Gate progression updates to `GameState::Playing`. The Character tab's
 button observer submits a spend request containing the player entity and
 attribute ID. At application time, verify that the target is the current
-living player and that the menu still accepts Character input. Handle queued
-level gains before spends. Apply each spend against the balance left by the
-previous one, updating the rank and point balance together. Future XP logic
-supplies the new absolute character level, so a repeated notification
-cannot grant points twice. Requests for despawned players are discarded.
+living player and that the menu still accepts Character input. Apply each
+spend against the balance left by the previous one, updating the rank and
+point balance together. The XP system commits its resulting absolute level
+and grants points only for newly reached levels. Those points are available
+to spend on the next update. Requests for despawned players are discarded.
 
 Use `Changed<AttributeRanks>` to trigger capability synchronization. Compare
 derived values before writing components, so a Strength spend marks only

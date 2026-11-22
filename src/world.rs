@@ -3,6 +3,7 @@ use crate::{
     attributes::{AttributeId, AttributeRanks, CharacterProgress, SavedProgress},
     camera::Orbit,
     equipment::bind_equipment_attachments,
+    experience::Experience,
     interaction::Target,
     loading::{GameAssets, LoadStatus, PendingScene, scene_ready},
     nemi::{self, Nemi},
@@ -102,7 +103,17 @@ fn spawn_world(
         SavedProgress::default()
     };
     let progress = run.checkpoint().map_or(&fresh, |save| &save.progression);
-    spawn_actors(&mut commands, &gltfs, &assets, *layout, progress);
+    let experience = run
+        .checkpoint()
+        .map_or_else(Experience::default, |save| save.player_experience());
+    spawn_actors(
+        &mut commands,
+        &gltfs,
+        &assets,
+        *layout,
+        progress,
+        experience,
+    );
     spawn_core(&mut commands, &gltfs, &assets, *layout);
     spawn_beacon(&mut commands, &mut meshes, &mut materials, *layout);
     spawn_lights(&mut commands, *layout);
@@ -180,6 +191,7 @@ fn spawn_actors(
     assets: &GameAssets,
     layout: WorldLayout,
     progress: &SavedProgress,
+    experience: Experience,
 ) {
     let character = gltfs
         .get(&assets.character)
@@ -197,6 +209,7 @@ fn spawn_actors(
             Collider::capsule(PLAYER_COLLIDER_RADIUS, PLAYER_COLLIDER_LENGTH),
             Transform::from_translation(layout.initial_spawn()),
             progress.player_components(),
+            experience,
         ))
         .with_children(|parent| {
             parent

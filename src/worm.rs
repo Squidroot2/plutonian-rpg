@@ -22,6 +22,7 @@ const HOMES: [(EncounterId, Vec3); 3] = [
 pub(crate) const CONFIG: GroundMelee = GroundMelee {
     name: "Ice worm",
     health: 30,
+    experience: 35,
     loot: ItemKind::WormMeat,
     movement: GroundMovement::new(2.4, GROUND_OFFSET),
     bite: Bite {
