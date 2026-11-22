@@ -1,0 +1,21 @@
+[
+    (
+        id: "nemi",
+        name: "Nemi",
+        refusal: Some("Stay away from me."),
+        topics: [
+            (id: "last_light", label: "The Last Light", reply: Quest),
+            (id: "contain_the_hushcaps", label: "Contain the Hushcaps", reply: Quest),
+            (
+                id: "about_nemi",
+                label: "Tell me about yourself",
+                reply: Text("I keep the crossing light. In the long dark, I listen for families knocking at the beacon door to tell me they've made it home. Some nights, after everyone's accounted for, the ice knocks too."),
+            ),
+            (
+                id: "about_nivalis",
+                label: "Tell me about Nivalis",
+                reply: Text("Nivalis is the last warm door for a long way across the ice. In the long dark, the shelf sometimes gives you back your own footsteps from somewhere up ahead. Keep your eyes on the paired blue waystones. They'll bring you home."),
+            ),
+        ],
+    ),
+]

@@ -4,6 +4,7 @@ use crate::{
     camera::Orbit,
     cave::{self, CaveEncounter},
     combat::{ActorDefeated, CombatSystems, ConfirmedHit, Dead, Health, Hit},
+    dialogue::{Dialogue, DialogueClick},
     dungeon::{ARCHIVE_HUSHCAP_HOME, Area, DungeonProgress},
     equipment::{Equipment, EquipmentSlot},
     experience::{Experience, ExperienceNotice, ExperienceReward, ExperienceUpdates},
@@ -12,7 +13,7 @@ use crate::{
     inventory::{Inventory, InventoryNotice, ItemKind, Pickup},
     nemi::{self, Nemi, NemiState},
     player::{MovementInput, Player},
-    quest::{Dialogue, QuestAction, QuestJournal, SavedJournal},
+    quest::{QuestAction, QuestJournal, SavedJournal},
     roach,
     storage::ChestStorage,
     ui::inventory_ui::InventoryUiState,
@@ -782,6 +783,7 @@ pub(crate) fn reset_session(world: &mut World) {
         world.insert_resource(DungeonProgress::default());
     }
     world.insert_resource(Dialogue::default());
+    world.insert_resource(DialogueClick::default());
     world.insert_resource(Nearby::default());
     world.insert_resource(LootTarget::default());
     world.insert_resource(ActiveChest::default());

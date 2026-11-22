@@ -1,14 +1,20 @@
+pub(crate) mod dialogue;
+
 use crate::{
     GameState,
     combat::{CombatSystems, ConfirmedHit, Dead, Health, HitReaction, RemoveColliderOnDeath},
+    dialogue::{Availability, Dialogue, DialogueHandlers, Speaker},
+    dungeon::Area,
+    interaction::InteractionSystems,
     player::{AnimationLibrary, Player, RUN_CLIP, WALK_CLIP},
-    quest::{Dialogue, QuestAction, QuestJournal},
+    quest::{QuestAction, QuestJournal},
     terrain::{MAX_GROUND_STEP, ground_heading, walkable_height},
 };
 use avian3d::prelude::*;
 use bevy::prelude::*;
 use std::time::Duration;
 
+const INTERACTION_HEIGHT: f32 = 0.35;
 const FLEE_SPEED: f32 = 4.5;
 const RETURN_SPEED: f32 = 3.0;
 const SAFE_DISTANCE: f32 = 8.0;
@@ -24,6 +30,10 @@ const EXPERIENCE_REWARD: u16 = 35;
 pub(crate) const GROUND_OFFSET: f32 = 0.9;
 
 pub(crate) struct NemiPlugin;
+
+pub(crate) fn speaker() -> Speaker {
+    Speaker::new(dialogue::PROFILE, Area::Surface, INTERACTION_HEIGHT)
+}
 
 #[derive(Component, Default)]
 #[require(Health = Health::new(Nemi::MAX_HEALTH), HitReaction = HitReaction::new(HIT_REACTION_SECONDS), RemoveColliderOnDeath = RemoveColliderOnDeath)]
@@ -144,7 +154,19 @@ pub(crate) struct NemiPlayback {
 
 impl Plugin for NemiPlugin {
     fn build(&self, app: &mut App) {
+        dialogue::register_topics(
+            &mut app
+                .init_resource::<DialogueHandlers>()
+                .world_mut()
+                .resource_mut(),
+        );
         app.add_systems(
+            Update,
+            sync_speaker
+                .before(InteractionSystems)
+                .run_if(in_state(GameState::Playing)),
+        )
+        .add_systems(
             Update,
             (react_to_player_hit, animate)
                 .chain()
@@ -157,6 +179,21 @@ impl Plugin for NemiPlugin {
                 .after(crate::player::movement)
                 .run_if(in_state(GameState::Playing)),
         );
+    }
+}
+
+fn sync_speaker(mut speakers: Query<(&Nemi, &mut Speaker), Changed<Nemi>>) {
+    for (nemi, mut speaker) in &mut speakers {
+        let availability = if nemi.refuses() {
+            Availability::Refuses
+        } else if nemi.can_talk() {
+            Availability::Friendly
+        } else {
+            Availability::Unavailable
+        };
+        if speaker.availability != availability {
+            speaker.availability = availability;
+        }
     }
 }
 
@@ -175,7 +212,7 @@ pub(crate) fn react_to_player_hit(
             continue;
         };
         journal.record(QuestAction::AttackedNemi);
-        dialogue.text = None;
+        dialogue.interrupt(hit.target);
         if !dead {
             nemi.home.get_or_insert(transform.translation);
             nemi.behavior = Behavior::Fleeing { safe_for: 0.0 };

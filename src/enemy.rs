@@ -2,12 +2,12 @@ use crate::{
     GameState,
     combat::{CombatSystems, Dead, Health, Hit, HitReaction, RemoveColliderOnDeath},
     combat_feedback::DeathAnimation,
+    dialogue::Dialogue,
     dungeon::Area,
     interaction::CorpseLoot,
     inventory::ItemKind,
     loading::{PendingScene, scene_ready},
     player::Player,
-    quest::Dialogue,
     terrain::{MAX_GROUND_STEP, ground_heading, walkable_height},
     world::SessionEntity,
 };
@@ -173,7 +173,7 @@ impl Plugin for EnemyPlugin {
 }
 
 fn no_dialogue(dialogue: Res<Dialogue>) -> bool {
-    dialogue.text.is_none()
+    !dialogue.is_open()
 }
 
 pub(crate) struct GroundMelee {
@@ -511,7 +511,7 @@ fn animate(
     )>,
 ) {
     for (mut animation, mut transitions, mut playback) in &mut playing {
-        if dialogue.text.is_some() {
+        if dialogue.is_open() {
             animation.pause_all();
             continue;
         }
@@ -746,7 +746,9 @@ mod tests {
         app.world_mut()
             .resource_mut::<NextState<GameState>>()
             .set(GameState::Playing);
-        app.world_mut().resource_mut::<Dialogue>().text = Some("Talking to Nemi");
+        app.world_mut()
+            .resource_mut::<Dialogue>()
+            .show_notice("Talking to Nemi");
         app.world_mut().write_message(Hit {
             source: worm,
             target: player,
@@ -762,7 +764,9 @@ mod tests {
             2
         );
 
-        app.world_mut().resource_mut::<Dialogue>().text = Some("Talking to Nemi");
+        app.world_mut()
+            .resource_mut::<Dialogue>()
+            .show_notice("Talking to Nemi");
         for state in [GameState::Paused, GameState::Playing] {
             app.world_mut()
                 .resource_mut::<NextState<GameState>>()
@@ -778,7 +782,7 @@ mod tests {
                 MeleePhase::Windup(0.1)
             );
         }
-        app.world_mut().resource_mut::<Dialogue>().text = None;
+        app.world_mut().resource_mut::<Dialogue>().clear();
         let mut events = app
             .world()
             .resource::<Messages<ConfirmedHit>>()

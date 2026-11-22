@@ -645,10 +645,6 @@ pub(crate) fn restore_test_journal(saved: &SavedJournal) -> QuestJournal {
         .expect("the fixture uses stable shipped quest and objective IDs")
 }
 
-#[derive(Resource, Default)]
-pub struct Dialogue {
-    pub text: Option<&'static str>,
-}
 #[derive(Component)]
 pub struct Beacon;
 #[derive(Component)]
@@ -660,7 +656,6 @@ impl Plugin for QuestPlugin {
         app.init_asset::<QuestCatalog>()
             .init_asset_loader::<QuestCatalogLoader>()
             .init_resource::<QuestJournal>()
-            .init_resource::<Dialogue>()
             .add_observer(spawn_lens)
             .add_systems(
                 OnTransition {

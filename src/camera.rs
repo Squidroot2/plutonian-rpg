@@ -1,4 +1,7 @@
-use crate::{GameState, player::Player, quest::Dialogue, ui::menu_ui::PlayerMenu};
+use crate::{
+    GameState, dialogue::Dialogue, interaction::InteractionSystems, player::Player,
+    ui::menu_ui::PlayerMenu,
+};
 use avian3d::prelude::*;
 use bevy::{
     input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll},
@@ -34,7 +37,7 @@ impl Plugin for FollowCameraPlugin {
                 look.after(crate::ui::pause)
                     .run_if(in_state(GameState::Playing)),
             )
-            .add_systems(Update, cursor)
+            .add_systems(Update, cursor.after(InteractionSystems))
             .add_systems(
                 PostUpdate,
                 follow
@@ -71,7 +74,7 @@ fn look(
     mut orbit: ResMut<Orbit>,
     log: Option<Res<PlayerMenu>>,
 ) {
-    if dialogue.text.is_some()
+    if dialogue.is_open()
         || log.is_some_and(|log| log.is_open())
         || keys.just_pressed(KeyCode::Escape)
         || !windows.iter().any(|w| w.focused)
@@ -90,7 +93,7 @@ fn cursor(
 ) {
     for (window, mut options) in &mut windows {
         let grab = *state.get() == GameState::Playing
-            && dialogue.text.is_none()
+            && !dialogue.is_open()
             && window.focused
             && !log.as_ref().is_some_and(|log| log.is_open());
         let mode = if grab {

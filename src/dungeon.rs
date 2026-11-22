@@ -1,10 +1,11 @@
 use crate::{
     GameState,
     camera::Orbit,
+    dialogue::Dialogue,
     hushcap,
     loading::{EnemyVisuals, GameAssets, LoadStatus, spawn_static_scenes},
     player::{Dodge, MovementInput, PLAYER_GROUND_OFFSET, Player},
-    quest::{Dialogue, QuestAction, QuestJournal},
+    quest::{QuestAction, QuestJournal},
     roach,
     save::EncounterId,
     weapon::WeaponAttack,
@@ -352,7 +353,7 @@ fn use_target(
     let (area, probe, yaw) = match event.0 {
         DungeonTarget::Hatch if !quest.beacon_powered() => {
             quest.record(QuestAction::InspectedSealedHatch);
-            dialogue.text = Some(
+            dialogue.show_notice(
                 "OLD RELAY\n\nThe hatch responds to the beacon. Restore the light to release the seal.",
             );
             return;
@@ -365,15 +366,15 @@ fn use_target(
         ),
         DungeonTarget::Switch => {
             if progress.gate_open() {
-                dialogue.text = Some("The archive gate is open.");
+                dialogue.show_notice("The archive gate is open.");
             } else {
                 progress.activate_switch();
             }
             return;
         }
         DungeonTarget::SurveyLog => {
-            dialogue.text = progress.read_log();
-            if dialogue.text.is_some() {
+            if let Some(text) = progress.read_log() {
+                dialogue.show_notice(text);
                 quest.record(QuestAction::ReadSurveyLog);
             }
             return;
@@ -382,7 +383,7 @@ fn use_target(
     let filter = SpatialQueryFilter::from_excluded_entities([entity]);
     let Some(hit) = spatial.cast_ray(probe, Dir3::NEG_Y, HATCH_GROUND_PROBE_RANGE, true, &filter)
     else {
-        dialogue.text = Some("The hatch landing is obstructed.");
+        dialogue.show_notice("The hatch landing is obstructed.");
         return;
     };
     player.respawn(

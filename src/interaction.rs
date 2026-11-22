@@ -2,14 +2,11 @@ use crate::{
     GameState,
     combat::Dead,
     controls::{Control, Keybinds},
+    dialogue::{self, Dialogue, DialogueCatalog, DialogueClick, DialogueHandlers, Speaker},
     dungeon::{Area, DungeonTarget, UseDungeonTarget},
     inventory::{Inventory, ItemKind, Pickup},
-    nemi::Nemi,
     player::Player,
-    quest::{
-        CONTAIN_THE_HUSHCAPS, Dialogue, LAST_LIGHT, MYCELIUM_GOAL, QuestAction, QuestJournal,
-        QuestStatus,
-    },
+    quest::{QuestAction, QuestJournal},
     save::{Bed, SaveAtBed},
     storage::ChestId,
     ui::menu_ui::PlayerMenu,
@@ -19,13 +16,13 @@ use bevy::{ecs::query::QueryData, prelude::*};
 
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Target {
-    Keeper,
     Core,
     BeaconSocket,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum InteractionTarget {
     Quest(Target),
+    Talk,
     Pickup(Pickup),
     Dungeon(DungeonTarget),
     Corpse,
@@ -49,7 +46,6 @@ impl CorpseLoot {
 
 pub(crate) const INTERACT_RANGE: f32 = 3.0;
 pub(crate) const INTERACT_HEIGHT: f32 = 0.45;
-const KEEPER_INTERACTION_OFFSET: f32 = 0.35;
 const PICKUP_INTERACTION_OFFSET: f32 = 0.18;
 const HATCH_INTERACTION_OFFSET: f32 = 0.65;
 
@@ -68,16 +64,21 @@ pub struct InteractionPlugin;
 impl Plugin for InteractionPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Nearby>()
+            .init_resource::<Dialogue>()
+            .init_resource::<DialogueCatalog>()
+            .init_resource::<DialogueHandlers>()
+            .init_resource::<DialogueClick>()
             .init_resource::<LootTarget>()
             .init_resource::<ActiveChest>()
             .add_message::<SaveAtBed>()
             .add_systems(
                 Update,
-                (find_target, interact)
+                (dialogue::handle_input, find_target, interact)
                     .chain()
                     .in_set(InteractionSystems)
                     .run_if(in_state(GameState::Playing)),
-            );
+            )
+            .add_systems(Last, dialogue::finish_close);
     }
 }
 /// Collects the interaction capabilities that may be present on an entity.
@@ -90,21 +91,32 @@ struct Candidate {
     dungeon: Option<&'static DungeonTarget>,
     corpse: Option<&'static CorpseLoot>,
     dead: Has<Dead>,
-    nemi: Option<&'static Nemi>,
+    speaker: Option<&'static Speaker>,
     chest: Option<&'static ChestId>,
     bed: Has<Bed>,
 }
 
 impl CandidateItem<'_, '_> {
-    fn interaction(&self, area: Area, quest: &QuestJournal) -> Option<(InteractionTarget, Vec3)> {
+    fn interaction(
+        &self,
+        area: Area,
+        quest: &QuestJournal,
+        catalog: &DialogueCatalog,
+    ) -> Option<(InteractionTarget, Vec3)> {
+        if let Some(speaker) = self.speaker.filter(|speaker| {
+            !self.dead
+                && speaker.area == area
+                && catalog
+                    .profile(speaker.profile)
+                    .is_some_and(|profile| speaker.can_interact(profile))
+        }) {
+            return Some((InteractionTarget::Talk, speaker.point(self.transform)));
+        }
         let (interaction, height) = if let Some(&target) = self.quest {
             if area != Area::Surface {
                 return None;
             }
             let height = match target {
-                Target::Keeper if !self.dead && self.nemi.is_none_or(Nemi::can_talk) => {
-                    KEEPER_INTERACTION_OFFSET
-                }
                 Target::Core if !quest.has_occurred(QuestAction::RecoveredCore) => 0.0,
                 Target::BeaconSocket if quest.expects(QuestAction::InstalledCore) => 0.0,
                 _ => return None,
@@ -143,6 +155,7 @@ fn find_target(
         Candidate,
         Or<(
             With<Target>,
+            With<Speaker>,
             With<Pickup>,
             With<DungeonTarget>,
             With<CorpseLoot>,
@@ -151,12 +164,13 @@ fn find_target(
         )>,
     >,
     quest: Res<QuestJournal>,
+    catalog: Res<DialogueCatalog>,
     dialogue: Res<Dialogue>,
     spatial: SpatialQuery,
     log: Option<Res<PlayerMenu>>,
     mut nearby: ResMut<Nearby>,
 ) {
-    if dialogue.text.is_some() || log.is_some_and(|log| log.is_open()) {
+    if dialogue.is_open() || log.is_some_and(|log| log.is_open()) {
         nearby.set_if_neq(Nearby::default());
         return;
     }
@@ -168,7 +182,8 @@ fn find_target(
     let origin = transform.translation + Vec3::Y * INTERACT_HEIGHT;
     let mut closest = INTERACT_RANGE;
     for candidate in &targets {
-        let Some((interaction, point)) = candidate.interaction(player.area, &quest) else {
+        let Some((interaction, point)) = candidate.interaction(player.area, &quest, &catalog)
+        else {
             continue;
         };
         let entity = candidate.entity;
@@ -215,38 +230,39 @@ fn interact(
     mut inventory: ResMut<Inventory>,
     mut commands: Commands,
     pickups: Query<&Pickup>,
-    keepers: Query<&Nemi, Without<Dead>>,
+    speakers: Query<&Speaker, Without<Dead>>,
+    catalog: Res<DialogueCatalog>,
     mut loot: ResMut<LootTarget>,
     mut chest: ResMut<ActiveChest>,
     mut saves: MessageWriter<SaveAtBed>,
     mut next: ResMut<NextState<GameState>>,
     log: Option<Res<PlayerMenu>>,
 ) {
-    if log.is_some_and(|log| log.is_open()) {
+    if dialogue.is_open()
+        || keys.just_pressed(KeyCode::Escape)
+        || log.is_some_and(|log| log.is_open())
+    {
         return;
     }
     let interact_pressed = bindings.just_pressed(Control::Interact, &keys);
-    if !interact_pressed && !keys.just_pressed(KeyCode::Enter) {
-        return;
-    }
-    if dialogue.text.take().is_some() {
+    if !interact_pressed && !keys.any_just_pressed([KeyCode::Enter, KeyCode::NumpadEnter]) {
         return;
     }
     if let Some((entity, target)) = nearby.0 {
         match target {
-            InteractionTarget::Quest(Target::Keeper) => {
-                dialogue.text = Some(if keepers.get(entity).is_ok_and(Nemi::refuses) {
-                    "NEMI\n\nStay away from me."
-                } else {
-                    speak_to_nemi(&mut quest, &mut inventory)
-                });
+            InteractionTarget::Talk => {
+                if let Ok(speaker) = speakers.get(entity)
+                    && let Some(profile) = catalog.profile(speaker.profile)
+                {
+                    dialogue.start(entity, speaker, profile);
+                }
             }
             InteractionTarget::Quest(Target::Core) => {
                 if !quest.has_occurred(QuestAction::RecoveredCore)
                     && inventory.add(ItemKind::BeaconCore, 1)
                 {
                     quest.record(QuestAction::RecoveredCore);
-                    dialogue.text = Some(if quest.expects(QuestAction::InstalledCore) {
+                    dialogue.show_notice(if quest.expects(QuestAction::InstalledCore) {
                         "POWER CORE RECOVERED\n\nInstall it in the socket at the south side of the beacon tower."
                     } else if quest.expects(QuestAction::TalkedToNemi) {
                         "POWER CORE RECOVERED\n\nIts light pulses against your hands. There is still warmth inside.\n\nSpeak to Nemi at the outpost about restoring the beacon."
@@ -257,7 +273,7 @@ fn interact(
                 }
             }
             InteractionTarget::Quest(Target::BeaconSocket) => {
-                dialogue.text = Some(install_core(&mut quest, &mut inventory));
+                dialogue.show_notice(install_core(&mut quest, &mut inventory));
             }
             InteractionTarget::Pickup(_) if interact_pressed => {
                 // Re-read the live component before transferring the stack.
@@ -302,77 +318,15 @@ fn install_core(quest: &mut QuestJournal, inventory: &mut Inventory) -> &'static
     }
 }
 
-fn speak_to_nemi(quest: &mut QuestJournal, inventory: &mut Inventory) -> &'static str {
-    let first_meeting = quest.expects(QuestAction::TalkedToNemi);
-    if first_meeting {
-        quest.record(QuestAction::TalkedToNemi);
-    }
-    if quest.expects(QuestAction::ReturnedCore) {
-        if inventory.consume_core() {
-            quest.record(QuestAction::ReturnedCore);
-            if first_meeting {
-                return "NEMI / BEACON KEEPER\n\nYou found the core in the blue cavern? Our beacon went dark, and families have been waiting to cross the ice. With this, I can light their way again.\n\nThe beacon also powers the Old Relay. Look for the round hatch west and a little south of here. Its archive may still hold the first survey log.\n\nQUEST COMPLETE / THE LAST LIGHT";
-            }
-            return "NEMI\n\nThere it is. I thought we had lost that light for good. The crossing is safe again.\n\nThe beacon also powers the Old Relay. Look for the round hatch west and a little south of here. Its archive may still hold the first survey log.\n\nQUEST COMPLETE / THE LAST LIGHT";
-        }
-        if first_meeting {
-            return "NEMI / BEACON KEEPER\n\nYou found the core in the blue cavern? Our beacon went dark, and families have been waiting to cross the ice. Bring the core to me when you have it with you.";
-        }
-        return "NEMI\n\nBring the beacon power core back to me first.";
-    }
-    if let Some(response) = speak_about_cavern(quest, inventory) {
-        return response;
-    }
-    if first_meeting {
-        "NEMI / BEACON KEEPER\n\nYou made it home before the long dark. Our beacon has gone silent. The families here depend on its signal to cross the ice.\n\nA charged core waits in the blue cavern, beyond the waystones. Follow their lights north, then bring it back."
-    } else if quest.is_complete(LAST_LIGHT) {
-        "NEMI\n\nThe light reaches across the ice again. Look for the round Old Relay hatch west and a little south of here."
-    } else {
-        "NEMI\n\nFollow the blue waystones north from the outpost. The core is inside the cavern at the end of the trail."
-    }
-}
-
-fn speak_about_cavern(quest: &mut QuestJournal, inventory: &Inventory) -> Option<&'static str> {
-    let reported = quest.expects(QuestAction::ReportedArchiveHushcap);
-    if reported {
-        quest.record(QuestAction::ReportedArchiveHushcap);
-    }
-    let ready_to_show = quest.expects(QuestAction::ShowedNemiMycelium);
-    if ready_to_show && inventory.count(ItemKind::Mycelium) >= MYCELIUM_GOAL {
-        quest.record(QuestAction::ShowedNemiMycelium);
-        return Some(if reported {
-            "YOU\n\nThere was a mushroom creature in the Relay archive. I found more of them in a cave south of here.\n\nNEMI\n\nHushcaps. Their colony in Hushcap Caverns has started to spread. You've already thinned it, and these samples tell me you reached the growth below. Keep them. I'll watch the old passages.\n\nQUEST COMPLETE / CONTAIN THE HUSHCAPS"
-        } else {
-            "NEMI\n\nFive samples. You've thinned the colony enough to slow the spread. Keep the Mycelium. I'll watch the old passages for more.\n\nQUEST COMPLETE / CONTAIN THE HUSHCAPS"
-        });
-    }
-    if reported && ready_to_show {
-        Some(
-            "YOU\n\nThere was a mushroom creature in the Relay archive. I found more of them in a cave south of here.\n\nNEMI\n\nHushcaps. Their colony in Hushcap Caverns has started to spread. You've already thinned it. Bring five Mycelium in your backpack so I can examine the growth.",
-        )
-    } else if reported {
-        Some(
-            "YOU\n\nThere was a mushroom creature in the Relay archive.\n\nNEMI\n\nA Hushcap. Their colony is spreading beyond Hushcap Caverns. Go south from the courtyard into South Basin. Round the ice fins and follow the bend behind the ridge. Defeat five Hushcaps in the caverns and bring five Mycelium back for me to examine.",
-        )
-    } else if ready_to_show {
-        Some(
-            "NEMI\n\nBring me five Mycelium in your backpack so I can examine the growth. You can keep the samples afterward.",
-        )
-    } else if quest.is_complete(CONTAIN_THE_HUSHCAPS) {
-        Some("NEMI\n\nI'll keep watch on the old passages. For now, the spread has slowed.")
-    } else if quest.status(CONTAIN_THE_HUSHCAPS) == Some(QuestStatus::Active) {
-        Some(
-            "NEMI\n\nThe caverns lie south, behind the ridge in South Basin. Defeat five Hushcaps inside before you come back.",
-        )
-    } else {
-        None
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::{
+        nemi::{
+            self,
+            dialogue::{register_topics, speak_about_beacon, speak_about_cavern},
+        },
+        quest::{CONTAIN_THE_HUSHCAPS, LAST_LIGHT},
         storage::{ChestStorage, StoragePlugin},
         ui::storage_ui::{StorageAction, StorageSide, StorageUiPlugin, TransferAmount},
     };
@@ -385,16 +339,16 @@ mod tests {
     fn turn_in_requires_and_consumes_the_core() {
         let mut journal = crate::quest::test_journal();
         let mut inventory = Inventory::default();
-        speak_to_nemi(&mut journal, &mut inventory);
+        speak_about_beacon(&mut journal, &mut inventory);
         journal.record(QuestAction::RecoveredCore);
         assert!(inventory.add(ItemKind::BeaconCore, 1));
         let mut chest = ChestStorage::default();
         let supplies = chest.get_mut(ChestId::Supply);
         assert!(inventory.transfer_to(supplies, ItemKind::BeaconCore, 1));
-        speak_to_nemi(&mut journal, &mut inventory);
+        speak_about_beacon(&mut journal, &mut inventory);
         assert!(journal.expects(QuestAction::ReturnedCore));
         assert!(supplies.transfer_to(&mut inventory, ItemKind::BeaconCore, 1));
-        speak_to_nemi(&mut journal, &mut inventory);
+        speak_about_beacon(&mut journal, &mut inventory);
         assert!(journal.is_complete(LAST_LIGHT));
         assert_eq!(inventory.count(ItemKind::BeaconCore), 0);
     }
@@ -409,14 +363,14 @@ mod tests {
         let supplies = chest.get_mut(ChestId::Supply);
         assert!(inventory.transfer_to(supplies, ItemKind::BeaconCore, 1));
 
-        let dialogue = speak_to_nemi(&mut journal, &mut inventory);
+        let dialogue = speak_about_beacon(&mut journal, &mut inventory);
         assert!(dialogue.contains("Bring the core to me"));
         assert!(journal.expects(QuestAction::ReturnedCore));
         assert!(!journal.beacon_powered());
         assert_eq!(supplies.count(ItemKind::BeaconCore), 1);
 
         assert!(supplies.transfer_to(&mut inventory, ItemKind::BeaconCore, 1));
-        speak_to_nemi(&mut journal, &mut inventory);
+        speak_about_beacon(&mut journal, &mut inventory);
         assert!(journal.is_complete(LAST_LIGHT));
         assert_eq!(inventory.count(ItemKind::BeaconCore), 0);
     }
@@ -446,7 +400,7 @@ mod tests {
         journal.offer_cavern_report();
         let world = app.world_mut();
         world.insert_resource(journal);
-        world.spawn((Target::Keeper, Transform::from_xyz(0.0, 0.0, -2.0)));
+        world.spawn((nemi::speaker(), Transform::from_xyz(0.0, 0.0, -2.0)));
         assert!(world.resource_mut::<Inventory>().add(ItemKind::Mycelium, 4));
         assert!(
             world
@@ -456,17 +410,19 @@ mod tests {
         );
 
         press_interact(&mut app);
+        press_key(&mut app, KeyCode::KeyS);
+        press_key(&mut app, KeyCode::Enter);
         assert!(
             app.world()
                 .resource::<Dialogue>()
-                .text
+                .text()
                 .is_some_and(|text| text.contains("South Basin"))
         );
         let mut journal = app.world_mut().resource_mut::<QuestJournal>();
         journal.record(QuestAction::DefeatedFiveCavernHushcaps);
         assert!(journal.expects(QuestAction::ShowedNemiMycelium));
         press_interact(&mut app);
-        press_interact(&mut app);
+        press_key(&mut app, KeyCode::Enter);
         assert!(
             !app.world()
                 .resource::<QuestJournal>()
@@ -475,7 +431,7 @@ mod tests {
         assert!(
             app.world()
                 .resource::<Dialogue>()
-                .text
+                .text()
                 .is_some_and(|text| text.contains("backpack"))
         );
 
@@ -488,7 +444,7 @@ mod tests {
                 ));
             });
         press_interact(&mut app);
-        press_interact(&mut app);
+        press_key(&mut app, KeyCode::Enter);
         assert!(
             app.world()
                 .resource::<QuestJournal>()
@@ -507,7 +463,7 @@ mod tests {
             150
         );
         press_interact(&mut app);
-        press_interact(&mut app);
+        press_key(&mut app, KeyCode::Enter);
         assert_eq!(
             app.world()
                 .resource::<Inventory>()
@@ -528,12 +484,11 @@ mod tests {
         let mut inventory = Inventory::default();
         assert!(inventory.add(ItemKind::Mycelium, 6));
         journal.record(QuestAction::DefeatedFiveCavernHushcaps);
-        speak_to_nemi(&mut journal, &mut inventory);
         assert_eq!(journal.status(CONTAIN_THE_HUSHCAPS), None);
         journal.offer_cavern_report();
         assert!(journal.expects(QuestAction::ReportedArchiveHushcap));
         assert!(!journal.expects(QuestAction::ShowedNemiMycelium));
-        let response = speak_to_nemi(&mut journal, &mut inventory);
+        let response = speak_about_cavern(&mut journal, &mut inventory);
         assert!(response.contains("mushroom creature") && response.contains("QUEST COMPLETE"));
         assert!(journal.is_complete(CONTAIN_THE_HUSHCAPS));
         assert_eq!(inventory.count(ItemKind::Mycelium), 6);
@@ -547,7 +502,7 @@ mod tests {
         journal.record(QuestAction::DefeatedFiveCavernHushcaps);
         journal.offer_cavern_report();
 
-        let response = speak_to_nemi(&mut journal, &mut inventory);
+        let response = speak_about_cavern(&mut journal, &mut inventory);
         assert!(response.contains("already thinned it") && response.contains("five Mycelium"));
         assert!(journal.expects(QuestAction::ShowedNemiMycelium));
         assert_eq!(journal.take_completion_xp(), 0);
@@ -577,9 +532,15 @@ mod tests {
         .add_plugins((
             InteractionPlugin,
             crate::ui::loot_ui::LootUiPlugin,
+            crate::ui::dialogue_ui::DialogueUiPlugin,
             StoragePlugin,
             StorageUiPlugin,
         ));
+        let catalog: DialogueCatalog =
+            ron::from_str(include_str!("../data/dialogue/catalog.dialogue.ron"))
+                .expect("the shipped dialogue catalogue must parse");
+        app.insert_resource(catalog);
+        register_topics(&mut app.world_mut().resource_mut::<DialogueHandlers>());
         app.world_mut()
             .resource_mut::<NextState<GameState>>()
             .set(GameState::Playing);
@@ -593,9 +554,13 @@ mod tests {
         app
     }
     fn press_interact(app: &mut App) {
+        press_key(app, KeyCode::KeyE);
+    }
+
+    fn press_key(app: &mut App, key: KeyCode) {
         let mut input = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
         input.reset_all();
-        input.press(KeyCode::KeyE);
+        input.press(key);
         app.update();
         app.world_mut()
             .resource_mut::<ButtonInput<KeyCode>>()
@@ -679,7 +644,7 @@ mod tests {
             .spawn((Target::Core, Transform::from_xyz(0.0, 0.45, -1.0)))
             .id();
         app.world_mut()
-            .spawn((Target::Keeper, Transform::from_xyz(0.0, 0.0, -2.0)));
+            .spawn((nemi::speaker(), Transform::from_xyz(0.0, 0.0, -2.0)));
 
         press_interact(&mut app);
         let world = app.world();
@@ -692,14 +657,21 @@ mod tests {
         assert!(
             world
                 .resource::<Dialogue>()
-                .text
+                .text()
                 .expect("collecting the core must prompt the player to speak to Nemi")
                 .contains("Speak to Nemi")
         );
 
         press_interact(&mut app);
-        assert!(app.world().resource::<Dialogue>().text.is_none());
-        press_interact(&mut app);
+        assert!(app.world().resource::<Dialogue>().text().is_none());
+        press_key(&mut app, KeyCode::Enter);
+        assert!(app.world().resource::<Dialogue>().is_open());
+        assert!(
+            app.world()
+                .resource::<QuestJournal>()
+                .expects(QuestAction::TalkedToNemi)
+        );
+        press_key(&mut app, KeyCode::Enter);
         let world = app.world();
         let journal = world.resource::<QuestJournal>();
         assert!(journal.has_occurred(QuestAction::TalkedToNemi));
@@ -708,9 +680,109 @@ mod tests {
         assert!(
             world
                 .resource::<Dialogue>()
-                .text
+                .text()
                 .expect("handing over the core must open Nemi's response")
                 .contains("You found the core")
+        );
+    }
+
+    #[test]
+    fn a_catalogue_only_speaker_repeats_replies_through_mouse_and_keyboard() {
+        let mut app = test_app();
+        let catalog: DialogueCatalog = ron::from_str(
+            r#"[
+            (id: "traveller", name: "Traveller", topics: [
+                (id: "route", label: "Ask about the route", reply: Text("Follow the blue lamps.")),
+            ]),
+        ]"#,
+        )
+        .expect("the traveller profile must parse");
+        let world = app.world_mut();
+        world.insert_resource(catalog);
+        world.spawn((
+            Speaker::new("traveller", Area::Surface, 0.35),
+            Transform::from_xyz(0.0, 0.0, -2.0),
+        ));
+        let window = world.spawn_empty().id();
+        let camera = world.spawn_empty().id();
+
+        press_interact(&mut app);
+        let world = app.world_mut();
+        let button = world
+            .query::<(&Text, &ChildOf)>()
+            .iter(world)
+            .find_map(|(text, parent)| (text.0 == "Ask about the route").then_some(parent.parent()))
+            .expect("the authored topic must render as a button");
+        world.trigger(crate::smoke::pointer_click(button, window, camera));
+        app.update();
+        assert_eq!(
+            app.world().resource::<Dialogue>().text(),
+            Some("Follow the blue lamps.")
+        );
+        press_interact(&mut app);
+        press_key(&mut app, KeyCode::Enter);
+        assert_eq!(
+            app.world().resource::<Dialogue>().text(),
+            Some("Follow the blue lamps.")
+        );
+        press_interact(&mut app);
+        press_key(&mut app, KeyCode::KeyS);
+        press_key(&mut app, KeyCode::Enter);
+        assert!(!app.world().resource::<Dialogue>().is_open());
+        assert!(
+            app.world()
+                .resource::<QuestJournal>()
+                .expects(QuestAction::TalkedToNemi)
+        );
+    }
+
+    #[test]
+    fn an_old_choice_cannot_turn_in_the_core_in_a_new_conversation() {
+        let mut app = test_app();
+        let world = app.world_mut();
+        let speaker = world
+            .spawn((nemi::speaker(), Transform::from_xyz(0.0, 0.0, -2.0)))
+            .id();
+        let mut journal = world.resource_mut::<QuestJournal>();
+        journal.record(QuestAction::RecoveredCore);
+        assert!(
+            world
+                .resource_mut::<Inventory>()
+                .add(ItemKind::BeaconCore, 1)
+        );
+
+        press_interact(&mut app);
+        let revision = app.world().resource::<Dialogue>().revision();
+        press_key(&mut app, KeyCode::Escape);
+        press_interact(&mut app);
+        let world = app.world_mut();
+        world.resource_mut::<DialogueClick>().0 =
+            Some((revision, dialogue::Choice::Topic(LAST_LIGHT.into())));
+        app.update();
+        assert!(app.world().resource::<Dialogue>().is_open());
+        assert!(
+            app.world()
+                .resource::<QuestJournal>()
+                .expects(QuestAction::TalkedToNemi)
+        );
+
+        let world = app.world_mut();
+        let revision = world.resource::<Dialogue>().revision();
+        world.resource_mut::<DialogueClick>().0 =
+            Some((revision, dialogue::Choice::Topic(LAST_LIGHT.into())));
+        world.despawn(speaker);
+        app.update();
+        assert!(!app.world().resource::<Dialogue>().is_open());
+        assert!(
+            app.world()
+                .resource::<QuestJournal>()
+                .expects(QuestAction::TalkedToNemi)
+        );
+        assert_eq!(
+            app.world()
+                .resource::<Inventory>()
+                .count(ItemKind::BeaconCore),
+            1
         );
     }
 
@@ -938,7 +1010,7 @@ mod tests {
             ))
             .id();
         app.world_mut()
-            .spawn((Target::Keeper, Transform::from_xyz(0.0, 0.0, -2.0)));
+            .spawn((nemi::speaker(), Transform::from_xyz(0.0, 0.0, -2.0)));
         app.world_mut()
             .resource_mut::<ButtonInput<KeyCode>>()
             .press(KeyCode::KeyE);
@@ -956,7 +1028,9 @@ mod tests {
         );
         assert!(app.world().get_entity(item).is_err());
         // Dismissal must not collect another nearby stack on the same key press.
-        app.world_mut().resource_mut::<Dialogue>().text = Some("A conversation");
+        app.world_mut()
+            .resource_mut::<Dialogue>()
+            .show_notice("A conversation");
         app.world_mut().spawn((
             Pickup {
                 item: crate::inventory::ItemKind::Battery,
@@ -965,7 +1039,7 @@ mod tests {
             Transform::from_xyz(0.0, 0.0, -1.0),
         ));
         app.update();
-        assert!(app.world().resource::<Dialogue>().text.is_none());
+        assert!(app.world().resource::<Dialogue>().text().is_none());
         assert_eq!(
             app.world()
                 .resource::<Inventory>()

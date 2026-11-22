@@ -6,11 +6,11 @@ use crate::{
     attributes::{CarryLimits, MeleeDamageMultiplier, MovementCosts},
     combat::{CombatSystems, Contact, Hit},
     controls::{Control, Keybinds},
+    dialogue::Dialogue,
     equipment::{Equipment, EquipmentSlot, WeaponKind},
     interaction::InteractionSystems,
     inventory::Inventory,
     player::{Dodge, MovementInput, Player, Stamina},
-    quest::Dialogue,
     ui::menu_ui::PlayerMenu,
 };
 
@@ -189,7 +189,7 @@ fn attack(
         }
         return;
     };
-    if dialogue.text.is_some() || !windows.iter().any(|window| window.focused) {
+    if dialogue.is_open() || !windows.iter().any(|window| window.focused) {
         swing.cancel();
         return;
     }
@@ -614,17 +614,19 @@ mod tests {
                 .equip(&mut bag, ItemKind::FieldSpear, 10),
             Ok(true)
         );
-        world.resource_mut::<Dialogue>().text = Some("Talking");
+        world.resource_mut::<Dialogue>().show_notice("Talking");
         app.update();
         assert!(!player_attack(&app, player).active());
-        app.world_mut().resource_mut::<Dialogue>().text = None;
+        app.world_mut().resource_mut::<Dialogue>().clear();
         app.update();
         assert!(player_attack(&app, player).active());
-        app.world_mut().resource_mut::<Dialogue>().text = Some("Talking");
+        app.world_mut()
+            .resource_mut::<Dialogue>()
+            .show_notice("Talking");
         app.update();
         assert!(!player_attack(&app, player).active());
 
-        app.world_mut().resource_mut::<Dialogue>().text = None;
+        app.world_mut().resource_mut::<Dialogue>().clear();
         app.update();
         assert!(player_attack(&app, player).active());
         let mut menu = PlayerMenu::default();
@@ -927,10 +929,12 @@ mod tests {
         frame(&mut app, Some(KeyX), &[]);
         assert_eq!(stance(&app), Drawn, "the inventory takes precedence");
         app.world_mut().remove_resource::<PlayerMenu>();
-        app.world_mut().resource_mut::<Dialogue>().text = Some("Talking");
+        app.world_mut()
+            .resource_mut::<Dialogue>()
+            .show_notice("Talking");
         frame(&mut app, Some(KeyX), &[]);
         assert_eq!(stance(&app), Drawn, "dialogue takes precedence");
-        app.world_mut().resource_mut::<Dialogue>().text = None;
+        app.world_mut().resource_mut::<Dialogue>().clear();
 
         frame(&mut app, Some(KeyX), &[Right]);
         assert_eq!(stance(&app), Holstered);

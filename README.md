@@ -44,8 +44,9 @@ Choose **Start Game** on the title screen to begin a fresh run in Nivalis, or **
 | X | Holster or draw all equipped weapons |
 | Space | Jump (grounded only) |
 | Left Ctrl | Dodge hop in the WASD direction, or backward with no movement input (grounded only) |
-| E | Interact with a nearby target, including pickups, corpses, chests, and the bed, or dismiss dialogue |
-| Enter | Quest interaction / dismiss dialogue |
+| E | Interact with a nearby target or continue past a dialogue reply or notice |
+| Enter | Quest interaction, select a dialogue topic, or continue past a reply or notice |
+| W / S | Move between dialogue topics (Menu Up / Menu Down) |
 | I | Open or switch to Inventory / close the player menu from Inventory |
 | L | Open or switch to Quest / close the player menu from Quest |
 | Q | Open the drop quantity prompt for the selected item in Inventory |
@@ -72,7 +73,8 @@ The core route connects the outpost, an inclined ice shelf, and a shallow cavern
   Follow the luminous waystones toward the cavern.
   The quest log records directions and completed steps for each quest.
   The power core appears in inventory as a protected quest item and disappears from its plinth when collected.
-  Returning it to Nemi consumes the core, lights the beacon, and completes the quest.
+  Speak to Nemi and choose **The Last Light** to hand over the core, light the beacon, and complete the quest.
+  You can also ask about Nemi or Nivalis. Click a topic, or use Menu Up and Menu Down and press Enter.
   You can continue exploring afterward.
 
 South of the outpost courtyard, the ice shelf opens into South Basin.
@@ -259,7 +261,7 @@ After you restore the beacon, look for the round hatch northwest of the beacon t
 ## Contain the Hushcaps
 
 After reading the survey log and returning through the relay hatch,
-  tell Nemi about the mushroom creature.
+  speak to Nemi and choose **Contain the Hushcaps** to report the mushroom creature.
   They send you south through South Basin to Hushcap Caverns.
   Defeat five Hushcaps in the caverns and return with at least five Mycelium in your backpack.
   The archive specimen can supply one of the samples.

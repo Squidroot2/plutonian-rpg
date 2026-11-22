@@ -156,7 +156,8 @@ mod tests {
     use super::*;
     use crate::{
         combat::{CombatPlugin, Hit, TrainingTarget},
-        quest::{Dialogue, QuestAction, test_journal},
+        dialogue::Dialogue,
+        quest::{QuestAction, test_journal},
     };
     use bevy::state::app::StatesPlugin;
 

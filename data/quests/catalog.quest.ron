@@ -13,7 +13,7 @@
             (
                 id: "meet_nemi",
                 title: "Speak to Nemi",
-                directions: "Step out of your tent and find Nemi in the courtyard, northeast of the tall beacon tower. Approach and use your Interact key.",
+                directions: "Step out of your tent and find Nemi in the courtyard, northeast of the tall beacon tower. Approach, use your Interact key, and choose The Last Light.",
                 transitions: [(when: Action(TalkedToNemi), to: Objective("recover_core"))],
             ),
             (
@@ -28,7 +28,7 @@
             (
                 id: "return_core",
                 title: "Bring the core back to Nemi",
-                directions: "Follow the blue waystones south to Nivalis. Speak to Nemi northeast of the beacon tower with the core in your pack.",
+                directions: "Follow the blue waystones south to Nivalis. Speak to Nemi northeast of the beacon tower with the core in your pack and choose The Last Light.",
                 transitions: [(when: Action(ReturnedCore), to: Complete)],
             ),
         ],
@@ -97,7 +97,7 @@
                 transitions: [(when: Action(ReadSurveyLog), to: Complete)],
             ),
         ],
-        completion: "The first survey log records how the beacon once guided survey crews to shelter. Head south through the archive gate and junction to the round hatch in the entry vestibule, then tell Nemi about the mushroom creature in the archive.",
+        completion: "The first survey log records how the beacon once guided survey crews to shelter. Head south through the archive gate and junction to the round hatch in the entry vestibule, then speak to Nemi and choose Contain the Hushcaps to report the mushroom creature.",
     ),
     (
         id: "contain_the_hushcaps",
@@ -114,7 +114,7 @@
             (
                 id: "report_hushcap",
                 title: "Report the mushroom creature to Nemi",
-                directions: "Find Nemi in the outpost courtyard, northeast of the beacon tower. Tell them about the creature in the Old Relay archive.",
+                directions: "Find Nemi in the outpost courtyard, northeast of the beacon tower. Choose Contain the Hushcaps to report the creature in the Old Relay archive.",
                 transitions: [(when: Action(ReportedArchiveHushcap), to: Objective("defeat_hushcaps"))],
             ),
             (
@@ -126,7 +126,7 @@
             (
                 id: "show_mycelium",
                 title: "Show Nemi five Mycelium",
-                directions: "Return to Nemi in the outpost courtyard with at least five Mycelium in your backpack. Nemi will examine the samples and let you keep them.",
+                directions: "Return to Nemi in the outpost courtyard with at least five Mycelium in your backpack. Choose Contain the Hushcaps. Nemi will examine the samples and let you keep them.",
                 transitions: [(when: Action(ShowedNemiMycelium), to: Complete)],
             ),
         ],

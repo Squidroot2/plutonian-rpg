@@ -107,7 +107,7 @@ Leaving through the relay hatch after completing Old Relay makes the report to N
   The report introduces Hushcap Caverns and sends the player through South Basin.
   The objective counts five distinct defeated cavern Hushcaps using their saved encounter identities.
   Reaching five before the briefing earns early credit while the report remains the current objective.
-  When speaking to Nemi after the report and five defeats,
+  When choosing Contain the Hushcaps after the report and five defeats,
   the backpack must hold at least five Mycelium.
   The archive specimen can contribute a sample.
   Nemi leaves the samples with the player and completion awards 150 XP.
@@ -272,7 +272,7 @@ actually succeeds.
 - `src/loading.rs`: catalog asset request and fresh/save-backed journal setup.
 - `src/quest_ui.rs`, `src/menu_ui.rs`, `src/controls.rs`: Quest Log display,
   menu tab, and shortcut.
-- `src/interaction.rs`, `src/dungeon.rs`, `src/nemi.rs`: current action
-  producers and quest-dependent gameplay.
+- `src/interaction.rs`, `src/dungeon.rs`, and `src/nemi/dialogue.rs` produce quest actions and handle quest-dependent interactions.
+  See [NPC dialogue](dialogue.md) for topic authoring and quest handler registration.
 - `src/save.rs`: bed-save snapshot and world restoration that consults journal
   history.

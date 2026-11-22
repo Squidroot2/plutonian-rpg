@@ -18,12 +18,13 @@ use crate::{
     GameState,
     attributes::CarryLimits,
     camera::Orbit,
+    dialogue::{Dialogue, Page, Screen, Speaker},
     equipment::Equipment,
     interaction::{InteractionTarget, Nearby, Target},
     inventory::{DropRequest, Inventory, ItemKind},
     loading::LoadStatus,
     player::{DODGE_KEY, Dodge, Pace, Player},
-    quest::{Beacon, Dialogue, LAST_LIGHT, QuestAction, QuestJournal, QuestStatus},
+    quest::{Beacon, LAST_LIGHT, QuestAction, QuestJournal, QuestStatus},
     ui::inventory_ui::{InventoryAction, InventoryRow, InventoryUiState},
     ui::menu_ui::{MenuTab, PlayerMenu},
     ui::quest_ui::{QuestRow, QuestSelection},
@@ -325,7 +326,10 @@ fn drive(
         Query<&Text>,
     ),
     mut player: Query<(&mut Transform, &Player, &Dodge, &CarryLimits)>,
-    targets: Query<(&Target, &Transform), Without<Player>>,
+    targets: Query<
+        (Option<&Target>, &Transform),
+        (Without<Player>, Or<(With<Target>, With<Speaker>)>),
+    >,
     beacon: Query<&PointLight, With<Beacon>>,
     layout: Res<WorldLayout>,
     captures: Query<(), With<Screenshot>>,
@@ -561,7 +565,7 @@ fn check_journal(
         }
         ArenaStep::OpenJournal(position) => {
             assert!(menu.is_on(MenuTab::Quest));
-            assert!(dialogue.text.is_none());
+            assert!(!dialogue.is_open());
             assert_eq!(*state.get(), GameState::Playing);
             keys.press(KeyCode::KeyW);
             keys.press(KeyCode::KeyE);
@@ -576,7 +580,7 @@ fn check_journal(
         ArenaStep::SelectJournal(position) => {
             assert_eq!(selection.selected(), Some(LAST_LIGHT));
             assert!(transform.translation.xz().distance(position.xz()) < 0.025);
-            assert!(dialogue.text.is_none());
+            assert!(!dialogue.is_open());
             capture(&mut commands, "quest-log");
             keys.press(KeyCode::Escape);
             keys.press(KeyCode::KeyE);
@@ -585,7 +589,7 @@ fn check_journal(
         ArenaStep::CloseJournal => {
             assert!(!menu.is_open());
             assert_eq!(*state.get(), GameState::Playing);
-            assert!(dialogue.text.is_none());
+            assert!(!dialogue.is_open());
             *step = ArenaStep::Quest;
         }
         _ => {}
@@ -602,7 +606,10 @@ fn check_beacon_quest(
     dialogue: Res<Dialogue>,
     nearby: Res<Nearby>,
     menu: Res<PlayerMenu>,
-    targets: Query<(&Target, &Transform), Without<Player>>,
+    targets: Query<
+        (Option<&Target>, &Transform),
+        (Without<Player>, Or<(With<Target>, With<Speaker>)>),
+    >,
     beacon: Query<&PointLight, With<Beacon>>,
     layout: Res<WorldLayout>,
     captures: Query<(), With<Screenshot>>,
@@ -615,8 +622,20 @@ fn check_beacon_quest(
 ) {
     match *step {
         ArenaStep::Quest if *state.get() == GameState::Playing => {
-            if dialogue.text.is_some() {
-                keys.press(KeyCode::KeyE);
+            if dialogue.is_open() {
+                keys.press(
+                    if matches!(
+                        dialogue.screen(),
+                        Some(Screen::Conversation {
+                            page: Page::Topics,
+                            ..
+                        })
+                    ) {
+                        KeyCode::Enter
+                    } else {
+                        KeyCode::Escape
+                    },
+                );
                 return;
             }
             if quest.is_complete(LAST_LIGHT) {
@@ -635,17 +654,17 @@ fn check_beacon_quest(
                 return;
             }
             let target = if quest.expects(QuestAction::RecoveredCore) {
-                Target::Core
+                Some(Target::Core)
             } else {
-                Target::Keeper
+                None
             };
-            if matches!(nearby.0, Some((_, InteractionTarget::Quest(current))) if current == target)
-            {
+            let interaction = target.map_or(InteractionTarget::Talk, InteractionTarget::Quest);
+            if nearby.0.is_some_and(|(_, nearby)| nearby == interaction) {
                 keys.press(KeyCode::KeyE);
             } else {
                 let (_, destination) = targets
                     .iter()
-                    .find(|(current, _)| **current == target)
+                    .find(|(current, _)| current.copied() == target)
                     .expect("the active quest target must have a world entity");
                 walk(
                     &mut keys,

@@ -43,7 +43,7 @@ Components hold actor-specific state: health, movement, attacks, reactions, anim
 ## Combat and progression
 
 ```text
-interaction target -> interaction -> player facing -> attack detection
+dialogue input -> interaction target -> interaction -> player facing -> attack detection
 attribute spending -> capability sync -------------------> detection
                                                      Detect -> Resolve
                                 defense sync -----------------> Resolve
@@ -51,7 +51,8 @@ Resolve -> reactions / animation / audio / feedback
 Resolve + interaction + Nemi reaction -> experience -> save -> HUD
 ```
 
-`InteractionSystems` chains target selection and interaction, so an action uses the current target.
+`InteractionSystems` processes dialogue input, then selects a nearby target and handles world interaction.
+  A press that opens a conversation cannot also choose a topic, since the dialogue input system has already run.
   Player facing and weapon attack follow interaction, and facing precedes `CombatSystems::Detect`.
   Attribute spending and capability synchronization are chained before detection, so attacks use current attributes.
   Weapon attacks and enemy spit contacts emit `Hit`.
@@ -75,7 +76,8 @@ Experience ages its notice and awards rewards after Resolve, interaction and Nem
 
 ## World interactions, quests and equipment
 
-Interaction selects eligible nearby capabilities, then dispatches feature-specific work for pickups, quests, Nemi, chests, corpses, beds and dungeon targets.
+Interaction selects eligible nearby capabilities and dispatches work for speakers, pickups, quest targets, chests, corpses, beds and dungeon targets.
+  The [dialogue system](dialogue.md) executes quest topics during the interaction chain and finalizes dismissal in `Last` to capture the closing input.
   Storage and loot open on entering their modal states; storage clears its active target on exit.
   Inventory and equipment requests are handled by observers, which validate and mutate their owning resources.
   Inventory UI synchronizes rows, navigation, quantity editing and selection in a chain after attribute updates; equipment's `sync_worn` follows combat detection so draw/holster changes are reflected in attachments.

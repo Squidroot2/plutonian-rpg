@@ -7,12 +7,12 @@ use crate::{
     combat::{CombatSystems, Defense, Health, HealthRecovery},
     combat_feedback::DeathAnimation,
     controls::{Control, Keybinds},
+    dialogue::Dialogue,
     dungeon::Area,
     equipment::{Equipment, EquipmentSlot, WeaponKind},
     interaction::InteractionSystems,
     inventory::Inventory,
     nemi::NemiPlayback,
-    quest::Dialogue,
     ui::menu_ui::PlayerMenu,
     weapon::{Hand, WeaponAttack, WeaponStance},
     world::WorldLayout,
@@ -524,7 +524,7 @@ pub(crate) fn input(
 ) {
     input.direction = Vec2::ZERO;
     input.sprint = bindings.pressed(Control::Sprint, &keys);
-    let blocked = dialogue.text.is_some()
+    let blocked = dialogue.is_open()
         || log.is_some_and(|log| log.is_open())
         || keys.just_pressed(KeyCode::Escape);
     let toggle_run = !blocked && bindings.just_pressed(Control::ToggleRun, &keys);
@@ -609,7 +609,7 @@ pub(crate) fn movement(
         limits,
     ) in &mut players
     {
-        let can_act = dialogue.text.is_none() && !attack.active();
+        let can_act = !dialogue.is_open() && !attack.active();
         let agile = weight <= limits.capacity_kg;
         let can_move = weight <= limits.movement_limit_kg && can_act;
         dodge.cooldown = (dodge.cooldown - delta).max(0.0);
@@ -1459,14 +1459,16 @@ mod tests {
         app.world_mut()
             .resource_mut::<NextState<GameState>>()
             .set(GameState::Playing);
-        app.world_mut().resource_mut::<Dialogue>().text = Some("Talking to Nemi");
+        app.world_mut()
+            .resource_mut::<Dialogue>()
+            .show_notice("Talking to Nemi");
         release(&mut app, DODGE_KEY);
         press(&mut app, &[DODGE_KEY]);
         tick(&mut app, 1);
         assert!(!active(&app, player));
         assert_eq!(stamina(&app, player), spent);
         assert_eq!(transform(&app, player).translation.z, position.z);
-        app.world_mut().resource_mut::<Dialogue>().text = None;
+        app.world_mut().resource_mut::<Dialogue>().clear();
         tick(&mut app, 40);
         release(&mut app, DODGE_KEY);
         press(&mut app, &[DODGE_KEY]);

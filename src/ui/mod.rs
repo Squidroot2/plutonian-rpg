@@ -1,3 +1,4 @@
+pub(crate) mod dialogue_ui;
 pub(crate) mod inventory_ui;
 pub(crate) mod loot_ui;
 pub(crate) mod menu_ui;
@@ -12,12 +13,13 @@ use crate::{
     cave,
     combat::Health,
     controls::{Control, Keybinds},
+    dialogue::{Dialogue, DialogueCatalog, Speaker},
     dungeon::{Area, DungeonProgress, DungeonTarget},
     experience::{ExperienceNotice, ExperienceUpdates},
     interaction::{InteractionSystems, InteractionTarget, Nearby, Target},
     loading::LoadStatus,
     player::{Player, Stamina},
-    quest::{Dialogue, QuestJournal},
+    quest::QuestJournal,
     save::{SaveNotice, save_at_bed},
     ui::menu_ui::PlayerMenu,
     ui::settings::SettingsMenu,
@@ -73,8 +75,6 @@ struct StatusText;
 #[derive(Component)]
 struct ExperienceText;
 #[derive(Component)]
-struct DialogueText;
-#[derive(Component)]
 struct PausePanel;
 #[derive(Component, Clone, Copy)]
 enum Action {
@@ -84,7 +84,8 @@ enum Action {
 }
 impl Plugin for GameUiPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, setup)
+        app.add_plugins(dialogue_ui::DialogueUiPlugin)
+            .add_systems(Startup, setup)
             .add_systems(PreUpdate, pause.after(bevy::input::InputSystems))
             .add_systems(
                 Update,
@@ -93,7 +94,6 @@ impl Plugin for GameUiPlugin {
                     refresh_compass,
                     refresh_prompt.after(save_at_bed),
                     refresh_experience_notice.after(ExperienceUpdates),
-                    refresh_dialogue,
                     refresh_pause,
                 )
                     .after(InteractionSystems),
@@ -178,21 +178,6 @@ fn setup(mut commands: Commands) {
             max_width: percent(90),
             ..default()
         },
-    ));
-    commands.spawn((
-        DialogueText,
-        Text::default(),
-        text_style(20.0),
-        BackgroundColor(Color::srgba(0.015, 0.028, 0.045, 0.96)),
-        Node {
-            position_type: PositionType::Absolute,
-            left: percent(15),
-            right: percent(15),
-            bottom: px(110),
-            padding: UiRect::all(px(28)),
-            ..default()
-        },
-        Visibility::Hidden,
     ));
     commands
         .spawn((
@@ -311,7 +296,7 @@ pub(crate) fn pause(
         return;
     }
     if *state.get() == GameState::Playing
-        && dialogue.text.is_none()
+        && !dialogue.is_open()
         && let Some(mut menu) = log
     {
         let tab = keys.just_pressed(KeyCode::Tab);
@@ -336,7 +321,7 @@ pub(crate) fn pause(
             && matches!(state.get(), GameState::Looting | GameState::Storage))
     {
         match state.get() {
-            GameState::Playing if dialogue.text.is_some() => dialogue.text = None,
+            GameState::Playing if dialogue.is_open() => dialogue.request_close(),
             GameState::Playing => next.set(GameState::Paused),
             GameState::Paused | GameState::Looting | GameState::Storage => {
                 next.set(GameState::Playing)
@@ -505,6 +490,8 @@ fn refresh_prompt(
     dungeon: Res<DungeonProgress>,
     dialogue: Res<Dialogue>,
     nearby: Res<Nearby>,
+    catalog: Res<DialogueCatalog>,
+    speakers: Query<&Speaker>,
     bindings: Res<Keybinds>,
     log: Res<PlayerMenu>,
     notice: Res<SaveNotice>,
@@ -531,15 +518,24 @@ fn refresh_prompt(
             "{}\nCheck the game files and restart the game.",
             status.error.as_deref().unwrap_or("Asset loading failed")
         ),
-        GameState::Playing if dialogue.text.is_none() && !log.is_open() => {
+        GameState::Playing if !dialogue.is_open() && !log.is_open() => {
             if let Some(notice) = notice.text {
                 **text = notice.into();
                 return;
             }
             let key = bindings.get(Control::Interact).label();
-            nearby.0.map_or(String::new(), |(_, target)| {
+            nearby.0.map_or(String::new(), |(entity, target)| {
                 let action: String = match target {
-                    InteractionTarget::Quest(Target::Keeper) => "Speak to Nemi".into(),
+                    InteractionTarget::Talk => {
+                        let Some(profile) = speakers
+                            .get(entity)
+                            .ok()
+                            .and_then(|speaker| catalog.profile(speaker.profile))
+                        else {
+                            return String::new();
+                        };
+                        format!("Speak to {}", profile.name)
+                    }
                     InteractionTarget::Quest(Target::Core) => "Recover power core".into(),
                     InteractionTarget::Quest(Target::BeaconSocket) => {
                         "Install the beacon core".into()
@@ -568,26 +564,6 @@ fn refresh_prompt(
         }
         _ => String::new(),
     };
-}
-
-fn refresh_dialogue(
-    dialogue: Res<Dialogue>,
-    bindings: Res<Keybinds>,
-    mut panel: Query<(&mut Text, &mut Visibility), With<DialogueText>>,
-) {
-    if !dialogue.is_changed() && !bindings.is_changed() {
-        return;
-    }
-    let Ok((mut text, mut visibility)) = panel.single_mut() else {
-        return;
-    };
-    if let Some(content) = dialogue.text {
-        let key = bindings.get(Control::Interact).label();
-        **text = format!("{content}\n\n[{key} / Enter] Continue");
-        *visibility = Visibility::Visible;
-    } else {
-        *visibility = Visibility::Hidden;
-    }
 }
 
 fn refresh_pause(

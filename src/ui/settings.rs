@@ -597,7 +597,7 @@ mod tests {
         let mut app = App::new();
         app.add_plugins((MinimalPlugins, StatesPlugin, SettingsPlugin))
             .insert_state(GameState::Paused)
-            .init_resource::<crate::quest::Dialogue>()
+            .init_resource::<crate::dialogue::Dialogue>()
             .init_resource::<ButtonInput<KeyCode>>()
             .init_resource::<ButtonInput<MouseButton>>()
             .add_systems(PreUpdate, ui::pause);

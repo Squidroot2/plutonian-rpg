@@ -324,7 +324,7 @@ fn light_charge(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{combat::Health, enemy::tests::test_app, hushcap::SPIT, quest::Dialogue};
+    use crate::{combat::Health, dialogue::Dialogue, enemy::tests::test_app, hushcap::SPIT};
 
     fn encounter() -> (App, Entity, Entity) {
         let mut app = test_app();
@@ -438,7 +438,9 @@ mod tests {
         let (mut app, player, enemy) = encounter();
         let initial_health = health(&app, player);
         assert_eq!(tick(&mut app, 48), 1);
-        app.world_mut().resource_mut::<Dialogue>().text = Some("Survey log");
+        app.world_mut()
+            .resource_mut::<Dialogue>()
+            .show_notice("Survey log");
         assert_eq!(tick(&mut app, 60), 0);
         assert_eq!(health(&app, player), initial_health);
         let mut shots = app.world_mut().query::<&SpitProjectile>();

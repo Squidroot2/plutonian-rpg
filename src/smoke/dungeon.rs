@@ -8,6 +8,7 @@ use crate::{
     attributes::{AttributeId, AttributeRanks, CharacterProgress},
     camera::{FollowCamera, Orbit},
     combat::{Dead, Health, Hit},
+    dialogue::Dialogue,
     dungeon::{
         ARCHIVE_HUSHCAP_HOME, ArchiveGate, Area, DungeonProgress, DungeonTarget, GATE_LOCAL, HATCH,
         LOG_LOCAL, ORIGIN, SWITCH_LOCAL,
@@ -19,10 +20,7 @@ use crate::{
     interaction::{CorpseLoot, INTERACT_HEIGHT, INTERACT_RANGE, InteractionTarget, Nearby, Target},
     inventory::{Inventory, ItemKind},
     player::{Dodge, Player},
-    quest::{
-        CONTAIN_THE_HUSHCAPS, Dialogue, LAST_LIGHT, OLD_RELAY, QuestAction, QuestJournal,
-        QuestStatus,
-    },
+    quest::{CONTAIN_THE_HUSHCAPS, LAST_LIGHT, OLD_RELAY, QuestAction, QuestJournal, QuestStatus},
     roach::Roach,
     save::{EncounterId, RunSave},
     storage::{ChestId, ChestStorage},
@@ -104,6 +102,12 @@ pub(super) enum WorldCheck {
     CheckDiscoveredJournal,
     CheckRelaySelection,
     SetUpTurnIn,
+    OpenEarlyDialogue,
+    ChooseNemiLore,
+    ReadNemiLore,
+    ChooseNivalisLore,
+    ReadNivalisLore,
+    SelectBeaconTopic,
     TurnIn,
     ApproachHatch,
     Enter,
@@ -135,6 +139,7 @@ pub(super) enum WorldCheck {
     LeaveJunction,
     Exit,
     ApproachNemi,
+    SelectCavernTopic,
     CavernBriefing,
     OpenCavernJournal,
     SelectCavernQuest,
@@ -312,6 +317,12 @@ pub(super) fn drive(
         | WorldCheck::CheckDiscoveredJournal
         | WorldCheck::CheckRelaySelection => discover_relay(frame),
         WorldCheck::SetUpTurnIn
+        | WorldCheck::OpenEarlyDialogue
+        | WorldCheck::ChooseNemiLore
+        | WorldCheck::ReadNemiLore
+        | WorldCheck::ChooseNivalisLore
+        | WorldCheck::ReadNivalisLore
+        | WorldCheck::SelectBeaconTopic
         | WorldCheck::TurnIn
         | WorldCheck::ApproachHatch
         | WorldCheck::Enter => unlock_relay(frame),
@@ -336,6 +347,7 @@ pub(super) fn drive(
         | WorldCheck::LeaveJunction
         | WorldCheck::Exit => finish_relay_quest(frame),
         WorldCheck::ApproachNemi
+        | WorldCheck::SelectCavernTopic
         | WorldCheck::CavernBriefing
         | WorldCheck::OpenCavernJournal
         | WorldCheck::SelectCavernQuest
@@ -784,7 +796,7 @@ fn discover_relay(frame: WorldFrame) {
             assert_eq!(*xp, Experience(0));
             assert!(
                 dialogue
-                    .text
+                    .text()
                     .is_some_and(|text| text.contains("Speak to Nemi"))
             );
             keys.press(KeyCode::KeyE);
@@ -814,13 +826,13 @@ fn discover_relay(frame: WorldFrame) {
             assert_eq!(quest.entries().count(), 2);
             assert!(
                 dialogue
-                    .text
+                    .text()
                     .is_some_and(|text| text.contains("Restore the light"))
             );
             keys.press(KeyCode::KeyE);
             *phase = WorldCheck::OpenDiscoveredJournal;
         }
-        WorldCheck::OpenDiscoveredJournal if dialogue.text.is_none() => {
+        WorldCheck::OpenDiscoveredJournal if !dialogue.is_open() => {
             keys.press(KeyCode::Tab);
             *phase = WorldCheck::CheckDiscoveredJournal;
         }
@@ -854,6 +866,12 @@ fn discover_relay(frame: WorldFrame) {
         }
         _ => {}
     }
+}
+
+fn assert_uncommitted_beacon(quest: &QuestJournal, inventory: &Inventory) {
+    assert!(quest.expects(QuestAction::TalkedToNemi));
+    assert!(!quest.beacon_powered());
+    assert_eq!(inventory.count(ItemKind::BeaconCore), 1);
 }
 
 fn unlock_relay(frame: WorldFrame) {
@@ -892,9 +910,62 @@ fn unlock_relay(frame: WorldFrame) {
                 &mut transform,
                 WorldLayout::Outpost.keeper() + Vec3::Z * 1.65,
             );
-            *phase = WorldCheck::TurnIn;
+            *phase = WorldCheck::OpenEarlyDialogue;
         }
-        WorldCheck::TurnIn if quest.is_complete(LAST_LIGHT) => {
+        WorldCheck::OpenEarlyDialogue if target_ready(&nearby, InteractionTarget::Talk) => {
+            keys.press(KeyCode::KeyE);
+            *phase = WorldCheck::ChooseNemiLore;
+        }
+        WorldCheck::ChooseNemiLore => {
+            assert_uncommitted_beacon(&quest, &inventory);
+            assert!(dialogue.is_open() && dialogue.text().is_none());
+            if dialogue.selected() == 0 {
+                capture(&mut commands, "nemi-topics");
+                keys.press(KeyCode::KeyS);
+            } else {
+                keys.press(KeyCode::Enter);
+                *phase = WorldCheck::ReadNemiLore;
+            }
+        }
+        WorldCheck::ReadNemiLore => {
+            assert!(
+                dialogue
+                    .text()
+                    .is_some_and(|text| text.contains("I keep the crossing light"))
+            );
+            assert_uncommitted_beacon(&quest, &inventory);
+            keys.press(KeyCode::KeyE);
+            *phase = WorldCheck::ChooseNivalisLore;
+        }
+        WorldCheck::ChooseNivalisLore => {
+            assert!(dialogue.is_open() && dialogue.text().is_none());
+            if dialogue.selected() == 1 {
+                keys.press(KeyCode::KeyS);
+            } else {
+                keys.press(KeyCode::Enter);
+                *phase = WorldCheck::ReadNivalisLore;
+            }
+        }
+        WorldCheck::ReadNivalisLore => {
+            assert!(
+                dialogue
+                    .text()
+                    .is_some_and(|text| text.contains("paired blue waystones"))
+            );
+            assert_uncommitted_beacon(&quest, &inventory);
+            keys.press(KeyCode::KeyE);
+            *phase = WorldCheck::SelectBeaconTopic;
+        }
+        WorldCheck::SelectBeaconTopic => {
+            if dialogue.selected() == 0 {
+                keys.press(KeyCode::Enter);
+                *phase = WorldCheck::TurnIn;
+            } else {
+                keys.press(KeyCode::KeyW);
+            }
+        }
+        WorldCheck::TurnIn => {
+            assert!(quest.is_complete(LAST_LIGHT));
             assert_eq!(inventory.count(ItemKind::BeaconCore), 0);
             assert_eq!((*attributes, *xp), (BEACON_PROGRESS, Experience(0)));
             assert_eq!(
@@ -902,14 +973,11 @@ fn unlock_relay(frame: WorldFrame) {
                 Some("+70 XP | Level 2 (+3 attribute points)")
             );
             let text = dialogue
-                .text
+                .text()
                 .expect("first meeting completes The Last Light");
             assert!(text.contains("You found the core") && text.contains("Old Relay"));
-            keys.press(KeyCode::KeyE);
+            keys.press(KeyCode::Escape);
             *phase = WorldCheck::ApproachHatch;
-        }
-        WorldCheck::TurnIn if target_ready(&nearby, InteractionTarget::Quest(Target::Keeper)) => {
-            keys.press(KeyCode::KeyE);
         }
         WorldCheck::ApproachHatch => {
             if target_ready(&nearby, InteractionTarget::Dungeon(DungeonTarget::Hatch)) {
@@ -1150,14 +1218,14 @@ fn finish_relay_quest(frame: WorldFrame) {
             );
             assert!(
                 dialogue
-                    .text
+                    .text()
                     .is_some_and(|text| text.starts_with("SURVEY LOG"))
             );
             capture(&mut commands, "relay-discovery");
             keys.press(KeyCode::KeyE);
             *phase = WorldCheck::OpenCompletedJournal;
         }
-        WorldCheck::OpenCompletedJournal if dialogue.text.is_none() => {
+        WorldCheck::OpenCompletedJournal if !dialogue.is_open() => {
             keys.press(KeyCode::Tab);
             *phase = WorldCheck::CheckCompletedJournal;
         }
@@ -1181,7 +1249,7 @@ fn finish_relay_quest(frame: WorldFrame) {
             *phase = WorldCheck::ApproachHushcap;
         }
         WorldCheck::LeaveArchive => {
-            if dialogue.text.is_some() {
+            if dialogue.is_open() {
                 keys.press(KeyCode::KeyE);
             } else if walk_to(
                 &mut keys,
@@ -1236,11 +1304,9 @@ fn check_cavern_briefing(frame: WorldFrame) {
         ..
     } = frame;
     match *phase {
-        WorldCheck::ApproachNemi
-            if target_ready(&nearby, InteractionTarget::Quest(Target::Keeper)) =>
-        {
+        WorldCheck::ApproachNemi if target_ready(&nearby, InteractionTarget::Talk) => {
             keys.press(KeyCode::KeyE);
-            *phase = WorldCheck::CavernBriefing;
+            *phase = WorldCheck::SelectCavernTopic;
         }
         WorldCheck::ApproachNemi => {
             walk_to(
@@ -1250,17 +1316,26 @@ fn check_cavern_briefing(frame: WorldFrame) {
                 WorldLayout::Outpost.keeper(),
             );
         }
+        WorldCheck::SelectCavernTopic if dialogue.is_open() => {
+            assert!(quest.expects(QuestAction::ReportedArchiveHushcap));
+            if dialogue.selected() == 0 {
+                keys.press(KeyCode::KeyS);
+            } else {
+                keys.press(KeyCode::Enter);
+                *phase = WorldCheck::CavernBriefing;
+            }
+        }
         WorldCheck::CavernBriefing => {
             assert!(quest.has_occurred(QuestAction::ReportedArchiveHushcap));
-            assert!(dialogue.text.is_some_and(|text| {
+            assert!(dialogue.text().is_some_and(|text| {
                 text.contains("mushroom creature")
                     && text.contains("Hushcap Caverns")
                     && text.contains("five Mycelium")
             }));
-            keys.press(KeyCode::KeyE);
+            keys.press(KeyCode::Escape);
             *phase = WorldCheck::OpenCavernJournal;
         }
-        WorldCheck::OpenCavernJournal if dialogue.text.is_none() => {
+        WorldCheck::OpenCavernJournal if !dialogue.is_open() => {
             keys.press(KeyCode::Tab);
             *phase = WorldCheck::SelectCavernQuest;
         }

@@ -1,5 +1,5 @@
 //! Shared damage and death processing. Attack detection and presentation live in their own systems.
-use crate::{GameState, quest::Dialogue};
+use crate::{GameState, dialogue::Dialogue};
 use avian3d::prelude::Collider;
 use bevy::prelude::*;
 use std::time::Duration;
@@ -172,7 +172,7 @@ impl Plugin for CombatPlugin {
                 FixedUpdate,
                 (tick_protection, recover_health, expire_corpses)
                     .run_if(in_state(GameState::Playing))
-                    .run_if(|dialogue: Res<Dialogue>| dialogue.text.is_none()),
+                    .run_if(|dialogue: Res<Dialogue>| !dialogue.is_open()),
             )
             .add_systems(
                 Update,

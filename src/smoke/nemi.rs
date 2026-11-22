@@ -5,6 +5,7 @@ use crate::{
     camera::{FollowCamera, Orbit},
     combat::{Dead, Health},
     combat_feedback::DeathAnimation,
+    dialogue::Dialogue,
     dungeon::{Area, DungeonTarget, HATCH},
     equipment::Equipment,
     experience::Experience,
@@ -12,7 +13,7 @@ use crate::{
     inventory::{Inventory, ItemKind},
     nemi::Nemi,
     player::{Dodge, Player},
-    quest::{Beacon, Dialogue, LAST_LIGHT, OLD_RELAY, QuestJournal, QuestStatus, RELIGHT_BEACON},
+    quest::{Beacon, LAST_LIGHT, OLD_RELAY, QuestJournal, QuestStatus, RELIGHT_BEACON},
     ui::menu_ui::{MenuTab, PlayerMenu},
     ui::quest_ui::{QuestRow, QuestSelection},
     weapon::{GRIP_SIDE, WeaponAttack},
@@ -256,16 +257,20 @@ fn check_nemi_reactions(
             );
             *stage = Check::Talk;
         }
-        Check::Talk if near(InteractionTarget::Quest(Target::Keeper)) => {
+        Check::Talk if near(InteractionTarget::Talk) => {
             keys.press(KeyCode::KeyE);
             *stage = Check::Refusal;
         }
         Check::Refusal => {
-            assert!(dialogue.text.is_some_and(|text| text.contains("Stay away")));
+            assert!(
+                dialogue
+                    .text()
+                    .is_some_and(|text| text.contains("Stay away"))
+            );
             keys.press(KeyCode::KeyE);
             *stage = Check::OpenLog;
         }
-        Check::OpenLog if dialogue.text.is_none() => {
+        Check::OpenLog if !dialogue.is_open() => {
             keys.press(KeyCode::Tab);
             *stage = Check::SelectFailure;
         }
@@ -360,7 +365,7 @@ fn check_solo_route(
             assert_eq!(bag.count(ItemKind::BeaconCore), 1);
             assert!(
                 dialogue
-                    .text
+                    .text()
                     .is_some_and(|text| text.contains("south side"))
             );
             keys.press(KeyCode::KeyE);
@@ -374,7 +379,7 @@ fn check_solo_route(
             *stage = Check::InstallCore;
         }
         Check::InstallCore
-            if dialogue.text.is_none() && near(InteractionTarget::Quest(Target::BeaconSocket)) =>
+            if !dialogue.is_open() && near(InteractionTarget::Quest(Target::BeaconSocket)) =>
         {
             keys.press(KeyCode::KeyE);
             *stage = Check::BeaconNotice;
@@ -395,8 +400,7 @@ fn check_solo_route(
             *stage = Check::EnterRelay;
         }
         Check::EnterRelay
-            if dialogue.text.is_none()
-                && near(InteractionTarget::Dungeon(DungeonTarget::Hatch)) =>
+            if !dialogue.is_open() && near(InteractionTarget::Dungeon(DungeonTarget::Hatch)) =>
         {
             keys.press(KeyCode::KeyE);
             *stage = Check::Done;

@@ -11,6 +11,7 @@ mod combat;
 mod combat_audio;
 mod combat_feedback;
 mod controls;
+mod dialogue;
 mod dungeon;
 mod enemy;
 mod equipment;
@@ -93,6 +94,7 @@ fn main() {
             player::PlayerPlugin,
             camera::FollowCameraPlugin,
             quest::QuestPlugin,
+            dialogue::DialoguePlugin,
             inventory::InventoryPlugin,
             equipment::EquipmentPlugin,
             practice_dummy::PracticeDummyPlugin,

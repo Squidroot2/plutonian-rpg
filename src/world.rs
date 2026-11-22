@@ -208,7 +208,7 @@ fn spawn_actors(
         .spawn((
             SessionEntity,
             Name::new("Keeper Nemi"),
-            Target::Keeper,
+            nemi::speaker(),
             Nemi::default(),
             Transform::from_translation(layout.keeper() + Vec3::Y * nemi::GROUND_OFFSET)
                 .with_rotation(Quat::from_rotation_y(0.5)),
@@ -359,15 +359,18 @@ fn ground_spawned_models(
     spatial: SpatialQuery,
     layout: Res<WorldLayout>,
     mut actors: Query<
-        (Entity, &mut Transform, Option<&Target>),
-        (Or<(With<Player>, With<Target>)>, Without<Beacon>),
+        (Entity, &mut Transform, Option<&Target>, Has<Nemi>),
+        (
+            Or<(With<Player>, With<Target>, With<Nemi>)>,
+            Without<Beacon>,
+        ),
     >,
     mut beacons: Query<&mut Transform, With<Beacon>>,
     nodes: Query<(&Name, &GlobalTransform)>,
 ) {
-    for (entity, mut transform, target) in &mut actors {
+    for (entity, mut transform, target, is_nemi) in &mut actors {
         // The new-game position is inside the shelter, below its roof.
-        let origin = if target.is_none() && *layout == WorldLayout::Outpost {
+        let origin = if target.is_none() && !is_nemi && *layout == WorldLayout::Outpost {
             transform.translation
         } else {
             transform.translation + Vec3::Y * 3.0
@@ -381,7 +384,7 @@ fn ground_spawned_models(
         ) {
             let support = origin.y - hit.distance;
             let offset = match target {
-                Some(Target::Keeper) => nemi::GROUND_OFFSET,
+                None if is_nemi => nemi::GROUND_OFFSET,
                 Some(Target::Core) => 0.445,
                 Some(Target::BeaconSocket) => 0.30,
                 None => PLAYER_GROUND_OFFSET,

@@ -1,5 +1,6 @@
 use crate::{
     GameState,
+    dialogue::{DialogueCatalog, DialogueHandlers},
     enemy::{EnemyAnimations, EnemyModel, EnemyVisual},
     hushcap,
     inventory::ItemKind,
@@ -51,6 +52,7 @@ impl Plugin for LoadingPlugin {
 #[derive(Resource)]
 pub struct GameAssets {
     quests: Handle<QuestCatalog>,
+    dialogue: Handle<DialogueCatalog>,
     pub character: Handle<Gltf>,
     pub outpost: Option<(Handle<Gltf>, Handle<Gltf>)>,
     pub relay: Option<(Handle<Gltf>, Handle<Gltf>)>,
@@ -145,6 +147,7 @@ fn load(
     *status = LoadStatus::default();
     commands.insert_resource(GameAssets {
         quests: server.load("data://quests/catalog.quest.ron"),
+        dialogue: server.load("data://dialogue/catalog.dialogue.ron"),
         character: server.load("models/plutonian.glb"),
         outpost: (*layout == WorldLayout::Outpost).then(|| {
             (
@@ -191,7 +194,11 @@ fn check(
     server: Res<AssetServer>,
     assets: Res<GameAssets>,
     gltfs: Res<Assets<Gltf>>,
-    catalogs: Res<Assets<QuestCatalog>>,
+    (catalogs, dialogue_catalogs, dialogue_handlers): (
+        Res<Assets<QuestCatalog>>,
+        Res<Assets<DialogueCatalog>>,
+        Res<DialogueHandlers>,
+    ),
     layout: Res<WorldLayout>,
     mut graphs: ResMut<Assets<AnimationGraph>>,
     clips: Res<Assets<AnimationClip>>,
@@ -221,6 +228,9 @@ fn check(
     }
     if let Some(LoadState::Failed(error)) = server.get_load_state(assets.quests.id()) {
         status.error = Some(format!("Could not load the quest catalog: {error}"));
+    }
+    if let Some(LoadState::Failed(error)) = server.get_load_state(assets.dialogue.id()) {
+        status.error = Some(format!("Could not load the dialogue catalogue: {error}"));
     }
     if status.error.is_some() {
         next.set(GameState::Failed);
@@ -255,6 +265,14 @@ fn check(
     let Some(catalog) = catalogs.get(&assets.quests) else {
         return;
     };
+    let Some(dialogue_catalog) = dialogue_catalogs.get(&assets.dialogue) else {
+        return;
+    };
+    if let Err(error) = dialogue_catalog.validate_handlers(&dialogue_handlers) {
+        status.error = Some(format!("Invalid dialogue catalogue: {error}"));
+        next.set(GameState::Failed);
+        return;
+    }
     let journal = if let Some(save) = run.checkpoint() {
         match QuestJournal::from_snapshot(catalog.clone(), *layout, &save.journal) {
             Ok(journal) => journal,
@@ -281,6 +299,7 @@ fn check(
     commands.insert_resource(player_animations);
     commands.insert_resource(enemy_visuals);
     commands.insert_resource(journal);
+    commands.insert_resource(dialogue_catalog.clone());
     status.spawning = true;
     commands.trigger(crate::world::SpawnWorld);
 }
