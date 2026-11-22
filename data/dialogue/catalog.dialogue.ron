@@ -4,10 +4,10 @@
         name: "Nemi",
         refusal: Some("Stay away from me."),
         topics: [
-            (id: "last_light", label: "What happened to the beacon?", reply: Quest),
-            (id: "return_beacon_core", label: "I found the beacon core.", reply: Quest),
+            (id: "last_light", label: "I'm here to help", reply: Quest),
+            (id: "return_beacon_core", label: "I found the beacon core", reply: Quest),
             (id: "old_relay", label: "Tell me about the Old Relay", reply: Quest),
-            (id: "report_archive_hushcap", label: "I saw a mushroom creature in the archive.", reply: Quest),
+            (id: "report_archive_hushcap", label: "I saw a mushroom creature in the archive", reply: Quest),
             (id: "contain_the_hushcaps", label: "What should I do about the Hushcaps?", reply: Quest),
             (id: "show_mycelium", label: "I brought the Mycelium samples.", reply: Quest),
             (
