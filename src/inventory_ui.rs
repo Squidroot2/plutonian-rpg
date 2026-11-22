@@ -602,12 +602,12 @@ fn action(
             ui.selected = Some(row);
             ui.cancel_drop();
             notice.0.clear();
-            if click.count == 2
-                && item.meets_strength(strength)
-                && matches!(row, InventoryRow::BagGear(..))
-                && (equipment.count(item) == 0 || item.fits_slot(EquipmentSlot::OffHand))
-            {
-                commands.trigger(EquipRequest::Quick(item));
+            if click.count == 2 && matches!(row, InventoryRow::BagGear(..)) {
+                if !item.meets_strength(strength) {
+                    notice.0 = "You don't have enough Strength to use this item.".into();
+                } else if equipment.count(item) == 0 || item.fits_slot(EquipmentSlot::OffHand) {
+                    commands.trigger(EquipRequest::Quick(item));
+                }
             }
         }
         InventoryAction::ToggleSlot(slot) if equipment.get(slot).is_some() => {
@@ -1089,6 +1089,58 @@ mod tests {
             0
         );
         assert_eq!(world.resource::<Inventory>().count(ItemKind::FieldArmor), 1);
+    }
+
+    #[test]
+    fn double_clicking_strength_gated_gear_shows_notice_without_equipping() {
+        use crate::{GameState, equipment::EquipmentPlugin, smoke::pointer_click};
+        use bevy::state::app::StatesPlugin;
+
+        let mut app = App::new();
+        app.add_plugins((
+            MinimalPlugins,
+            StatesPlugin,
+            EquipmentPlugin,
+            InventoryUiPlugin,
+        ))
+        .insert_state(GameState::Playing)
+        .init_resource::<InventoryNotice>()
+        .init_resource::<InventoryUiState>();
+        let world = app.world_mut();
+        world.spawn((Player::default(), AttributeRanks::default()));
+        let mut menu = PlayerMenu::default();
+        menu.show(MenuTab::Inventory);
+        world.insert_resource(menu);
+        let mut bag = Inventory::default();
+        assert!(bag.add(ItemKind::ReinforcedArmor, 1));
+        world.insert_resource(bag);
+        let armor = world
+            .spawn(InventoryAction::Select(InventoryRow::BagGear(
+                ItemKind::ReinforcedArmor,
+                0,
+            )))
+            .observe(action)
+            .id();
+        let window = world.spawn_empty().id();
+        let camera = world.spawn_empty().id();
+
+        world.trigger(PointerClick {
+            count: 2,
+            ..pointer_click(armor, window, camera)
+        });
+        world.flush();
+
+        assert_eq!(world.resource::<Equipment>().get(EquipmentSlot::Body), None);
+        assert_eq!(
+            world
+                .resource::<Inventory>()
+                .count(ItemKind::ReinforcedArmor),
+            1
+        );
+        assert_eq!(
+            world.resource::<InventoryNotice>().0,
+            "You don't have enough Strength to use this item."
+        );
     }
 
     #[test]
