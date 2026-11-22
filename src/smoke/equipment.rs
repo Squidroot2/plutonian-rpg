@@ -2,6 +2,7 @@
 use super::inventory::{InventorySmoke, click, pointer_click, walk};
 use crate::{
     GameState,
+    attributes::{AttributeId, AttributeRanks},
     camera::Orbit,
     combat::HitReaction,
     combat_feedback::AttackImpact,
@@ -11,7 +12,7 @@ use crate::{
     loading::PendingScene,
     player::{Pace, Player},
     practice_dummy::PracticeDummy,
-    ui::inventory_ui::{InventoryAction, InventoryRow},
+    ui::inventory_ui::{InventoryAction, InventoryRow, StrengthWarning, StrengthWarningClose},
     ui::menu_ui::PlayerMenuScreen,
     ui::menu_ui::{MenuTab, PlayerMenu},
     weapon::{Hand, WeaponAttack, WeaponStance},
@@ -79,6 +80,18 @@ pub(crate) struct View<'w, 's> {
     inventory_rows:
         Query<'w, 's, (&'static InventoryAction, &'static Children), Without<PlayerMenuScreen>>,
     text: Query<'w, 's, &'static Text>,
+    ranks: Query<'w, 's, &'static AttributeRanks, With<Player>>,
+    strength_warning: Query<
+        'w,
+        's,
+        (
+            &'static InheritedVisibility,
+            &'static ComputedNode,
+            &'static Children,
+        ),
+        With<StrengthWarning>,
+    >,
+    strength_warning_close: Query<'w, 's, Entity, With<StrengthWarningClose>>,
     worn: Query<
         'w,
         's,
@@ -719,6 +732,9 @@ pub(super) fn drive(
                 transform, window, camera,
             )
         }
+        120..=124 => check_strength_warning(
+            smoke, &menu, &bag, &equipment, &view, keys, commands, player, window, camera,
+        ),
         49..=59 => check_worn_armor_in_motion(
             smoke, state, menu, equipment, &view, keys, orbit, commands, player, window, camera,
             now,
@@ -1073,7 +1089,8 @@ fn equip_reinforced_armor(
                 &mut orbit,
                 transform.translation,
             ) {
-                smoke.stage = 101;
+                keys.press(KeyCode::KeyI);
+                smoke.stage = 120;
             }
         }
         101 => {
@@ -1169,6 +1186,102 @@ fn equip_reinforced_armor(
         112 if !menu.is_open() => {
             keys.press(KeyCode::KeyX);
             smoke.stage = 49;
+        }
+        _ => {}
+    }
+}
+
+fn check_strength_warning(
+    mut smoke: ResMut<EquipmentSmoke>,
+    menu: &PlayerMenu,
+    bag: &Inventory,
+    equipment: &Equipment,
+    view: &View,
+    mut keys: ResMut<ButtonInput<KeyCode>>,
+    mut commands: Commands,
+    player: Entity,
+    window: Entity,
+    camera: Entity,
+) {
+    let armor = ItemKind::ReinforcedArmor;
+    let minimum = armor
+        .gear()
+        .expect("reinforced armor must have gear stats")
+        .minimum_strength;
+    let ranks = view
+        .ranks
+        .get(player)
+        .expect("arena player must have attribute ranks");
+    match smoke.stage {
+        120 if menu.is_on(MenuTab::Inventory) => {
+            assert_eq!(ranks.rank(AttributeId::Strength), minimum);
+            commands
+                .entity(player)
+                .insert(ranks.clone().with_rank(AttributeId::Strength, minimum - 1));
+            smoke.stage = 121;
+        }
+        121 => {
+            assert_eq!(ranks.rank(AttributeId::Strength), minimum - 1);
+            let (row, _) = view
+                .bag_rows(armor)
+                .next()
+                .expect("reinforced armor bag row");
+            commands.trigger(PointerClick {
+                count: 2,
+                ..pointer_click(row, window, camera)
+            });
+            smoke.stage = 122;
+        }
+        122 => {
+            let (visibility, layout, children) = view
+                .strength_warning
+                .single()
+                .expect("the Strength warning must still exist after earlier state changes");
+            assert!(
+                visibility.get(),
+                "the Strength warning must be visible after the double-click"
+            );
+            assert!(
+                layout.size().cmpgt(Vec2::ZERO).all(),
+                "the visible warning needs a layout"
+            );
+            assert!(
+                children
+                    .iter()
+                    .any(|entity| view.text.get(entity).is_ok_and(|text| {
+                        text.as_str() == "You don't have enough Strength to use this item."
+                    }))
+            );
+            assert_eq!(
+                equipment.get(EquipmentSlot::Body),
+                Some(ItemKind::FieldArmor)
+            );
+            assert_eq!(bag.count(armor), 1);
+            smoke.screenshot = Some(super::capture(&mut commands, "strength-warning"));
+            smoke.stage = 123;
+        }
+        123 if smoke.captured(view) => {
+            let close = view
+                .strength_warning_close
+                .single()
+                .expect("Strength warning Close button");
+            commands.trigger(pointer_click(close, window, camera));
+            smoke.stage = 124;
+        }
+        124 => {
+            let (visibility, ..) = view
+                .strength_warning
+                .single()
+                .expect("closing keeps the warning available");
+            assert!(!visibility.get(), "Close must hide the Strength warning");
+            commands
+                .entity(player)
+                .insert(ranks.clone().with_rank(AttributeId::Strength, minimum));
+            keys.press(KeyCode::Tab);
+            info!(
+                "STRENGTH WARNING SMOKE PASS: rejected the equip and showed and dismissed the warning"
+            );
+            smoke.stage = 101;
         }
         _ => {}
     }

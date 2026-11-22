@@ -178,8 +178,11 @@ pub(crate) fn button() -> impl Bundle {
 
 /// A centered modal that follows the lifetime of an interaction state.
 pub(crate) fn interaction_modal(state: GameState) -> impl Bundle {
+    (DespawnOnExit(state), modal_overlay())
+}
+
+pub(crate) fn modal_overlay() -> impl Bundle {
     (
-        DespawnOnExit(state),
         GlobalZIndex(50),
         centered_overlay(),
         BackgroundColor(Color::srgba(0.005, 0.012, 0.025, 0.82)),

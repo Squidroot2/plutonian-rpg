@@ -1,7 +1,6 @@
 use std::collections::BTreeMap;
 
 use crate::{
-    GameState,
     attributes::{AttributeId, AttributeRanks, AttributeUpdates, CarryLimits, DEFAULT_RANK},
     controls::{Control, Keybinds},
     equipment::{EquipRequest, Equipment, EquipmentSlot, Handedness, UnequipRequest},
@@ -24,10 +23,10 @@ use bevy::{
 pub struct InventoryUiPlugin;
 
 #[derive(Component)]
-struct StrengthWarning;
+pub(crate) struct StrengthWarning;
 
 #[derive(Component)]
-struct StrengthWarningClose;
+pub(crate) struct StrengthWarningClose;
 
 #[derive(Resource, Default)]
 pub struct InventoryUiState {
@@ -217,10 +216,9 @@ impl Plugin for InventoryUiPlugin {
                     .chain()
                     .after(AttributeUpdates),
             )
-            .add_systems(Last, dismiss_prompt.after(menu_ui::close))
             .add_systems(
-                Update,
-                close_strength_warning.run_if(in_state(GameState::Playing)),
+                Last,
+                (dismiss_prompt, close_strength_warning).after(menu_ui::close),
             );
     }
 }
@@ -463,7 +461,7 @@ pub(crate) fn spawn(page: &mut ChildSpawnerCommands) {
         panel
             .spawn((
                 StrengthWarning,
-                menu_ui::interaction_modal(GameState::Playing),
+                menu_ui::modal_overlay(),
                 Visibility::Hidden,
             ))
             .insert(Node {

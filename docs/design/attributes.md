@@ -76,9 +76,11 @@ Each melee weapon or armor piece has a minimum Strength rank. The initial
 requirements are **7** for the Reinforced Helmet, **8** for the Trident, and
 **10** for Reinforced Armor. The remaining shipped gear requires rank 1.
 
-Show the requirement on gear details and disable equip actions below it.
-Enforce the same check on both quick-equip and slot-specific requests before
-moving any items. Characters can carry gear they have yet to qualify for.
+Show the requirement on gear details and disable ineligible choices in the
+Equipment slot picker. A double-click on ineligible gear in Inventory shows
+a dismissible warning. Enforce the same check on both quick-equip and
+slot-specific requests before moving any items. Characters can carry gear
+they have yet to qualify for.
 
 ## Data, saves, and extension
 
