@@ -29,6 +29,8 @@ const RELAY_LANDING_OFFSET: Vec3 = Vec3::new(0.0, 2.6, -2.65);
 const SURFACE_LANDING_OFFSET: Vec3 = Vec3::new(0.0, 3.0, 2.1);
 const LANDING_CAMERA_PITCH: f32 = 0.22;
 const GATE_LIFT: f32 = 3.9;
+
+// Match the Old Relay notice IDs in data/dialogue/catalog.dialogue.ron.
 pub(crate) const SEALED_HATCH: NoticeId = NoticeId("old_relay.sealed_hatch");
 pub(crate) const ARCHIVE_GATE_OPEN: NoticeId = NoticeId("old_relay.archive_gate_open");
 pub(crate) const HATCH_OBSTRUCTED: NoticeId = NoticeId("old_relay.hatch_obstructed");

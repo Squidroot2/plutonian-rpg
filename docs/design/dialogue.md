@@ -46,6 +46,8 @@ For a gameplay topic, use `reply: Quest` and register its profile and topic IDs 
   Choices that share an outcome can reuse the same reply ID and wording from the profile's `replies` list.
 
 Edit the `text` field to revise wording for an existing outcome or notice.
+  The RON `id` must exactly match the string value used in Rust for speaker profiles, registered quest topics, replies, and notices.
+  Update both locations when renaming an ID.
   To add a quest outcome, add an `(id: "outcome_id", text: "Reply text")` entry to the speaker's `replies` list and register that ID with the handler that can return it.
   To add a notice, put its ID and text in `notices` and register the ID with `require_notices` in the feature's plugin.
   Loading rejects duplicate IDs, blank text, and missing registered replies or notices.

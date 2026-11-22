@@ -1,10 +1,13 @@
 (
     profiles: [
         (
+            // Match the speaker's Rust profile ID (PROFILE in src/nemi/dialogue.rs).
             id: "nemi",
             name: "Nemi",
             refusal: Some("Stay away from me."),
             topics: [
+                // Quest topic IDs must match the registrations in register_topics in
+                // src/nemi/dialogue.rs. Inline Text topics need a unique ID within this profile.
                 (id: "last_light", label: "I'm here to help", reply: Quest),
                 (id: "return_beacon_core", label: "I found the beacon core", reply: Quest),
                 (id: "old_relay", label: "Tell me about the Old Relay", reply: Quest),
@@ -23,6 +26,8 @@
                 ),
             ],
             replies: [
+                // Each ID must exactly match the string in a ReplyId constant in
+                // src/nemi/dialogue.rs. Update both places if you rename one.
                 (
                     id: "relay_sealed",
                     text: "The round hatch northwest of the beacon tower leads to the Old Relay. The first survey crews sheltered down there. Once the beacon has power again, the hatch will open.",
@@ -91,6 +96,8 @@
         ),
     ],
     notices: [
+        // Notice IDs must exactly match the strings in the NoticeId constants in
+        // src/interaction.rs (beacon) and src/dungeon.rs (Old Relay).
         (
             id: "beacon.core_recovered_solo",
             text: "POWER CORE RECOVERED\n\nInstall it in the socket at the south side of the beacon tower.",

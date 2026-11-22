@@ -51,6 +51,7 @@ pub(crate) const INTERACT_HEIGHT: f32 = 0.45;
 const PICKUP_INTERACTION_OFFSET: f32 = 0.18;
 const HATCH_INTERACTION_OFFSET: f32 = 0.65;
 
+// Match the beacon notice IDs in data/dialogue/catalog.dialogue.ron.
 pub(crate) const CORE_RECOVERED_SOLO: NoticeId = NoticeId("beacon.core_recovered_solo");
 pub(crate) const CORE_RECOVERED_BEFORE_MEETING: NoticeId =
     NoticeId("beacon.core_recovered_before_meeting");

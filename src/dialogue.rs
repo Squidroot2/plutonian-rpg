@@ -210,6 +210,11 @@ impl AssetLoader for DialogueLoader {
     }
 }
 
+/// Registers the Rust IDs that must match `data/dialogue/catalog.dialogue.ron` exactly.
+/// Each registered profile and quest topic needs a matching entry.
+/// Each `ReplyId` matches an entry in that profile's `replies` list,
+/// and each required `NoticeId` matches an entry in the catalogue's `notices` list.
+/// Loading rejects missing IDs.
 #[derive(Resource, Default)]
 pub(crate) struct DialogueRegistry {
     topics: BTreeMap<&'static str, BTreeMap<&'static str, QuestTopic>>,

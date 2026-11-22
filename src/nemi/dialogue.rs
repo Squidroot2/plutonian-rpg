@@ -1,3 +1,7 @@
+//! Keep `PROFILE`, the quest topic IDs registered in `register_topics`,
+//! and the strings inside the `ReplyId` constants in sync with Nemi's profile,
+//! topic, and reply IDs in `data/dialogue/catalog.dialogue.ron`.
+
 use crate::{
     dialogue::{DialogueRegistry, ReplyId},
     inventory::{Inventory, ItemKind},
