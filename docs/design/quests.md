@@ -142,7 +142,7 @@ Example of a minimal shape (replace the sample IDs and prose):
         ),
     ],
     completion: "You found the source of the signal.",
-),
+)
 ```
 
 The example uses `ReadSurveyLog` only to show the data shape; choose an action
