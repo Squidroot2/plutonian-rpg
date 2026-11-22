@@ -176,17 +176,42 @@ fn setup(mut commands: Commands) {
                         menu.spawn((Text::new(header), ui::text_style(20.0), Pickable::IGNORE));
                         menu.spawn(Node {
                             width: percent(100),
-                            flex_wrap: FlexWrap::Wrap,
+                            flex_direction: FlexDirection::Row,
                             justify_content: JustifyContent::SpaceBetween,
-                            row_gap: px(6),
                             ..default()
                         })
-                        .with_children(|grid| {
+                        .with_children(|columns| {
+                            columns.spawn((
+                                Text::new("Action"),
+                                ui::text_style(14.0),
+                                Pickable::IGNORE,
+                                Node {
+                                    width: percent(68),
+                                    ..default()
+                                },
+                            ));
+                            columns.spawn((
+                                Text::new("Key"),
+                                ui::text_style(14.0),
+                                Pickable::IGNORE,
+                                Node {
+                                    width: percent(30),
+                                    ..default()
+                                },
+                            ));
+                        });
+                        menu.spawn(Node {
+                            width: percent(100),
+                            flex_direction: FlexDirection::Column,
+                            row_gap: px(4),
+                            ..default()
+                        })
+                        .with_children(|table| {
                             for control in Control::ALL
                                 .into_iter()
                                 .filter(|control| control.keybind_category() == category)
                             {
-                                spawn_button(grid, Action::Rebind(control), percent(49));
+                                spawn_keybind_row(table, control);
                             }
                         });
                     }
@@ -205,13 +230,37 @@ fn setup(mut commands: Commands) {
 fn section_layout() -> Node {
     Node {
         display: Display::None,
-        width: px(480),
+        width: px(560),
         max_width: percent(94),
         flex_direction: FlexDirection::Column,
         align_items: AlignItems::Center,
         row_gap: px(8),
         ..default()
     }
+}
+
+fn spawn_keybind_row(parent: &mut ChildSpawnerCommands, control: Control) {
+    parent
+        .spawn(Node {
+            width: percent(100),
+            min_height: px(36),
+            flex_direction: FlexDirection::Row,
+            align_items: AlignItems::Center,
+            justify_content: JustifyContent::SpaceBetween,
+            ..default()
+        })
+        .with_children(|row| {
+            row.spawn((
+                Text::new(control.label()),
+                ui::text_style(16.0),
+                Pickable::IGNORE,
+                Node {
+                    width: percent(68),
+                    ..default()
+                },
+            ));
+            spawn_button(row, Action::Rebind(control), percent(30));
+        });
 }
 
 fn spawn_button(parent: &mut ChildSpawnerCommands, action: Action, width: Val) {
@@ -414,9 +463,7 @@ fn refresh(
                 Action::ToggleDisplay => "Display mode: Fullscreen".into(),
                 Action::CycleFps => format!("FPS counter: {}", fps.label()),
                 Action::Keybinds => "Keybinds".into(),
-                Action::Rebind(control) => {
-                    format!("{}  ·  {}", control.label(), bindings.get(control).label())
-                }
+                Action::Rebind(control) => bindings.get(control).label(),
                 Action::ResetBindings => "Restore defaults".into(),
                 Action::Back => "Back (Esc)".into(),
             };
