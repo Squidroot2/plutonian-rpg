@@ -2,7 +2,9 @@
 
 ## Overview
 
-Combat separates attack detection from shared resolution. Attack systems emit `Hit` messages during `CombatSystems::Detect`; `CombatSystems::Resolve` applies damage, reports accepted hits, and marks defeated actors. This lets player weapons and enemy attacks share defense, hit protection, death, reaction, and downstream quest/experience behavior.
+Combat separates attack detection from shared resolution. 
+Attack systems emit `Hit` messages during `CombatSystems::Detect`; `CombatSystems::Resolve` applies damage, reports accepted hits, and marks defeated actors. 
+This lets player weapons and enemy attacks share defense, hit protection, death, reaction, and downstream quest/experience behavior.
 
 ## Player melee
 
