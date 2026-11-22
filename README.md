@@ -4,7 +4,7 @@ A third-person exploration RPG prototype built with Bevy 0.20 and Blender. You w
 
 ## Run
 
-Requires Rust 1.97.1 or newer, a Vulkan-capable graphics driver, and a Linux desktop. Install Bevy's [Linux development dependencies](https://bevy.org/learn/quick-start/getting-started/setup/#installing-os-dependencies) for your distribution, including ALSA/udev only if you enable audio/gamepad features later. This build uses X11 or Wayland and includes no audio or gamepad integration.
+Requires Rust 1.97.1 or newer, a Vulkan-capable graphics driver, and a Linux desktop running X11 or Wayland. Install your distribution's development packages for the window backends and ALSA audio. For the package list used on Ubuntu 24.04, see the [CI workflow](.github/workflows/ci.yml). For other distributions, see [Bevy's Linux setup guide](https://bevy.org/learn/quick-start/getting-started/setup/#installing-os-dependencies).
 
 ```sh
 cargo run --locked
@@ -13,11 +13,11 @@ cargo run --locked
 The game opens in borderless fullscreen. Run `cargo run --locked -- --windowed` to open it in a window.
 Open **Settings** from the title screen or pause menu to switch display modes during the current session.
 The **FPS counter** setting cycles through the four screen corners and Off. It starts in the top left.
-Under **Keybinds**, select a gameplay action and press its new key. Both attack actions also accept mouse buttons. Press Esc to cancel, or choose **Restore defaults** to reset all bindings. Changes apply immediately for the current session.
+Under **Keybinds**, select a gameplay action, menu control, or menu shortcut and press its new key. Both attack actions also accept mouse buttons. Press Esc to cancel, or choose **Restore defaults** to reset all bindings. Changes apply immediately for the current session.
 
-The first build compiles Bevy and its renderer and can take several minutes. Run from the repository root so Bevy finds `assets/`. `Cargo.lock` pins the dependency versions used for this application.
+The first build compiles Bevy and its renderer and can take several minutes. Run from the repository root so the game can find `assets/` and the quest catalog in `data/`. `Cargo.lock` pins the dependency versions used for this application.
 
-Choose **Start Game** on the title screen to begin a fresh run in Nivalis, or **Load Game** to resume your last bed save. Click a button or select it with the arrow keys or Tab and activate it with Enter or Space.
+Choose **Start Game** on the title screen to begin a fresh run in Nivalis, or **Load Game** to resume your last bed save. Click a button or select it with Up, Down, or Tab and activate it with Enter or Space.
 
 | Control | Action |
 | --- | --- |
@@ -26,24 +26,25 @@ Choose **Start Game** on the title screen to begin a fresh run in Nivalis, or **
 | Mouse | Orbit camera and turn to face its horizontal look direction |
 | Scroll | Adjust camera distance |
 | Caps Lock | Toggle between walking and running |
-| Left Shift | Sprint forward or on a forward diagonal |
+| Left Shift | Sprint while moving straight forward |
 | Left click | Attack with the main-hand weapon |
 | Right click | Attack with the off-hand weapon |
 | X | Holster or draw all equipped weapons |
 | Space | Jump (grounded only) |
 | Left Ctrl | Dodge hop in the WASD direction, or backward with no movement input (grounded only) |
-| E | Speak / collect a nearby item / open storage / save at the bed / dismiss dialogue |
+| E | Interact with a nearby target, including pickups, corpses, chests, and the bed, or dismiss dialogue |
 | Enter | Quest interaction / dismiss dialogue |
 | I | Open or switch to Inventory / close the player menu from Inventory |
+| L | Open or switch to Quest / close the player menu from Quest |
 | Q | Open the drop quantity prompt for the selected item in Inventory |
 | Tab | Open the last player-menu tab / close the menu |
-| Escape | Close the player menu / dismiss dialogue / pause or resume |
+| Escape | Cancel the drop prompt, close the current menu or panel, dismiss dialogue, or pause / resume |
 
 The pause menu also has Resume and Quit to desktop buttons. Losing window focus pauses the game. Falling beyond the playable area returns you to the outpost and preserves current progress.
 
 ### Saving
 
-Press E near the bed in the starting tent to save. A successful save restores full health and replaces the single save slot. Starting a fresh run leaves that slot available until you save again. The save file is stored at `$XDG_DATA_HOME/plutonian-rpg/save.bin` or `~/.local/share/plutonian-rpg/save.bin`.
+Press E near the bed in the starting tent to save. A successful save restores full health and replaces the single save slot. Starting a fresh run leaves that slot available until you save again. The game uses `$XDG_DATA_HOME/plutonian-rpg/save.bin` when `XDG_DATA_HOME` is an absolute path and `~/.local/share/plutonian-rpg/save.bin` otherwise.
 
 Combat defeat returns you to the tent at full health and restores the last save from your run, including quests, equipment, inventory, chests, pickups, and encounters. If you die before using the bed in a new run, that run restarts from the beginning.
 
@@ -53,11 +54,11 @@ The playable route connects the outpost, an inclined ice shelf, and a shallow ca
 
 `src/` separates loading, world assembly, player movement/animation, camera, shared interactions, inventory, equipment, quests, and UI into plugins. Avian's kinematic move-and-slide controller runs at a fixed timestep with capsule ground detection and tuned low gravity. The camera uses a sphere cast to avoid passing through geometry. Interaction requires a nearby target with a clear line of sight. Save files use a versioned bitcode format.
 
-The game includes The Last Light, the Old Relay quest and dungeon, and one speaking NPC. Survival, crafting, levelling, and controller support are deferred. This is fictional Pluto: terrain, illumination, and gravity favor the experience over physical accuracy. Assets are original, generated locally with the included Blender script; no external models or textures are required.
+The game includes The Last Light, the Old Relay quest and dungeon, and one speaking NPC. Survival, crafting, levelling, and controller support are deferred. This is a fictional Pluto with terrain, illumination, and gravity tuned for play. The included Blender scripts generate the original models and title backdrop. Audio includes procedural combat and pickup effects and bundled footsteps and equipment sounds. See [Credits](CREDITS.md) for the bundled sound sources.
 
 ## Player menu
 
-Press Tab during gameplay to open the player menu. Choose **Quest**, **Inventory**, **Equipment**, or **Character**. The menu remembers your last tab for the session and starts on Quest. Tab, Escape, and Close return control to the player. The cursor is available while the menu is open, and the world keeps running. Character shows placeholder data.
+Press Tab during gameplay to open the player menu. Choose **Quest**, **Inventory**, **Equipment**, or **Character**. The menu starts on Quest and remembers the last tab during the current run. Tab, Escape, and Close return control to the player. The cursor is available while the menu is open, and the world keeps running. Character shows placeholder data.
 
 ### Quest
 
@@ -69,17 +70,17 @@ Quest definitions live in `data/quests/catalog.quest.ron`. Add a definition with
 
 ## Inventory
 
-You can carry 60 kg, including equipped gear. Above 60 kg you can still walk. Running, sprinting, jumping, and dodging require a load of 60 kg or less. Above 72 kg, drop items to move again. The smoke arena has two 40 kg Large Boulders.
+Carried weight includes equipped gear. Running, sprinting, jumping, and dodging require a load of 60 kg or less. You can still walk with more than 60 kg, up to 72 kg. Above 72 kg, drop items to move again. The smoke arena has two 40 kg Large Boulders.
 
 E picks up the nearest eligible item within three meters and clear line of sight. E also speaks to Nemi and collects the quest core; one press performs one action. E or Enter dismisses an open conversation before any other interaction.
 
-Batteries, scrap, and methane pouches are scattered around the outpost, trail, and cavern: two of each material in each region, for 18 initial pickups. Pickups transfer their whole stack. Inventory starts empty, stacks by item type, and has no capacity limit. Materials have no crafting or consumption effects yet.
+Batteries, scrap, and methane pouches are scattered around the outpost, trail, and cavern, with two of each material per region for 18 initial pickups. Pickups transfer their whole stack. Inventory starts empty and stacks by item type. Weight affects movement as described above. Materials have no crafting or consumption effects yet.
 
 Select the Inventory tab or press I to jump straight to it. Each row shows the owned quantity and total weight. Equipped gear appears with an **Equipped** status and counts toward the row totals. Use W or S to move between rows and see per-unit weight and details. Rebind these keys under **Menu Up** and **Menu Down** in Settings.
 
-Select a row and click **Drop** at the bottom of Inventory or press Q to open the quantity prompt. Type a number or use the minus and plus buttons. Click **Confirm drop** or press Enter to drop that amount. Escape or **Cancel** dismisses the prompt. For equipped gear, the prompt counts only spare copies in the bag.
+Select a row and click **Drop** at the bottom of Inventory or press Q to open the quantity prompt. Type a number in the quantity field or use the minus and plus buttons. Click **Confirm drop** or press Enter to drop that amount. Escape or **Cancel** dismisses the prompt. For equipped gear, the prompt counts only spare copies in the bag.
 
-Dropped quantities become one stationary world stack near the player and can be collected with E. Placement checks supporting ground, free space, and walls; a failed drop leaves the inventory unchanged. The beacon core is marked **Quest item** and cannot be dropped.
+Dropped quantities become one stationary world stack near the player and can be collected with E. Placement checks supporting ground, free space, and walls. The inventory keeps the stack if placement fails. The beacon core is marked **Quest item** and cannot be dropped.
 
 ### Tent storage
 
@@ -100,7 +101,7 @@ Start with empty equipment slots. Find the field armor and helmet in the tent ch
 
 On the **Equipment** tab, click **Equip** beside an empty slot and choose a compatible item. You can also double-click a gear row in **Inventory**. Equipping moves one copy into a slot and returns any displaced gear to the bag. Click **Unequip** to return an equipped item to the bag before dropping it. You can drop spare bag copies at any time.
 
-Slots show their equipped piece and defense, with a combined total above them. Each point of defense reduces bite damage by one, to a minimum of one. Equipment survives fall recovery and is included in bed saves.
+Slots show their equipped piece and defense, with a combined total above them. Each point of defense reduces incoming damage by one, to a minimum of one damage per hit. Equipment survives fall recovery and is included in bed saves.
 
 Equipped models follow the player's animated rig. Helmets have open faces and clearance for the alien's eyes and sensory horns.
 
@@ -114,7 +115,7 @@ Press X to put your equipped weapons on your back or hips. Press it again to dra
 
 ## Ice worms
 
-Two ice worms roam beside the trail and a third waits near the cavern entrance. Watch for the worm to rear up, move out of its bite, then attack during its recovery. Three spear or trident thrusts defeat a worm. A bite deals 20 damage before armor, and defeat returns you to your last bed save. After five seconds without taking damage, you recover 10 health per second. The health bar fades away when you reach full health. Defeated worms and relay roaches leave corpses that can be carried forward in a bed save. Press E near an unlooted corpse to open its loot panel and take its meat. Meat stacks in the backpack and can be dropped.
+Two ice worms roam beside the trail and a third waits near the cavern entrance. Watch for the worm to rear up, move out of its bite, then attack during its recovery. Three spear or trident thrusts defeat a worm. A worm bite deals 20 damage before armor. After five seconds without taking damage, you recover 10 health per second. The health bar fades away when you reach full health. Defeated worms and relay roaches leave corpses with loot that persists in bed saves. Press E near an unlooted corpse, select **Take**, and use **Close** or Escape to return to play. Meat stacks in the backpack and can be dropped.
 
 ## The Old Relay
 
@@ -137,6 +138,9 @@ Blender 5.3 was used for the included editable sources in `art/`. Runtime export
 | `collision` | Simplified static geometry, hidden at runtime |
 | `core` | Collectible beacon power core |
 | `battery`, `scrap`, `methane_pouch` | Ground-based material pickups |
+| `large_boulder`, `practice_dummy` | Carrying-limit test pickup and weapon practice target |
+| `ice_worm`, `relay_roach` | Animated enemies with idle, crawl, bite, and death clips |
+| `old_relay`, `old_relay_collision` | Old Relay scenery and its hidden collision geometry |
 | `worm_meat`, `roach_meat` | Corpse loot pickup models for dropped meat |
 | `field_armor`, `reinforced_armor`, `field_helmet`, `reinforced_helmet` | Equipment sources, each exporting pickup and `_worn` GLBs |
 | `field_spear`, `trident` | Weapons sharing the spear animations, each exporting pickup and `_worn` GLBs |
@@ -169,7 +173,7 @@ Pass `-- --spear` to regenerate the field spear, trident, practice dummy, and th
 
 Pass `-- --shortsword` to regenerate the shortsword source, wrist sockets, and sword carry and slash actions. The slashes contact at frame 5 and recover at frame 12 (24 fps).
 
-Append `--nemi-death` to the export command to rebuild the collapse action on the existing shared character rig and export that character alone.
+Use `-- --export --nemi-death` to rebuild the collapse action on the existing shared character rig. This mode rewrites `art/plutonian.blend` and exports only `assets/models/plutonian.glb`.
 
 The scripts run in a separate background Blender process; a live MCP connection is not required. One Blender unit equals one meter. Author with Z up and the character facing -Y; glTF export converts to Bevy's Y-up coordinates, with the character facing +Z. Keep scale applied and keep the animation names unchanged. Materials use Principled BSDF base color, roughness, metallic, and emission. Animation is exported as sampled actions. Keep visible environment edits and `collision.blend` aligned; collision does not regenerate from edited outpost sources during `--export`.
 
@@ -198,15 +202,17 @@ cargo run --locked -- --smoke-nemi
 python3 scripts/check_assets.py
 ```
 
-Run the desktop checks on an idle graphical desktop without supplying mouse or keyboard input. Add `--windowed` to a smoke command to run it in a window.
+Clippy enforces a 150-line function limit, including smoke drivers. GitHub Actions builds, tests, and runs Clippy for pushes and pull requests to `master`. See the [repository guidelines](AGENTS.md) for development and verification standards.
+
+Run one smoke scenario at a time on an idle graphical desktop without supplying mouse or keyboard input. Add `--windowed` to a smoke command to run it in a window. Each scenario uses a temporary save slot.
 
 - `--smoke-test` starts a standalone arena with nearby materials, equipment, a practice dummy, and the keeper and core. It checks tab switching, live physics while the menu is open, inventory quantities, equipped rows, the drop prompt, both polearms' hits and misses, and shortsword attachment and hits, including simultaneous strikes. It also checks a worm pursuit, dodge, bite, and defeat, armor swaps and attachment during movement, the 640×704 player-menu layout, wall collision, pause/resume, and fall recovery. The short beacon interaction verifies that the core is protected in the bag, consumed on turn-in, and lights the beacon. The run prints `SMOKE PASS` and its duration, or fails within 60 seconds with the current phase.
-- `--smoke-world` loads the shipped outpost, checks transfers in all three tent chests, and walks out of and back into the tent to verify stored contents. It also verifies the worms start grounded, checks the route past the worms, and checks that every authored pillar blocks the movement capsule from four directions. It then checks the locked hatch, beacon turn-in, gate, archive discovery, return and reentry, and fall recovery. It prints `WORLD SMOKE PASS` on success.
+- `--smoke-world` loads the shipped outpost, checks transfers in all three tent chests, and walks out of and back into the tent to verify stored contents. It checks grounded worm spawns, traversable routes, and pillar collision from four directions. It also checks hatch unlocking, the relay encounters and roach loot, archive discovery, return and reentry, fall recovery, and combat defeat with and without a bed save. It prints `WORLD SMOKE PASS` on success.
 - `--smoke-nemi` checks spear damage, fleeing and returning, the failed quest entry, Nemi’s collapse, and opening the relay by installing the core at the beacon. It prints `NEMI SMOKE PASS` on success.
 
 The checks save screenshots in `/tmp/plutonian-*.png`, including the arena, outpost, inventory, beacon, and weapon and armor poses.
 
-Manual acceptance: walk and sprint, jump and land, traverse the trail rise, push against habitat/cavern walls, orbit the camera near obstructions, try interacting out of range or through a wall, read/dismiss each dialogue, collect the core once, return to Nemi, confirm the lit beacon, pause/resume using keys and buttons, fall off the ice shelf, pick up materials on the trail and in the cavern, use the inventory quantity field and buttons, drop and recollect stacks near slopes and walls, equip and swap both gear sets, unequip/drop/recollect gear, inspect its fit during animation, and restart to confirm fresh quest, inventory, and equipment state. Automated checks cannot establish how comfortable the movement or composition feels.
+Manual acceptance: walk and sprint, jump and land, traverse the trail rise, push against habitat/cavern walls, orbit the camera near obstructions, try interacting out of range or through a wall, read/dismiss each dialogue, collect the core once, return to Nemi, confirm the lit beacon, pause/resume using keys and buttons, fall off the ice shelf, pick up materials on the trail and in the cavern, use the inventory quantity field and buttons, drop and recollect stacks near slopes and walls, equip and swap both gear sets, unequip/drop/recollect gear, inspect its fit during animation, and choose **Start Game** after relaunching to confirm fresh quest, inventory, and equipment state. Automated checks cannot establish how comfortable the movement or composition feels.
 
 ## License
 
