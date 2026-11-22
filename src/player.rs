@@ -580,7 +580,8 @@ pub(crate) fn movement(
             },
         );
         transform.translation = output.position;
-        player.velocity.y = output.projected_velocity.y;
+        // Follow the slope this tick without carrying its upward motion as jump velocity.
+        player.velocity.y = output.projected_velocity.y.min(velocity.y.max(0.0));
         dodge.advance(delta);
         if transform.translation.y < -15.0
             || transform.translation.x.abs() > 55.0
@@ -916,6 +917,32 @@ mod tests {
             assert_eq!(stamina(&app, player), 80.0);
         }
         panic!("the player must land within two seconds of jumping");
+    }
+
+    #[test]
+    fn walking_up_a_ramp_does_not_build_up_jump_velocity() {
+        let (mut app, player) = test_app();
+        app.world_mut().spawn((
+            RigidBody::Static,
+            Collider::cuboid(3.0, 0.2, 2.4),
+            Transform::from_xyz(0.0, 0.5, -1.5)
+                .with_rotation(Quat::from_rotation_x(30_f32.to_radians())),
+        ));
+        app.world_mut().resource_mut::<Orbit>().yaw = 0.25;
+        tick(&mut app, 2);
+        let start = transform(&app, player).translation;
+
+        press(&mut app, &[KeyCode::KeyW]);
+        for _ in 0..48 {
+            tick(&mut app, 1);
+            let velocity = app
+                .world()
+                .get::<Player>(player)
+                .expect("the ramp fixture must have a player")
+                .velocity;
+            assert!(velocity.y <= 0.0, "ramp contact added upward velocity");
+        }
+        assert!(transform(&app, player).translation.y > start.y + 0.5);
     }
 
     #[test]
