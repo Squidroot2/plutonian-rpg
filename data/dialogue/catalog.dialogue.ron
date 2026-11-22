@@ -62,7 +62,7 @@
                 ),
                 (
                     id: "beacon_briefing",
-                    text: "You made it home before the long dark. Our beacon has gone silent. The families here depend on its signal to cross the ice.\n\nA charged core waits in the blue cavern, beyond the waystones. Follow their lights north, then bring it back.",
+                    text: "We need to prepare before the long dark. Our beacon has gone silent. The families here depend on its signal to cross the ice.\n\nA charged core waits in the blue cavern, beyond the waystones. Follow their lights north, then bring it back.",
                 ),
                 (
                     id: "core_directions",
