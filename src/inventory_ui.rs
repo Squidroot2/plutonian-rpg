@@ -1179,6 +1179,7 @@ mod tests {
         .init_resource::<InventoryUiState>();
         let world = app.world_mut();
         world.spawn((Player::default(), AttributeRanks::default()));
+        let warning = world.spawn((StrengthWarning, Visibility::Hidden)).id();
         let mut menu = PlayerMenu::default();
         menu.show(MenuTab::Inventory);
         world.insert_resource(menu);
@@ -1209,8 +1210,8 @@ mod tests {
             1
         );
         assert_eq!(
-            world.resource::<InventoryNotice>().0,
-            "You don't have enough Strength to use this item."
+            world.get::<Visibility>(warning),
+            Some(&Visibility::Inherited)
         );
     }
 
