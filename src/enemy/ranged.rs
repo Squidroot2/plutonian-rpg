@@ -440,7 +440,7 @@ mod tests {
         assert_eq!(tick(&mut app, 48), 1);
         app.world_mut()
             .resource_mut::<Dialogue>()
-            .show_notice("Survey log");
+            .show_notice_text("Survey log");
         assert_eq!(tick(&mut app, 60), 0);
         assert_eq!(health(&app, player), initial_health);
         let mut shots = app.world_mut().query::<&SpitProjectile>();

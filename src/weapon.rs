@@ -614,7 +614,7 @@ mod tests {
                 .equip(&mut bag, ItemKind::FieldSpear, 10),
             Ok(true)
         );
-        world.resource_mut::<Dialogue>().show_notice("Talking");
+        world.resource_mut::<Dialogue>().show_notice_text("Talking");
         app.update();
         assert!(!player_attack(&app, player).active());
         app.world_mut().resource_mut::<Dialogue>().clear();
@@ -622,7 +622,7 @@ mod tests {
         assert!(player_attack(&app, player).active());
         app.world_mut()
             .resource_mut::<Dialogue>()
-            .show_notice("Talking");
+            .show_notice_text("Talking");
         app.update();
         assert!(!player_attack(&app, player).active());
 
@@ -931,7 +931,7 @@ mod tests {
         app.world_mut().remove_resource::<PlayerMenu>();
         app.world_mut()
             .resource_mut::<Dialogue>()
-            .show_notice("Talking");
+            .show_notice_text("Talking");
         frame(&mut app, Some(KeyX), &[]);
         assert_eq!(stance(&app), Drawn, "dialogue takes precedence");
         app.world_mut().resource_mut::<Dialogue>().clear();

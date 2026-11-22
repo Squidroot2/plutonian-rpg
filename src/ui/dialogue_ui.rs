@@ -1,7 +1,7 @@
 use crate::{
     GameState,
     controls::{Control, Keybinds},
-    dialogue::{Choice, Dialogue, DialogueCatalog, DialogueClick, DialogueHandlers, Page, Screen},
+    dialogue::{Choice, Dialogue, DialogueCatalog, DialogueClick, DialogueRegistry, Page, Screen},
     interaction::InteractionSystems,
     inventory::Inventory,
     nemi::react_to_player_hit,
@@ -42,7 +42,7 @@ fn render(
     state: Res<State<GameState>>,
     dialogue: Res<Dialogue>,
     catalog: Res<DialogueCatalog>,
-    handlers: Res<DialogueHandlers>,
+    handlers: Res<DialogueRegistry>,
     journal: Res<QuestJournal>,
     inventory: Res<Inventory>,
     bindings: Res<Keybinds>,

@@ -8,7 +8,7 @@ A conversation starts with the speaker's topic list.
 
 Nemi offers two repeatable lore topics and conversational choices for the beacon, the Old Relay, and the Hushcaps.
   Quest choices reflect the current objective and the contents of the backpack.
-  The beacon question gives way to an offer to hand over the core when it is carried.
+  The offer to help gives way to an offer to hand over the core when it is carried.
   The Hushcap report gives way to directions or an offer to show the samples.
   Each quest's choices disappear when that quest is complete.
   Opening the conversation and reading lore leave the journal and backpack as they were.
@@ -21,7 +21,9 @@ The Old Relay topic appears when the player discovers the sealed hatch or restor
 ## Authoring
 
 The game loads `data/dialogue/catalog.dialogue.ron` from the same data source as the quest catalogue.
-  The asset controls the speaker's display name, optional refusal, topic order, labels, and lore replies.
+  Its `profiles` list holds speaker names, refusals, ordered topics, and replies.
+  Its `notices` list holds text displayed by world interactions, including readable objects such as the survey log.
+  Each notice has a namespaced ID, for example `old_relay.survey_log`.
   For example, add this entry to a speaker's `topics` list to offer another question.
 
 ```ron
@@ -37,13 +39,17 @@ For a new speaker, add a profile with a unique `id`, a `name`, and a `topics` li
   Use the actor's behavior systems to set `Speaker::availability` when their willingness to talk changes.
   A refusing speaker can be approached when their profile supplies refusal text, for example `refusal: Some("Come back later.")`.
 
-For a gameplay topic, use `reply: Quest` and register its profile and topic IDs with `DialogueHandlers` in the feature's plugin.
-  Both functions receive the live journal and inventory.
-  The read-only availability function decides whether a choice appears.
-  Use separate topic IDs and labels for different player intents.
-  Choices that share an outcome can reuse the same reply function.
-  The quest functions stay in Rust so progression and item changes use the same validated operations as other gameplay.
-  Loading checks the catalogue for blank fields and duplicate IDs and checks that quest topics and handlers agree in both directions.
+For a gameplay topic, use `reply: Quest` and register its profile and topic IDs with `DialogueRegistry` in the feature's plugin.
+  The availability and reply functions both receive the live journal and inventory.
+  The availability function controls which choices appear.
+  The reply function applies gameplay effects and returns a `ReplyId` from the set declared at registration.
+  Choices that share an outcome can reuse the same reply ID and wording from the profile's `replies` list.
+
+Edit the `text` field to revise wording for an existing outcome or notice.
+  To add a quest outcome, add an `(id: "outcome_id", text: "Reply text")` entry to the speaker's `replies` list and register that ID with the handler that can return it.
+  To add a notice, put its ID and text in `notices` and register the ID with `require_notices` in the feature's plugin.
+  Loading rejects duplicate IDs, blank text, and missing registered replies or notices.
+  The quest catalogue continues to define journal text, objectives, and transitions.
 
 ## Session and input
 

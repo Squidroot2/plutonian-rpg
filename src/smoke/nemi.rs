@@ -5,13 +5,13 @@ use crate::{
     camera::{FollowCamera, Orbit},
     combat::{Dead, Health},
     combat_feedback::DeathAnimation,
-    dialogue::Dialogue,
+    dialogue::{Dialogue, DialogueCatalog},
     dungeon::{Area, DungeonTarget, HATCH},
     equipment::Equipment,
     experience::Experience,
-    interaction::{InteractionTarget, Nearby, Target},
+    interaction::{BEACON_RESTORED, CORE_RECOVERED_SOLO, InteractionTarget, Nearby, Target},
     inventory::{Inventory, ItemKind},
-    nemi::Nemi,
+    nemi::{Nemi, dialogue::PROFILE},
     player::{Dodge, Player},
     quest::{Beacon, LAST_LIGHT, OLD_RELAY, QuestJournal, QuestStatus, RELIGHT_BEACON},
     ui::menu_ui::{MenuTab, PlayerMenu},
@@ -72,9 +72,10 @@ pub(super) fn drive(
         Without<Player>,
     >,
     targets: Query<(&Target, &Transform), (Without<Player>, Without<Nemi>)>,
-    (quest, dialogue, nearby, log, selection): (
+    (quest, dialogue, catalog, nearby, log, selection): (
         Res<QuestJournal>,
         Res<Dialogue>,
+        Res<DialogueCatalog>,
         Res<Nearby>,
         Res<PlayerMenu>,
         Res<QuestSelection>,
@@ -157,8 +158,8 @@ pub(super) fn drive(
         | Check::OpenLog
         | Check::SelectFailure
         | Check::CloseLog => check_nemi_reactions(
-            stage, home, nemi, quest, dialogue, log, selection, bag, equipment, rows, window,
-            camera, keys, mouse, orbit, commands, player, dodge, transform, thrust, health,
+            stage, home, nemi, quest, dialogue, &catalog, log, selection, bag, equipment, rows,
+            window, camera, keys, mouse, orbit, commands, player, dodge, transform, thrust, health,
             position, dead, collider, fixture, aim, near,
         ),
         Check::FinishRecovering
@@ -169,8 +170,9 @@ pub(super) fn drive(
         | Check::BeaconNotice
         | Check::EnterRelay
         | Check::Done => check_solo_route(
-            stage, quest, dialogue, bag, lights, animations, keys, orbit, commands, exit, player,
-            dodge, transform, thrust, position, dead, collider, death, fixture, near, place,
+            stage, quest, dialogue, &catalog, bag, lights, animations, keys, orbit, commands, exit,
+            player, dodge, transform, thrust, position, dead, collider, death, fixture, near,
+            place,
         ),
     }
 }
@@ -181,6 +183,7 @@ fn check_nemi_reactions(
     nemi: &Nemi,
     quest: Res<QuestJournal>,
     dialogue: Res<Dialogue>,
+    catalog: &DialogueCatalog,
     log: Res<PlayerMenu>,
     selection: Res<QuestSelection>,
     mut bag: ResMut<Inventory>,
@@ -262,10 +265,11 @@ fn check_nemi_reactions(
             *stage = Check::Refusal;
         }
         Check::Refusal => {
-            assert!(
-                dialogue
-                    .text()
-                    .is_some_and(|text| text.contains("Stay away"))
+            assert_eq!(
+                dialogue.text(),
+                catalog
+                    .profile(PROFILE)
+                    .and_then(|profile| profile.refusal())
             );
             keys.press(KeyCode::KeyE);
             *stage = Check::OpenLog;
@@ -305,6 +309,7 @@ fn check_solo_route(
     mut stage: ResMut<Check>,
     quest: Res<QuestJournal>,
     dialogue: Res<Dialogue>,
+    catalog: &DialogueCatalog,
     bag: ResMut<Inventory>,
     lights: Query<&PointLight, With<Beacon>>,
     animations: Query<&AnimationPlayer>,
@@ -363,10 +368,9 @@ fn check_solo_route(
         }
         Check::CoreNotice => {
             assert_eq!(bag.count(ItemKind::BeaconCore), 1);
-            assert!(
-                dialogue
-                    .text()
-                    .is_some_and(|text| text.contains("south side"))
+            assert_eq!(
+                dialogue.text(),
+                Some(catalog.notice_text(CORE_RECOVERED_SOLO))
             );
             keys.press(KeyCode::KeyE);
             place(
@@ -385,6 +389,7 @@ fn check_solo_route(
             *stage = Check::BeaconNotice;
         }
         Check::BeaconNotice => {
+            assert_eq!(dialogue.text(), Some(catalog.notice_text(BEACON_RESTORED)));
             assert_eq!(bag.count(ItemKind::BeaconCore), 0);
             assert!(quest.is_complete(RELIGHT_BEACON));
             assert_eq!(quest.status(LAST_LIGHT), Some(QuestStatus::Failed));

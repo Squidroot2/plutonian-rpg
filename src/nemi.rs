@@ -3,7 +3,7 @@ pub(crate) mod dialogue;
 use crate::{
     GameState,
     combat::{CombatSystems, ConfirmedHit, Dead, Health, HitReaction, RemoveColliderOnDeath},
-    dialogue::{Availability, Dialogue, DialogueHandlers, Speaker},
+    dialogue::{Availability, Dialogue, DialogueRegistry, Speaker},
     dungeon::Area,
     interaction::InteractionSystems,
     player::{AnimationLibrary, Player, RUN_CLIP, WALK_CLIP},
@@ -156,7 +156,7 @@ impl Plugin for NemiPlugin {
     fn build(&self, app: &mut App) {
         dialogue::register_topics(
             &mut app
-                .init_resource::<DialogueHandlers>()
+                .init_resource::<DialogueRegistry>()
                 .world_mut()
                 .resource_mut(),
         );

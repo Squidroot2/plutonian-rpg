@@ -1,25 +1,131 @@
-[
-    (
-        id: "nemi",
-        name: "Nemi",
-        refusal: Some("Stay away from me."),
-        topics: [
-            (id: "last_light", label: "I'm here to help", reply: Quest),
-            (id: "return_beacon_core", label: "I found the beacon core", reply: Quest),
-            (id: "old_relay", label: "Tell me about the Old Relay", reply: Quest),
-            (id: "report_archive_hushcap", label: "I saw a mushroom creature in the archive", reply: Quest),
-            (id: "contain_the_hushcaps", label: "What should I do about the Hushcaps?", reply: Quest),
-            (id: "show_mycelium", label: "I brought the Mycelium samples.", reply: Quest),
-            (
-                id: "about_nemi",
-                label: "Tell me about yourself",
-                reply: Text("I keep the crossing light. In the long dark, I listen for families knocking at the beacon door to tell me they've made it home. Some nights, after everyone's accounted for, the ice knocks too."),
-            ),
-            (
-                id: "about_nivalis",
-                label: "Tell me about Nivalis",
-                reply: Text("Nivalis is the last warm door for a long way across the ice. In the long dark, the shelf sometimes gives you back your own footsteps from somewhere up ahead. Keep your eyes on the paired blue waystones. They'll bring you home."),
-            ),
-        ],
-    ),
-]
+(
+    profiles: [
+        (
+            id: "nemi",
+            name: "Nemi",
+            refusal: Some("Stay away from me."),
+            topics: [
+                (id: "last_light", label: "I'm here to help", reply: Quest),
+                (id: "return_beacon_core", label: "I found the beacon core", reply: Quest),
+                (id: "old_relay", label: "Tell me about the Old Relay", reply: Quest),
+                (id: "report_archive_hushcap", label: "I saw a mushroom creature in the archive", reply: Quest),
+                (id: "contain_the_hushcaps", label: "What should I do about the Hushcaps?", reply: Quest),
+                (id: "show_mycelium", label: "I brought the Mycelium samples.", reply: Quest),
+                (
+                    id: "about_nemi",
+                    label: "Tell me about yourself",
+                    reply: Text("I keep the crossing light. In the long dark, I listen for families knocking at the beacon door to tell me they've made it home. Some nights, after everyone's accounted for, the ice knocks too."),
+                ),
+                (
+                    id: "about_nivalis",
+                    label: "Tell me about Nivalis",
+                    reply: Text("Nivalis is the last warm door for a long way across the ice. In the long dark, the shelf sometimes gives you back your own footsteps from somewhere up ahead. Keep your eyes on the paired blue waystones. They'll bring you home."),
+                ),
+            ],
+            replies: [
+                (
+                    id: "relay_sealed",
+                    text: "The round hatch northwest of the beacon tower leads to the Old Relay. The first survey crews sheltered down there. Once the beacon has power again, the hatch will open.",
+                ),
+                (
+                    id: "relay_hatch",
+                    text: "Look northwest of the beacon tower for a round hatch with a blue ring. The beacon has lit it again. Down there, the old lamps still remember the way the first survey crews took.",
+                ),
+                (
+                    id: "relay_switch",
+                    text: "Go north from the entry vestibule to the junction and follow the amber lamps east. The maintenance switch on the plinth opens the archive gate.",
+                ),
+                (
+                    id: "relay_survey_log",
+                    text: "Follow the blue lamps north from the junction and go through the raised gate. The first survey log is on a pedestal in front of the wall map.",
+                ),
+                (
+                    id: "early_core_returned",
+                    text: "You found the core in the blue cavern? Our beacon went dark, and families have been waiting to cross the ice. With this, I can light their way again.\n\nThe beacon also powers the Old Relay. Look for the round hatch west and a little south of here. Its archive may still hold the first survey log.\n\nQUEST COMPLETE / THE LAST LIGHT",
+                ),
+                (
+                    id: "core_returned",
+                    text: "There it is. I thought we had lost that light for good. The crossing is safe again.\n\nThe beacon also powers the Old Relay. Look for the round hatch west and a little south of here. Its archive may still hold the first survey log.\n\nQUEST COMPLETE / THE LAST LIGHT",
+                ),
+                (
+                    id: "early_core_stored",
+                    text: "You found the core in the blue cavern? Our beacon went dark, and families have been waiting to cross the ice. Bring the core to me when you have it with you.",
+                ),
+                (
+                    id: "core_missing",
+                    text: "Bring the beacon power core back to me first.",
+                ),
+                (
+                    id: "beacon_briefing",
+                    text: "You made it home before the long dark. Our beacon has gone silent. The families here depend on its signal to cross the ice.\n\nA charged core waits in the blue cavern, beyond the waystones. Follow their lights north, then bring it back.",
+                ),
+                (
+                    id: "core_directions",
+                    text: "Follow the blue waystones north from the outpost. The core is inside the cavern at the end of the trail.",
+                ),
+                (
+                    id: "report_and_samples_shown",
+                    text: "Hushcaps. Their colony in Hushcap Caverns has started to spread. You've already thinned it, and these samples tell me you reached the growth below. Keep them. I'll watch the old passages.\n\nQUEST COMPLETE / CONTAIN THE HUSHCAPS",
+                ),
+                (
+                    id: "samples_shown",
+                    text: "Five samples. You've thinned the colony enough to slow the spread. Keep the Mycelium. I'll watch the old passages for more.\n\nQUEST COMPLETE / CONTAIN THE HUSHCAPS",
+                ),
+                (
+                    id: "report_needs_samples",
+                    text: "Hushcaps. Their colony in Hushcap Caverns has started to spread. You've already thinned it. Bring five Mycelium in your backpack so I can examine the growth.",
+                ),
+                (
+                    id: "cavern_briefing",
+                    text: "A Hushcap. Their colony is spreading beyond Hushcap Caverns. Go south from the courtyard into South Basin. Round the ice fins and follow the bend behind the ridge. Defeat five Hushcaps in the caverns and bring five Mycelium back for me to examine.",
+                ),
+                (
+                    id: "samples_needed",
+                    text: "Bring me five Mycelium in your backpack so I can examine the growth. You can keep the samples afterward.",
+                ),
+                (
+                    id: "cavern_directions",
+                    text: "The caverns lie south, behind the ridge in South Basin. Defeat five Hushcaps inside before you come back.",
+                ),
+            ],
+        ),
+    ],
+    notices: [
+        (
+            id: "beacon.core_recovered_solo",
+            text: "POWER CORE RECOVERED\n\nInstall it in the socket at the south side of the beacon tower.",
+        ),
+        (
+            id: "beacon.core_recovered_before_meeting",
+            text: "POWER CORE RECOVERED\n\nIts light pulses against your hands. There is still warmth inside.\n\nSpeak to Nemi at the outpost about restoring the beacon.",
+        ),
+        (
+            id: "beacon.core_recovered_after_meeting",
+            text: "POWER CORE RECOVERED\n\nIts light pulses against your hands. There is still warmth inside.\n\nReturn to Nemi at the outpost to restore the beacon.",
+        ),
+        (
+            id: "beacon.restored",
+            text: "BEACON RESTORED\n\nThe core locks into the socket and the tower lights up. The Old Relay hatch northwest of the tower now has power.",
+        ),
+        (
+            id: "beacon.socket_empty",
+            text: "BEACON SOCKET\n\nThe socket needs a charged beacon core.",
+        ),
+        (
+            id: "old_relay.survey_log",
+            text: "SURVEY LOG / THE FIRST WATCH\n\nBefore there was a Nivalis, there was this room. We put the first lamps on the ice so the survey crews could find their way back in the long dark.\n\nThe beacon above us still sends the same signal. Its first meaning was simple. There is shelter here, and someone is waiting.",
+        ),
+        (
+            id: "old_relay.sealed_hatch",
+            text: "OLD RELAY\n\nThe hatch responds to the beacon. Restore the light to release the seal.",
+        ),
+        (
+            id: "old_relay.archive_gate_open",
+            text: "The archive gate is open.",
+        ),
+        (
+            id: "old_relay.hatch_obstructed",
+            text: "The hatch landing is obstructed.",
+        ),
+    ],
+)

@@ -748,7 +748,7 @@ mod tests {
             .set(GameState::Playing);
         app.world_mut()
             .resource_mut::<Dialogue>()
-            .show_notice("Talking to Nemi");
+            .show_notice_text("Talking to Nemi");
         app.world_mut().write_message(Hit {
             source: worm,
             target: player,
@@ -766,7 +766,7 @@ mod tests {
 
         app.world_mut()
             .resource_mut::<Dialogue>()
-            .show_notice("Talking to Nemi");
+            .show_notice_text("Talking to Nemi");
         for state in [GameState::Paused, GameState::Playing] {
             app.world_mut()
                 .resource_mut::<NextState<GameState>>()

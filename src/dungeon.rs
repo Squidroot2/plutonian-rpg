@@ -1,7 +1,7 @@
 use crate::{
     GameState,
     camera::Orbit,
-    dialogue::Dialogue,
+    dialogue::{Dialogue, DialogueCatalog, DialogueRegistry, NoticeId},
     hushcap,
     loading::{EnemyVisuals, GameAssets, LoadStatus, spawn_static_scenes},
     player::{Dodge, MovementInput, PLAYER_GROUND_OFFSET, Player},
@@ -29,7 +29,16 @@ const RELAY_LANDING_OFFSET: Vec3 = Vec3::new(0.0, 2.6, -2.65);
 const SURFACE_LANDING_OFFSET: Vec3 = Vec3::new(0.0, 3.0, 2.1);
 const LANDING_CAMERA_PITCH: f32 = 0.22;
 const GATE_LIFT: f32 = 3.9;
-const ARCHIVE_LOG: &str = "SURVEY LOG / THE FIRST WATCH\n\nBefore there was a Nivalis, there was this room. We put the first lamps on the ice so the survey crews could find their way back in the long dark.\n\nThe beacon above us still sends the same signal. Its first meaning was simple. There is shelter here, and someone is waiting.";
+pub(crate) const SEALED_HATCH: NoticeId = NoticeId("old_relay.sealed_hatch");
+pub(crate) const ARCHIVE_GATE_OPEN: NoticeId = NoticeId("old_relay.archive_gate_open");
+pub(crate) const HATCH_OBSTRUCTED: NoticeId = NoticeId("old_relay.hatch_obstructed");
+pub(crate) const ARCHIVE_LOG: NoticeId = NoticeId("old_relay.survey_log");
+pub(crate) const RELAY_NOTICES: &[NoticeId] = &[
+    SEALED_HATCH,
+    ARCHIVE_GATE_OPEN,
+    HATCH_OBSTRUCTED,
+    ARCHIVE_LOG,
+];
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) enum Area {
@@ -99,7 +108,7 @@ impl DungeonProgress {
         }
     }
 
-    fn read_log(&self) -> Option<&'static str> {
+    fn read_log(&self) -> Option<NoticeId> {
         self.gate_open().then_some(ARCHIVE_LOG)
     }
 }
@@ -110,6 +119,10 @@ pub(crate) struct ArchiveGate;
 pub(crate) struct DungeonPlugin;
 impl Plugin for DungeonPlugin {
     fn build(&self, app: &mut App) {
+        app.init_resource::<DialogueRegistry>()
+            .world_mut()
+            .resource_mut::<DialogueRegistry>()
+            .require_notices(RELAY_NOTICES);
         app.init_resource::<DungeonProgress>()
             .add_observer(spawn_relay)
             .add_observer(use_target)
@@ -333,6 +346,7 @@ fn use_target(
     mut quest: ResMut<QuestJournal>,
     mut progress: ResMut<DungeonProgress>,
     mut dialogue: ResMut<Dialogue>,
+    catalog: Res<DialogueCatalog>,
     mut player: Query<(
         Entity,
         &mut Player,
@@ -353,9 +367,7 @@ fn use_target(
     let (area, probe, yaw) = match event.0 {
         DungeonTarget::Hatch if !quest.beacon_powered() => {
             quest.record(QuestAction::InspectedSealedHatch);
-            dialogue.show_notice(
-                "OLD RELAY\n\nThe hatch responds to the beacon. Restore the light to release the seal.",
-            );
+            dialogue.show_notice(&catalog, SEALED_HATCH);
             return;
         }
         DungeonTarget::Hatch => (Area::OldRelay, ORIGIN + RELAY_LANDING_OFFSET, 0.0),
@@ -366,15 +378,15 @@ fn use_target(
         ),
         DungeonTarget::Switch => {
             if progress.gate_open() {
-                dialogue.show_notice("The archive gate is open.");
+                dialogue.show_notice(&catalog, ARCHIVE_GATE_OPEN);
             } else {
                 progress.activate_switch();
             }
             return;
         }
         DungeonTarget::SurveyLog => {
-            if let Some(text) = progress.read_log() {
-                dialogue.show_notice(text);
+            if let Some(notice) = progress.read_log() {
+                dialogue.show_notice(&catalog, notice);
                 quest.record(QuestAction::ReadSurveyLog);
             }
             return;
@@ -383,7 +395,7 @@ fn use_target(
     let filter = SpatialQueryFilter::from_excluded_entities([entity]);
     let Some(hit) = spatial.cast_ray(probe, Dir3::NEG_Y, HATCH_GROUND_PROBE_RANGE, true, &filter)
     else {
-        dialogue.show_notice("The hatch landing is obstructed.");
+        dialogue.show_notice(&catalog, HATCH_OBSTRUCTED);
         return;
     };
     player.respawn(

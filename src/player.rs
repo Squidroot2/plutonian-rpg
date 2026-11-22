@@ -1461,7 +1461,7 @@ mod tests {
             .set(GameState::Playing);
         app.world_mut()
             .resource_mut::<Dialogue>()
-            .show_notice("Talking to Nemi");
+            .show_notice_text("Talking to Nemi");
         release(&mut app, DODGE_KEY);
         press(&mut app, &[DODGE_KEY]);
         tick(&mut app, 1);

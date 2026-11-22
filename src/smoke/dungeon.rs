@@ -8,18 +8,24 @@ use crate::{
     attributes::{AttributeId, AttributeRanks, CharacterProgress},
     camera::{FollowCamera, Orbit},
     combat::{Dead, Health, Hit},
-    dialogue::Dialogue,
+    dialogue::{Dialogue, DialogueCatalog, Profile},
     dungeon::{
-        ARCHIVE_HUSHCAP_HOME, ArchiveGate, Area, DungeonProgress, DungeonTarget, GATE_LOCAL, HATCH,
-        LOG_LOCAL, ORIGIN, SWITCH_LOCAL,
+        ARCHIVE_HUSHCAP_HOME, ARCHIVE_LOG, ArchiveGate, Area, DungeonProgress, DungeonTarget,
+        GATE_LOCAL, HATCH, LOG_LOCAL, ORIGIN, SEALED_HATCH, SWITCH_LOCAL,
     },
     enemy::{MeleePhase, MeleePursuit, ranged::SpitProjectile},
     equipment::Equipment,
     experience::{Experience, ExperienceNotice},
     hushcap::{self, Hushcap},
-    interaction::{CorpseLoot, INTERACT_HEIGHT, INTERACT_RANGE, InteractionTarget, Nearby, Target},
+    interaction::{
+        CORE_RECOVERED_BEFORE_MEETING, CorpseLoot, INTERACT_HEIGHT, INTERACT_RANGE,
+        InteractionTarget, Nearby, Target,
+    },
     inventory::{Inventory, ItemKind},
-    nemi::dialogue::{REPORT_ARCHIVE_HUSHCAP, RETURN_BEACON_CORE},
+    nemi::dialogue::{
+        CAVERN_BRIEFING, EARLY_CORE_RETURNED, PROFILE, RELAY_HATCH, REPORT_ARCHIVE_HUSHCAP,
+        RETURN_BEACON_CORE,
+    },
     player::{Dodge, Player},
     quest::{CONTAIN_THE_HUSHCAPS, LAST_LIGHT, OLD_RELAY, QuestAction, QuestJournal, QuestStatus},
     roach::Roach,
@@ -175,10 +181,11 @@ pub(super) fn drive(
         ),
         With<Player>,
     >,
-    (quest, inventory, dialogue, nearby, checkpoint): (
+    (quest, inventory, dialogue, catalog, nearby, checkpoint): (
         Res<QuestJournal>,
         Res<Inventory>,
         Res<Dialogue>,
+        Res<DialogueCatalog>,
         Res<Nearby>,
         Res<RunSave>,
     ),
@@ -279,6 +286,7 @@ pub(super) fn drive(
         state,
         chests,
         dialogue,
+        catalog,
         progress,
         journal,
         selection,
@@ -409,6 +417,7 @@ struct WorldFrame<'w, 's, 'a> {
     state: Res<'w, State<GameState>>,
     chests: Query<'w, 's, (&'static ChestId, &'static Transform), Without<Player>>,
     dialogue: Res<'w, Dialogue>,
+    catalog: Res<'w, DialogueCatalog>,
     progress: Res<'w, DungeonProgress>,
     journal: Res<'w, PlayerMenu>,
     selection: Res<'w, QuestSelection>,
@@ -768,6 +777,7 @@ fn discover_relay(frame: WorldFrame) {
         quest,
         inventory,
         dialogue,
+        catalog,
         journal,
         selection,
         rows,
@@ -798,10 +808,9 @@ fn discover_relay(frame: WorldFrame) {
             assert!(quest.expects(QuestAction::TalkedToNemi));
             assert!(!quest.beacon_powered());
             assert_eq!(*xp, Experience(0));
-            assert!(
-                dialogue
-                    .text()
-                    .is_some_and(|text| text.contains("Speak to Nemi"))
+            assert_eq!(
+                dialogue.text(),
+                Some(catalog.notice_text(CORE_RECOVERED_BEFORE_MEETING))
             );
             keys.press(KeyCode::KeyE);
             fixture(
@@ -828,11 +837,7 @@ fn discover_relay(frame: WorldFrame) {
             );
             assert!(quest.expects(QuestAction::TalkedToNemi));
             assert_eq!(quest.entries().count(), 2);
-            assert!(
-                dialogue
-                    .text()
-                    .is_some_and(|text| text.contains("Restore the light"))
-            );
+            assert_eq!(dialogue.text(), Some(catalog.notice_text(SEALED_HATCH)));
             keys.press(KeyCode::KeyE);
             *phase = WorldCheck::OpenDiscoveredJournal;
         }
@@ -884,6 +889,7 @@ fn unlock_relay(frame: WorldFrame) {
         quest,
         inventory,
         dialogue,
+        catalog,
         progress,
         journal,
         xp_notice,
@@ -937,10 +943,11 @@ fn unlock_relay(frame: WorldFrame) {
             }
         }
         WorldCheck::ReadNemiLore => {
-            assert!(
-                dialogue
-                    .text()
-                    .is_some_and(|text| text.contains("I keep the crossing light"))
+            assert_eq!(
+                dialogue.text(),
+                nemi_profile(&catalog)
+                    .topic("about_nemi")
+                    .and_then(|topic| topic.text_reply())
             );
             assert_uncommitted_beacon(&quest, &inventory);
             keys.press(KeyCode::KeyE);
@@ -956,10 +963,11 @@ fn unlock_relay(frame: WorldFrame) {
             }
         }
         WorldCheck::ReadNivalisLore => {
-            assert!(
-                dialogue
-                    .text()
-                    .is_some_and(|text| text.contains("paired blue waystones"))
+            assert_eq!(
+                dialogue.text(),
+                nemi_profile(&catalog)
+                    .topic("about_nivalis")
+                    .and_then(|topic| topic.text_reply())
             );
             assert_uncommitted_beacon(&quest, &inventory);
             keys.press(KeyCode::KeyE);
@@ -981,10 +989,10 @@ fn unlock_relay(frame: WorldFrame) {
                 xp_notice.text.as_deref(),
                 Some("+70 XP | Level 2 (+3 attribute points)")
             );
-            let text = dialogue
-                .text()
-                .expect("first meeting completes The Last Light");
-            assert!(text.contains("You found the core") && text.contains("Old Relay"));
+            assert_eq!(
+                dialogue.text(),
+                Some(nemi_profile(&catalog).reply_text(EARLY_CORE_RETURNED))
+            );
             keys.press(KeyCode::KeyE);
             *phase = WorldCheck::ChooseRelayTopic;
         }
@@ -1015,11 +1023,25 @@ fn unlock_relay(frame: WorldFrame) {
     }
 }
 
+fn nemi_profile(catalog: &DialogueCatalog) -> &Profile {
+    catalog
+        .profile(PROFILE)
+        .expect("Nemi's dialogue profile must be loaded")
+}
+
+fn shows_nemi_topic(catalog: &DialogueCatalog, texts: &Query<&Text>, id: &str) -> bool {
+    let topic = nemi_profile(catalog)
+        .topic(id)
+        .expect("a checked Nemi topic must exist in the catalogue");
+    texts.iter().any(|text| text.0 == topic.label)
+}
+
 fn check_relay_advice(frame: WorldFrame) {
     let WorldFrame {
         mut phase,
         quest,
         dialogue,
+        catalog,
         texts,
         mut keys,
         ..
@@ -1028,24 +1050,15 @@ fn check_relay_advice(frame: WorldFrame) {
     match *phase {
         WorldCheck::ChooseRelayTopic => {
             assert_eq!(dialogue.selected_topic(), Some(OLD_RELAY));
-            assert!(
-                texts
-                    .iter()
-                    .any(|text| text.0 == "Tell me about the Old Relay")
-            );
-            assert!(
-                !texts
-                    .iter()
-                    .any(|text| text.0 == "I found the beacon core.")
-            );
+            assert!(shows_nemi_topic(&catalog, &texts, OLD_RELAY));
+            assert!(!shows_nemi_topic(&catalog, &texts, RETURN_BEACON_CORE));
             keys.press(KeyCode::Enter);
             *phase = WorldCheck::ReadRelayAdvice;
         }
         WorldCheck::ReadRelayAdvice => {
-            assert!(
-                dialogue
-                    .text()
-                    .is_some_and(|text| text.contains("blue ring"))
+            assert_eq!(
+                dialogue.text(),
+                Some(nemi_profile(&catalog).reply_text(RELAY_HATCH))
             );
             keys.press(KeyCode::Escape);
             *phase = WorldCheck::ApproachHatch;
@@ -1219,6 +1232,7 @@ fn finish_relay_quest(frame: WorldFrame) {
         mut phase,
         quest,
         dialogue,
+        catalog,
         journal,
         rows,
         xp_notice,
@@ -1264,11 +1278,7 @@ fn finish_relay_quest(frame: WorldFrame) {
                 xp_notice.text.as_deref(),
                 Some("+120 XP | Level 3 (+3 attribute points)")
             );
-            assert!(
-                dialogue
-                    .text()
-                    .is_some_and(|text| text.starts_with("SURVEY LOG"))
-            );
+            assert_eq!(dialogue.text(), Some(catalog.notice_text(ARCHIVE_LOG)));
             capture(&mut commands, "relay-discovery");
             keys.press(KeyCode::KeyE);
             *phase = WorldCheck::OpenCompletedJournal;
@@ -1338,6 +1348,7 @@ fn check_cavern_briefing(frame: WorldFrame) {
         quest,
         nearby,
         dialogue,
+        catalog,
         position,
         mut keys,
         mut orbit,
@@ -1367,26 +1378,17 @@ fn check_cavern_briefing(frame: WorldFrame) {
         WorldCheck::SelectCavernTopic if dialogue.is_open() => {
             assert!(quest.expects(QuestAction::ReportedArchiveHushcap));
             assert_eq!(dialogue.selected_topic(), Some(REPORT_ARCHIVE_HUSHCAP));
-            assert!(
-                texts
-                    .iter()
-                    .any(|text| text.0 == "I saw a mushroom creature in the archive.")
-            );
-            assert!(
-                !texts
-                    .iter()
-                    .any(|text| text.0 == "Tell me about the Old Relay")
-            );
+            assert!(shows_nemi_topic(&catalog, &texts, REPORT_ARCHIVE_HUSHCAP));
+            assert!(!shows_nemi_topic(&catalog, &texts, OLD_RELAY));
             keys.press(KeyCode::Enter);
             *phase = WorldCheck::CavernBriefing;
         }
         WorldCheck::CavernBriefing => {
             assert!(quest.has_occurred(QuestAction::ReportedArchiveHushcap));
-            assert!(dialogue.text().is_some_and(|text| {
-                text.contains("A Hushcap")
-                    && text.contains("Hushcap Caverns")
-                    && text.contains("five Mycelium")
-            }));
+            assert_eq!(
+                dialogue.text(),
+                Some(nemi_profile(&catalog).reply_text(CAVERN_BRIEFING))
+            );
             keys.press(KeyCode::Escape);
             *phase = WorldCheck::OpenCavernJournal;
         }

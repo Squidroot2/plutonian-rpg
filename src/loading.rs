@@ -1,6 +1,6 @@
 use crate::{
     GameState,
-    dialogue::{DialogueCatalog, DialogueHandlers},
+    dialogue::{DialogueCatalog, DialogueRegistry},
     enemy::{EnemyAnimations, EnemyModel, EnemyVisual},
     hushcap,
     inventory::ItemKind,
@@ -197,7 +197,7 @@ fn check(
     (catalogs, dialogue_catalogs, dialogue_handlers): (
         Res<Assets<QuestCatalog>>,
         Res<Assets<DialogueCatalog>>,
-        Res<DialogueHandlers>,
+        Res<DialogueRegistry>,
     ),
     layout: Res<WorldLayout>,
     mut graphs: ResMut<Assets<AnimationGraph>>,
@@ -268,7 +268,7 @@ fn check(
     let Some(dialogue_catalog) = dialogue_catalogs.get(&assets.dialogue) else {
         return;
     };
-    if let Err(error) = dialogue_catalog.validate_handlers(&dialogue_handlers) {
+    if let Err(error) = dialogue_catalog.validate_registry(&dialogue_handlers) {
         status.error = Some(format!("Invalid dialogue catalogue: {error}"));
         next.set(GameState::Failed);
         return;

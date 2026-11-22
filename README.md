@@ -73,8 +73,8 @@ The core route connects the outpost, an inclined ice shelf, and a shallow cavern
   Follow the luminous waystones toward the cavern.
   The quest log records directions and completed steps for each quest.
   The power core appears in inventory as a protected quest item and disappears from its plinth when collected.
-  Ask Nemi **What happened to the beacon?** to get directions.
-  With the core in your backpack, tell Nemi **I found the beacon core.** to hand it over and relight the beacon.
+  Choose **I'm here to help** when speaking to Nemi to get directions.
+  With the core in your backpack, tell Nemi **I found the beacon core** to hand it over and relight the beacon.
   You can also ask about Nemi or Nivalis. Click a topic, or use Menu Up and Menu Down and press Enter.
   You can continue exploring afterward.
 
@@ -262,7 +262,7 @@ Ask Nemi about the Old Relay after inspecting the sealed hatch or restoring the 
 ## Contain the Hushcaps
 
 After reading the survey log and returning through the relay hatch,
-  tell Nemi **I saw a mushroom creature in the archive.**
+  tell Nemi **I saw a mushroom creature in the archive**.
   They send you south through South Basin to Hushcap Caverns.
   Defeat five Hushcaps in the caverns and return with at least five Mycelium in your backpack.
   The archive specimen can supply one of the samples.
