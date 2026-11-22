@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 
 use crate::{
+    GameState,
     attributes::{AttributeId, AttributeRanks, AttributeUpdates, CarryLimits, DEFAULT_RANK},
     controls::{Control, Keybinds},
     equipment::{EquipRequest, Equipment, EquipmentSlot, Handedness, UnequipRequest},
@@ -9,6 +10,7 @@ use crate::{
         self, BUTTON, DISABLED, MenuTab, PlayerMenu, SELECTED, column, scroll_pane, set_display,
     },
     player::Player,
+    quest::Dialogue,
     ui::text_style as font,
 };
 use bevy::{
@@ -21,6 +23,12 @@ use bevy::{
 };
 
 pub struct InventoryUiPlugin;
+
+#[derive(Component)]
+struct StrengthWarning;
+
+#[derive(Component)]
+struct StrengthWarningClose;
 
 #[derive(Resource, Default)]
 pub struct InventoryUiState {
@@ -210,7 +218,11 @@ impl Plugin for InventoryUiPlugin {
                     .chain()
                     .after(AttributeUpdates),
             )
-            .add_systems(Last, dismiss_prompt.after(menu_ui::close));
+            .add_systems(Last, dismiss_prompt.after(menu_ui::close))
+            .add_systems(
+                Update,
+                close_strength_warning.run_if(in_state(GameState::Playing)),
+            );
     }
 }
 
@@ -449,11 +461,29 @@ pub(crate) fn spawn(page: &mut ChildSpawnerCommands) {
                         action_button(quantity, InventoryAction::CancelDrop, Text::new("Cancel"));
                     });
             });
-        panel.spawn((
-            PanelText::Notice(MenuTab::Inventory),
-            Text::default(),
-            font(14.0),
-        ));
+        panel
+            .spawn((
+                StrengthWarning,
+                menu_ui::interaction_modal(GameState::Playing),
+                Visibility::Hidden,
+            ))
+            .insert(Node {
+                flex_direction: FlexDirection::Column,
+                align_items: AlignItems::Center,
+                justify_content: JustifyContent::Center,
+                row_gap: px(14),
+                ..default()
+            })
+            .with_children(|modal| {
+                modal.spawn((
+                    Text::new("You don't have enough Strength to use this item."),
+                    font(18.0),
+                ));
+                modal
+                    .spawn((StrengthWarningClose, menu_ui::button()))
+                    .observe(close_strength_warning_click)
+                    .with_child((Text::new("Close"), font(16.0), Pickable::IGNORE));
+            });
         panel
             .spawn(Node {
                 align_items: AlignItems::Center,
@@ -556,6 +586,47 @@ pub(crate) fn spawn_equipment(page: &mut ChildSpawnerCommands) {
         });
 }
 
+fn show_strength_warning(
+    menu: Res<PlayerMenu>,
+    dialogue: Res<Dialogue>,
+    mut warnings: Query<&mut Visibility, With<StrengthWarning>>,
+) {
+    if menu.accepts(MenuTab::Inventory)
+        && dialogue.text.is_none()
+        && let Ok(mut visibility) = warnings.single_mut()
+    {
+        visibility.set_if_neq(Visibility::Inherited);
+    }
+}
+
+fn close_strength_warning_click(
+    click: On<PointerClick>,
+    buttons: Query<(), With<StrengthWarningClose>>,
+    menu: Res<PlayerMenu>,
+    mut warnings: Query<&mut Visibility, With<StrengthWarning>>,
+) {
+    if click.button == PointerButton::Primary
+        && menu.is_open()
+        && buttons.contains(click.entity)
+        && let Ok(mut visibility) = warnings.single_mut()
+    {
+        visibility.set_if_neq(Visibility::Hidden);
+    }
+}
+
+fn close_strength_warning(
+    keys: Res<ButtonInput<KeyCode>>,
+    menu: Res<PlayerMenu>,
+    mut warnings: Query<&mut Visibility, With<StrengthWarning>>,
+) {
+    if menu.is_open()
+        && keys.just_pressed(KeyCode::Escape)
+        && let Ok(mut visibility) = warnings.single_mut()
+    {
+        visibility.set_if_neq(Visibility::Hidden);
+    }
+}
+
 fn dismiss_prompt(
     menu: Res<PlayerMenu>,
     mut ui: ResMut<InventoryUiState>,
@@ -604,7 +675,7 @@ fn action(
             notice.0.clear();
             if click.count == 2 && matches!(row, InventoryRow::BagGear(..)) {
                 if !item.meets_strength(strength) {
-                    notice.0 = "You don't have enough Strength to use this item.".into();
+                    commands.run_system_cached(show_strength_warning);
                 } else if equipment.count(item) == 0 || item.fits_slot(EquipmentSlot::OffHand) {
                     commands.trigger(EquipRequest::Quick(item));
                 }
