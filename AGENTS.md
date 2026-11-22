@@ -39,7 +39,7 @@ Use rustfmt, four-space indentation, `snake_case` functions and modules, and `Pa
 
 ## Documentation
 
-Design documents are stored in `./docs/design`
+Design documents are stored in `./docs/design`. Design documents should include the high level decisions, the reasoning behind those decisions, and how those features are implemented 
 
 Make sure all documentation is kept up to date as changes are made
 
