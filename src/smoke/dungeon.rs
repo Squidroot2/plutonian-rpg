@@ -12,9 +12,11 @@ use crate::{
         ArchiveGate, Area, DungeonProgress, DungeonTarget, GATE_LOCAL, HATCH, LOG_LOCAL, ORIGIN,
         SWITCH_LOCAL,
     },
-    enemy::{MeleePhase, MeleePursuit},
+    enemy::{MeleePhase, MeleePursuit, ranged::SpitProjectile},
+    equipment::Equipment,
     experience::{Experience, ExperienceNotice},
-    interaction::{INTERACT_HEIGHT, INTERACT_RANGE, InteractionTarget, Nearby, Target},
+    hushcap::{self, Hushcap},
+    interaction::{CorpseLoot, INTERACT_HEIGHT, INTERACT_RANGE, InteractionTarget, Nearby, Target},
     inventory::{Inventory, ItemKind},
     player::{Dodge, Player},
     quest::{Dialogue, LAST_LIGHT, OLD_RELAY, QuestAction, QuestJournal, QuestStatus},
@@ -25,6 +27,7 @@ use crate::{
     ui::menu_ui::{MenuTab, PlayerMenu},
     ui::quest_ui::{QuestRow, QuestSelection},
     ui::storage_ui::{StorageAction, StorageSide, TransferAmount},
+    weapon::{GRIP_SIDE, WeaponAttack},
     world::WorldLayout,
     worm::{GROUND_OFFSET, Worm},
 };
@@ -39,6 +42,21 @@ const RELAY_PROGRESS: CharacterProgress = CharacterProgress {
     level: 3,
     unspent: 6,
 };
+const LOOTED_RELAY_XP: Experience = Experience(25 + hushcap::EXPERIENCE as u64);
+
+type HushcapQuery<'w, 's> = Query<
+    'w,
+    's,
+    (
+        Entity,
+        &'static Transform,
+        &'static Health,
+        &'static CorpseLoot,
+        Has<Dead>,
+        Has<Collider>,
+    ),
+    (With<Hushcap>, Without<Player>),
+>;
 
 #[derive(Resource, Debug, Default)]
 pub(super) enum WorldCheck {
@@ -88,6 +106,13 @@ pub(super) enum WorldCheck {
     ReadNotice,
     OpenCompletedJournal,
     CheckCompletedJournal,
+    ApproachHushcap,
+    FightHushcap {
+        saw_spit: bool,
+    },
+    TakeMycelium,
+    CloseMycelium,
+    ClearArchiveCover,
     LeaveArchive,
     LeaveJunction,
     Exit,
@@ -114,6 +139,7 @@ pub(super) fn drive(
             &AttributeRanks,
             &CharacterProgress,
             &Experience,
+            &WeaponAttack,
         ),
         With<Player>,
     >,
@@ -143,9 +169,11 @@ pub(super) fn drive(
         (With<Worm>, Without<Player>),
     >,
     captures: Query<(), With<Screenshot>>,
-    (state, roaches, actions, window, camera, storage, storage_actions): (
+    (state, roaches, hushcaps, spit, actions, window, camera, storage, storage_actions): (
         Res<State<GameState>>,
         Query<(Entity, &'static Transform, Has<Dead>), (With<Roach>, Without<Player>)>,
+        HushcapQuery,
+        Query<(), With<SpitProjectile>>,
         Query<(Entity, &'static LootAction)>,
         Query<Entity, With<Window>>,
         Query<Entity, With<FollowCamera>>,
@@ -155,16 +183,30 @@ pub(super) fn drive(
     hits: MessageWriter<Hit>,
     spatial: SpatialQuery,
     orbit: ResMut<Orbit>,
-    mut keys: ResMut<ButtonInput<KeyCode>>,
+    (mut keys, mut mouse): (
+        ResMut<ButtonInput<KeyCode>>,
+        ResMut<ButtonInput<MouseButton>>,
+    ),
     commands: Commands,
     exit: MessageWriter<AppExit>,
 ) {
-    let Ok((entity, controller, dodge, transform, capsule, player_health, ranks, attributes, xp)) =
-        player.single_mut()
+    let Ok((
+        entity,
+        controller,
+        dodge,
+        transform,
+        capsule,
+        player_health,
+        ranks,
+        attributes,
+        xp,
+        thrust,
+    )) = player.single_mut()
     else {
         return;
     };
     keys.reset_all();
+    mouse.reset_all();
     let position = transform.translation;
     let now = run.0.elapsed().as_secs_f64();
     if now - *last_log >= 2.0 {
@@ -192,10 +234,12 @@ pub(super) fn drive(
         ranks,
         attributes,
         xp,
+        thrust,
         position,
         now,
         storage,
         keys,
+        mouse,
         nearby,
         storage_actions,
         window,
@@ -212,6 +256,8 @@ pub(super) fn drive(
         gate,
         capsule,
         roaches,
+        hushcaps,
+        spit,
         actions,
         run,
         exit,
@@ -254,10 +300,10 @@ pub(super) fn drive(
         | WorldCheck::Switch
         | WorldCheck::OpenGateJournal
         | WorldCheck::GateRises => check_relay_encounters(frame),
-        WorldCheck::ReturnToJunction
-        | WorldCheck::GateApproach
-        | WorldCheck::CrossGate
-        | WorldCheck::ApproachLog
+        WorldCheck::ReturnToJunction | WorldCheck::GateApproach | WorldCheck::CrossGate => {
+            enter_archive(frame)
+        }
+        WorldCheck::ApproachLog
         | WorldCheck::ReadLog
         | WorldCheck::ReadNotice
         | WorldCheck::OpenCompletedJournal
@@ -265,6 +311,11 @@ pub(super) fn drive(
         | WorldCheck::LeaveArchive
         | WorldCheck::LeaveJunction
         | WorldCheck::Exit => finish_relay_quest(frame),
+        WorldCheck::ApproachHushcap
+        | WorldCheck::FightHushcap { .. }
+        | WorldCheck::TakeMycelium
+        | WorldCheck::CloseMycelium
+        | WorldCheck::ClearArchiveCover => fight_hushcap(frame),
         WorldCheck::Reenter | WorldCheck::Revisited => check_relay_revisit(frame),
         WorldCheck::Recover
         | WorldCheck::SaveAtBed
@@ -299,10 +350,12 @@ struct WorldFrame<'w, 's, 'a> {
     ranks: &'a AttributeRanks,
     attributes: &'a CharacterProgress,
     xp: &'a Experience,
+    thrust: &'a WeaponAttack,
     position: Vec3,
     now: f64,
     storage: Res<'w, ChestStorage>,
     keys: ResMut<'w, ButtonInput<KeyCode>>,
+    mouse: ResMut<'w, ButtonInput<MouseButton>>,
     nearby: Res<'w, Nearby>,
     storage_actions: Query<'w, 's, (Entity, &'static StorageAction)>,
     window: Query<'w, 's, Entity, With<Window>>,
@@ -319,6 +372,8 @@ struct WorldFrame<'w, 's, 'a> {
     gate: Query<'w, 's, Entity, With<ArchiveGate>>,
     capsule: &'a Collider,
     roaches: Query<'w, 's, (Entity, &'static Transform, Has<Dead>), (With<Roach>, Without<Player>)>,
+    hushcaps: HushcapQuery<'w, 's>,
+    spit: Query<'w, 's, (), With<SpitProjectile>>,
     actions: Query<'w, 's, (Entity, &'static LootAction)>,
     run: Res<'w, SmokeRun>,
     exit: MessageWriter<'w, AppExit>,
@@ -378,24 +433,22 @@ fn check_fresh_run(frame: WorldFrame) {
                     "expected to hit tent {part}, got {name}"
                 );
             }
-            let local_worms: Vec<_> = worms
+            let mut relay_worms = worms
                 .iter()
-                .filter(|(_, transform, _)| transform.translation.y < -7.0)
-                .collect();
-            assert_eq!(local_worms.len(), 2);
-            for (worm, transform, _) in local_worms {
-                let probe = transform.translation + Vec3::Y;
-                let support = spatial
-                    .cast_ray(
-                        probe,
-                        Dir3::NEG_Y,
-                        2.0,
-                        true,
-                        &SpatialQueryFilter::from_excluded_entities([worm]),
-                    )
-                    .expect("each relay worm must have a supporting floor");
-                assert!((support.distance - 1.0 - GROUND_OFFSET).abs() < 0.03);
-            }
+                .filter(|(_, transform, _)| transform.translation.y < -7.0);
+            let (worm, transform, _) = relay_worms.next().expect("the junction ice worm");
+            assert!(relay_worms.next().is_none(), "the archive uses a Hushcap");
+            let probe = transform.translation + Vec3::Y;
+            let support = spatial
+                .cast_ray(
+                    probe,
+                    Dir3::NEG_Y,
+                    2.0,
+                    true,
+                    &SpatialQueryFilter::from_excluded_entities([worm]),
+                )
+                .expect("the junction worm must have a supporting floor");
+            assert!((support.distance - 1.0 - GROUND_OFFSET).abs() < 0.03);
             commands.queue(|world: &mut World| {
                 assert!(world.resource_mut::<Inventory>().add(ItemKind::Scrap, 1));
                 world
@@ -978,6 +1031,43 @@ fn check_relay_encounters(frame: WorldFrame) {
     }
 }
 
+fn enter_archive(frame: WorldFrame) {
+    let WorldFrame {
+        mut phase,
+        mut orbit,
+        mut keys,
+        position,
+        capsule,
+        entity,
+        spatial,
+        names,
+        parents,
+        hushcaps,
+        ..
+    } = frame;
+    let (waypoint, next) = match *phase {
+        WorldCheck::ReturnToJunction => (Vec3::new(3.8, 0.0, -10.75), WorldCheck::GateApproach),
+        WorldCheck::GateApproach => (Vec3::new(0.0, 0.0, -14.2), WorldCheck::CrossGate),
+        WorldCheck::CrossGate => (Vec3::new(0.0, 0.0, -21.0), WorldCheck::ApproachLog),
+        _ => return,
+    };
+    if !walk_to(&mut keys, &mut orbit, position, ORIGIN + waypoint) {
+        return;
+    }
+    if matches!(*phase, WorldCheck::CrossGate) {
+        assert!(position.z < ORIGIN.z + GATE_LOCAL.z);
+        let (hushcap, root, health, _, dead, _) =
+            hushcaps.single().expect("one rooted enemy in the archive");
+        assert_eq!(root.translation, hushcap::HOME);
+        assert_eq!(health.current(), hushcap::HEALTH);
+        assert!(!dead);
+        check_archive_cover(
+            &spatial, &names, &parents, capsule, entity, hushcap, position,
+        );
+    }
+    *phase = next;
+}
+
 fn finish_relay_quest(frame: WorldFrame) {
     let WorldFrame {
         mut phase,
@@ -994,36 +1084,10 @@ fn finish_relay_quest(frame: WorldFrame) {
         controller,
         position,
         nearby,
+        hushcaps,
         ..
     } = frame;
-    let junction = ORIGIN + Vec3::new(3.8, 0.0, -10.75);
     match *phase {
-        WorldCheck::ReturnToJunction => {
-            if walk_to(&mut keys, &mut orbit, position, junction) {
-                *phase = WorldCheck::GateApproach;
-            }
-        }
-        WorldCheck::GateApproach => {
-            if walk_to(
-                &mut keys,
-                &mut orbit,
-                position,
-                ORIGIN + Vec3::new(0.0, 0.0, -14.2),
-            ) {
-                *phase = WorldCheck::CrossGate;
-            }
-        }
-        WorldCheck::CrossGate => {
-            if walk_to(
-                &mut keys,
-                &mut orbit,
-                position,
-                ORIGIN + Vec3::new(0.0, 0.0, -21.0),
-            ) {
-                assert!(position.z < ORIGIN.z + GATE_LOCAL.z);
-                *phase = WorldCheck::ApproachLog;
-            }
-        }
         WorldCheck::ApproachLog => {
             if target_ready(
                 &nearby,
@@ -1047,6 +1111,7 @@ fn finish_relay_quest(frame: WorldFrame) {
         }
         WorldCheck::ReadNotice => {
             assert!(quest.is_complete(OLD_RELAY));
+            assert!(!hushcaps.single().expect("the archive Hushcap").4);
             assert_eq!((*attributes, *xp), (RELAY_PROGRESS, Experience(25)));
             assert_eq!(
                 xp_notice.text.as_deref(),
@@ -1072,7 +1137,17 @@ fn finish_relay_quest(frame: WorldFrame) {
                     .any(|(_, row)| row.id == OLD_RELAY && row.status == QuestStatus::Completed)
             );
             keys.press(KeyCode::Tab);
-            *phase = WorldCheck::LeaveArchive;
+            commands.queue(|world: &mut World| {
+                world.resource_scope(|world, mut equipment: Mut<Equipment>| {
+                    let mut inventory = world.resource_mut::<Inventory>();
+                    assert!(inventory.add(ItemKind::FieldSpear, 1));
+                    assert_eq!(
+                        equipment.equip(&mut inventory, ItemKind::FieldSpear, 5),
+                        Ok(true)
+                    );
+                });
+            });
+            *phase = WorldCheck::ApproachHushcap;
         }
         WorldCheck::LeaveArchive => {
             if dialogue.text.is_some() {
@@ -1109,6 +1184,146 @@ fn finish_relay_quest(frame: WorldFrame) {
     }
 }
 
+fn check_archive_cover(
+    spatial: &SpatialQuery,
+    names: &Query<&Name>,
+    parents: &Query<&ChildOf>,
+    capsule: &Collider,
+    player: Entity,
+    hushcap: Entity,
+    position: Vec3,
+) {
+    let muzzle = hushcap::HOME + Vec3::Y * hushcap::SPIT.muzzle.y;
+    let delta = position - muzzle;
+    let filter = SpatialQueryFilter::from_excluded_entities([player, hushcap]);
+    let cover = spatial
+        .cast_shape(
+            &Collider::sphere(hushcap::SPIT.radius_m),
+            muzzle,
+            Quat::IDENTITY,
+            Dir3::new(delta).expect("the archive entrance must be away from the Hushcap"),
+            &ShapeCastConfig::from_max_distance(delta.length()),
+            &filter,
+        )
+        .expect("the archive console must intercept spit aimed at the entrance");
+    assert!(
+        std::iter::once(cover.entity)
+            .chain(parents.iter_ancestors(cover.entity))
+            .any(|node| names
+                .get(node)
+                .is_ok_and(|name| name.as_str() == "Archive service console")),
+        "the archive service console must be the first obstruction"
+    );
+    assert!(
+        spatial
+            .cast_shape(
+                capsule,
+                position,
+                Quat::IDENTITY,
+                Dir3::NEG_Z,
+                &ShapeCastConfig::from_max_distance(4.0),
+                &filter,
+            )
+            .is_none(),
+        "the console must leave the central approach walkable"
+    );
+}
+
+fn fight_hushcap(frame: WorldFrame) {
+    let WorldFrame {
+        mut phase,
+        hushcaps,
+        spit,
+        state,
+        nearby,
+        inventory,
+        xp,
+        thrust,
+        mut commands,
+        mut keys,
+        mut mouse,
+        mut orbit,
+        position,
+        controller,
+        actions,
+        window,
+        camera,
+        ..
+    } = frame;
+    let (entity, root, _, loot, dead, solid) = hushcaps.single().expect("the archive Hushcap");
+    assert_eq!(
+        root.translation,
+        hushcap::HOME,
+        "the Hushcap must stay rooted"
+    );
+    match *phase {
+        WorldCheck::ApproachHushcap => {
+            let spear_range = hushcap::HOME - Vec3::X * 1.8;
+            if walk_to(&mut keys, &mut orbit, position, spear_range) {
+                orbit.yaw = -0.94;
+                capture(&mut commands, "relay-hushcap");
+                *phase = WorldCheck::FightHushcap { saw_spit: false };
+            }
+        }
+        WorldCheck::FightHushcap { saw_spit } if dead => {
+            assert!(saw_spit, "the Hushcap should spit during the fight");
+            assert!(!solid, "the Hushcap must release its collider on death");
+            assert_eq!(*xp, LOOTED_RELAY_XP);
+            assert_eq!(
+                loot.stack.expect("Hushcap corpse loot").item,
+                ItemKind::Mycelium
+            );
+            if nearby.0 == Some((entity, InteractionTarget::Corpse)) {
+                keys.press(KeyCode::KeyE);
+                *phase = WorldCheck::TakeMycelium;
+            } else {
+                walk_to(&mut keys, &mut orbit, position, hushcap::HOME);
+            }
+        }
+        WorldCheck::FightHushcap { saw_spit } => {
+            if !saw_spit && !spit.is_empty() {
+                capture(&mut commands, "relay-hushcap-spit");
+                *phase = WorldCheck::FightHushcap { saw_spit: true };
+            }
+            let delta = (root.translation - position).with_y(0.0);
+            let offset = (-GRIP_SIDE / delta.length()).clamp(0.0, 1.0).asin();
+            orbit.yaw = delta.x.atan2(delta.z) + offset - std::f32::consts::PI;
+            if !thrust.active() && controller.grounded {
+                mouse.press(MouseButton::Left);
+            }
+        }
+        WorldCheck::TakeMycelium if *state.get() == GameState::Looting => {
+            assert_eq!(inventory.count(ItemKind::Mycelium), 0);
+            click(
+                &mut commands,
+                LootAction::Take,
+                &actions,
+                window.single().expect("smoke window"),
+                camera.single().expect("player camera"),
+            );
+            *phase = WorldCheck::CloseMycelium;
+        }
+        WorldCheck::CloseMycelium => {
+            assert_eq!(inventory.count(ItemKind::Mycelium), 1);
+            assert!(loot.stack.is_none());
+            keys.press(KeyCode::Escape);
+            *phase = WorldCheck::ClearArchiveCover;
+        }
+        WorldCheck::ClearArchiveCover
+            if *state.get() == GameState::Playing
+                && walk_to(
+                    &mut keys,
+                    &mut orbit,
+                    position,
+                    ORIGIN + Vec3::new(0.0, 0.0, -25.3),
+                ) =>
+        {
+            *phase = WorldCheck::LeaveArchive;
+        }
+        _ => {}
+    }
+}
+
 fn check_relay_revisit(frame: WorldFrame) {
     let WorldFrame {
         mut phase,
@@ -1116,6 +1331,7 @@ fn check_relay_revisit(frame: WorldFrame) {
         inventory,
         progress,
         roaches,
+        hushcaps,
         mut keys,
         controller,
         mut transform,
@@ -1142,6 +1358,9 @@ fn check_relay_revisit(frame: WorldFrame) {
                     .2
             );
             assert_eq!(inventory.count(ItemKind::RoachMeat), 1);
+            let (_, _, _, loot, dead, solid) = hushcaps.single().expect("looted Hushcap");
+            assert!(dead && !solid && loot.stack.is_none());
+            assert_eq!(inventory.count(ItemKind::Mycelium), 1);
             assert_eq!(
                 passage_hit(&spatial, capsule, entity),
                 None,
@@ -1164,6 +1383,7 @@ fn check_bed_rollback(frame: WorldFrame) {
         checkpoint,
         progress,
         roaches,
+        hushcaps,
         storage,
         mut hits,
         mut keys,
@@ -1215,7 +1435,7 @@ fn check_bed_rollback(frame: WorldFrame) {
                 checkpoint.checkpoint().is_some(),
                 "the cot must write the checkpoint"
             );
-            assert_eq!((*attributes, *xp), (RELAY_PROGRESS, Experience(25)));
+            assert_eq!((*attributes, *xp), (RELAY_PROGRESS, LOOTED_RELAY_XP));
             commands.entity(entity).insert((
                 AttributeRanks::default().with_rank(AttributeId::Vitality, 8),
                 CharacterProgress {
@@ -1229,6 +1449,11 @@ fn check_bed_rollback(frame: WorldFrame) {
                     world
                         .resource_mut::<Inventory>()
                         .remove(ItemKind::RoachMeat, 1)
+                );
+                assert!(
+                    world
+                        .resource_mut::<Inventory>()
+                        .remove(ItemKind::Mycelium, 1)
                 );
                 assert!(
                     world
@@ -1248,7 +1473,7 @@ fn check_bed_rollback(frame: WorldFrame) {
         WorldCheck::SavedRespawn(old) if entity != old && controller.grounded => {
             assert!(position.distance(WorldLayout::Outpost.initial_spawn()) < 0.04);
             assert_eq!(ranks.rank(AttributeId::Vitality), SAVED_VITALITY);
-            assert_eq!((*attributes, *xp), (RELAY_PROGRESS, Experience(25)));
+            assert_eq!((*attributes, *xp), (RELAY_PROGRESS, LOOTED_RELAY_XP));
             assert!(
                 xp_notice.text.is_none(),
                 "restored completions must not award XP again"
@@ -1258,9 +1483,13 @@ fn check_bed_rollback(frame: WorldFrame) {
                 (108, 108)
             );
             assert_eq!(inventory.count(ItemKind::RoachMeat), 1);
+            assert_eq!(inventory.count(ItemKind::Mycelium), 1);
             assert_eq!(storage.get(ChestId::Lamp).count(ItemKind::Battery), 1);
             assert!(quest.is_complete(OLD_RELAY) && progress.gate_open());
             assert!(roaches.single().expect("saved roach").2);
+            let (_, _, health, loot, dead, solid) = hushcaps.single().expect("saved Hushcap");
+            assert_eq!(health.current(), 0);
+            assert!(dead && !solid && loot.stack.is_none());
             assert_eq!(
                 passage_hit(&spatial, capsule, entity),
                 None,

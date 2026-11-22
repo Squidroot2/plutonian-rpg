@@ -54,7 +54,10 @@ Resolve + interaction + Nemi reaction -> experience -> save -> HUD
 `InteractionSystems` chains target selection and interaction, so an action uses the current target.
   Player facing and weapon attack follow interaction, and facing precedes `CombatSystems::Detect`.
   Attribute spending and capability synchronization are chained before detection, so attacks use current attributes.
-  Weapon attack emits `Hit`; the Detect and Resolve sets are chained.
+  Weapon attacks and enemy spit contacts emit `Hit`.
+  The Detect and Resolve sets are chained.
+  Spit advances existing projectiles before spawning newly released shots,
+  and defeat cleanup runs after Resolve.
   Defense synchronization precedes Resolve.
 
 Resolve chains hit resolution, recovery delay, death marking, dead collider removal, hit reactions and corpse fading.

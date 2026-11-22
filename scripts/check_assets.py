@@ -8,10 +8,10 @@ root = Path(__file__).resolve().parents[1]
 documents = {}
 gear_names = ['field_armor', 'reinforced_armor', 'field_helmet', 'reinforced_helmet',
               'field_spear', 'trident', 'shortsword']
-meat_names = ['worm_meat', 'roach_meat']
+small_loot_names = ['worm_meat', 'roach_meat', 'mycelium']
 directional_walks = {'WalkBack', 'StrafeLeft', 'StrafeRight', 'WalkForwardLeft',
                      'WalkForwardRight', 'WalkBackLeft', 'WalkBackRight'}
-for name in ['plutonian', 'outpost', 'collision', 'core', 'battery', 'scrap', 'methane_pouch', 'large_boulder', 'practice_dummy', 'ice_worm', 'relay_roach', 'old_relay', 'old_relay_collision', *meat_names, *gear_names, *[name+'_worn' for name in gear_names]]:
+for name in ['plutonian', 'outpost', 'collision', 'core', 'battery', 'scrap', 'methane_pouch', 'large_boulder', 'practice_dummy', 'ice_worm', 'relay_roach', 'hushcap', 'old_relay', 'old_relay_collision', *small_loot_names, *gear_names, *[name+'_worn' for name in gear_names]]:
     source_name = name.removesuffix('_worn')
     source = root / 'art' / f'{source_name}.blend'
     path = root / 'assets' / 'models' / f'{name}.glb'
@@ -55,9 +55,12 @@ for name in ['plutonian', 'outpost', 'collision', 'core', 'battery', 'scrap', 'm
         assert document.get('skins'), 'Roach must be skinned'
         assert {clip['name'] for clip in document['animations']} == {'RoachIdle', 'RoachCrawl', 'RoachBite', 'RoachDeath'}
 
-    if name == 'ice_worm':
-        durations = {'WormIdle': 2.0, 'WormCrawl': .9, 'WormBite': 1.4, 'WormDeath': .7}
-        assert document.get('skins'), 'Ice worm must be skinned'
+    durations = {
+        'ice_worm': {'WormIdle': 2.0, 'WormCrawl': .9, 'WormBite': 1.4, 'WormDeath': .7},
+        'hushcap': {'HushcapIdle': 2.0, 'HushcapSpit': 2.1, 'HushcapDeath': .8},
+    }.get(name)
+    if durations:
+        assert document.get('skins'), f'{name} must be skinned'
         assert {clip['name'] for clip in document['animations']} == durations.keys()
         for clip in document['animations']:
             length = max(document['accessors'][sampler['input']]['max'][0] for sampler in clip['samplers'])
@@ -119,6 +122,7 @@ relay = documents['old_relay']
 relay_collision = documents['old_relay_collision']
 relay_visuals = {node['name']: node for node in relay['nodes'] if 'mesh' in node}
 relay_solids = {node['name']: node for node in relay_collision['nodes'] if 'mesh' in node}
+assert 'Archive service console' in relay_solids, 'The archive service console must block spit'
 for room in ['Vestibule', 'Junction', 'Maintenance', 'Gate passage', 'Archive']:
     for surface in ['floor', 'ceiling']:
         assert f'{room} {surface}' in relay_solids, f'{room}: missing {surface} collider'
@@ -150,10 +154,11 @@ for name in gear_names:
     print(f'{name}: grounded pickup bounds and worn export OK')
 
 
-for name in meat_names:
+for name in small_loot_names:
     low, high = mesh_bounds(documents[name])
     assert abs(low[1]) < .001, f'{name}: pickup must have a base origin'
-    assert all(abs(low[i]+high[i]) < .001 for i in [0,2]), f'{name}: pickup must be centered horizontally'
+    tolerance = .08 if name == 'mycelium' else .001
+    assert all(abs(low[i]+high[i]) < tolerance for i in [0,2]), f'{name}: pickup must be centered horizontally'
     assert all(high[i]-low[i] <= limit for i, limit in enumerate([.62, .6, .62])), f'{name}: pickup exceeds drop clearance'
 
 

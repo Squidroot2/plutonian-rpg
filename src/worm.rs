@@ -1,6 +1,6 @@
 use crate::{
     dungeon::Area,
-    enemy::{self, Bite, EnemyModel, GroundMelee, GroundMovement},
+    enemy::{self, Bite, EnemyBody, EnemyModel, GroundMelee, GroundMovement},
     inventory::ItemKind,
     loading::EnemyVisuals,
     save::EncounterId,
@@ -11,7 +11,8 @@ use bevy::prelude::*;
 
 pub(crate) const MODEL: EnemyModel = EnemyModel {
     path: "models/ice_worm.glb",
-    clips: ["WormIdle", "WormCrawl", "WormBite", "WormDeath"],
+    clips: ["WormIdle", "WormBite", "WormDeath"],
+    locomotion: Some("WormCrawl"),
 };
 pub(crate) const GROUND_OFFSET: f32 = 0.56;
 const HOMES: [(EncounterId, Vec3); 3] = [
@@ -20,10 +21,12 @@ const HOMES: [(EncounterId, Vec3); 3] = [
     (EncounterId::CavernWorm, Vec3::new(3.4, 2.0, -110.0)),
 ];
 pub(crate) const CONFIG: GroundMelee = GroundMelee {
-    name: "Ice worm",
-    health: 30,
-    experience: 35,
-    loot: ItemKind::WormMeat,
+    body: EnemyBody {
+        name: "Ice worm",
+        health: 30,
+        experience: 35,
+        loot: ItemKind::WormMeat,
+    },
     movement: GroundMovement::new(2.4, GROUND_OFFSET),
     bite: Bite {
         range: 1.5,

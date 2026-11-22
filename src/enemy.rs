@@ -15,6 +15,8 @@ use avian3d::prelude::*;
 use bevy::{prelude::*, world_serialization::WorldInstanceReady};
 use std::time::Duration;
 
+pub(crate) mod ranged;
+
 const SIGHT_RANGE: f32 = 7.0;
 const LEASH: f32 = 10.0;
 const GLOW_INTENSITY: f32 = 280.0;
@@ -32,7 +34,9 @@ const LOCOMOTION_BLEND: Duration = Duration::from_millis(100);
 
 pub(crate) struct EnemyModel {
     pub(crate) path: &'static str,
-    pub(crate) clips: [&'static str; 4],
+    /// Idle, attack, and death, in that order.
+    pub(crate) clips: [&'static str; 3],
+    pub(crate) locomotion: Option<&'static str>,
 }
 
 pub(crate) struct EnemyVisual {
@@ -43,7 +47,8 @@ pub(crate) struct EnemyVisual {
 #[derive(Component, Clone)]
 pub(crate) struct EnemyAnimations {
     pub(crate) graph: Handle<AnimationGraph>,
-    pub(crate) nodes: [AnimationNodeIndex; 4],
+    pub(crate) nodes: [AnimationNodeIndex; 3],
+    pub(crate) locomotion: Option<AnimationNodeIndex>,
 }
 
 #[derive(Component)]
@@ -134,13 +139,22 @@ struct HitGlow;
 #[derive(Component)]
 struct EnemyPlayback {
     owner: Entity,
-    clip: usize,
+    pose: EnemyPose,
+}
+
+#[derive(Component, Clone, Copy, Default, PartialEq)]
+pub(crate) enum EnemyPose {
+    #[default]
+    Idle,
+    Moving,
+    Attacking,
 }
 
 pub(crate) struct EnemyPlugin;
 impl Plugin for EnemyPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(OnExit(GameState::Loading), ground_encounters)
+        app.add_plugins(ranged::RangedPlugin)
+            .add_systems(OnExit(GameState::Loading), ground_encounters)
             .add_systems(
                 FixedUpdate,
                 (plan_actions, move_ground_enemies)
@@ -151,7 +165,7 @@ impl Plugin for EnemyPlugin {
             )
             .add_systems(
                 Update,
-                (animate, light_hits)
+                ((pose_melee_enemies, animate).chain(), light_hits)
                     .after(CombatSystems::Resolve)
                     .run_if(in_state(GameState::Playing)),
             );
@@ -163,12 +177,16 @@ fn no_dialogue(dialogue: Res<Dialogue>) -> bool {
 }
 
 pub(crate) struct GroundMelee {
+    pub(crate) body: EnemyBody,
+    pub(crate) movement: GroundMovement,
+    pub(crate) bite: Bite,
+}
+
+pub(crate) struct EnemyBody {
     pub(crate) name: &'static str,
     pub(crate) health: u16,
     pub(crate) experience: u16,
     pub(crate) loot: ItemKind,
-    pub(crate) movement: GroundMovement,
-    pub(crate) bite: Bite,
 }
 
 pub(crate) fn spawn_ground_melee(
@@ -180,23 +198,46 @@ pub(crate) fn spawn_ground_melee(
     config: GroundMelee,
     body: Collider,
 ) -> Entity {
+    spawn_enemy(
+        commands,
+        marker,
+        visual,
+        Transform::from_translation(home),
+        area,
+        config.body,
+        (
+            MeleePursuit::new(home, config.bite),
+            config.movement,
+            RigidBody::Kinematic,
+            CustomPositionIntegration,
+            body,
+        ),
+    )
+}
+
+pub(crate) fn spawn_enemy(
+    commands: &mut Commands,
+    marker: impl Component,
+    visual: &EnemyVisual,
+    transform: Transform,
+    area: Area,
+    config: EnemyBody,
+    capabilities: impl Bundle,
+) -> Entity {
     commands
         .spawn((
             Enemy,
             marker,
             Name::new(config.name),
-            MeleePursuit::new(home, config.bite),
-            config.movement,
+            EnemyPose::default(),
             visual.animations.clone(),
             Health::new(config.health),
             HitReaction::new(HIT_REACTION_SECONDS),
             CorpseLoot::new(config.loot, area),
             RemoveColliderOnDeath,
             Visibility::default(),
-            Transform::from_translation(home),
-            RigidBody::Kinematic,
-            CustomPositionIntegration,
-            body,
+            transform,
+            capabilities,
         ))
         .insert((
             SessionEntity,
@@ -437,20 +478,32 @@ fn bind_animation(
                 transitions,
                 EnemyPlayback {
                     owner: parent.parent(),
-                    clip: 0,
+                    pose: EnemyPose::Idle,
                 },
             ));
         }
     }
     commands.entity(parent.parent()).insert(DeathAnimation {
         players,
-        clip: library.nodes[3],
+        clip: library.nodes[2],
     });
+}
+
+fn pose_melee_enemies(
+    mut enemies: Query<(&MeleePursuit, &GroundMovement, &mut EnemyPose), Without<Dead>>,
+) {
+    for (pursuit, motion, mut pose) in &mut enemies {
+        pose.set_if_neq(match pursuit.phase {
+            MeleePhase::Windup(_) | MeleePhase::Recovery(_) => EnemyPose::Attacking,
+            _ if motion.moving => EnemyPose::Moving,
+            _ => EnemyPose::Idle,
+        });
+    }
 }
 
 fn animate(
     dialogue: Res<Dialogue>,
-    enemies: Query<(&EnemyAnimations, &MeleePursuit, &GroundMovement, Has<Dead>)>,
+    enemies: Query<(&EnemyAnimations, &EnemyPose, Has<Dead>)>,
     mut playing: Query<(
         &mut AnimationPlayer,
         &mut AnimationTransitions,
@@ -463,30 +516,29 @@ fn animate(
             continue;
         }
         animation.resume_all();
-        let Ok((library, pursuit, motion, dead)) = enemies.get(playback.owner) else {
+        let Ok((library, &pose, dead)) = enemies.get(playback.owner) else {
             continue;
         };
-        if dead {
+        if dead || pose == playback.pose {
             continue;
         }
-        let clip = match pursuit.phase {
-            MeleePhase::Windup(_) | MeleePhase::Recovery(_) => 2,
-            _ if motion.moving => 1,
-            _ => 0,
+        let clip = match pose {
+            EnemyPose::Idle => library.nodes[0],
+            EnemyPose::Moving => library.locomotion.unwrap_or(library.nodes[0]),
+            EnemyPose::Attacking => library.nodes[1],
         };
-        if clip != playback.clip {
-            let fade = if clip < 2 {
-                LOCOMOTION_BLEND
-            } else {
-                Duration::ZERO
-            };
-            let active = transitions.play(&mut animation, library.nodes[clip], fade);
-            active.replay();
-            if clip < 2 {
-                active.repeat();
-            }
-            playback.clip = clip;
+        let looping = pose != EnemyPose::Attacking;
+        let fade = if looping {
+            LOCOMOTION_BLEND
+        } else {
+            Duration::ZERO
+        };
+        let active = transitions.play(&mut animation, clip, fade);
+        active.replay();
+        if looping {
+            active.repeat();
         }
+        playback.pose = pose;
     }
 }
 
@@ -526,7 +578,7 @@ mod tests {
         time::TimeUpdateStrategy, transform::TransformPlugin,
     };
 
-    fn test_app() -> App {
+    pub(super) fn test_app() -> App {
         let mut app = App::new();
         app.add_plugins((
             MinimalPlugins,
@@ -544,6 +596,7 @@ mod tests {
         .init_resource::<Dialogue>()
         .init_resource::<Equipment>()
         .init_resource::<MovementInput>()
+        .init_resource::<Assets<StandardMaterial>>()
         .add_plugins((CombatPlugin, EnemyPlugin))
         .add_systems(
             Update,

@@ -1,6 +1,7 @@
 use crate::{
     GameState,
     enemy::{EnemyAnimations, EnemyModel, EnemyVisual},
+    hushcap,
     inventory::ItemKind,
     player::{AnimationLibrary, CLIPS, add_sword_animation_masks},
     quest::{QuestCatalog, QuestJournal},
@@ -23,7 +24,7 @@ const ARENA_FLOOR_PROBE_ORIGIN: Vec3 = Vec3::new(0.0, 5.0, -12.0);
 const ARENA_FLOOR_PROBE_RANGE: f32 = 6.0;
 const MIN_NON_PLAYER_COLLIDERS: usize = 2;
 
-const ENEMY_MODELS: &[EnemyModel] = &[worm::MODEL, roach::MODEL];
+const ENEMY_MODELS: &[EnemyModel] = &[worm::MODEL, roach::MODEL, hushcap::MODEL];
 
 #[derive(Resource)]
 pub(crate) struct EnemyVisuals(BTreeMap<&'static str, EnemyVisual>);
@@ -278,8 +279,15 @@ fn prepare_animations(
             let model = gltfs
                 .get(&assets.enemies[definition.path])
                 .expect("enemy models must be present after loading validation");
-            let (graph, nodes) = animation_graph(model, definition.clips, definition.path)?;
-            Ok((definition.path, (model.scenes[0].clone(), graph, nodes)))
+            let (mut graph, nodes) = animation_graph(model, definition.clips, definition.path)?;
+            let locomotion = definition
+                .locomotion
+                .map(|name| animation_node(&mut graph, model, name, definition.path))
+                .transpose()?;
+            Ok((
+                definition.path,
+                (model.scenes[0].clone(), graph, nodes, locomotion),
+            ))
         })
         .collect::<Result<BTreeMap<_, _>, String>>()?;
 
@@ -291,10 +299,11 @@ fn prepare_animations(
     let enemies = EnemyVisuals(
         enemies
             .into_iter()
-            .map(|(path, (scene, graph, nodes))| {
+            .map(|(path, (scene, graph, nodes, locomotion))| {
                 let animations = EnemyAnimations {
                     graph: graphs.add(graph),
                     nodes,
+                    locomotion,
                 };
                 (path, EnemyVisual { scene, animations })
             })
@@ -311,14 +320,23 @@ fn animation_graph<const N: usize>(
     let mut graph = AnimationGraph::new();
     let mut nodes = Vec::with_capacity(N);
     for name in names {
-        let clip = model
-            .named_animations
-            .get(name)
-            .ok_or_else(|| format!("{file} is missing animation {name}"))?;
-        nodes.push(graph.add_clip(clip.clone(), 1.0, graph.root));
+        nodes.push(animation_node(&mut graph, model, name, file)?);
     }
     let nodes = nodes
         .try_into()
         .expect("each registered clip must produce one animation graph node");
     Ok((graph, nodes))
+}
+
+fn animation_node(
+    graph: &mut AnimationGraph,
+    model: &Gltf,
+    name: &str,
+    file: &str,
+) -> Result<AnimationNodeIndex, String> {
+    let clip = model
+        .named_animations
+        .get(name)
+        .ok_or_else(|| format!("{file} is missing animation {name}"))?;
+    Ok(graph.add_clip(clip.clone(), 1.0, graph.root))
 }

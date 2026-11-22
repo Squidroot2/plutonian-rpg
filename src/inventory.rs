@@ -29,6 +29,7 @@ pub enum ItemKind {
     WormMeat,
     RoachMeat,
     Shortsword,
+    Mycelium,
 }
 impl ItemKind {
     pub const MATERIALS: [Self; 3] = [Self::Battery, Self::Scrap, Self::MethanePouch];
@@ -41,7 +42,7 @@ impl ItemKind {
         Self::Trident,
         Self::Shortsword,
     ];
-    pub const ALL: [Self; 14] = [
+    pub const ALL: [Self; 15] = [
         Self::Battery,
         Self::Scrap,
         Self::MethanePouch,
@@ -56,6 +57,7 @@ impl ItemKind {
         Self::LargeBoulder,
         Self::WormMeat,
         Self::RoachMeat,
+        Self::Mycelium,
     ];
     pub fn name(self) -> &'static str {
         match self {
@@ -69,6 +71,7 @@ impl ItemKind {
             Self::LargeBoulder => "Large Boulder",
             Self::WormMeat => "Worm meat",
             Self::RoachMeat => "Roach meat",
+            Self::Mycelium => "Mycelium",
             Self::FieldArmor => "Field armor",
             Self::ReinforcedArmor => "Reinforced armor",
             Self::FieldHelmet => "Field helmet",
@@ -87,6 +90,7 @@ impl ItemKind {
             Self::LargeBoulder => "large_boulder",
             Self::WormMeat => "worm_meat",
             Self::RoachMeat => "roach_meat",
+            Self::Mycelium => "mycelium",
             Self::FieldArmor => "field_armor",
             Self::ReinforcedArmor => "reinforced_armor",
             Self::FieldHelmet => "field_helmet",
@@ -95,7 +99,11 @@ impl ItemKind {
     }
     pub fn weight(self) -> u64 {
         match self {
-            Self::Battery | Self::MethanePouch | Self::WormMeat | Self::RoachMeat => 1,
+            Self::Battery
+            | Self::MethanePouch
+            | Self::WormMeat
+            | Self::RoachMeat
+            | Self::Mycelium => 1,
             Self::Scrap | Self::FieldHelmet | Self::Shortsword => 2,
             Self::FieldSpear | Self::ReinforcedHelmet => 3,
             Self::Trident => 4,
@@ -110,6 +118,7 @@ impl ItemKind {
             Self::LargeBoulder => "A dense chunk of icebound rock.",
             Self::WormMeat => "A cut of meat from an ice worm.",
             Self::RoachMeat => "A piece of relay roach meat with shell attached.",
+            Self::Mycelium => "Pale Hushcap threads that still catch the light.",
             Self::Battery => "A sealed cell holding a little warmth and charge.",
             Self::Scrap => "Salvaged metal from the outpost's machines.",
             Self::MethanePouch => "A reinforced pouch of condensed methane.",

@@ -241,7 +241,10 @@ Two ice worms roam beside the trail and a third waits near the cavern entrance.
 After you restore the beacon, look for the round hatch northwest of the beacon tower.
   Use E to enter.
   Follow the amber lamps to the maintenance switch, then go through the raised gate to discover the archive survey log.
-  Two ice worms and a fast, biting relay roach patrol the relay.
+  An ice worm and a fast, biting relay roach patrol the relay.
+  In the archive, a rooted Hushcap spits from beside a cracked conduit.
+  The service console offers cover, and the survey log can be read while the Hushcap is alive.
+  A defeated Hushcap yields one Mycelium.
   Use the hatch in the vestibule to return to Nivalis.
   Gate progress and the discovery are included in bed saves.
 
@@ -252,6 +255,8 @@ Pass `-- --relay` to the asset command to regenerate the Old Relay source and co
 
 Pass `-- --worm` to the asset command to regenerate the ice worm source and its four animation clips.
   Pass `-- --roach` to regenerate the relay roach source and animations.
+  Pass `-- --hushcap` to regenerate the Hushcap and Mycelium sources and exports.
+  Use `-- --export --hushcap` or `-- --export --relay` after editing those Blender sources by hand.
 
 The title screen uses a render of the outpost.
   To refresh it after editing the scenery, run `blender --background -noaudio art/outpost.blend --python scripts/render_title.py`.
@@ -268,8 +273,9 @@ Blender 5.3 was used for the included editable sources in `art/`.
 | `battery`, `scrap`, `methane_pouch` | Ground-based material pickups |
 | `large_boulder`, `practice_dummy` | Carrying-limit test pickup and weapon practice target |
 | `ice_worm`, `relay_roach` | Animated enemies with idle, crawl, bite, and death clips |
+| `hushcap` | Rooted archive enemy with idle, spit, and collapse clips |
 | `old_relay`, `old_relay_collision` | Old Relay scenery and its hidden collision geometry |
-| `worm_meat`, `roach_meat` | Corpse loot pickup models for dropped meat |
+| `worm_meat`, `roach_meat`, `mycelium` | Corpse loot pickup models |
 | `field_armor`, `reinforced_armor`, `field_helmet`, `reinforced_helmet` | Equipment sources, each exporting pickup and `_worn` GLBs |
 | `field_spear`, `trident` | Weapons sharing the spear animations, each exporting pickup and `_worn` GLBs |
 | `shortsword` | One-handed weapon with pickup and `_worn` GLBs for either hand |
@@ -376,6 +382,7 @@ Run one smoke scenario at a time on an idle graphical desktop without supplying 
 - `--smoke-world` loads the shipped outpost, checks transfers in all three tent chests, and walks out of and back into the tent to verify stored contents.
   It checks grounded worm spawns, traversable routes, and pillar collision from four directions.
   It also checks hatch unlocking, the relay encounters, roach loot and XP, archive discovery, return and reentry, fall recovery, and combat defeat with and without a bed save.
+  In the archive it checks projectile cover, reads the log with the Hushcap alive, and uses a spear to defeat and loot it.
   It verifies journal reward text, completion XP for The Last Light and Old Relay, and restoration of saved XP after combat defeat.
   It prints `WORLD SMOKE PASS` on success.
 - `--smoke-nemi` checks spear damage, fleeing and returning, the failed quest entry, Nemi’s collapse and XP reward, and XP for opening the relay by completing Relight the Beacon.

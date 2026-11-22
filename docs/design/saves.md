@@ -50,14 +50,19 @@ systems.
 
 The file begins with the six-byte `PLUT` header and a little-endian schema
 version, followed by a bitcode-encoded snapshot.
-The current schema is version 4.
-Readers also recognize versions 1 through 3 and upgrade their snapshots in
+The current schema is version 5.
+Readers also recognize versions 1 through 4 and upgrade their snapshots in
 memory before validating them.
 Legacy saves that predate progression or experience retain the fields they
 already had and receive defaults for fields introduced later.
 Version 1 equipment slots are decoded using their original three-variant enum
 before `Weapon` is mapped to `MainHand`; preserving that old enum shape is
 required because bitcode encodes enum cardinality.
+Versions 1 through 4 used the archive encounter slot for an ice worm.
+  Migration replaces that encounter with a full-health Hushcap at its authored position
+  and clears pending XP contribution for the worm.
+  The remaining encounters, previously earned XP, and quest progress carry forward.
+Version 5 saves track Hushcap health, defeat, and loot availability like other authored encounters.
 
 Reads are limited to 1 MiB plus one byte so oversized files can be rejected.
 Unknown headers, malformed bitcode, unsupported versions and invalid decoded

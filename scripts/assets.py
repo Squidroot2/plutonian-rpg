@@ -1244,6 +1244,166 @@ def relay_roach():
     save_export('relay_roach')
 
 
+def fungal_thread(name, points, width, mat):
+    """Bake a tapered strand from a polyline so GLB export preserves its shape."""
+    curve = bpy.data.curves.new(name, 'CURVE')
+    curve.dimensions = '3D'
+    curve.bevel_depth = width
+    curve.bevel_resolution = 0
+    spline = curve.splines.new('POLY')
+    spline.points.add(len(points)-1)
+    for index, (point, position) in enumerate(zip(spline.points, points)):
+        point.co = (*position, 1)
+        point.radius = 1-.82*index/(len(points)-1)
+    strand = bpy.data.objects.new(name, curve)
+    bpy.context.collection.objects.link(strand)
+    curve.materials.append(mat)
+    bpy.ops.object.select_all(action='DESELECT')
+    strand.select_set(True)
+    bpy.context.view_layer.objects.active = strand
+    bpy.ops.object.convert(target='MESH')
+    return bpy.context.object
+
+
+def hushcap_crown(dark, slate, frost, gill):
+    segments = 42
+    rings = [(.072, 1.61), (.29, 1.57), (.56, 1.46), (.73, 1.31),
+             (.75, 1.24), (.68, 1.19), (.22, 1.15)]
+    vertices = []
+    for radius, height in rings:
+        for index in range(segments):
+            a = math.tau*index/segments
+            wave = math.sin(a*5+.8)*.04 + math.cos(a*9)*.023
+            vertices.append((math.cos(a)*(radius+wave),
+                             math.sin(a)*(radius+wave)*.91+.045,
+                             height + wave*.72))
+    faces = [tuple(range(segments))]
+    for row in range(len(rings)-1):
+        for index in range(segments):
+            next_index = (index+1) % segments
+            faces.append((row*segments+index, (row+1)*segments+index,
+                          (row+1)*segments+next_index, row*segments+next_index))
+    faces.append(tuple(reversed(range(len(vertices)-segments, len(vertices)))))
+    mesh = bpy.data.meshes.new('Layered Hushcap crown')
+    mesh.from_pydata(vertices, [], faces)
+    mesh.update()
+    cap = bpy.data.objects.new(mesh.name, mesh)
+    bpy.context.collection.objects.link(cap)
+    for mat in (dark, slate, frost, gill):
+        mesh.materials.append(mat)
+    for face in mesh.polygons[1:-1]:
+        row, sector = divmod(face.index-1, segments)
+        veins = math.sin(sector*.79+row*.65) + math.sin(sector*1.61)
+        face.material_index = (3 if row == 5 else
+                               2 if row == 4 or veins > 1.44 else
+                               1 if row == 3 or veins > .10 else 0)
+    return cap
+
+
+def hushcap_actions(rig):
+    crown = rig.pose.bones['Crown']
+    crown.rotation_mode = 'XYZ'
+    # Frame 51 at 60 fps is the point the glob leaves the mouth in the game.
+    # Each key specifies drop, pitch, and compression around the base of the crown.
+    actions = {
+        'HushcapIdle': [(0, 0, 0, 1), (30, .014, .031, 1.015),
+                        (90, -.018, -.023, .99), (120, 0, 0, 1)],
+        'HushcapSpit': [(0, 0, 0, 1), (27, -.045, .14, .95), (49, -.11, .29, .85),
+                        (51, .02, -.11, 1.06), (57, .025, -.20, 1.035),
+                        (78, -.032, .10, .98), (126, 0, 0, 1)],
+        'HushcapDeath': [(0, 0, 0, 1), (9, -.18, .27, .88),
+                         (33, -.63, -.74, .72), (48, -.67, -.83, .72)],
+    }
+    rig.animation_data_create()
+    for name, keys in actions.items():
+        action = bpy.data.actions.new(name)
+        action.use_fake_user = True
+        rig.animation_data.action = action
+        for frame, drop, pitch, compression in keys:
+            crown.location = (0, drop, 0)
+            crown.rotation_euler = (pitch, 0, 0)
+            crown.scale = (compression, compression, compression)
+            for channel in ('location', 'rotation_euler', 'scale'):
+                crown.keyframe_insert(channel, frame=frame, group=crown.name)
+    rig.animation_data.action = None
+    crown.matrix_basis = Matrix.Identity(4)
+    bpy.context.scene.frame_set(0)
+    bpy.context.view_layer.update()
+
+
+def hushcap():
+    reset()
+    bpy.context.scene.render.fps = 60
+    charcoal = material('Charcoal rind', (.057, .070, .095))
+    slate = material('Blue slate laminae', (.16, .24, .29))
+    frost = material('Deposited frost', (.52, .68, .71))
+    stalk = material('Pale fibrous stalk', (.29, .39, .38))
+    gill = material('Luminous gill tissue', (.17, .53, .41), .55)
+    throat = material('Dark vent', (.021, .044, .048))
+    charge = material('Phosphor in vent', (.32, .83, .57), 1.25)
+
+    bpy.ops.object.armature_add()
+    rig = bpy.context.object
+    rig.name = 'HushcapRig'
+    bpy.ops.object.mode_set(mode='EDIT')
+    root = rig.data.edit_bones[0]
+    root.name = 'Roots'
+    root.head, root.tail = (0, 0, 0), (0, 0, .44)
+    crown = rig.data.edit_bones.new('Crown')
+    crown.head, crown.tail = (0, 0, .88), (0, 0, 1.38)
+    crown.parent = root
+    bpy.ops.object.mode_set(mode='OBJECT')
+
+    def skin(obj, bone):
+        group = obj.vertex_groups.new(name=bone)
+        group.add(list(range(len(obj.data.vertices))), 1, 'REPLACE')
+        obj.modifiers.new('Hushcap skeleton', 'ARMATURE').object = rig
+        obj.parent = rig
+
+    skin(ico('Root knot', (0, .04, .17), (.44, .36, .26), stalk, 2), 'Roots')
+    skin(ico('Pleated stalk', (0, .05, .53), (.30, .28, .53), stalk, 2), 'Roots')
+    for index in range(12):
+        a = index*math.tau/12
+        s, c = math.sin(a), math.cos(a)
+        radius = .48 + (index % 4)*.067
+        skin(fungal_thread('Root filament', [(c*.12, s*.12, .34),
+                            (c*.31, s*.31, .13), (c*.47, s*.42, .037),
+                            (c*radius, s*radius, .022)], .052, frost), 'Roots')
+    skin(ico('Collar', (0, .027, .95), (.38, .37, .30), slate, 2), 'Crown')
+    skin(hushcap_crown(charcoal, slate, frost, gill), 'Crown')
+    for index in range(34):
+        a = math.tau*index/34
+        c, s = math.cos(a), math.sin(a)
+        skin(fungal_thread('Radial gill', [(c*.24, s*.21+.045, 1.085),
+                            (c*.38, s*.35+.045, 1.072),
+                            (c*.56, s*.51+.045, 1.12), (c*.70, s*.63+.045, 1.216)],
+                           .030, gill if index % 3 else frost), 'Crown')
+    skin(ico('Spit vent cavity', (0, -.358, 1.005), (.22, .10, .14), throat, 2), 'Crown')
+    skin(ico('Glowing throat', (0, -.434, 1.01), (.095, .031, .063), charge, 2), 'Crown')
+    for side in [-1, 1]:
+        lip = ico('Split vent lip', (side*.154, -.399, .99), (.079, .119, .142), slate, 2)
+        lip.rotation_euler.y = side*.23
+        skin(lip, 'Crown')
+    hushcap_actions(rig)
+    save_export('hushcap')
+
+
+def mycelium():
+    reset()
+    pale = material('Mycelium fibers', (.57, .69, .63))
+    living = material('Mycelium phosphor', (.27, .58, .41), .75)
+    ico('Root sample', (0, 0, .075), (.143, .11, .075), pale, 2)
+    for index in range(21):
+        a = index*math.tau/21
+        radius = .115+.012*(index % 9)
+        lift = (index % 5)*.025
+        points = [(0, 0, .09), (math.cos(a)*.08, math.sin(a)*.08, .13+lift),
+                  (math.cos(a+.5)*radius, math.sin(a+.5)*radius, .072+lift),
+                  (math.cos(a+.8)*radius*1.19, math.sin(a+.8)*radius*1.19, .035+lift)]
+        fungal_thread('Mycelium strand', points, .024, pale if index % 4 else living)
+    save_export('mycelium')
+
+
 def old_relay():
     reset()
     rock = material('Relay basalt', (.092, .148, .19))
@@ -1326,6 +1486,15 @@ def old_relay():
             for z in (1.28, 1.52, 1.76):
                 box('Archive status slit', (side*4.26, y, z), (.065, .62, .065), cyan)
     solid('Survey log pedestal', (0, 27.30, .53), (1.36, .95, 1.06), rib)
+    console = (1.77, 23.55)
+    solid('Archive service console', (*console, .69), (1.26, .72, 1.38), rib)
+    box('Service console dark panel', (console[0], console[1]-.366, .93),
+        (1.06, .04, .46), etched)
+    for x in (1.42, 1.62, 1.82):
+        box('Service console indicator', (x, console[1]-.394, 1.02), (.096, .02, .042), amber)
+    box('Archive conduit from east wall', (4.52, 26.45, .125), (1.8, .24, .24), rib)
+    crack = box('Dislodged conduit end', (3.61, 26.33, .083), (.54, .26, .16), etched)
+    crack.rotation_euler.z = -.44
     box('Archive map backdrop', (0, 29.78, 2.65), (5.3, .21, 2.23), rib)
     landmarks = [(-1.95, 2.15), (-1.25, 2.48), (-.52, 2.78), (.31, 2.58), (1.05, 3.06), (1.85, 3.30)]
     for x, z in landmarks:
@@ -1365,8 +1534,11 @@ def spear_assets():
     practice_dummy()
 
 
-if '--relay' in sys.argv:
+if '--relay' in sys.argv and '--export' not in sys.argv:
     old_relay()
+elif '--hushcap' in sys.argv and '--export' not in sys.argv:
+    hushcap()
+    mycelium()
 elif '--roach' in sys.argv:
     relay_roach()
 elif '--worm' in sys.argv:
@@ -1425,11 +1597,15 @@ elif '--export' in sys.argv and '--nemi-death' in sys.argv:
 elif '--export' in sys.argv:
     names = ['outpost', 'collision'] if '--outpost' in sys.argv else [
         'plutonian', 'outpost', 'collision', 'core', 'battery', 'scrap', 'methane_pouch',
-        'large_boulder', 'practice_dummy', 'ice_worm', 'relay_roach', 'old_relay',
+        'large_boulder', 'practice_dummy', 'ice_worm', 'relay_roach', 'hushcap', 'mycelium', 'old_relay',
         'old_relay_collision', *MEAT_NAMES, *GEAR_NAMES,
     ]
     if '--shortsword' in sys.argv:
         names = ['plutonian', SHORTSWORD_NAME]
+    elif '--hushcap' in sys.argv:
+        names = ['hushcap', 'mycelium']
+    elif '--relay' in sys.argv:
+        names = ['old_relay', 'old_relay_collision']
     for name in names:
         bpy.ops.wm.open_mainfile(filepath=str(ROOT/'art'/f'{name}.blend'))
         if name in GEAR_NAMES:
@@ -1448,5 +1624,7 @@ else:
     practice_dummy()
     ice_worm()
     relay_roach()
+    hushcap()
+    mycelium()
     old_relay()
 print('Exported Plutonian RPG assets')

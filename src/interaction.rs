@@ -709,7 +709,7 @@ mod tests {
                 .0;
             world.trigger(pointer_click(button, window, camera));
         };
-        for item in [ItemKind::WormMeat, ItemKind::RoachMeat] {
+        for item in [ItemKind::WormMeat, ItemKind::RoachMeat, ItemKind::Mycelium] {
             let corpse = app
                 .world_mut()
                 .spawn((

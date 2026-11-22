@@ -14,6 +14,7 @@ mod dungeon;
 mod enemy;
 mod equipment;
 mod experience;
+mod hushcap;
 mod interaction;
 mod inventory;
 mod loading;

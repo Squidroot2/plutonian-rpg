@@ -1,6 +1,7 @@
 use crate::{
     GameState,
     camera::Orbit,
+    hushcap,
     loading::{EnemyVisuals, GameAssets, LoadStatus, PendingScene, scene_ready},
     player::{Dodge, MovementInput, PLAYER_GROUND_OFFSET, Player},
     quest::{Dialogue, QuestAction, QuestJournal},
@@ -323,13 +324,17 @@ fn spawn_relay_encounters(commands: &mut Commands, enemies: &EnemyVisuals) {
         Area::OldRelay,
     );
     commands.entity(roach).insert(EncounterId::RelayRoach);
-    for (id, offset) in [
-        (EncounterId::RelayJunctionWorm, Vec3::new(-3.5, 1.2, -10.5)),
-        (EncounterId::RelayArchiveWorm, Vec3::new(3.65, 1.2, -24.0)),
-    ] {
-        let worm = worm::spawn(commands, enemies, ORIGIN + offset, Area::OldRelay);
-        commands.entity(worm).insert(id);
-    }
+    let worm = worm::spawn(
+        commands,
+        enemies,
+        ORIGIN + Vec3::new(-3.5, 1.2, -10.5),
+        Area::OldRelay,
+    );
+    commands.entity(worm).insert(EncounterId::RelayJunctionWorm);
+    let hushcap = hushcap::spawn(commands, enemies);
+    commands
+        .entity(hushcap)
+        .insert(EncounterId::RelayArchiveHushcap);
 }
 
 fn ground_surface_hatch(

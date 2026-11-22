@@ -1,6 +1,6 @@
 use crate::{
     dungeon::Area,
-    enemy::{self, Bite, EnemyModel, GroundMelee, GroundMovement},
+    enemy::{self, Bite, EnemyBody, EnemyModel, GroundMelee, GroundMovement},
     inventory::ItemKind,
     loading::EnemyVisuals,
 };
@@ -9,14 +9,17 @@ use bevy::prelude::*;
 
 pub(crate) const MODEL: EnemyModel = EnemyModel {
     path: "models/relay_roach.glb",
-    clips: ["RoachIdle", "RoachCrawl", "RoachBite", "RoachDeath"],
+    clips: ["RoachIdle", "RoachBite", "RoachDeath"],
+    locomotion: Some("RoachCrawl"),
 };
 pub(crate) const GROUND_OFFSET: f32 = 0.32;
 pub(crate) const CONFIG: GroundMelee = GroundMelee {
-    name: "Relay roach",
-    health: 20,
-    experience: 25,
-    loot: ItemKind::RoachMeat,
+    body: EnemyBody {
+        name: "Relay roach",
+        health: 20,
+        experience: 25,
+        loot: ItemKind::RoachMeat,
+    },
     movement: GroundMovement::new(3.5, GROUND_OFFSET),
     bite: Bite {
         range: 1.5,

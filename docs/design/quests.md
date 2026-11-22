@@ -98,6 +98,8 @@ The Last Light and Relight the Beacon each award 70 XP.
 the beacon and earn level 2 from quest XP alone.
   Old Relay awards 120 XP for
 finding the survey log, which brings either route to level 3.
+  The archive Hushcap makes reaching the log dangerous,
+  but defeating it is optional and grants a separate combat reward.
 
 `QuestJournal` queues the reward when an active quest transitions to
 `Complete`, whether the transition follows a fresh action or settles a

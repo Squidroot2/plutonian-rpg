@@ -12,6 +12,7 @@ in the [quest catalog](quests.md).
 | --- | ---: |
 | Ice worm | 35 |
 | Relay roach | 25 |
+| Hushcap | 45 |
 | Keeper Nemi | 35 |
 | The Last Light | 70 |
 | Relight the Beacon | 70 |
