@@ -19,10 +19,11 @@ pub(crate) enum Control {
     MenuRight,
     Attack,
     OffHandAttack,
+    Holster,
 }
 
 impl Control {
-    pub(crate) const ALL: [Self; 17] = [
+    pub(crate) const ALL: [Self; 18] = [
         Self::Forward,
         Self::Backward,
         Self::Left,
@@ -40,6 +41,7 @@ impl Control {
         Self::MenuRight,
         Self::Attack,
         Self::OffHandAttack,
+        Self::Holster,
     ];
 
     const MENU: [Self; 5] = [
@@ -70,6 +72,7 @@ impl Control {
             Self::MenuRight => "Menu Right",
             Self::Attack => "Main-hand attack",
             Self::OffHandAttack => "Off-hand attack",
+            Self::Holster => "Holster / Draw Weapons",
         }
     }
 
@@ -187,6 +190,7 @@ impl Default for Keybinds {
             (Control::MenuDown, KeyS),
             (Control::MenuLeft, KeyA),
             (Control::MenuRight, KeyD),
+            (Control::Holster, KeyX),
         ];
         for (control, key) in keys {
             bindings[control as usize] = Binding::Key(key);

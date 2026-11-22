@@ -15,7 +15,7 @@ use crate::{
     menu_ui::{MenuTab, PlayerMenu},
     player::Player,
     practice_dummy::PracticeDummy,
-    weapon::{GRIP_SIDE, WeaponAttack},
+    weapon::{GRIP_SIDE, WeaponAttack, WeaponStance},
 };
 
 pub struct SpearSmokePlugin;
@@ -27,6 +27,9 @@ pub enum SpearSmoke {
     Equip,
     Close,
     CaptureInventory,
+    Holster,
+    CaptureHolstered,
+    Draw,
     Approach,
     Chamber,
     Impact,
@@ -78,16 +81,17 @@ pub(super) fn drive(
     mut smoke: ResMut<SpearSmoke>,
     (state, menu): (Res<State<GameState>>, Res<PlayerMenu>),
     time: Res<Time>,
-    (mut screenshot, mut captured_at, mut testing_trident): (
+    (mut screenshot, mut captured_at, mut testing_trident, mut holstered_weapon): (
         Local<Option<Entity>>,
         Local<f32>,
         Local<bool>,
+        Local<Option<Entity>>,
     ),
     inventory: Res<Inventory>,
     equipment: Res<Equipment>,
     nearby: Res<Nearby>,
     thrust: Res<WeaponAttack>,
-    player: Query<(&Transform, &Player)>,
+    player: Query<(&Transform, &Player, &WeaponStance)>,
     (dummy, captures, impacts, windows): (
         Query<(&HitReaction, &Transform), With<PracticeDummy>>,
         Query<(), With<Screenshot>>,
@@ -95,7 +99,10 @@ pub(super) fn drive(
         Query<&Window>,
     ),
     pickups: Query<(&Pickup, &Transform)>,
-    worn: Query<&WornEquipment, Without<PendingScene>>,
+    (worn, names): (
+        Query<(Entity, &WornEquipment, &ChildOf), Without<PendingScene>>,
+        Query<&Name>,
+    ),
     (actions, tabs): (Query<(Entity, &InventoryAction)>, Query<(Entity, &MenuTab)>),
     (mut keys, mut buttons, mut orbit): (
         ResMut<ButtonInput<KeyCode>>,
@@ -116,7 +123,7 @@ pub(super) fn drive(
         super::capture(commands, &format!("{screenshot_name}-{stage}"))
     };
     let now = time.elapsed_secs();
-    let (transform, controller) = player
+    let (transform, controller, stance) = player
         .single()
         .expect("spear smoke requires one loaded player");
     let (window, camera) = materials
@@ -188,7 +195,7 @@ pub(super) fn drive(
             );
             *smoke = SpearSmoke::Close;
         }
-        SpearSmoke::Close if worn.iter().any(|piece| piece.item == weapon) => {
+        SpearSmoke::Close if worn.iter().any(|(_, piece, _)| piece.item == weapon) => {
             assert_eq!(equipment.get(EquipmentSlot::MainHand), Some(weapon));
             assert_eq!(inventory.count(weapon), 0);
             *screenshot = Some(capture(&mut commands, "inventory"));
@@ -198,9 +205,38 @@ pub(super) fn drive(
             if screenshot.is_some_and(|entity| captures.get(entity).is_err()) =>
         {
             keys.press(KeyCode::Tab);
+            *smoke = SpearSmoke::Holster;
+        }
+        SpearSmoke::Holster if !menu.is_open() => {
+            *holstered_weapon = worn
+                .iter()
+                .find_map(|(entity, piece, _)| (piece.item == weapon).then_some(entity));
+            assert!(holstered_weapon.is_some());
+            keys.press(KeyCode::KeyX);
+            *smoke = SpearSmoke::CaptureHolstered;
+        }
+        SpearSmoke::CaptureHolstered => {
+            assert_eq!(*stance, WeaponStance::Holstered);
+            let (_, _, parent) = worn
+                .get(holstered_weapon.unwrap())
+                .expect("holstering keeps the worn polearm scene");
+            assert_eq!(
+                names.get(parent.parent()).unwrap().as_str(),
+                "polearm_holster"
+            );
+            *screenshot = Some(capture(&mut commands, "holstered"));
+            *smoke = SpearSmoke::Draw;
+        }
+        SpearSmoke::Draw if screenshot.is_some_and(|entity| captures.get(entity).is_err()) => {
+            keys.press(KeyCode::KeyX);
             *smoke = SpearSmoke::Approach;
         }
         SpearSmoke::Approach if *state.get() == GameState::Playing && !menu.is_open() => {
+            assert_eq!(*stance, WeaponStance::Drawn);
+            let (_, _, parent) = worn
+                .get(holstered_weapon.unwrap())
+                .expect("drawing keeps the worn polearm scene");
+            assert_eq!(names.get(parent.parent()).unwrap().as_str(), "spear_grip");
             let position = dummy_transform.translation + Vec3::new(-GRIP_SIDE, 0.0, -2.0);
             if transform
                 .translation
@@ -341,7 +377,7 @@ pub(super) fn drive(
                 0,
                 "unequipped weapon must fit the drop clearance"
             );
-            assert!(!worn.iter().any(|piece| piece.item == weapon));
+            assert!(!worn.iter().any(|(_, piece, _)| piece.item == weapon));
             keys.press(KeyCode::KeyI);
             orbit.distance = 5.5;
             *smoke = SpearSmoke::Recollect;

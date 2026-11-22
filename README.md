@@ -28,6 +28,7 @@ Choose **Start Game** on the title screen to begin a fresh run in Nivalis, or **
 | Left Shift | Sprint forward or on a forward diagonal |
 | Left click | Attack with the main-hand weapon |
 | Right click | Attack with the off-hand weapon |
+| X | Holster or draw all equipped weapons |
 | Space | Jump (grounded only) |
 | Left Ctrl | Dodge hop in the WASD direction, or backward with no movement input (grounded only) |
 | E | Speak / collect a nearby item / open storage / save at the bed / dismiss dialogue |
@@ -107,6 +108,8 @@ Equipped models follow the player's animated rig. Helmets have open faces and cl
 Find the field spear, trident, and two shortswords in the outpost courtyard and pick them up with E. The spear and trident thrust up to 2.5 m. Each uses both hands and returns both equipped weapons to your bag when you swap it in. A shortsword slashes up to 1.4 m and can be equipped in either hand. Double-click the shortsword row twice in an empty loadout to equip both copies.
 
 Aim at the practice dummy while grounded. Left-click to attack with the main hand or right-click to attack with the off hand. When dual wielding, click both buttons to swing together, or start one swing while the other hand is still attacking. Each hand recovers independently. Movement locks while either attack is active. A wall stops the attack, and a hit makes the dummy flash and rock.
+
+Press X to put your equipped weapons on your back or hips. Press it again to draw before attacking. Wait for both hands to finish recovering before holstering. Change the shortcut under **Settings → Keybinds → Gameplay → Holster / Draw Weapons**.
 
 ## Ice worms
 

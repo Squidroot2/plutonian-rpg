@@ -5,7 +5,7 @@ use crate::{
     camera::Orbit,
     combat::HitReaction,
     combat_feedback::AttackImpact,
-    equipment::{Equipment, EquipmentSlot, WeaponKind, WornEquipment},
+    equipment::{Equipment, EquipmentSlot, Handedness, WeaponKind, WornEquipment},
     interaction::{InteractionTarget, Nearby},
     inventory::{Inventory, ItemKind, Pickup},
     inventory_ui::InventoryAction,
@@ -14,7 +14,7 @@ use crate::{
     menu_ui::{MenuTab, PlayerMenu},
     player::Player,
     practice_dummy::PracticeDummy,
-    weapon::{Hand, WeaponAttack},
+    weapon::{Hand, WeaponAttack, WeaponStance},
 };
 use bevy::{
     ecs::system::SystemParam, input::InputSystems, prelude::*, render::view::screenshot::Screenshot,
@@ -31,6 +31,12 @@ pub(super) enum ShortswordStep {
     PickOffHand,
     EquipOffHand,
     CheckWorn,
+    Holster,
+    HolsteredIdle,
+    HolsteredWalk(f32),
+    HolsteredRun(f32),
+    HolsteredJump(f32),
+    Redraw,
     Approach,
     Swing {
         hand: Hand,
@@ -59,7 +65,17 @@ pub(crate) struct EquipmentSmoke {
 pub(crate) struct View<'w, 's> {
     screen: Query<'w, 's, (&'static mut Node, &'static ComputedNode), With<PlayerMenuScreen>>,
     captures: Query<'w, 's, (), With<Screenshot>>,
-    player: Query<'w, 's, (Entity, &'static Transform, &'static Player), With<Player>>,
+    player: Query<
+        'w,
+        's,
+        (
+            Entity,
+            &'static Transform,
+            &'static Player,
+            &'static WeaponStance,
+        ),
+        With<Player>,
+    >,
     pickups: Query<'w, 's, (&'static Pickup, &'static Transform)>,
     actions: Query<'w, 's, (Entity, &'static InventoryAction)>,
     tabs: Query<'w, 's, (Entity, &'static MenuTab)>,
@@ -70,6 +86,7 @@ pub(crate) struct View<'w, 's> {
         'w,
         's,
         (
+            Entity,
             &'static WornEquipment,
             &'static ChildOf,
             &'static GlobalTransform,
@@ -159,27 +176,43 @@ fn approach_pickup(
     walk(keys, orbit, position, target);
 }
 fn check_worn(view: &View, equipment: &Equipment, player: Entity) -> bool {
+    let (_, _, _, stance) = view
+        .player
+        .get(player)
+        .expect("equipment smoke requires the player");
     for slot in EquipmentSlot::ALL {
         let roots = view
             .worn
             .iter()
-            .filter(|(piece, _, _, _)| piece.slot == slot)
+            .filter(|(_, piece, _, _, _)| piece.slot == slot)
             .collect::<Vec<_>>();
         if let Some(item) = equipment.get(slot) {
-            if roots.len() != 1 || roots[0].3.is_some() {
+            if roots.len() != 1 || roots[0].4.is_some() {
                 return false;
             }
-            let (piece, parent, transform, _) = roots[0];
+            let (_, piece, parent, transform, _) = roots[0];
             assert_eq!(piece.item, item, "worn model does not match its slot");
             let (name, bone_transform) = view
                 .nodes
                 .get(parent.parent())
                 .expect("worn equipment must be parented to a named rig bone");
-            assert!(crate::equipment::EQUIPMENT_SOCKETS.contains(&(
-                name.as_str(),
-                slot,
-                item.weapon().map(WeaponKind::handedness)
-            )));
+            let handedness = item.weapon().map(WeaponKind::handedness);
+            if *stance == WeaponStance::Holstered
+                && let Some(handedness) = handedness
+            {
+                let mount = match (slot, handedness) {
+                    (_, Handedness::TwoHanded) => "polearm_holster",
+                    (EquipmentSlot::OffHand, _) => "left_hip_holster",
+                    _ => "right_hip_holster",
+                };
+                assert_eq!(name.as_str(), mount);
+            } else {
+                assert!(crate::equipment::EQUIPMENT_SOCKETS.contains(&(
+                    name.as_str(),
+                    slot,
+                    handedness
+                )));
+            }
             assert!(
                 view.parents
                     .iter_ancestors(parent.parent())
@@ -209,6 +242,7 @@ fn drive_shortswords(
     dummy: Query<(&HitReaction, &Transform), With<PracticeDummy>>,
     impacts: Query<(), With<AttackImpact>>,
     view: View,
+    (time, mut sword_entities): (Res<Time>, Local<[Option<Entity>; 2]>),
     (mut keys, mut buttons, mut orbit): (
         ResMut<ButtonInput<KeyCode>>,
         ResMut<ButtonInput<MouseButton>>,
@@ -222,11 +256,30 @@ fn drive_shortswords(
     if !spear_smoke.done() || *step == ShortswordStep::Done {
         return;
     }
-    let (player, transform, controller) = view.player.single().expect("arena player");
+    let (player, transform, controller, stance) = view.player.single().expect("arena player");
     let (dummy, dummy_transform) = dummy.single().expect("arena practice dummy");
     let (window, camera) = inventory_smoke.context.expect("arena UI context");
     keys.reset_all();
     buttons.reset_all();
+    let now = time.elapsed_secs();
+    let worn_swords = || {
+        EquipmentSlot::HANDS.map(|slot| {
+            view.worn.iter().find_map(|(entity, piece, _, _, pending)| {
+                (piece.slot == slot && piece.item == Shortsword && pending.is_none())
+                    .then_some(entity)
+            })
+        })
+    };
+    let check_holstered = || {
+        assert_eq!(*stance, WeaponStance::Holstered);
+        assert!(check_worn(&view, &equipment, player));
+        assert_eq!(
+            worn_swords(),
+            *sword_entities,
+            "holstering keeps both sword scenes"
+        );
+        assert!(!attack.active(), "holstered weapons cannot attack");
+    };
     macro_rules! click {
         ($action:expr) => {
             click(&mut commands, $action, &view.actions, window, camera)
@@ -285,10 +338,68 @@ fn drive_shortswords(
             assert_eq!(bag.count(Shortsword), 0);
             if check_worn(&view, &equipment, player) {
                 keys.press(KeyCode::Tab);
-                *step = ShortswordStep::Approach;
+                *step = ShortswordStep::Holster;
             }
         }
+        ShortswordStep::Holster if !menu.is_open() => {
+            *sword_entities = worn_swords();
+            assert!(sword_entities.iter().all(Option::is_some));
+            orbit.yaw = 0.0;
+            orbit.pitch = 0.18;
+            orbit.distance = 3.7;
+            keys.press(KeyCode::KeyX);
+            *step = ShortswordStep::HolsteredIdle;
+        }
+        ShortswordStep::HolsteredIdle => {
+            check_holstered();
+            buttons.press(MouseButton::Left);
+            buttons.press(MouseButton::Right);
+            super::capture(&mut commands, "shortswords-holstered-idle");
+            *step = ShortswordStep::HolsteredWalk(now);
+        }
+        ShortswordStep::HolsteredWalk(started) => {
+            check_holstered();
+            keys.press(KeyCode::KeyW);
+            if now - started > 0.3 {
+                assert!(
+                    controller.grounded
+                        && !controller.running
+                        && controller.velocity.xz().length() > 0.1
+                );
+                super::capture(&mut commands, "shortswords-holstered-walk");
+                *step = ShortswordStep::HolsteredRun(now);
+            }
+        }
+        ShortswordStep::HolsteredRun(started) => {
+            check_holstered();
+            keys.press(KeyCode::KeyW);
+            keys.press(KeyCode::ShiftLeft);
+            if now - started > 0.3 {
+                assert!(controller.grounded && controller.running);
+                super::capture(&mut commands, "shortswords-holstered-run");
+                keys.press(KeyCode::Space);
+                *step = ShortswordStep::HolsteredJump(now);
+            }
+        }
+        ShortswordStep::HolsteredJump(started) if now - started > 0.22 => {
+            check_holstered();
+            assert!(!controller.grounded);
+            super::capture(&mut commands, "shortswords-holstered-jump");
+            *step = ShortswordStep::Redraw;
+        }
+        ShortswordStep::Redraw if controller.grounded => {
+            check_holstered();
+            keys.press(KeyCode::KeyX);
+            *step = ShortswordStep::Approach;
+        }
         ShortswordStep::Approach if !menu.is_open() => {
+            assert_eq!(*stance, WeaponStance::Drawn);
+            assert!(check_worn(&view, &equipment, player));
+            assert_eq!(
+                worn_swords(),
+                *sword_entities,
+                "drawing keeps both sword scenes"
+            );
             let position = dummy_transform.translation - Vec3::Z * 1.2;
             if transform.translation.xz().distance(position.xz()) > 0.17 {
                 walk(&mut keys, &mut orbit, transform.translation, position);
@@ -339,7 +450,7 @@ fn drive_shortswords(
             );
             if dummy.remaining > 0.0 {
                 assert_eq!(impacts.iter().count(), 2, "both swords must hit the dummy");
-                for (piece, _, worn, _) in &view.worn {
+                for (_, piece, _, worn, _) in &view.worn {
                     assert_eq!(piece.item, Shortsword);
                     assert!(
                         worn.translation().z - transform.translation.z > 0.4,
@@ -427,7 +538,7 @@ pub(super) fn drive(
     {
         return;
     }
-    let Ok((player, transform, controller)) = view.player.single() else {
+    let Ok((player, transform, controller, stance)) = view.player.single() else {
         return;
     };
     keys.reset_all();
@@ -754,10 +865,32 @@ pub(super) fn drive(
         }
         109 if check_worn(&view, &equipment, player) => {
             assert_eq!(equipment.total_defense(), 8);
+            click!(InventoryAction::ToggleSlot(EquipmentSlot::MainHand));
+            smoke.stage = 110;
+        }
+        110 => {
+            click!(InventoryAction::EquipFromSlot(
+                EquipmentSlot::MainHand,
+                ItemKind::Trident
+            ));
+            smoke.stage = 111;
+        }
+        111 if check_worn(&view, &equipment, player) => {
+            assert_eq!(
+                equipment.get(EquipmentSlot::MainHand),
+                Some(ItemKind::Trident)
+            );
             keys.press(KeyCode::Tab);
+            smoke.stage = 112;
+        }
+        112 if !menu.is_open() => {
+            keys.press(KeyCode::KeyX);
             smoke.stage = 49;
         }
         49 if *state.get() == GameState::Playing && !menu.is_open() => {
+            if smoke.heavy {
+                assert_eq!(*stance, WeaponStance::Holstered);
+            }
             // Both equipment rows face a clear strip of floor to the north.
             orbit.yaw = 0.0;
             orbit.pitch = 0.18;
@@ -837,14 +970,33 @@ pub(super) fn drive(
             orbit.pitch = 0.22;
             orbit.distance = 5.5;
             if smoke.heavy {
-                info!(
-                    "EQUIPMENT SMOKE PASS: picked up both sets, equipped, swapped, unequipped, dropped/recollected, and checked all animation states"
-                );
-                smoke.stage = 60;
+                keys.press(KeyCode::KeyX);
+                smoke.stage = 56;
             } else {
                 smoke.heavy = true;
                 smoke.stage = 100;
             }
+        }
+        56 => {
+            assert_eq!(*stance, WeaponStance::Drawn);
+            assert!(check_worn(&view, &equipment, player));
+            keys.press(KeyCode::Tab);
+            smoke.stage = 57;
+        }
+        57 if menu.accepts(MenuTab::Equipment) => {
+            click!(InventoryAction::ToggleSlot(EquipmentSlot::MainHand));
+            smoke.stage = 58;
+        }
+        58 if check_worn(&view, &equipment, player) => {
+            assert_eq!(equipment.get(EquipmentSlot::MainHand), None);
+            keys.press(KeyCode::Tab);
+            smoke.stage = 59;
+        }
+        59 if !menu.is_open() => {
+            info!(
+                "EQUIPMENT SMOKE PASS: checked armor and holstered trident during idle, walk, sprint, and jump"
+            );
+            smoke.stage = 60;
         }
         _ => (),
     }

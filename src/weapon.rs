@@ -62,6 +62,13 @@ pub(crate) struct Swing {
     pub(crate) elapsed: f32,
 }
 
+#[derive(Component, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum WeaponStance {
+    #[default]
+    Drawn,
+    Holstered,
+}
+
 pub struct WeaponPlugin;
 impl Plugin for WeaponPlugin {
     fn build(&self, app: &mut App) {
@@ -133,11 +140,12 @@ fn attack(
     spatial: SpatialQuery,
     movement: Res<MovementInput>,
     mut swing: ResMut<WeaponAttack>,
-    player: Query<(Entity, &Player, &Dodge, &Transform)>,
+    mut player: Query<(Entity, &Player, &Dodge, &Transform, &mut WeaponStance)>,
     mut hits: MessageWriter<Hit>,
     log: Option<Res<PlayerMenu>>,
+    next: Res<NextState<GameState>>,
 ) {
-    let Ok((entity, controller, dodge, transform)) = player.single() else {
+    let Ok((entity, controller, dodge, transform, mut stance)) = player.single_mut() else {
         swing.cancel();
         return;
     };
@@ -145,8 +153,27 @@ fn attack(
         swing.cancel();
         return;
     }
+    let menu_open = log.is_some_and(|log| log.is_open());
+    if bindings.just_pressed(Control::Holster, &keys)
+        && !menu_open
+        && matches!(*next, NextState::Unchanged)
+        && !swing.active()
+        && EquipmentSlot::HANDS
+            .into_iter()
+            .any(|hand| equipment.weapon(hand).is_some())
+    {
+        *stance = match *stance {
+            WeaponStance::Drawn => WeaponStance::Holstered,
+            WeaponStance::Holstered => WeaponStance::Drawn,
+        };
+        return;
+    }
+    if *stance == WeaponStance::Holstered {
+        return;
+    }
+
     let can_start = controller.grounded
-        && !log.is_some_and(|log| log.is_open())
+        && !menu_open
         && !dodge.active()
         && !(inventory.carried_weight(&equipment) <= CARRY_CAPACITY
             && movement.dodge_pending(controller.grounded, dodge));
@@ -587,7 +614,7 @@ mod tests {
         ));
         let mut player = Player::default();
         player.grounded = true;
-        world.spawn((player, Transform::default()));
+        let player = world.spawn((player, Transform::default())).id();
         let target = world
             .spawn((
                 Health::new(60),
@@ -639,7 +666,13 @@ mod tests {
                 .into_iter()
                 .all(|hand| attack.current(hand).is_some())
         );
-        for _ in 0..12 {
+        let mut keys = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
+        keys.press(KeyCode::KeyX);
+        app.update();
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .clear_just_pressed(KeyCode::KeyX);
+        for _ in 0..11 {
             app.update();
         }
         assert_eq!(app.world().get::<Health>(target).unwrap().current(), 39);
@@ -649,6 +682,13 @@ mod tests {
         }
         assert_eq!(app.world().get::<Health>(target).unwrap().current(), 39);
         assert!(!app.world().resource::<WeaponAttack>().active());
+        assert_eq!(
+            app.world().get::<WeaponStance>(player),
+            Some(&WeaponStance::Drawn)
+        );
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .reset_all();
 
         click(&mut app, &[Left]);
         for _ in 0..4 {
@@ -686,6 +726,107 @@ mod tests {
             app.update();
         }
         assert_eq!(app.world().get::<Health>(target).unwrap().current(), 25);
+    }
+
+    #[test]
+    fn holster_uses_the_current_binding_and_blocks_attacks_until_drawn() {
+        use crate::controls::Binding;
+        use KeyCode::{KeyH, KeyX};
+        use MouseButton::{Left, Right};
+        use WeaponStance::{Drawn, Holstered};
+
+        fn frame(app: &mut App, key: Option<KeyCode>, clicks: &[MouseButton]) {
+            let world = app.world_mut();
+            let mut keys = world.resource_mut::<ButtonInput<KeyCode>>();
+            keys.reset_all();
+            if let Some(key) = key {
+                keys.press(key);
+            }
+            let mut buttons = world.resource_mut::<ButtonInput<MouseButton>>();
+            buttons.reset_all();
+            for &button in clicks {
+                buttons.press(button);
+            }
+            app.update();
+        }
+
+        let mut app = test_app();
+        let world = app.world_mut();
+        world.spawn((
+            PrimaryWindow,
+            Window {
+                focused: true,
+                ..default()
+            },
+        ));
+        let mut player = Player::default();
+        player.grounded = true;
+        let player = world.spawn((player, Transform::default())).id();
+        world
+            .resource_mut::<NextState<GameState>>()
+            .set(GameState::Playing);
+        app.update();
+
+        let stance = |app: &App| *app.world().get::<WeaponStance>(player).unwrap();
+        assert!(matches!(
+            app.world().resource::<Keybinds>().get(Control::Holster),
+            Binding::Key(KeyX)
+        ));
+        frame(&mut app, Some(KeyX), &[]);
+        assert_eq!(stance(&app), Drawn, "empty hands leave stance unchanged");
+
+        let mut bag = Inventory::default();
+        assert!(bag.add(ItemKind::Shortsword, 1));
+        assert_eq!(
+            app.world_mut().resource_mut::<Equipment>().equip_in(
+                &mut bag,
+                EquipmentSlot::OffHand,
+                ItemKind::Shortsword
+            ),
+            Ok(true)
+        );
+        let mut menu = PlayerMenu::default();
+        menu.show(crate::menu_ui::MenuTab::Inventory);
+        app.insert_resource(menu);
+        frame(&mut app, Some(KeyX), &[]);
+        assert_eq!(stance(&app), Drawn, "the inventory takes precedence");
+        app.world_mut().remove_resource::<PlayerMenu>();
+        app.world_mut().resource_mut::<Dialogue>().text = Some("Talking");
+        frame(&mut app, Some(KeyX), &[]);
+        assert_eq!(stance(&app), Drawn, "dialogue takes precedence");
+        app.world_mut().resource_mut::<Dialogue>().text = None;
+
+        frame(&mut app, Some(KeyX), &[Right]);
+        assert_eq!(stance(&app), Holstered);
+        assert!(!app.world().resource::<WeaponAttack>().active());
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .clear_just_pressed(KeyX);
+        app.update();
+        assert_eq!(stance(&app), Holstered, "a held key toggles only once");
+        frame(&mut app, None, &[Left, Right]);
+        assert_eq!(stance(&app), Holstered);
+        assert!(!app.world().resource::<WeaponAttack>().active());
+
+        app.world_mut()
+            .resource_mut::<Keybinds>()
+            .assign(Control::Holster, Binding::Key(KeyH))
+            .unwrap();
+        frame(&mut app, Some(KeyX), &[]);
+        assert_eq!(stance(&app), Holstered);
+        frame(&mut app, Some(KeyH), &[Right]);
+        assert_eq!(stance(&app), Drawn);
+        assert!(
+            !app.world().resource::<WeaponAttack>().active(),
+            "drawing suppresses same-frame attacks"
+        );
+        frame(&mut app, None, &[Right]);
+        assert!(
+            app.world()
+                .resource::<WeaponAttack>()
+                .current(Hand::Off)
+                .is_some()
+        );
     }
 
     #[test]

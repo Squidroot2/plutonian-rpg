@@ -4,10 +4,12 @@ use bevy::{gltf::Gltf, prelude::*, world_serialization::WorldInstanceReady};
 
 use crate::{
     GameState,
+    combat::CombatSystems,
     inventory::{Inventory, InventoryNotice, ItemKind, scene_ready},
     loading::{GameAssets, PendingScene},
     menu_ui::{MenuTab, PlayerMenu},
-    weapon::WeaponAttack,
+    player::Player,
+    weapon::{WeaponAttack, WeaponStance},
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, bitcode::Encode, bitcode::Decode)]
@@ -234,7 +236,12 @@ impl Plugin for EquipmentPlugin {
         app.init_resource::<Equipment>()
             .add_observer(equip)
             .add_observer(unequip)
-            .add_systems(Update, sync_worn.run_if(resource_exists::<GameAssets>));
+            .add_systems(
+                Update,
+                sync_worn
+                    .after(CombatSystems::Detect)
+                    .run_if(resource_exists::<GameAssets>),
+            );
     }
 }
 fn equip(
@@ -313,9 +320,11 @@ fn unequip(
 struct EquipmentAttachment {
     slot: EquipmentSlot,
     handedness: Option<Handedness>,
+    holster: Option<Entity>,
     worn: Option<Entity>,
 }
 
+pub(crate) const HOLSTER_ROOT_BONE: &str = "root";
 pub(crate) const EQUIPMENT_SOCKETS: [(&str, EquipmentSlot, Option<Handedness>); 5] = [
     ("spine", EquipmentSlot::Body, None),
     ("head", EquipmentSlot::Helmet, None),
@@ -342,22 +351,61 @@ pub(crate) fn bind_equipment_attachments(
     names: Query<&Name>,
     mut commands: Commands,
 ) {
-    for entity in children.iter_descendants(event.entity) {
-        let Ok(name) = names.get(entity) else {
+    let bones: BTreeMap<_, _> = children
+        .iter_descendants(event.entity)
+        .filter_map(|entity| names.get(entity).ok().map(|name| (name.as_str(), entity)))
+        .collect();
+    let (Some(&spine), Some(&root)) = (bones.get("spine"), bones.get(HOLSTER_ROOT_BONE)) else {
+        return;
+    };
+    for (name, slot, handedness) in EQUIPMENT_SOCKETS {
+        let Some(&bone) = bones.get(name) else {
             continue;
         };
-        let Some((_, slot, handedness)) = EQUIPMENT_SOCKETS
-            .into_iter()
-            .find(|(bone, _, _)| *bone == name.as_str())
-        else {
-            continue;
-        };
-        commands.entity(entity).insert(EquipmentAttachment {
+        let holster =
+            handedness.map(|hands| spawn_holster(&mut commands, slot, hands, spine, root));
+        commands.entity(bone).insert(EquipmentAttachment {
             slot,
             handedness,
+            holster,
             worn: None,
         });
     }
+}
+
+fn spawn_holster(
+    commands: &mut Commands,
+    slot: EquipmentSlot,
+    handedness: Handedness,
+    spine: Entity,
+    root: Entity,
+) -> Entity {
+    // Both worn weapon models point along their local +Z from the grip to the tip.
+    let (name, parent, grip, direction) = match handedness {
+        Handedness::TwoHanded => {
+            let direction = Vec3::new(0.62, 0.78, 0.0).normalize();
+            let grip = Vec3::new(0.0, 0.43, -0.40) - 0.86 * direction;
+            ("polearm_holster", spine, grip, direction)
+        }
+        Handedness::OneHanded => {
+            let (name, side) = match slot {
+                EquipmentSlot::OffHand => ("left_hip_holster", 1.0),
+                _ => ("right_hip_holster", -1.0),
+            };
+            let grip = Vec3::new(0.35 * side, 0.90, -0.23);
+            let direction = Vec3::new(0.15 * side, -0.96, -0.24).normalize();
+            (name, root, grip, direction)
+        }
+    };
+    commands
+        .spawn((
+            Name::new(name),
+            ChildOf(parent),
+            Transform::from_translation(grip)
+                .with_rotation(Quat::from_rotation_arc(Vec3::Z, direction)),
+            Visibility::default(),
+        ))
+        .id()
 }
 
 fn sync_worn(
@@ -365,24 +413,34 @@ fn sync_worn(
     equipment: Res<Equipment>,
     assets: Res<GameAssets>,
     gltfs: Res<Assets<Gltf>>,
+    player: Query<Ref<WeaponStance>, With<Player>>,
     mut attachments: Query<(Entity, &mut EquipmentAttachment)>,
-    worn: Query<&WornEquipment>,
+    worn: Query<(&WornEquipment, &ChildOf)>,
 ) {
+    let stance = player.single().ok();
+    let stance_changed = stance.as_ref().is_some_and(|stance| stance.is_changed());
+    let holstered = stance.is_some_and(|stance| *stance == WeaponStance::Holstered);
     for (bone, mut attachment) in &mut attachments {
-        if !equipment.is_changed() && !attachment.is_added() {
+        if !equipment.is_changed() && !stance_changed && !attachment.is_added() {
             continue;
         }
+        let mount = attachment.holster.filter(|_| holstered).unwrap_or(bone);
         let slot = attachment.slot;
         let desired = equipment
             .get(slot)
             .filter(|item| item.weapon().map(WeaponKind::handedness) == attachment.handedness);
-        let existing = attachment
-            .worn
-            .and_then(|entity| worn.get(entity).ok().map(|piece| (entity, piece.item)));
-        if existing.map(|(_, item)| item) == desired {
-            continue;
-        }
-        if let Some((entity, _)) = existing {
+        let existing = attachment.worn.and_then(|entity| {
+            worn.get(entity)
+                .ok()
+                .map(|(piece, parent)| (entity, piece.item, parent.parent()))
+        });
+        if let Some((entity, item, parent)) = existing {
+            if Some(item) == desired {
+                if parent != mount {
+                    commands.entity(entity).insert(ChildOf(mount));
+                }
+                continue;
+            }
             commands.entity(entity).despawn();
         }
         attachment.worn = desired.map(|item| {
@@ -398,7 +456,7 @@ fn sync_worn(
                     PendingScene,
                     WorldAssetRoot(scene),
                     Transform::default(),
-                    ChildOf(bone),
+                    ChildOf(mount),
                 ))
                 .observe(scene_ready)
                 .id()

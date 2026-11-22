@@ -569,7 +569,7 @@ mod tests {
         let mut menu = world.resource_mut::<SettingsMenu>();
         menu.open();
         menu.keybinds = true;
-        menu.capture = Some(Control::Jump);
+        menu.capture = Some(Control::Holster);
         app.update();
 
         app.world_mut()
@@ -577,7 +577,7 @@ mod tests {
             .press(KeyCode::KeyW);
         app.update();
         let menu = app.world().resource::<SettingsMenu>();
-        assert_eq!(menu.capture, Some(Control::Jump));
+        assert_eq!(menu.capture, Some(Control::Holster));
         assert!(menu.notice.contains("Move forward"));
 
         let mut keys = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
@@ -585,7 +585,7 @@ mod tests {
         keys.press(KeyCode::KeyR);
         app.update();
         assert!(matches!(
-            app.world().resource::<Keybinds>().get(Control::Jump),
+            app.world().resource::<Keybinds>().get(Control::Holster),
             Binding::Key(KeyCode::KeyR)
         ));
         assert_eq!(app.world().resource::<SettingsMenu>().capture, None);

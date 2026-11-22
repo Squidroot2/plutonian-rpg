@@ -11,7 +11,7 @@ use crate::{
     menu_ui::PlayerMenu,
     nemi::NemiPlayback,
     quest::Dialogue,
-    weapon::{Hand, WeaponAttack},
+    weapon::{Hand, WeaponAttack, WeaponStance},
     world::WorldLayout,
 };
 use avian3d::prelude::*;
@@ -55,6 +55,7 @@ impl Plugin for PlayerPlugin {
 #[derive(Component, Default)]
 #[require(Dodge, Health = Health::new(MAX_HEALTH), Defense, crate::combat::HitProtection = crate::combat::HitProtection::new(0.75))]
 #[require(HealthRecovery = HealthRecovery::new(Duration::from_secs(5), Duration::from_millis(100)))]
+#[require(WeaponStance)]
 pub struct Player {
     pub(crate) area: Area,
     pub velocity: Vec3,
@@ -536,14 +537,14 @@ fn animate(
     library: Res<AnimationLibrary>,
     attack: Res<WeaponAttack>,
     equipment: Res<Equipment>,
-    players: Query<(&Player, &Dodge)>,
+    players: Query<(&Player, &Dodge, &WeaponStance)>,
     mut animations: Query<(
         &mut AnimationPlayer,
         &mut AnimationTransitions,
         &mut AnimatedActor,
     )>,
 ) {
-    let Some((player, dodge)) = players.iter().next() else {
+    let Some((player, dodge, stance)) = players.iter().next() else {
         return;
     };
     let gait = Gait::for_player(player);
@@ -557,9 +558,13 @@ fn animate(
     let thrusting = attack
         .current(Hand::Main)
         .is_some_and(|swing| swing.weapon == WeaponKind::Spear);
-    let carry = equipment
-        .weapon(EquipmentSlot::MainHand)
-        .or_else(|| equipment.weapon(EquipmentSlot::OffHand));
+    let carry = if *stance == WeaponStance::Drawn {
+        equipment
+            .weapon(EquipmentSlot::MainHand)
+            .or_else(|| equipment.weapon(EquipmentSlot::OffHand))
+    } else {
+        None
+    };
     let start = match carry {
         Some(WeaponKind::Spear) => SPEAR_LOCOMOTION_START,
         Some(WeaponKind::Shortsword) => SWORD_LOCOMOTION_START,
