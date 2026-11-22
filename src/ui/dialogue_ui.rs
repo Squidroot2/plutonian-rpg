@@ -3,6 +3,7 @@ use crate::{
     controls::{Control, Keybinds},
     dialogue::{Choice, Dialogue, DialogueCatalog, DialogueClick, DialogueHandlers, Page, Screen},
     interaction::InteractionSystems,
+    inventory::Inventory,
     nemi::react_to_player_hit,
     quest::QuestJournal,
     ui::{
@@ -43,12 +44,14 @@ fn render(
     catalog: Res<DialogueCatalog>,
     handlers: Res<DialogueHandlers>,
     journal: Res<QuestJournal>,
+    inventory: Res<Inventory>,
     bindings: Res<Keybinds>,
     panels: Query<Entity, With<Panel>>,
 ) {
     if !(state.is_changed()
         || dialogue.is_changed()
         || journal.is_changed()
+        || inventory.is_changed()
         || bindings.is_changed())
     {
         return;
@@ -94,23 +97,23 @@ fn render(
                             } = screen
                                 && let Some(profile) = catalog.profile(profile)
                             {
-                                let mut count = 0;
-                                for topic in profile.available_topics(&handlers, &journal) {
+                                for topic in
+                                    profile.available_topics(&handlers, &journal, &inventory)
+                                {
                                     spawn_button(
                                         pane,
                                         &topic.label,
                                         Choice::Topic(topic.id.clone()),
                                         dialogue.revision(),
-                                        count == dialogue.selected(),
+                                        dialogue.selected_topic() == Some(topic.id.as_str()),
                                     );
-                                    count += 1;
                                 }
                                 spawn_button(
                                     pane,
                                     "Goodbye",
                                     Choice::Goodbye,
                                     dialogue.revision(),
-                                    dialogue.selected() >= count,
+                                    dialogue.selected_topic().is_none(),
                                 );
                             }
                         });

@@ -19,6 +19,7 @@ use crate::{
     hushcap::{self, Hushcap},
     interaction::{CorpseLoot, INTERACT_HEIGHT, INTERACT_RANGE, InteractionTarget, Nearby, Target},
     inventory::{Inventory, ItemKind},
+    nemi::dialogue::{REPORT_ARCHIVE_HUSHCAP, RETURN_BEACON_CORE},
     player::{Dodge, Player},
     quest::{CONTAIN_THE_HUSHCAPS, LAST_LIGHT, OLD_RELAY, QuestAction, QuestJournal, QuestStatus},
     roach::Roach,
@@ -109,6 +110,8 @@ pub(super) enum WorldCheck {
     ReadNivalisLore,
     SelectBeaconTopic,
     TurnIn,
+    ChooseRelayTopic,
+    ReadRelayAdvice,
     ApproachHatch,
     Enter,
     LureWorm,
@@ -326,6 +329,7 @@ pub(super) fn drive(
         | WorldCheck::TurnIn
         | WorldCheck::ApproachHatch
         | WorldCheck::Enter => unlock_relay(frame),
+        WorldCheck::ChooseRelayTopic | WorldCheck::ReadRelayAdvice => check_relay_advice(frame),
         WorldCheck::LureWorm
         | WorldCheck::DodgeWorm(..)
         | WorldCheck::Junction
@@ -919,12 +923,17 @@ fn unlock_relay(frame: WorldFrame) {
         WorldCheck::ChooseNemiLore => {
             assert_uncommitted_beacon(&quest, &inventory);
             assert!(dialogue.is_open() && dialogue.text().is_none());
-            if dialogue.selected() == 0 {
-                capture(&mut commands, "nemi-topics");
-                keys.press(KeyCode::KeyS);
-            } else {
-                keys.press(KeyCode::Enter);
-                *phase = WorldCheck::ReadNemiLore;
+            match dialogue.selected_topic() {
+                Some("about_nemi") => {
+                    keys.press(KeyCode::Enter);
+                    *phase = WorldCheck::ReadNemiLore;
+                }
+                topic => {
+                    if topic == Some(RETURN_BEACON_CORE) {
+                        capture(&mut commands, "nemi-topics");
+                    }
+                    keys.press(KeyCode::KeyS);
+                }
             }
         }
         WorldCheck::ReadNemiLore => {
@@ -939,7 +948,7 @@ fn unlock_relay(frame: WorldFrame) {
         }
         WorldCheck::ChooseNivalisLore => {
             assert!(dialogue.is_open() && dialogue.text().is_none());
-            if dialogue.selected() == 1 {
+            if dialogue.selected_topic() == Some("about_nemi") {
                 keys.press(KeyCode::KeyS);
             } else {
                 keys.press(KeyCode::Enter);
@@ -957,7 +966,7 @@ fn unlock_relay(frame: WorldFrame) {
             *phase = WorldCheck::SelectBeaconTopic;
         }
         WorldCheck::SelectBeaconTopic => {
-            if dialogue.selected() == 0 {
+            if dialogue.selected_topic() == Some(RETURN_BEACON_CORE) {
                 keys.press(KeyCode::Enter);
                 *phase = WorldCheck::TurnIn;
             } else {
@@ -976,8 +985,8 @@ fn unlock_relay(frame: WorldFrame) {
                 .text()
                 .expect("first meeting completes The Last Light");
             assert!(text.contains("You found the core") && text.contains("Old Relay"));
-            keys.press(KeyCode::Escape);
-            *phase = WorldCheck::ApproachHatch;
+            keys.press(KeyCode::KeyE);
+            *phase = WorldCheck::ChooseRelayTopic;
         }
         WorldCheck::ApproachHatch => {
             if target_ready(&nearby, InteractionTarget::Dungeon(DungeonTarget::Hatch)) {
@@ -1003,6 +1012,45 @@ fn unlock_relay(frame: WorldFrame) {
             *phase = WorldCheck::LureWorm;
         }
         _ => {}
+    }
+}
+
+fn check_relay_advice(frame: WorldFrame) {
+    let WorldFrame {
+        mut phase,
+        quest,
+        dialogue,
+        texts,
+        mut keys,
+        ..
+    } = frame;
+    assert!(quest.expects(QuestAction::EnteredRelay));
+    match *phase {
+        WorldCheck::ChooseRelayTopic => {
+            assert_eq!(dialogue.selected_topic(), Some(OLD_RELAY));
+            assert!(
+                texts
+                    .iter()
+                    .any(|text| text.0 == "Tell me about the Old Relay")
+            );
+            assert!(
+                !texts
+                    .iter()
+                    .any(|text| text.0 == "I found the beacon core.")
+            );
+            keys.press(KeyCode::Enter);
+            *phase = WorldCheck::ReadRelayAdvice;
+        }
+        WorldCheck::ReadRelayAdvice => {
+            assert!(
+                dialogue
+                    .text()
+                    .is_some_and(|text| text.contains("blue ring"))
+            );
+            keys.press(KeyCode::Escape);
+            *phase = WorldCheck::ApproachHatch;
+        }
+        _ => (),
     }
 }
 
@@ -1318,17 +1366,24 @@ fn check_cavern_briefing(frame: WorldFrame) {
         }
         WorldCheck::SelectCavernTopic if dialogue.is_open() => {
             assert!(quest.expects(QuestAction::ReportedArchiveHushcap));
-            if dialogue.selected() == 0 {
-                keys.press(KeyCode::KeyS);
-            } else {
-                keys.press(KeyCode::Enter);
-                *phase = WorldCheck::CavernBriefing;
-            }
+            assert_eq!(dialogue.selected_topic(), Some(REPORT_ARCHIVE_HUSHCAP));
+            assert!(
+                texts
+                    .iter()
+                    .any(|text| text.0 == "I saw a mushroom creature in the archive.")
+            );
+            assert!(
+                !texts
+                    .iter()
+                    .any(|text| text.0 == "Tell me about the Old Relay")
+            );
+            keys.press(KeyCode::Enter);
+            *phase = WorldCheck::CavernBriefing;
         }
         WorldCheck::CavernBriefing => {
             assert!(quest.has_occurred(QuestAction::ReportedArchiveHushcap));
             assert!(dialogue.text().is_some_and(|text| {
-                text.contains("mushroom creature")
+                text.contains("A Hushcap")
                     && text.contains("Hushcap Caverns")
                     && text.contains("five Mycelium")
             }));

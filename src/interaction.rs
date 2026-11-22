@@ -231,7 +231,7 @@ fn interact(
     mut commands: Commands,
     pickups: Query<&Pickup>,
     speakers: Query<&Speaker, Without<Dead>>,
-    catalog: Res<DialogueCatalog>,
+    (catalog, handlers): (Res<DialogueCatalog>, Res<DialogueHandlers>),
     mut loot: ResMut<LootTarget>,
     mut chest: ResMut<ActiveChest>,
     mut saves: MessageWriter<SaveAtBed>,
@@ -254,7 +254,10 @@ fn interact(
                 if let Ok(speaker) = speakers.get(entity)
                     && let Some(profile) = catalog.profile(speaker.profile)
                 {
-                    dialogue.start(entity, speaker, profile);
+                    let first = profile
+                        .available_topics(&handlers, &quest, &inventory)
+                        .next();
+                    dialogue.start(entity, speaker, profile, first);
                 }
             }
             InteractionTarget::Quest(Target::Core) => {
@@ -324,7 +327,9 @@ mod tests {
     use crate::{
         nemi::{
             self,
-            dialogue::{register_topics, speak_about_beacon, speak_about_cavern},
+            dialogue::{
+                RETURN_BEACON_CORE, register_topics, speak_about_beacon, speak_about_cavern,
+            },
         },
         quest::{CONTAIN_THE_HUSHCAPS, LAST_LIGHT},
         storage::{ChestStorage, StoragePlugin},
@@ -410,7 +415,10 @@ mod tests {
         );
 
         press_interact(&mut app);
-        press_key(&mut app, KeyCode::KeyS);
+        assert!(shows_topic(
+            &mut app,
+            "I saw a mushroom creature in the archive."
+        ));
         press_key(&mut app, KeyCode::Enter);
         assert!(
             app.world()
@@ -422,6 +430,11 @@ mod tests {
         journal.record(QuestAction::DefeatedFiveCavernHushcaps);
         assert!(journal.expects(QuestAction::ShowedNemiMycelium));
         press_interact(&mut app);
+        assert!(shows_topic(
+            &mut app,
+            "What should I do about the Hushcaps?"
+        ));
+        assert!(!shows_topic(&mut app, "I brought the Mycelium samples."));
         press_key(&mut app, KeyCode::Enter);
         assert!(
             !app.world()
@@ -444,6 +457,7 @@ mod tests {
                 ));
             });
         press_interact(&mut app);
+        assert!(shows_topic(&mut app, "I brought the Mycelium samples."));
         press_key(&mut app, KeyCode::Enter);
         assert!(
             app.world()
@@ -463,6 +477,12 @@ mod tests {
             150
         );
         press_interact(&mut app);
+        assert!(!shows_topic(&mut app, "I brought the Mycelium samples."));
+        assert!(!shows_topic(
+            &mut app,
+            "What should I do about the Hushcaps?"
+        ));
+        assert!(shows_topic(&mut app, "Tell me about Nivalis"));
         press_key(&mut app, KeyCode::Enter);
         assert_eq!(
             app.world()
@@ -489,7 +509,7 @@ mod tests {
         assert!(journal.expects(QuestAction::ReportedArchiveHushcap));
         assert!(!journal.expects(QuestAction::ShowedNemiMycelium));
         let response = speak_about_cavern(&mut journal, &mut inventory);
-        assert!(response.contains("mushroom creature") && response.contains("QUEST COMPLETE"));
+        assert!(response.contains("Hushcaps") && response.contains("QUEST COMPLETE"));
         assert!(journal.is_complete(CONTAIN_THE_HUSHCAPS));
         assert_eq!(inventory.count(ItemKind::Mycelium), 6);
         assert_eq!(journal.take_completion_xp(), 150);
@@ -686,6 +706,48 @@ mod tests {
         );
     }
 
+    fn shows_topic(app: &mut App, label: &str) -> bool {
+        let world = app.world_mut();
+        world
+            .query::<&Text>()
+            .iter(world)
+            .any(|text| text.0 == label)
+    }
+
+    #[test]
+    fn a_removed_turn_in_choice_does_not_redirect_enter_to_a_different_topic() {
+        let mut app = test_app();
+        let world = app.world_mut();
+        world.spawn((nemi::speaker(), Transform::from_xyz(0.0, 0.0, -2.0)));
+        world
+            .resource_mut::<QuestJournal>()
+            .record(QuestAction::RecoveredCore);
+        assert!(
+            world
+                .resource_mut::<Inventory>()
+                .add(ItemKind::BeaconCore, 1)
+        );
+        press_interact(&mut app);
+        assert!(shows_topic(&mut app, "I found the beacon core."));
+
+        assert!(app.world_mut().resource_mut::<Inventory>().consume_core());
+        press_key(&mut app, KeyCode::Enter);
+        assert!(
+            app.world()
+                .resource::<QuestJournal>()
+                .expects(QuestAction::TalkedToNemi)
+        );
+        assert!(app.world().resource::<Dialogue>().text().is_none());
+        assert!(!shows_topic(&mut app, "I found the beacon core."));
+        assert!(shows_topic(&mut app, "What happened to the beacon?"));
+        press_key(&mut app, KeyCode::Enter);
+        assert!(
+            app.world()
+                .resource::<QuestJournal>()
+                .expects(QuestAction::ReturnedCore)
+        );
+    }
+
     #[test]
     fn a_catalogue_only_speaker_repeats_replies_through_mouse_and_keyboard() {
         let mut app = test_app();
@@ -713,6 +775,12 @@ mod tests {
             .iter(world)
             .find_map(|(text, parent)| (text.0 == "Ask about the route").then_some(parent.parent()))
             .expect("the authored topic must render as a button");
+        app.update();
+        let world = app.world_mut();
+        assert!(
+            world.get_entity(button).is_ok(),
+            "an idle topic list must preserve its buttons between mouse press and release"
+        );
         world.trigger(crate::smoke::pointer_click(button, window, camera));
         app.update();
         assert_eq!(
@@ -757,7 +825,7 @@ mod tests {
         press_interact(&mut app);
         let world = app.world_mut();
         world.resource_mut::<DialogueClick>().0 =
-            Some((revision, dialogue::Choice::Topic(LAST_LIGHT.into())));
+            Some((revision, dialogue::Choice::Topic(RETURN_BEACON_CORE.into())));
         app.update();
         assert!(app.world().resource::<Dialogue>().is_open());
         assert!(
@@ -769,7 +837,7 @@ mod tests {
         let world = app.world_mut();
         let revision = world.resource::<Dialogue>().revision();
         world.resource_mut::<DialogueClick>().0 =
-            Some((revision, dialogue::Choice::Topic(LAST_LIGHT.into())));
+            Some((revision, dialogue::Choice::Topic(RETURN_BEACON_CORE.into())));
         world.despawn(speaker);
         app.update();
         assert!(!app.world().resource::<Dialogue>().is_open());

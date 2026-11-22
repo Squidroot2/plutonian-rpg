@@ -73,7 +73,8 @@ The core route connects the outpost, an inclined ice shelf, and a shallow cavern
   Follow the luminous waystones toward the cavern.
   The quest log records directions and completed steps for each quest.
   The power core appears in inventory as a protected quest item and disappears from its plinth when collected.
-  Speak to Nemi and choose **The Last Light** to hand over the core, light the beacon, and complete the quest.
+  Ask Nemi **What happened to the beacon?** to get directions.
+  With the core in your backpack, tell Nemi **I found the beacon core.** to hand it over and relight the beacon.
   You can also ask about Nemi or Nivalis. Click a topic, or use Menu Up and Menu Down and press Enter.
   You can continue exploring afterward.
 
@@ -248,8 +249,8 @@ Two ice worms roam beside the trail and a third waits near the cavern entrance.
 
 ## The Old Relay
 
-After you restore the beacon, look for the round hatch northwest of the beacon tower.
-  Use E to enter.
+Ask Nemi about the Old Relay after inspecting the sealed hatch or restoring the beacon.
+  Once the beacon is lit, use E at the round hatch northwest of the tower to enter.
   Follow the amber lamps to the maintenance switch, then go through the raised gate to discover the archive survey log.
   An ice worm and a fast, biting relay roach patrol the relay.
   In the archive, a rooted Hushcap spits from beside a cracked conduit.
@@ -261,11 +262,11 @@ After you restore the beacon, look for the round hatch northwest of the beacon t
 ## Contain the Hushcaps
 
 After reading the survey log and returning through the relay hatch,
-  speak to Nemi and choose **Contain the Hushcaps** to report the mushroom creature.
+  tell Nemi **I saw a mushroom creature in the archive.**
   They send you south through South Basin to Hushcap Caverns.
   Defeat five Hushcaps in the caverns and return with at least five Mycelium in your backpack.
   The archive specimen can supply one of the samples.
-  Nemi examines the Mycelium and lets you keep it.
+  Tell Nemi **I brought the Mycelium samples.** so he can examine them. You get to keep them.
   The Quest Log shows how many cavern Hushcaps you have defeated and how many samples you carry.
 
 ## Blender workflow

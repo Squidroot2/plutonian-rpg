@@ -159,7 +159,7 @@ impl AssetLoader for DialogueLoader {
 pub(crate) struct DialogueHandlers(BTreeMap<&'static str, BTreeMap<&'static str, QuestTopic>>);
 
 struct QuestTopic {
-    available: fn(&QuestJournal) -> bool,
+    available: fn(&QuestJournal, &Inventory) -> bool,
     reply: fn(&mut QuestJournal, &mut Inventory) -> &'static str,
 }
 
@@ -168,7 +168,7 @@ impl DialogueHandlers {
         &mut self,
         profile: &'static str,
         topic: &'static str,
-        available: fn(&QuestJournal) -> bool,
+        available: fn(&QuestJournal, &Inventory) -> bool,
         reply: fn(&mut QuestJournal, &mut Inventory) -> &'static str,
     ) {
         assert!(
@@ -191,12 +191,13 @@ impl Profile {
         &'a self,
         handlers: &DialogueHandlers,
         journal: &QuestJournal,
+        inventory: &Inventory,
     ) -> impl Iterator<Item = &'a Topic> {
         self.topics.iter().filter(move |topic| match topic.reply {
             Reply::Text(_) => true,
             Reply::Quest => handlers
                 .get(&self.id, &topic.id)
-                .is_some_and(|handler| (handler.available)(journal)),
+                .is_some_and(|handler| (handler.available)(journal, inventory)),
         })
     }
 }
@@ -243,7 +244,7 @@ impl Speaker {
 #[derive(Resource, Default)]
 pub(crate) struct Dialogue {
     screen: Option<Screen>,
-    selected: usize,
+    selected_topic: Option<String>,
     closing: bool,
     revision: u64,
 }
@@ -282,8 +283,8 @@ impl Dialogue {
         self.screen.as_ref()
     }
 
-    pub(crate) fn selected(&self) -> usize {
-        self.selected
+    pub(crate) fn selected_topic(&self) -> Option<&str> {
+        self.selected_topic.as_deref()
     }
 
     pub(crate) fn revision(&self) -> u64 {
@@ -329,11 +330,17 @@ impl Dialogue {
         self.replace(Some(Screen::Notice(text)));
     }
 
-    pub(crate) fn start(&mut self, entity: Entity, speaker: &Speaker, profile: &Profile) {
+    pub(crate) fn start(
+        &mut self,
+        entity: Entity,
+        speaker: &Speaker,
+        profile: &Profile,
+        first_topic: Option<&Topic>,
+    ) {
         if !speaker.can_interact(profile) {
             return;
         }
-        self.selected = 0;
+        self.selected_topic = first_topic.map(|topic| topic.id.clone());
         let page = if speaker.availability == Availability::Refuses {
             let Some(text) = profile.refusal.clone() else {
                 return;
@@ -444,52 +451,90 @@ pub(crate) fn handle_input(
             dialogue.request_close()
         }
         Page::Reply(_) if advance || matches!(clicked, Some(Choice::Continue)) => {
+            let mut topics = definition.available_topics(&handlers, &journal, &inventory);
+            let first = topics.next();
+            if let Some(id) = dialogue.selected_topic()
+                && !first.is_some_and(|topic| topic.id == id)
+                && !topics.any(|topic| topic.id == id)
+            {
+                dialogue.selected_topic = first.map(|topic| topic.id.clone());
+            }
             dialogue.set_page(speaker, profile, Page::Topics);
         }
         Page::Topics => {
-            let topics: Vec<_> = definition.available_topics(&handlers, &journal).collect();
-            let selected = dialogue.selected.min(topics.len());
-            if let Some(choice) = clicked.or_else(|| {
-                enter.then(|| {
-                    topics
-                        .get(selected)
-                        .map_or(Choice::Goodbye, |topic| Choice::Topic(topic.id.clone()))
-                })
-            }) {
-                match choice {
-                    Choice::Goodbye => dialogue.request_close(),
-                    Choice::Continue => (),
-                    Choice::Topic(id) => {
-                        if let Some(index) = topics.iter().position(|topic| topic.id == id) {
-                            dialogue.selected = index;
-                            let reply = match &topics[index].reply {
-                                Reply::Text(text) => Cow::Owned(text.clone()),
-                                Reply::Quest => {
-                                    let Some(handler) = handlers.get(profile, &id) else {
-                                        return;
-                                    };
-                                    Cow::Borrowed((handler.reply)(&mut journal, &mut inventory))
-                                }
-                            };
-                            dialogue.set_page(speaker, profile, Page::Reply(reply));
-                        }
-                    }
-                }
-            } else {
-                let next = if bindings.just_pressed(Control::MenuUp, &keys) {
-                    selected.checked_sub(1).unwrap_or(topics.len())
-                } else if bindings.just_pressed(Control::MenuDown, &keys) {
-                    (selected + 1) % (topics.len() + 1)
-                } else {
-                    selected
-                };
-                if dialogue.selected != next {
-                    dialogue.selected = next;
-                }
-            }
+            handle_topics(
+                dialogue.reborrow(),
+                (speaker, profile),
+                definition,
+                &handlers,
+                journal.reborrow(),
+                inventory.reborrow(),
+                &keys,
+                &bindings,
+                clicked,
+                enter,
+            );
         }
         _ => (),
     }
+}
+
+fn handle_topics(
+    mut dialogue: Mut<Dialogue>,
+    (speaker, profile_id): (Entity, &'static str),
+    profile: &Profile,
+    handlers: &DialogueHandlers,
+    mut journal: Mut<QuestJournal>,
+    mut inventory: Mut<Inventory>,
+    keys: &ButtonInput<KeyCode>,
+    bindings: &Keybinds,
+    clicked: Option<Choice>,
+    enter: bool,
+) {
+    let topics: Vec<_> = profile
+        .available_topics(handlers, &journal, &inventory)
+        .collect();
+    let selection = dialogue.selected_topic();
+    let selected = selection.map_or(Some(topics.len()), |id| {
+        topics.iter().position(|topic| topic.id == id)
+    });
+    // Enter refers to the highlighted topic ID even if the available rows just changed.
+    if let Some(choice) = clicked
+        .or_else(|| enter.then(|| selection.map_or(Choice::Goodbye, |id| Choice::Topic(id.into()))))
+    {
+        match choice {
+            Choice::Goodbye => {
+                dialogue.request_close();
+                return;
+            }
+            Choice::Continue => return,
+            Choice::Topic(id) => {
+                if let Some(topic) = topics.iter().find(|topic| topic.id == id) {
+                    let reply = match &topic.reply {
+                        Reply::Text(text) => Cow::Owned(text.clone()),
+                        Reply::Quest => {
+                            let Some(handler) = handlers.get(&profile.id, &id) else {
+                                return;
+                            };
+                            Cow::Borrowed((handler.reply)(&mut journal, &mut inventory))
+                        }
+                    };
+                    dialogue.selected_topic = Some(id);
+                    dialogue.set_page(speaker, profile_id, Page::Reply(reply));
+                    return;
+                }
+            }
+        }
+    }
+    let up = bindings.just_pressed(Control::MenuUp, keys);
+    let down = bindings.just_pressed(Control::MenuDown, keys);
+    let next = match selected {
+        Some(index) if !enter && up => index.checked_sub(1).unwrap_or(topics.len()),
+        Some(index) if !enter && down => (index + 1) % (topics.len() + 1),
+        Some(_) => return,
+        None => 0,
+    };
+    dialogue.selected_topic = topics.get(next).map(|topic| topic.id.clone());
 }
 
 #[cfg(test)]
