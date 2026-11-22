@@ -1,9 +1,8 @@
 use crate::{
     GameState,
     camera::Orbit,
-    inventory::scene_ready,
-    loading::{EnemyVisuals, GameAssets, LoadStatus, PendingScene},
-    player::{Dodge, MovementInput, Player},
+    loading::{EnemyVisuals, GameAssets, LoadStatus, PendingScene, scene_ready},
+    player::{Dodge, MovementInput, PLAYER_GROUND_OFFSET, Player},
     quest::{Dialogue, QuestAction, QuestJournal},
     roach,
     save::EncounterId,
@@ -20,7 +19,12 @@ pub(crate) const GATE_LOCAL: Vec3 = Vec3::new(0.0, 1.85, -17.4);
 pub(crate) const SWITCH_LOCAL: Vec3 = Vec3::new(9.9, 0.0, -10.75);
 pub(crate) const LOG_LOCAL: Vec3 = Vec3::new(0.0, 0.0, -27.3);
 const EXIT_LOCAL: Vec3 = Vec3::new(-1.25, 0.0, -1.15);
-const DURATION: f32 = 0.6;
+const GATE_OPEN_SECONDS: f32 = 0.6;
+const HATCH_GROUND_PROBE_HEIGHT: f32 = 3.0;
+const HATCH_GROUND_PROBE_RANGE: f32 = 6.0;
+const RELAY_LANDING_OFFSET: Vec3 = Vec3::new(0.0, 2.6, -2.65);
+const SURFACE_LANDING_OFFSET: Vec3 = Vec3::new(0.0, 3.0, 2.1);
+const LANDING_CAMERA_PITCH: f32 = 0.22;
 const GATE_LIFT: f32 = 3.9;
 const ARCHIVE_LOG: &str = "SURVEY LOG / THE FIRST WATCH\n\nBefore there was a Nivalis, there was this room. We put the first lamps on the ice so the survey crews could find their way back in the long dark.\n\nThe beacon above us still sends the same signal. Its first meaning was simple. There is shelter here, and someone is waiting.";
 
@@ -62,7 +66,7 @@ impl GateState {
     fn height(self) -> f32 {
         let t = match self {
             Self::Closed => 0.0,
-            Self::Opening(elapsed) => elapsed / DURATION,
+            Self::Opening(elapsed) => elapsed / GATE_OPEN_SECONDS,
             Self::Open => 1.0,
         };
         ORIGIN.y + GATE_LOCAL.y + GATE_LIFT * t * t * (3.0 - 2.0 * t)
@@ -77,7 +81,7 @@ pub(crate) struct DungeonProgress {
 impl DungeonProgress {
     pub(crate) fn is_valid(&self) -> bool {
         match self.gate {
-            GateState::Opening(elapsed) => (0.0..DURATION).contains(&elapsed),
+            GateState::Opening(elapsed) => (0.0..GATE_OPEN_SECONDS).contains(&elapsed),
             _ => true,
         }
     }
@@ -135,6 +139,18 @@ fn spawn_relay(
     let Some((visual, collision)) = &assets.relay else {
         return;
     };
+    spawn_relay_scenes(&mut commands, &models, visual, collision);
+    spawn_relay_fixtures(&mut commands, &mut meshes, &mut materials);
+    spawn_relay_lights(&mut commands);
+    spawn_relay_encounters(&mut commands, &enemies);
+}
+
+fn spawn_relay_scenes(
+    commands: &mut Commands,
+    models: &Assets<Gltf>,
+    visual: &Handle<Gltf>,
+    collision: &Handle<Gltf>,
+) {
     let scene = |handle| {
         WorldAssetRoot(
             models
@@ -170,7 +186,13 @@ fn spawn_relay(
                 status.relay_collision_ready = true;
             },
         );
+}
 
+fn spawn_relay_fixtures(
+    commands: &mut Commands,
+    meshes: &mut Assets<Mesh>,
+    materials: &mut Assets<StandardMaterial>,
+) {
     let alloy = materials.add(StandardMaterial {
         base_color: Color::srgb(0.14, 0.23, 0.28),
         metallic: 0.65,
@@ -265,7 +287,9 @@ fn spawn_relay(
         Transform::from_translation(ORIGIN + LOG_LOCAL + Vec3::Y * 1.14)
             .with_rotation(Quat::from_rotation_x(0.16)),
     ));
+}
 
+fn spawn_relay_lights(commands: &mut Commands) {
     let blue = Color::srgb(0.42, 0.80, 1.0);
     let warm = Color::srgb(1.0, 0.57, 0.27);
     for (offset, tint, intensity, range) in [
@@ -289,10 +313,12 @@ fn spawn_relay(
             Transform::from_translation(ORIGIN + offset),
         ));
     }
+}
 
+fn spawn_relay_encounters(commands: &mut Commands, enemies: &EnemyVisuals) {
     let roach = roach::spawn(
-        &mut commands,
-        &enemies,
+        commands,
+        enemies,
         ORIGIN + Vec3::new(7.0, 1.2, -12.5),
         Area::OldRelay,
     );
@@ -301,7 +327,7 @@ fn spawn_relay(
         (EncounterId::RelayJunctionWorm, Vec3::new(-3.5, 1.2, -10.5)),
         (EncounterId::RelayArchiveWorm, Vec3::new(3.65, 1.2, -24.0)),
     ] {
-        let worm = worm::spawn(&mut commands, &enemies, ORIGIN + offset, Area::OldRelay);
+        let worm = worm::spawn(commands, enemies, ORIGIN + offset, Area::OldRelay);
         commands.entity(worm).insert(id);
     }
 }
@@ -314,11 +340,11 @@ fn ground_surface_hatch(
         if target != DungeonTarget::Hatch {
             continue;
         }
-        let origin = transform.translation + Vec3::Y * 3.0;
+        let origin = transform.translation + Vec3::Y * HATCH_GROUND_PROBE_HEIGHT;
         if let Some(hit) = spatial.cast_ray(
             origin,
             Dir3::NEG_Y,
-            6.0,
+            HATCH_GROUND_PROBE_RANGE,
             true,
             &SpatialQueryFilter::default(),
         ) {
@@ -332,13 +358,18 @@ fn use_target(
     mut quest: ResMut<QuestJournal>,
     mut progress: ResMut<DungeonProgress>,
     mut dialogue: ResMut<Dialogue>,
-    mut player: Query<(Entity, &mut Player, &mut Dodge, &mut Transform)>,
+    mut player: Query<(
+        Entity,
+        &mut Player,
+        &mut Dodge,
+        &mut Transform,
+        &mut WeaponAttack,
+    )>,
     mut orbit: ResMut<Orbit>,
-    mut thrust: ResMut<WeaponAttack>,
     mut input: ResMut<MovementInput>,
     spatial: SpatialQuery,
 ) {
-    let Ok((entity, mut player, mut dodge, mut transform)) = player.single_mut() else {
+    let Ok((entity, mut player, mut dodge, mut transform, mut attack)) = player.single_mut() else {
         return;
     };
     if player.area != event.0.area() {
@@ -352,10 +383,10 @@ fn use_target(
             );
             return;
         }
-        DungeonTarget::Hatch => (Area::OldRelay, ORIGIN + Vec3::new(0.0, 2.6, -2.65), 0.0),
+        DungeonTarget::Hatch => (Area::OldRelay, ORIGIN + RELAY_LANDING_OFFSET, 0.0),
         DungeonTarget::Exit => (
             Area::Surface,
-            HATCH + Vec3::new(0.0, 3.0, 2.1),
+            HATCH + SURFACE_LANDING_OFFSET,
             std::f32::consts::PI,
         ),
         DungeonTarget::Switch => {
@@ -375,22 +406,23 @@ fn use_target(
         }
     };
     let filter = SpatialQueryFilter::from_excluded_entities([entity]);
-    let Some(hit) = spatial.cast_ray(probe, Dir3::NEG_Y, 6.0, true, &filter) else {
+    let Some(hit) = spatial.cast_ray(probe, Dir3::NEG_Y, HATCH_GROUND_PROBE_RANGE, true, &filter)
+    else {
         dialogue.text = Some("The hatch landing is obstructed.");
         return;
     };
     player.respawn(
         &mut dodge,
         &mut transform,
-        probe - Vec3::Y * (hit.distance - 0.905),
+        probe - Vec3::Y * (hit.distance - PLAYER_GROUND_OFFSET),
     );
     player.area = area;
     if area == Area::OldRelay {
         quest.record(QuestAction::EnteredRelay);
     }
     orbit.yaw = yaw;
-    orbit.pitch = 0.22;
-    thrust.cancel();
+    orbit.pitch = LANDING_CAMERA_PITCH;
+    attack.cancel();
     *input = MovementInput::default();
 }
 
@@ -406,8 +438,8 @@ fn raise_gate(
     let Ok(mut transform) = gate.single_mut() else {
         return;
     };
-    let elapsed = (elapsed + time.delta_secs()).min(DURATION);
-    progress.gate = if elapsed >= DURATION {
+    let elapsed = (elapsed + time.delta_secs()).min(GATE_OPEN_SECONDS);
+    progress.gate = if elapsed >= GATE_OPEN_SECONDS {
         quest.record(QuestAction::OpenedArchiveGate);
         GateState::Open
     } else {

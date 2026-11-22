@@ -5,8 +5,8 @@ use bevy::{gltf::Gltf, prelude::*, world_serialization::WorldInstanceReady};
 use crate::{
     GameState,
     combat::CombatSystems,
-    inventory::{Inventory, InventoryNotice, ItemKind, scene_ready},
-    loading::{GameAssets, PendingScene},
+    inventory::{Inventory, InventoryNotice, ItemKind},
+    loading::{GameAssets, PendingScene, scene_ready},
     menu_ui::{MenuTab, PlayerMenu},
     player::Player,
     weapon::{WeaponAttack, WeaponStance},
@@ -248,7 +248,7 @@ fn equip(
     request: On<EquipRequest>,
     state: Res<State<GameState>>,
     menu: Res<PlayerMenu>,
-    thrust: Option<ResMut<WeaponAttack>>,
+    mut attacks: Query<&mut WeaponAttack, With<Player>>,
     mut equipment: ResMut<Equipment>,
     mut bag: ResMut<Inventory>,
     mut notice: ResMut<InventoryNotice>,
@@ -267,9 +267,9 @@ fn equip(
     notice.0 = match result {
         Ok(true) => {
             if item.weapon().is_some()
-                && let Some(mut thrust) = thrust
+                && let Ok(mut attack) = attacks.single_mut()
             {
-                thrust.cancel();
+                attack.cancel();
             }
             if let Some(assets) = assets {
                 commands.spawn((
@@ -287,7 +287,7 @@ fn unequip(
     request: On<UnequipRequest>,
     state: Res<State<GameState>>,
     menu: Res<PlayerMenu>,
-    thrust: Option<ResMut<WeaponAttack>>,
+    mut attacks: Query<&mut WeaponAttack, With<Player>>,
     mut equipment: ResMut<Equipment>,
     mut bag: ResMut<Inventory>,
     mut notice: ResMut<InventoryNotice>,
@@ -300,9 +300,9 @@ fn unequip(
     notice.0 = match equipment.unequip(&mut bag, request.0) {
         Ok(true) => {
             if request.0.is_hand()
-                && let Some(mut thrust) = thrust
+                && let Ok(mut attack) = attacks.single_mut()
             {
-                thrust.cancel();
+                attack.cancel();
             }
             if let Some(assets) = assets {
                 commands.spawn((

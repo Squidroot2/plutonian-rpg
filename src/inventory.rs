@@ -1,12 +1,12 @@
 use std::collections::BTreeMap;
 
 use avian3d::prelude::*;
-use bevy::{gltf::Gltf, prelude::*, world_serialization::WorldInstanceReady};
+use bevy::{gltf::Gltf, prelude::*};
 
 use crate::{
     GameState,
     equipment::Equipment,
-    loading::{GameAssets, PendingScene},
+    loading::{GameAssets, PendingScene, scene_ready},
     menu_ui::{MenuTab, PlayerMenu},
     player::Player,
     save::RunSave,
@@ -219,10 +219,6 @@ impl Plugin for InventoryPlugin {
             .add_systems(OnExit(GameState::Loading), ground_pickups);
     }
 }
-pub fn scene_ready(event: On<WorldInstanceReady>, mut commands: Commands) {
-    commands.entity(event.entity).remove::<PendingScene>();
-}
-
 #[derive(Component)]
 struct NeedsPickupGrounding;
 

@@ -28,6 +28,7 @@ mod settings;
 mod smoke;
 mod storage;
 mod storage_ui;
+mod terrain;
 mod title;
 mod ui;
 mod weapon;

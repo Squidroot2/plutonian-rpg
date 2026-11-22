@@ -1,9 +1,9 @@
 use crate::{
     GameState,
     combat::{CombatSystems, ConfirmedHit, Dead, Health, HitReaction, RemoveColliderOnDeath},
-    enemy::{heading, surface},
     player::{AnimationLibrary, Player, RUN_CLIP, WALK_CLIP},
     quest::{Dialogue, QuestAction, QuestJournal},
+    terrain::{MAX_GROUND_STEP, ground_heading, walkable_height},
 };
 use avian3d::prelude::*;
 use bevy::prelude::*;
@@ -14,12 +14,18 @@ const RETURN_SPEED: f32 = 3.0;
 const SAFE_DISTANCE: f32 = 8.0;
 const PURSUED_DISTANCE: f32 = 4.0;
 const SAFE_TIME: f32 = 3.0;
+const HOME_ARRIVAL_RADIUS_SQUARED: f32 = 0.04;
+const AVOIDANCE_ANGLES_DEGREES: [f32; 7] = [0.0, 45.0, -45.0, 75.0, -75.0, 100.0, -100.0];
+const MIN_TRAVEL_FRACTION: f32 = 0.35;
+const GROUND_PROBE_RANGE: f32 = GROUND_OFFSET + 0.6;
+const TURN_SPEED: f32 = 12.0;
+const HIT_REACTION_SECONDS: f32 = 0.16;
 pub(crate) const GROUND_OFFSET: f32 = 0.9;
 
 pub(crate) struct NemiPlugin;
 
 #[derive(Component, Default)]
-#[require(Health = Health::new(Nemi::MAX_HEALTH), HitReaction = HitReaction::new(0.16), RemoveColliderOnDeath = RemoveColliderOnDeath)]
+#[require(Health = Health::new(Nemi::MAX_HEALTH), HitReaction = HitReaction::new(HIT_REACTION_SECONDS), RemoveColliderOnDeath = RemoveColliderOnDeath)]
 pub(crate) struct Nemi {
     home: Option<Vec3>,
     behavior: Behavior,
@@ -79,6 +85,52 @@ impl Nemi {
 
     pub(crate) fn refuses(&self) -> bool {
         matches!(self.behavior, Behavior::Refuses)
+    }
+
+    /// Advance flee and return behavior, then choose the desired ground motion.
+    fn plan_motion(
+        &mut self,
+        position: Vec3,
+        away: Vec3,
+        player_on_surface: bool,
+        delta: f32,
+    ) -> Option<(Vec3, f32)> {
+        let home = self.home?;
+        let distance = if player_on_surface {
+            away.length()
+        } else {
+            f32::INFINITY
+        };
+        if matches!(self.behavior, Behavior::Returning) && distance < PURSUED_DISTANCE {
+            self.behavior = Behavior::Fleeing { safe_for: 0.0 };
+        }
+        match self.behavior {
+            Behavior::Fleeing { safe_for } if distance >= SAFE_DISTANCE => {
+                let safe_for = safe_for + delta;
+                self.behavior = if safe_for >= SAFE_TIME {
+                    Behavior::Returning
+                } else {
+                    Behavior::Fleeing { safe_for }
+                };
+                None
+            }
+            Behavior::Fleeing { .. } => {
+                self.behavior = Behavior::Fleeing { safe_for: 0.0 };
+                Some((away.try_normalize().unwrap_or(Vec3::Z), FLEE_SPEED))
+            }
+            Behavior::Returning => {
+                let toward_home = (home - position).with_y(0.0);
+                if toward_home.length_squared() < HOME_ARRIVAL_RADIUS_SQUARED {
+                    self.behavior = Behavior::Refuses;
+                    return None;
+                }
+                Some((
+                    toward_home.normalize(),
+                    RETURN_SPEED.min(toward_home.length() / delta),
+                ))
+            }
+            Behavior::Peaceful | Behavior::Refuses => None,
+        }
     }
 }
 
@@ -142,48 +194,17 @@ fn move_nemi(
     let delta = time.delta_secs();
     for (entity, mut nemi, mut transform, collider) in &mut keepers {
         nemi.moving = false;
-        let Some(home) = nemi.home else { continue };
         let position = transform.translation;
         let away = (position - player_transform.translation).with_y(0.0);
-        let distance = if controller.area == crate::dungeon::Area::Surface {
-            away.length()
-        } else {
-            f32::INFINITY
-        };
-        if matches!(nemi.behavior, Behavior::Returning) && distance < PURSUED_DISTANCE {
-            nemi.behavior = Behavior::Fleeing { safe_for: 0.0 };
-        }
-        let (direction, speed) = match nemi.behavior {
-            Behavior::Fleeing { safe_for } if distance >= SAFE_DISTANCE => {
-                let safe_for = safe_for + delta;
-                nemi.behavior = if safe_for >= SAFE_TIME {
-                    Behavior::Returning
-                } else {
-                    Behavior::Fleeing { safe_for }
-                };
-                continue;
-            }
-            Behavior::Fleeing { .. } => {
-                nemi.behavior = Behavior::Fleeing { safe_for: 0.0 };
-                (away.try_normalize().unwrap_or(Vec3::Z), FLEE_SPEED)
-            }
-            Behavior::Returning => {
-                let toward_home = (home - position).with_y(0.0);
-                if toward_home.length_squared() < 0.04 {
-                    nemi.behavior = Behavior::Refuses;
-                    continue;
-                }
-                (
-                    toward_home.normalize(),
-                    RETURN_SPEED.min(toward_home.length() / delta),
-                )
-            }
-            Behavior::Peaceful | Behavior::Refuses => continue,
+        let player_on_surface = controller.area == crate::dungeon::Area::Surface;
+        let Some((direction, speed)) = nemi.plan_motion(position, away, player_on_surface, delta)
+        else {
+            continue;
         };
         let collision = SpatialQueryFilter::from_excluded_entities([entity]);
         let support = SpatialQueryFilter::from_excluded_entities([entity, player]);
         // Sample alternate headings if a wall or the shelf's edge blocks the direct route.
-        for angle in [0.0_f32, 45.0, -45.0, 75.0, -75.0, 100.0, -100.0] {
+        for angle in AVOIDANCE_ANGLES_DEGREES {
             let direction = Quat::from_rotation_y(angle.to_radians()) * direction;
             let velocity = direction * speed;
             let output = mover.move_and_slide(
@@ -197,25 +218,25 @@ fn move_nemi(
                 |_| MoveAndSlideHitResponse::Accept,
             );
             let movement = (output.position - position).with_y(0.0);
-            if movement.dot(direction) < speed * delta * 0.35 {
+            if movement.dot(direction) < speed * delta * MIN_TRAVEL_FRACTION {
                 continue;
             }
-            let Some(height) = surface(
+            let Some(height) = walkable_height(
                 &spatial,
                 &support,
-                output.position + Vec3::Y * 0.25,
-                GROUND_OFFSET + 0.6,
+                output.position + Vec3::Y * MAX_GROUND_STEP,
+                GROUND_PROBE_RANGE,
                 GROUND_OFFSET,
             ) else {
                 continue;
             };
-            if (height - position.y).abs() > 0.25 {
+            if (height - position.y).abs() > MAX_GROUND_STEP {
                 continue;
             }
             transform.translation = output.position.with_y(height);
             transform.rotation = transform
                 .rotation
-                .slerp(heading(movement), (12.0 * delta).min(1.0));
+                .slerp(ground_heading(movement), (TURN_SPEED * delta).min(1.0));
             nemi.moving = true;
             break;
         }

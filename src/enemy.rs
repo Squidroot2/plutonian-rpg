@@ -4,10 +4,11 @@ use crate::{
     combat_feedback::DeathAnimation,
     dungeon::Area,
     interaction::CorpseLoot,
-    inventory::{ItemKind, scene_ready},
-    loading::PendingScene,
+    inventory::ItemKind,
+    loading::{PendingScene, scene_ready},
     player::Player,
     quest::Dialogue,
+    terrain::{MAX_GROUND_STEP, ground_heading, walkable_height},
     world::SessionEntity,
 };
 use avian3d::prelude::*;
@@ -17,6 +18,17 @@ use std::time::Duration;
 const SIGHT_RANGE: f32 = 7.0;
 const LEASH: f32 = 10.0;
 const GLOW_INTENSITY: f32 = 280.0;
+const HIT_GLOW_INTENSITY: f32 = 3500.0;
+const HIT_REACTION_SECONDS: f32 = 0.16;
+const SIGHT_ORIGIN_HEIGHT: f32 = 0.15;
+const HOME_ARRIVAL_RADIUS: f32 = 0.2;
+const TURN_SPEED: f32 = 10.0;
+const GROUND_PROBE_RANGE: f32 = 1.1;
+const ENCOUNTER_GROUND_PROBE_HEIGHT: f32 = 2.0;
+const ENCOUNTER_GROUND_PROBE_RANGE: f32 = 15.0;
+const DESTINATION_EPSILON_SQUARED: f32 = 0.0001;
+const ANIMATION_MOVEMENT_EPSILON_SQUARED: f32 = 0.000_001;
+const LOCOMOTION_BLEND: Duration = Duration::from_millis(100);
 
 pub(crate) struct EnemyModel {
     pub(crate) path: &'static str,
@@ -176,7 +188,7 @@ pub(crate) fn spawn_ground_melee(
             config.movement,
             visual.animations.clone(),
             Health::new(config.health),
-            HitReaction::new(0.16),
+            HitReaction::new(HIT_REACTION_SECONDS),
             CorpseLoot::new(config.loot, area),
             RemoveColliderOnDeath,
             Visibility::default(),
@@ -215,27 +227,20 @@ fn ground_encounters(
 ) {
     let filter = SpatialQueryFilter::from_excluded_entities(actors.iter());
     for (movement, mut transform, pursuit) in &mut enemies {
-        let origin = transform.translation + Vec3::Y * 2.0;
-        if let Some(y) = surface(&spatial, &filter, origin, 15.0, movement.ground_offset) {
+        let origin = transform.translation + Vec3::Y * ENCOUNTER_GROUND_PROBE_HEIGHT;
+        if let Some(y) = walkable_height(
+            &spatial,
+            &filter,
+            origin,
+            ENCOUNTER_GROUND_PROBE_RANGE,
+            movement.ground_offset,
+        ) {
             transform.translation.y = y;
             if let Some(mut pursuit) = pursuit {
                 pursuit.home = transform.translation;
             }
         }
     }
-}
-
-pub(crate) fn surface(
-    spatial: &SpatialQuery,
-    filter: &SpatialQueryFilter,
-    origin: Vec3,
-    range: f32,
-    ground_offset: f32,
-) -> Option<f32> {
-    spatial
-        .cast_ray(origin, Dir3::NEG_Y, range, true, filter)
-        .filter(|hit| hit.normal.y > 0.65)
-        .map(|hit| origin.y - hit.distance + ground_offset)
 }
 
 fn plan_actions(
@@ -285,13 +290,18 @@ fn plan_actions(
             && target.xz().distance(pursuit.home.xz()) < LEASH;
         let sees_player = within_leash
             && to_target.length_squared() < SIGHT_RANGE * SIGHT_RANGE
-            && clear_path(&spatial, &sight, position + Vec3::Y * 0.15, target);
-        let near_home = position.xz().distance(pursuit.home.xz()) < 0.2;
+            && clear_path(
+                &spatial,
+                &sight,
+                position + Vec3::Y * SIGHT_ORIGIN_HEIGHT,
+                target,
+            );
+        let near_home = position.xz().distance(pursuit.home.xz()) < HOME_ARRIVAL_RADIUS;
 
         let destination = if sees_player && (pursuit.phase != MeleePhase::Returning || near_home) {
             pursuit.phase = MeleePhase::Pursuing;
             if to_target.length_squared() <= bite.range * bite.range {
-                transform.rotation = heading(to_target);
+                transform.rotation = ground_heading(to_target);
                 pursuit.phase = MeleePhase::Windup(bite.windup);
                 continue;
             }
@@ -324,22 +334,22 @@ fn move_ground_enemies(
         };
         let position = transform.translation;
         let toward = (destination - position).with_y(0.0);
-        if toward.length_squared() < 0.0001 {
+        if toward.length_squared() < DESTINATION_EPSILON_SQUARED {
             continue;
         }
         transform.rotation = transform
             .rotation
-            .slerp(heading(toward), (10.0 * delta).min(1.0));
+            .slerp(ground_heading(toward), (TURN_SPEED * delta).min(1.0));
         let velocity = toward.clamp_length_max(motion.speed * delta) / delta;
         let proposed = position + velocity * delta;
-        if surface(
+        if walkable_height(
             &spatial,
             &support,
-            proposed + Vec3::Y * 0.25,
-            1.1,
+            proposed + Vec3::Y * MAX_GROUND_STEP,
+            GROUND_PROBE_RANGE,
             motion.ground_offset,
         )
-        .is_none_or(|y| (y - position.y).abs() > 0.25)
+        .is_none_or(|y| (y - position.y).abs() > MAX_GROUND_STEP)
         {
             continue;
         }
@@ -354,21 +364,18 @@ fn move_ground_enemies(
             &filter,
             |_| MoveAndSlideHitResponse::Accept,
         );
-        if let Some(y) = surface(
+        if let Some(y) = walkable_height(
             &spatial,
             &support,
-            output.position + Vec3::Y * 0.25,
-            1.1,
+            output.position + Vec3::Y * MAX_GROUND_STEP,
+            GROUND_PROBE_RANGE,
             motion.ground_offset,
         ) {
             transform.translation = output.position.with_y(y);
-            motion.moving = output.position.xz().distance_squared(position.xz()) > 0.000_001;
+            motion.moving = output.position.xz().distance_squared(position.xz())
+                > ANIMATION_MOVEMENT_EPSILON_SQUARED;
         }
     }
-}
-
-pub(crate) fn heading(delta: Vec3) -> Quat {
-    Quat::from_rotation_y(delta.x.atan2(delta.z))
 }
 
 fn clear_path(spatial: &SpatialQuery, filter: &SpatialQueryFilter, from: Vec3, to: Vec3) -> bool {
@@ -465,7 +472,7 @@ fn animate(
         };
         if clip != playback.clip {
             let fade = if clip < 2 {
-                Duration::from_millis(100)
+                LOCOMOTION_BLEND
             } else {
                 Duration::ZERO
             };
@@ -489,7 +496,7 @@ fn light_hits(
                 light.intensity = if dead {
                     0.0
                 } else {
-                    GLOW_INTENSITY + 3500.0 * reaction.strength()
+                    GLOW_INTENSITY + HIT_GLOW_INTENSITY * reaction.strength()
                 };
             }
         }
@@ -507,7 +514,6 @@ mod tests {
         quest::{QuestAction, QuestJournal, test_journal},
         roach::{self, Roach},
         save::recover_defeated,
-        weapon::WeaponAttack,
         world::WorldLayout,
         worm::{CONFIG, GROUND_OFFSET, Worm},
     };
@@ -533,7 +539,6 @@ mod tests {
         .init_resource::<WorldLayout>()
         .init_resource::<Dialogue>()
         .init_resource::<Equipment>()
-        .init_resource::<WeaponAttack>()
         .init_resource::<MovementInput>()
         .add_plugins((CombatPlugin, EnemyPlugin))
         .add_systems(

@@ -3,6 +3,7 @@ use crate::{
     combat::Dead,
     interaction::{CorpseLoot, INTERACT_HEIGHT, INTERACT_RANGE, LootTarget},
     inventory::Inventory,
+    menu_ui::{PANEL, interaction_modal},
     player::Player,
     ui::text_style,
 };
@@ -54,19 +55,7 @@ fn open(
     };
 
     commands
-        .spawn((
-            DespawnOnExit(GameState::Looting),
-            GlobalZIndex(50),
-            Node {
-                position_type: PositionType::Absolute,
-                width: percent(100),
-                height: percent(100),
-                align_items: AlignItems::Center,
-                justify_content: JustifyContent::Center,
-                ..default()
-            },
-            BackgroundColor(Color::srgba(0.005, 0.012, 0.025, 0.82)),
-        ))
+        .spawn(interaction_modal(GameState::Looting))
         .with_children(|screen| {
             screen
                 .spawn((
@@ -78,7 +67,7 @@ fn open(
                         row_gap: px(12),
                         ..default()
                     },
-                    BackgroundColor(Color::srgb(0.025, 0.055, 0.075)),
+                    BackgroundColor(PANEL),
                 ))
                 .with_children(|panel| {
                     panel.spawn((Text::new(name.as_str()), text_style(24.0), Pickable::IGNORE));

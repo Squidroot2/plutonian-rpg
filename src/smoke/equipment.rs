@@ -238,7 +238,7 @@ fn drive_shortswords(
     mut step: ResMut<ShortswordStep>,
     inventory_smoke: Res<InventorySmoke>,
     (menu, bag, equipment, nearby): (Res<PlayerMenu>, Res<Inventory>, Res<Equipment>, Res<Nearby>),
-    attack: Res<WeaponAttack>,
+    attacks: Query<&WeaponAttack, With<Player>>,
     dummy: Query<(&HitReaction, &Transform), With<PracticeDummy>>,
     impacts: Query<(), With<AttackImpact>>,
     view: View,
@@ -257,6 +257,7 @@ fn drive_shortswords(
         return;
     }
     let (player, transform, controller, stance) = view.player.single().expect("arena player");
+    let attack = attacks.get(player).expect("Player requires WeaponAttack");
     let (dummy, dummy_transform) = dummy.single().expect("arena practice dummy");
     let (window, camera) = inventory_smoke.context.expect("arena UI context");
     keys.reset_all();

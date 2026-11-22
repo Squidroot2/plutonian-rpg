@@ -44,7 +44,16 @@ pub(super) enum Check {
 pub(super) fn drive(
     mut stage: ResMut<Check>,
     mut home: Local<Vec3>,
-    mut avatar: Query<(Entity, &mut Player, &mut Dodge, &mut Transform), Without<Nemi>>,
+    mut avatar: Query<
+        (
+            Entity,
+            &mut Player,
+            &mut Dodge,
+            &mut Transform,
+            &WeaponAttack,
+        ),
+        Without<Nemi>,
+    >,
     nemi: Query<
         (
             Entity,
@@ -65,7 +74,7 @@ pub(super) fn drive(
         Res<PlayerMenu>,
         Res<QuestSelection>,
     ),
-    (mut bag, mut equipment, thrust): (ResMut<Inventory>, ResMut<Equipment>, Res<WeaponAttack>),
+    (mut bag, mut equipment): (ResMut<Inventory>, ResMut<Equipment>),
     (lights, animations, rows): (
         Query<&PointLight, With<Beacon>>,
         Query<&AnimationPlayer>,
@@ -84,7 +93,7 @@ pub(super) fn drive(
     mut commands: Commands,
     mut exit: MessageWriter<AppExit>,
 ) {
-    let Ok((entity, mut player, mut dodge, mut transform)) = avatar.single_mut() else {
+    let Ok((entity, mut player, mut dodge, mut transform, thrust)) = avatar.single_mut() else {
         return;
     };
     let (keeper, nemi, health, keeper_transform, dead, collider, death) = nemi

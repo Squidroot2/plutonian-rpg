@@ -15,20 +15,34 @@ use crate::{
 
 const GRIP_HEIGHT: f32 = -0.05;
 pub(crate) const GRIP_SIDE: f32 = -0.40;
+const ATTACK_CLIP_FPS: f32 = 24.0;
+const SPEAR_IMPACT_FRAME: f32 = 6.0;
+const SPEAR_RECOVERY_FRAME: f32 = 16.0;
+const SWORD_IMPACT_FRAME: f32 = 5.0;
+const SWORD_RECOVERY_FRAME: f32 = 12.0;
+const SPEAR_REACH: f32 = 2.5;
+const SWORD_REACH: f32 = 1.4;
+const SPEAR_CONTACT_RADIUS: f32 = 0.12;
+const SWORD_CONTACT_RADIUS: f32 = 0.18;
+const SWORD_GRIP_OFFSET: f32 = 0.36;
+const SWORD_INWARD_SWEEP: f32 = 0.40;
+const SPEAR_DAMAGE: u16 = 10;
+const SWORD_DAMAGE: u16 = 7;
 
 impl WeaponKind {
     pub(crate) fn reach(self) -> f32 {
         match self {
-            Self::Spear => 2.5,
-            Self::Shortsword => 1.4,
+            Self::Spear => SPEAR_REACH,
+            Self::Shortsword => SWORD_REACH,
         }
     }
 
     fn timing(self) -> (f32, f32) {
-        match self {
-            Self::Spear => (6.0 / 24.0, 16.0 / 24.0),
-            Self::Shortsword => (5.0 / 24.0, 12.0 / 24.0),
-        }
+        let (impact, recovery) = match self {
+            Self::Spear => (SPEAR_IMPACT_FRAME, SPEAR_RECOVERY_FRAME),
+            Self::Shortsword => (SWORD_IMPACT_FRAME, SWORD_RECOVERY_FRAME),
+        };
+        (impact / ATTACK_CLIP_FPS, recovery / ATTACK_CLIP_FPS)
     }
 }
 
@@ -72,13 +86,7 @@ pub(crate) enum WeaponStance {
 pub struct WeaponPlugin;
 impl Plugin for WeaponPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<WeaponAttack>()
-            .add_systems(
-                OnExit(GameState::Playing),
-                |mut attack: ResMut<WeaponAttack>| {
-                    attack.cancel();
-                },
-            )
+        app.add_systems(OnExit(GameState::Playing), cancel_attacks)
             .add_systems(
                 Update,
                 attack
@@ -89,7 +97,14 @@ impl Plugin for WeaponPlugin {
     }
 }
 
-#[derive(Default, Resource)]
+fn cancel_attacks(mut attacks: Query<&mut WeaponAttack, With<Player>>) {
+    for mut attack in &mut attacks {
+        attack.cancel();
+    }
+}
+
+/// The in-progress swings for an actor, tracked independently for each hand.
+#[derive(Component, Default)]
 pub struct WeaponAttack {
     swings: [Option<Swing>; 2],
 }
@@ -139,7 +154,6 @@ fn attack(
     time: Res<Time>,
     spatial: SpatialQuery,
     movement: Res<MovementInput>,
-    mut swing: ResMut<WeaponAttack>,
     mut player: Query<(
         Entity,
         &Player,
@@ -147,14 +161,18 @@ fn attack(
         &Stamina,
         &Transform,
         &mut WeaponStance,
+        &mut WeaponAttack,
     )>,
     mut hits: MessageWriter<Hit>,
     log: Option<Res<PlayerMenu>>,
     next: Res<NextState<GameState>>,
 ) {
-    let Ok((entity, controller, dodge, stamina, transform, mut stance)) = player.single_mut()
+    let Ok((entity, controller, dodge, stamina, transform, mut stance, mut swing)) =
+        player.single_mut()
     else {
-        swing.cancel();
+        for (_, _, _, _, _, _, mut swing) in &mut player {
+            swing.cancel();
+        }
         return;
     };
     if dialogue.text.is_some() || !windows.iter().any(|window| window.focused) {
@@ -224,11 +242,16 @@ fn weapon_contact(
     facing: Quat,
 ) -> Option<Hit> {
     let (side, local_direction, radius, damage) = match weapon {
-        WeaponKind::Spear => (GRIP_SIDE, Vec3::Z, 0.12, 10),
+        WeaponKind::Spear => (GRIP_SIDE, Vec3::Z, SPEAR_CONTACT_RADIUS, SPEAR_DAMAGE),
         WeaponKind::Shortsword => {
             // Sweep inward from the striking hand at close range.
             let sign = if hand == Hand::Main { -1.0 } else { 1.0 };
-            (0.36 * sign, Vec3::new(-0.40 * sign, 0.0, 1.0), 0.18, 7)
+            (
+                SWORD_GRIP_OFFSET * sign,
+                Vec3::new(-SWORD_INWARD_SWEEP * sign, 0.0, 1.0),
+                SWORD_CONTACT_RADIUS,
+                SWORD_DAMAGE,
+            )
         }
     };
     let direction = Dir3::new(facing * local_direction).ok()?;
@@ -305,6 +328,12 @@ mod tests {
         assert_eq!(thrust.advance(Hand::Main, 0.2), None);
         assert_eq!(thrust.advance(Hand::Main, 0.3), None);
         assert!(!thrust.active());
+    }
+
+    fn player_attack(app: &App, player: Entity) -> &WeaponAttack {
+        app.world()
+            .get::<WeaponAttack>(player)
+            .expect("the test player must have its required attack component")
     }
 
     fn test_app() -> App {
@@ -454,7 +483,7 @@ mod tests {
         ));
         let mut player = Player::default();
         player.grounded = true;
-        world.spawn((player, Transform::default()));
+        let player = world.spawn((player, Transform::default())).id();
         world.spawn((
             PracticeDummy,
             TrainingTarget,
@@ -479,6 +508,7 @@ mod tests {
 
         fn swing(
             app: &mut App,
+            player: Entity,
             camera_yaw: f32,
             turn_to: Option<f32>,
         ) -> Vec<crate::combat::ConfirmedHit> {
@@ -495,7 +525,7 @@ mod tests {
                 if frame == 5
                     && let Some(yaw) = turn_to
                 {
-                    assert!(app.world().resource::<WeaponAttack>().active());
+                    assert!(player_attack(app, player).active());
                     app.world_mut().resource_mut::<Orbit>().yaw = yaw;
                 }
                 app.update();
@@ -515,13 +545,13 @@ mod tests {
 
         let forward_yaw = -std::f32::consts::PI;
         assert!(matches!(
-            swing(&mut app, 0.0, Some(forward_yaw)).as_slice(),
+            swing(&mut app, player, 0.0, Some(forward_yaw)).as_slice(),
             [crate::combat::ConfirmedHit {
                 contact: Some(_),
                 ..
             }]
         ));
-        assert!(swing(&mut app, 0.0, None).is_empty());
+        assert!(swing(&mut app, player, 0.0, None).is_empty());
 
         app.world_mut().spawn((
             RigidBody::Static,
@@ -532,7 +562,7 @@ mod tests {
             app.update();
         }
         assert!(
-            swing(&mut app, forward_yaw, None).is_empty(),
+            swing(&mut app, player, forward_yaw, None).is_empty(),
             "terrain must stop feedback along with the thrust"
         );
     }
@@ -550,7 +580,7 @@ mod tests {
         ));
         let mut player = Player::default();
         player.grounded = true;
-        world.spawn((player, Transform::default()));
+        let player = world.spawn((player, Transform::default())).id();
         world
             .resource_mut::<NextState<GameState>>()
             .set(GameState::Playing);
@@ -558,7 +588,7 @@ mod tests {
             .resource_mut::<ButtonInput<MouseButton>>()
             .press(MouseButton::Left);
         app.update();
-        assert!(!app.world().resource::<WeaponAttack>().active());
+        assert!(!player_attack(&app, player).active());
 
         let world = app.world_mut();
         let mut bag = crate::inventory::Inventory::default();
@@ -571,26 +601,26 @@ mod tests {
         );
         world.resource_mut::<Dialogue>().text = Some("Talking");
         app.update();
-        assert!(!app.world().resource::<WeaponAttack>().active());
+        assert!(!player_attack(&app, player).active());
         app.world_mut().resource_mut::<Dialogue>().text = None;
         app.update();
-        assert!(app.world().resource::<WeaponAttack>().active());
+        assert!(player_attack(&app, player).active());
         app.world_mut().resource_mut::<Dialogue>().text = Some("Talking");
         app.update();
-        assert!(!app.world().resource::<WeaponAttack>().active());
+        assert!(!player_attack(&app, player).active());
 
         app.world_mut().resource_mut::<Dialogue>().text = None;
         app.update();
-        assert!(app.world().resource::<WeaponAttack>().active());
+        assert!(player_attack(&app, player).active());
         let mut menu = PlayerMenu::default();
         menu.show(crate::menu_ui::MenuTab::Inventory);
         app.insert_resource(menu);
         app.update();
-        assert!(app.world().resource::<WeaponAttack>().active());
+        assert!(player_attack(&app, player).active());
         for _ in 0..60 {
             app.update();
         }
-        assert!(!app.world().resource::<WeaponAttack>().active());
+        assert!(!player_attack(&app, player).active());
     }
 
     #[test]
@@ -652,20 +682,15 @@ mod tests {
             app.update();
         }
         click(&mut app, &[Right]);
-        assert!(!app.world().resource::<WeaponAttack>().active());
+        assert!(!player_attack(&app, player).active());
 
         assert_eq!(equipment.unequip(&mut bag, MainHand), Ok(true));
         assert_eq!(equipment.equip_in(&mut bag, OffHand, Shortsword), Ok(true));
         app.insert_resource(equipment.clone());
         click(&mut app, &[Left]);
-        assert!(!app.world().resource::<WeaponAttack>().active());
+        assert!(!player_attack(&app, player).active());
         click(&mut app, &[Right]);
-        assert!(
-            app.world()
-                .resource::<WeaponAttack>()
-                .current(Hand::Off)
-                .is_some()
-        );
+        assert!(player_attack(&app, player).current(Hand::Off).is_some());
         for _ in 0..30 {
             app.update();
         }
@@ -674,7 +699,7 @@ mod tests {
         assert_eq!(equipment.equip_in(&mut bag, MainHand, Shortsword), Ok(true));
         app.insert_resource(equipment);
         click(&mut app, &[Right, Left]);
-        let attack = app.world().resource::<WeaponAttack>();
+        let attack = player_attack(&app, player);
         assert!(
             Hand::ALL
                 .into_iter()
@@ -695,7 +720,7 @@ mod tests {
             app.update();
         }
         assert_eq!(health(&app), 39);
-        assert!(!app.world().resource::<WeaponAttack>().active());
+        assert!(!player_attack(&app, player).active());
         assert_eq!(
             app.world().get::<WeaponStance>(player),
             Some(&WeaponStance::Drawn)
@@ -709,7 +734,7 @@ mod tests {
             app.update();
         }
         click(&mut app, &[Right]);
-        let attack = app.world().resource::<WeaponAttack>();
+        let attack = player_attack(&app, player);
         let main = attack
             .current(Hand::Main)
             .expect("the earlier main-hand swing must still be active");
@@ -726,22 +751,17 @@ mod tests {
             app.update();
         }
         assert_eq!(health(&app), 25);
-        let attack = app.world().resource::<WeaponAttack>();
+        let attack = player_attack(&app, player);
         assert!(attack.current(Hand::Main).is_none());
         assert!(attack.current(Hand::Off).is_some());
         click(&mut app, &[Left]);
-        assert!(
-            app.world()
-                .resource::<WeaponAttack>()
-                .current(Hand::Main)
-                .is_some()
-        );
+        assert!(player_attack(&app, player).current(Hand::Main).is_some());
 
         let mut menu = PlayerMenu::default();
         menu.show(crate::menu_ui::MenuTab::Equipment);
         app.insert_resource(menu);
         app.world_mut().trigger(UnequipRequest(MainHand));
-        assert!(!app.world().resource::<WeaponAttack>().active());
+        assert!(!player_attack(&app, player).active());
         for _ in 0..30 {
             app.update();
         }
@@ -822,7 +842,7 @@ mod tests {
 
         frame(&mut app, Some(KeyX), &[Right]);
         assert_eq!(stance(&app), Holstered);
-        assert!(!app.world().resource::<WeaponAttack>().active());
+        assert!(!player_attack(&app, player).active());
         app.world_mut()
             .resource_mut::<ButtonInput<KeyCode>>()
             .clear_just_pressed(KeyX);
@@ -830,7 +850,7 @@ mod tests {
         assert_eq!(stance(&app), Holstered, "a held key toggles only once");
         frame(&mut app, None, &[Left, Right]);
         assert_eq!(stance(&app), Holstered);
-        assert!(!app.world().resource::<WeaponAttack>().active());
+        assert!(!player_attack(&app, player).active());
 
         app.world_mut()
             .resource_mut::<Keybinds>()
@@ -841,16 +861,11 @@ mod tests {
         frame(&mut app, Some(KeyH), &[Right]);
         assert_eq!(stance(&app), Drawn);
         assert!(
-            !app.world().resource::<WeaponAttack>().active(),
+            !player_attack(&app, player).active(),
             "drawing suppresses same-frame attacks"
         );
         frame(&mut app, None, &[Right]);
-        assert!(
-            app.world()
-                .resource::<WeaponAttack>()
-                .current(Hand::Off)
-                .is_some()
-        );
+        assert!(player_attack(&app, player).current(Hand::Off).is_some());
     }
 
     #[test]

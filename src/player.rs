@@ -53,9 +53,9 @@ impl Plugin for PlayerPlugin {
     }
 }
 #[derive(Component, Default)]
-#[require(Dodge, Health = Health::new(MAX_HEALTH), Defense, crate::combat::HitProtection = crate::combat::HitProtection::new(0.75))]
-#[require(HealthRecovery = HealthRecovery::new(Duration::from_secs(5), Duration::from_millis(100)))]
-#[require(Stamina, WeaponStance)]
+#[require(Dodge, Health = Health::new(MAX_HEALTH), Defense, crate::combat::HitProtection = crate::combat::HitProtection::new(PLAYER_HIT_PROTECTION_SECONDS))]
+#[require(HealthRecovery = HealthRecovery::new(HEALTH_RECOVERY_DELAY, HEALTH_RECOVERY_INTERVAL))]
+#[require(Stamina, WeaponStance, WeaponAttack, FootstepCadence)]
 pub struct Player {
     pub(crate) area: Area,
     pub velocity: Vec3,
@@ -83,9 +83,58 @@ impl Player {
         self.jumping = true;
         self.grounded = false;
     }
+
+    /// Update locomotion state and return the intended horizontal velocity and gravity.
+    fn travel_velocity(
+        &mut self,
+        dodge: &Dodge,
+        stamina: &mut Stamina,
+        input: &MovementInput,
+        can_move: bool,
+        agile: bool,
+        yaw: f32,
+        delta: f32,
+    ) -> (Vec3, f32) {
+        if let Some(hop) = &dodge.hop {
+            self.pace = Pace::Walk;
+            self.movement_direction = Vec2::ZERO;
+            return (hop.heading * DODGE_SPEED, DODGE_GRAVITY);
+        }
+
+        let direction = if can_move {
+            input.direction
+        } else {
+            Vec2::ZERO
+        };
+        self.movement_direction = direction;
+        self.pace = if agile && self.run_enabled && direction != Vec2::ZERO {
+            Pace::Run
+        } else {
+            Pace::Walk
+        };
+        if agile
+            && input.sprint
+            && direction.y > 0.0
+            && direction.x == 0.0
+            && !self.sprint_exhausted
+        {
+            if !stamina.is_empty() {
+                self.pace = Pace::Sprint;
+                stamina.drain_sprint(delta);
+            }
+            self.sprint_exhausted = stamina.is_empty();
+        }
+        (camera_heading(direction, yaw) * self.pace.speed(), GRAVITY)
+    }
 }
 
 pub(crate) const MAX_HEALTH: u16 = 100;
+pub(crate) const PLAYER_COLLIDER_RADIUS: f32 = 0.32;
+pub(crate) const PLAYER_COLLIDER_LENGTH: f32 = 1.15;
+pub(crate) const PLAYER_GROUND_OFFSET: f32 = 0.905;
+const PLAYER_HIT_PROTECTION_SECONDS: f32 = 0.75;
+const HEALTH_RECOVERY_DELAY: Duration = Duration::from_secs(5);
+const HEALTH_RECOVERY_INTERVAL: Duration = Duration::from_millis(100);
 pub(crate) const DODGE_KEY: KeyCode = KeyCode::ControlLeft;
 const DODGE_LAUNCH_SPEED: f32 = 1.7;
 const DODGE_GRAVITY: f32 = 10.0;
@@ -93,6 +142,26 @@ const DODGE_SPEED: f32 = 6.0;
 const DODGE_DURATION: f32 = 0.32;
 const DODGE_COOLDOWN: f32 = 0.55;
 const WALK_SPEED: f32 = 2.5;
+const WALK_FOOTSTEP_SECONDS: f32 = 0.5;
+const RUN_FOOTSTEP_SECONDS: f32 = 0.4;
+const SPRINT_FOOTSTEP_SECONDS: f32 = 0.32;
+const FOOTSTEP_VOLUME: f32 = 0.2;
+const JUMP_SPEED: f32 = 4.7;
+const GRAVITY: f32 = 5.0;
+const MAX_FALL_SPEED: f32 = 22.0;
+const GROUND_PROBE_RADIUS: f32 = 0.30;
+const GROUND_PROBE_DISTANCE: f32 = 0.12;
+const DODGE_GROUND_PROBE_DISTANCE: f32 = 0.025;
+const GROUND_NORMAL_MIN_Y: f32 = 0.7;
+const GROUNDING_MAX_UPWARD_SPEED: f32 = 0.1;
+const GROUND_STICK_SPEED: f32 = 0.6;
+const WALK_STAMINA_RECOVERY_FACTOR: f32 = 0.5;
+const WORLD_MIN_Y: f32 = -15.0;
+const WORLD_MAX_ABS_X: f32 = 55.0;
+const WORLD_MAX_Z: f32 = 35.0;
+const WORLD_MIN_Z: f32 = -140.0;
+const DODGE_ANIMATION_BLEND: Duration = Duration::from_millis(50);
+const LOCOMOTION_ANIMATION_BLEND: Duration = Duration::from_millis(160);
 const RUN_SPEED: f32 = 4.0;
 const SPRINT_SPEED: f32 = 8.0;
 const MAX_STAMINA: f32 = 100.0;
@@ -199,31 +268,32 @@ impl Dodge {
     }
 }
 
+#[derive(Component, Default, PartialEq)]
+struct FootstepCadence(f32);
+
 fn footsteps(
     time: Res<Time>,
     assets: Res<AssetServer>,
-    players: Query<&Player>,
-    mut elapsed: Local<f32>,
+    mut players: Query<(&Player, &mut FootstepCadence)>,
     mut commands: Commands,
 ) {
-    let Some(player) = players.iter().next() else {
-        return;
-    };
-    if !player.grounded || player.movement_direction == Vec2::ZERO {
-        *elapsed = 0.0;
-        return;
-    }
-    *elapsed -= time.delta_secs();
-    if *elapsed <= 0.0 {
-        commands.spawn((
-            AudioPlayer::new(assets.load("sounds/footstep05.ogg")),
-            PlaybackSettings::DESPAWN.with_volume(bevy::audio::Volume::Linear(0.2)),
-        ));
-        *elapsed = match player.pace {
-            Pace::Walk => 0.5,
-            Pace::Run => 0.4,
-            Pace::Sprint => 0.32,
-        };
+    for (player, mut elapsed) in &mut players {
+        if !player.grounded || player.movement_direction == Vec2::ZERO {
+            elapsed.set_if_neq(FootstepCadence(0.0));
+            continue;
+        }
+        elapsed.0 -= time.delta_secs();
+        if elapsed.0 <= 0.0 {
+            commands.spawn((
+                AudioPlayer::new(assets.load("sounds/footstep05.ogg")),
+                PlaybackSettings::DESPAWN.with_volume(bevy::audio::Volume::Linear(FOOTSTEP_VOLUME)),
+            ));
+            elapsed.0 = match player.pace {
+                Pace::Walk => WALK_FOOTSTEP_SECONDS,
+                Pace::Run => RUN_FOOTSTEP_SECONDS,
+                Pace::Sprint => SPRINT_FOOTSTEP_SECONDS,
+            };
+        }
     }
 }
 
@@ -236,11 +306,13 @@ fn sync_defense(equipment: Res<Equipment>, mut players: Query<&mut Defense, With
 }
 
 #[derive(Component)]
-pub struct ActorVisual {
-    pub player: bool,
+pub(crate) enum ActorVisual {
+    Player,
+    Nemi,
 }
 #[derive(Component)]
 struct AnimatedActor {
+    owner: Entity,
     current: Option<usize>,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -471,7 +543,6 @@ pub(crate) fn movement(
     time: Res<Time>,
     orbit: Res<Orbit>,
     dialogue: Res<Dialogue>,
-    attack: Res<WeaponAttack>,
     layout: Res<WorldLayout>,
     inventory: Res<Inventory>,
     equipment: Res<Equipment>,
@@ -485,6 +556,7 @@ pub(crate) fn movement(
         &mut Player,
         &mut Dodge,
         &mut Stamina,
+        &WeaponAttack,
     )>,
 ) {
     let dodge_request = input.dodge.take();
@@ -492,29 +564,35 @@ pub(crate) fn movement(
     let delta = time.delta_secs();
     let weight = inventory.carried_weight(&equipment);
     let agile = weight <= CARRY_CAPACITY;
-    let can_act = dialogue.text.is_none() && !attack.active();
-    let can_move = weight <= IMMOBILE_WEIGHT && can_act;
-    for (entity, mut transform, collider, mut player, mut dodge, mut stamina) in &mut players {
+    for (entity, mut transform, collider, mut player, mut dodge, mut stamina, attack) in
+        &mut players
+    {
+        let can_act = dialogue.text.is_none() && !attack.active();
+        let can_move = weight <= IMMOBILE_WEIGHT && can_act;
         dodge.cooldown = (dodge.cooldown - delta).max(0.0);
         let filter = SpatialQueryFilter::from_excluded_entities([entity]);
         // Let the hop descend almost to the surface before ending its motion.
-        let ground_distance = if dodge.active() { 0.025 } else { 0.12 };
+        let ground_distance = if dodge.active() {
+            DODGE_GROUND_PROBE_DISTANCE
+        } else {
+            GROUND_PROBE_DISTANCE
+        };
         let ground = spatial.cast_shape(
-            &Collider::capsule(0.30, 1.15),
+            &Collider::capsule(GROUND_PROBE_RADIUS, PLAYER_COLLIDER_LENGTH),
             transform.translation,
             Quat::IDENTITY,
             Dir3::NEG_Y,
             &ShapeCastConfig::from_max_distance(ground_distance),
             &filter,
         );
-        player.grounded = (!player.jumping || player.velocity.y <= 0.1)
-            && ground.is_some_and(|h| h.normal1.y > 0.7);
+        player.grounded = (!player.jumping || player.velocity.y <= GROUNDING_MAX_UPWARD_SPEED)
+            && ground.is_some_and(|h| h.normal1.y > GROUND_NORMAL_MIN_Y);
         if player.grounded || !can_move || !agile {
             dodge.hop = None;
         }
         if player.grounded {
             player.jumping = false;
-            player.velocity.y = -0.6;
+            player.velocity.y = -GROUND_STICK_SPEED;
         }
         if can_move && agile && player.grounded {
             if let Some(direction) =
@@ -528,45 +606,21 @@ pub(crate) fn movement(
                 dodge.start(heading);
                 player.launch(DODGE_LAUNCH_SPEED);
             } else if jump_requested && stamina.try_spend(JUMP_STAMINA) {
-                player.launch(4.7);
+                player.launch(JUMP_SPEED);
             }
         }
-        let (horizontal, gravity) = if let Some(hop) = &dodge.hop {
-            player.pace = Pace::Walk;
-            player.movement_direction = Vec2::ZERO;
-            (hop.heading * DODGE_SPEED, DODGE_GRAVITY)
-        } else {
-            let direction = if can_move {
-                input.direction
-            } else {
-                Vec2::ZERO
-            };
-            player.movement_direction = direction;
-            player.pace = if agile && player.run_enabled && direction != Vec2::ZERO {
-                Pace::Run
-            } else {
-                Pace::Walk
-            };
-            if agile
-                && input.sprint
-                && direction.y > 0.0
-                && direction.x == 0.0
-                && !player.sprint_exhausted
-            {
-                if !stamina.is_empty() {
-                    player.pace = Pace::Sprint;
-                    stamina.drain_sprint(delta);
-                }
-                player.sprint_exhausted = stamina.is_empty();
-            }
-            (
-                camera_heading(direction, orbit.yaw) * player.pace.speed(),
-                5.0,
-            )
-        };
+        let (horizontal, gravity) = player.travel_velocity(
+            &dodge,
+            &mut stamina,
+            &input,
+            can_move,
+            agile,
+            orbit.yaw,
+            delta,
+        );
         player.velocity.x = horizontal.x;
         player.velocity.z = horizontal.z;
-        player.velocity.y = (player.velocity.y - gravity * delta).max(-22.0);
+        player.velocity.y = (player.velocity.y - gravity * delta).max(-MAX_FALL_SPEED);
         let velocity = player.velocity;
         let output = mover.move_and_slide(
             collider,
@@ -578,7 +632,7 @@ pub(crate) fn movement(
             &filter,
             |hit| {
                 // Suppress upward motion introduced by pushing against steep surfaces.
-                if hit.normal.y < 0.7 && hit.velocity.y > velocity.y.max(0.0) {
+                if hit.normal.y < GROUND_NORMAL_MIN_Y && hit.velocity.y > velocity.y.max(0.0) {
                     hit.velocity.y = velocity.y.max(0.0);
                 }
                 MoveAndSlideHitResponse::Accept
@@ -588,17 +642,17 @@ pub(crate) fn movement(
         // Follow the slope this tick without carrying its upward motion as jump velocity.
         player.velocity.y = output.projected_velocity.y.min(velocity.y.max(0.0));
         dodge.advance(delta);
-        if transform.translation.y < -15.0
-            || transform.translation.x.abs() > 55.0
-            || transform.translation.z > 35.0
-            || transform.translation.z < -140.0
+        if transform.translation.y < WORLD_MIN_Y
+            || transform.translation.x.abs() > WORLD_MAX_ABS_X
+            || transform.translation.z > WORLD_MAX_Z
+            || transform.translation.z < WORLD_MIN_Z
         {
             player.respawn(&mut dodge, &mut transform, layout.start());
         } else if can_act && player.grounded && player.pace == Pace::Walk {
             let recovery_time = if player.movement_direction == Vec2::ZERO {
                 delta
             } else {
-                delta * 0.5
+                delta * WALK_STAMINA_RECOVERY_FACTOR
             };
             stamina.recover(recovery_time);
         }
@@ -620,20 +674,25 @@ pub(crate) fn bind_actor_animation(
         if let Ok(mut player) = players.get_mut(child) {
             let mut transitions = AnimationTransitions::new();
             transitions
-                .play(&mut player, library.nodes[0], Duration::ZERO)
+                .play(
+                    &mut player,
+                    library.nodes[Gait::Idle as usize],
+                    Duration::ZERO,
+                )
                 .repeat();
             commands
                 .entity(child)
                 .insert((AnimationGraphHandle(library.graph.clone()), transitions));
-            if actor.player {
-                commands
-                    .entity(child)
-                    .insert(AnimatedActor { current: Some(0) });
+            if matches!(actor, ActorVisual::Player) {
+                commands.entity(child).insert(AnimatedActor {
+                    owner: parent.parent(),
+                    current: Some(Gait::Idle as usize),
+                });
             } else {
                 death_players.push(child);
                 commands.entity(child).insert(NemiPlayback {
                     owner: parent.parent(),
-                    clip: 0,
+                    clip: Gait::Idle as usize,
                 });
             }
         }
@@ -648,47 +707,46 @@ pub(crate) fn bind_actor_animation(
 
 fn animate(
     library: Res<AnimationLibrary>,
-    attack: Res<WeaponAttack>,
     equipment: Res<Equipment>,
-    players: Query<(&Player, &Dodge, &WeaponStance)>,
+    players: Query<(&Player, &Dodge, &WeaponStance, &WeaponAttack)>,
     mut animations: Query<(
         &mut AnimationPlayer,
         &mut AnimationTransitions,
         &mut AnimatedActor,
     )>,
 ) {
-    let Some((player, dodge, stance)) = players.iter().next() else {
-        return;
-    };
-    let gait = Gait::for_player(player);
-    let sword_times = Hand::ALL.map(|hand| {
-        attack
-            .current(hand)
-            .filter(|swing| swing.weapon == WeaponKind::Shortsword)
-            .map(|swing| swing.elapsed)
-    });
-    let swinging_swords = sword_times.iter().any(Option::is_some);
-    let thrusting = attack
-        .current(Hand::Main)
-        .is_some_and(|swing| swing.weapon == WeaponKind::Spear);
-    let carry = if *stance == WeaponStance::Drawn {
-        equipment
-            .weapon(EquipmentSlot::MainHand)
-            .or_else(|| equipment.weapon(EquipmentSlot::OffHand))
-    } else {
-        None
-    };
-    let start = match carry {
-        Some(WeaponKind::Spear) => SPEAR_LOCOMOTION_START,
-        Some(WeaponKind::Shortsword) => SWORD_LOCOMOTION_START,
-        None => 0,
-    };
-    let index = if thrusting {
-        SPEAR_THRUST_CLIP
-    } else {
-        start + gait as usize
-    };
     for (mut animation, mut transitions, mut actor) in &mut animations {
+        let Ok((player, dodge, stance, attack)) = players.get(actor.owner) else {
+            continue;
+        };
+        let gait = Gait::for_player(player);
+        let sword_times = Hand::ALL.map(|hand| {
+            attack
+                .current(hand)
+                .filter(|swing| swing.weapon == WeaponKind::Shortsword)
+                .map(|swing| swing.elapsed)
+        });
+        let swinging_swords = sword_times.iter().any(Option::is_some);
+        let thrusting = attack
+            .current(Hand::Main)
+            .is_some_and(|swing| swing.weapon == WeaponKind::Spear);
+        let carry = if *stance == WeaponStance::Drawn {
+            equipment
+                .weapon(EquipmentSlot::MainHand)
+                .or_else(|| equipment.weapon(EquipmentSlot::OffHand))
+        } else {
+            None
+        };
+        let start = match carry {
+            Some(WeaponKind::Spear) => SPEAR_LOCOMOTION_START,
+            Some(WeaponKind::Shortsword) => SWORD_LOCOMOTION_START,
+            None => 0,
+        };
+        let index = if thrusting {
+            SPEAR_THRUST_CLIP
+        } else {
+            start + gait as usize
+        };
         if swinging_swords {
             if actor.current.take().is_some() {
                 animation.stop_all();
@@ -726,9 +784,9 @@ fn animate(
                 let blend = if changes_grip {
                     Duration::ZERO
                 } else if dodge.active() {
-                    Duration::from_millis(50)
+                    DODGE_ANIMATION_BLEND
                 } else {
-                    Duration::from_millis(160)
+                    LOCOMOTION_ANIMATION_BLEND
                 };
                 transitions
                     .play(&mut animation, library.nodes[index], blend)
@@ -762,7 +820,6 @@ fn resume(mut players: Query<&mut AnimationPlayer>) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::weapon::WeaponAttack;
     use crate::{
         combat::{CombatPlugin, Hit},
         inventory::ItemKind,
@@ -778,6 +835,12 @@ mod tests {
     };
 
     const STEP: Duration = Duration::from_micros(15_625);
+
+    fn player_attack(app: &App, player: Entity) -> &WeaponAttack {
+        app.world()
+            .get::<WeaponAttack>(player)
+            .expect("the test player must have its required attack component")
+    }
 
     fn test_app() -> (App, Entity) {
         let mut app = App::new();
@@ -825,7 +888,7 @@ mod tests {
                 Player::default(),
                 RigidBody::Kinematic,
                 CustomPositionIntegration,
-                Collider::capsule(0.32, 1.15),
+                Collider::capsule(PLAYER_COLLIDER_RADIUS, PLAYER_COLLIDER_LENGTH),
                 Transform::from_xyz(0.0, 0.905, 0.0),
             ))
             .id();
@@ -1233,7 +1296,7 @@ mod tests {
         tick(&mut app, 1);
         assert!(!active(&app, player), "no fixed step has run yet");
         assert!(
-            !app.world().resource::<WeaponAttack>().active(),
+            !player_attack(&app, player).active(),
             "a pending dodge must reserve the player's action"
         );
         app.insert_resource(TimeUpdateStrategy::ManualDuration(STEP));
@@ -1244,7 +1307,7 @@ mod tests {
         mouse.release(MouseButton::Left);
         mouse.press(MouseButton::Left);
         tick(&mut app, 1);
-        assert!(app.world().resource::<WeaponAttack>().active());
+        assert!(player_attack(&app, player).active());
         release(&mut app, DODGE_KEY);
         press(&mut app, &[DODGE_KEY]);
         tick(&mut app, 1);
@@ -1267,16 +1330,16 @@ mod tests {
             .resource_mut::<ButtonInput<MouseButton>>()
             .press(MouseButton::Left);
         tick(&mut app, 1);
-        assert!(app.world().resource::<WeaponAttack>().active());
+        assert!(player_attack(&app, player).active());
         assert_eq!(stamina(&app, player), 10.0);
 
         app.insert_resource(TimeUpdateStrategy::ManualDuration(STEP));
         tick(&mut app, 20);
         assert!(!active(&app, player));
-        assert!(app.world().resource::<WeaponAttack>().active());
+        assert!(player_attack(&app, player).active());
         assert_eq!(stamina(&app, player), 10.0);
         tick(&mut app, 30);
-        assert!(!app.world().resource::<WeaponAttack>().active());
+        assert!(!player_attack(&app, player).active());
         assert!(stamina(&app, player) > 10.0);
     }
 

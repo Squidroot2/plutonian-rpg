@@ -9,12 +9,19 @@ use crate::{
     world::WorldLayout,
     worm,
 };
+use avian3d::prelude::{Collider, SpatialQuery, SpatialQueryFilter};
 use bevy::{
     asset::{LoadState, RecursiveDependencyLoadState},
     gltf::Gltf,
     prelude::*,
+    world_serialization::WorldInstanceReady,
 };
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, time::Instant};
+
+const LOADING_TIMEOUT_SECONDS: u64 = 90;
+const ARENA_FLOOR_PROBE_ORIGIN: Vec3 = Vec3::new(0.0, 5.0, -12.0);
+const ARENA_FLOOR_PROBE_RANGE: f32 = 6.0;
+const MIN_NON_PLAYER_COLLIDERS: usize = 2;
 
 const ENEMY_MODELS: &[EnemyModel] = &[worm::MODEL, roach::MODEL];
 
@@ -49,8 +56,29 @@ pub struct GameAssets {
     pub pickups: BTreeMap<ItemKind, Handle<Gltf>>,
     pub worn: BTreeMap<ItemKind, Handle<Gltf>>,
 }
+impl GameAssets {
+    fn model_handles(&self) -> impl Iterator<Item = &Handle<Gltf>> + Clone {
+        [&self.character, &self.core, &self.dummy]
+            .into_iter()
+            .chain(
+                self.outpost
+                    .iter()
+                    .chain(self.relay.iter())
+                    .flat_map(|(visuals, collision)| [visuals, collision]),
+            )
+            .chain(self.enemies.values())
+            .chain(self.pickups.values())
+            .chain(self.worn.values())
+    }
+}
+
+/// A scene root whose instantiated entities are still needed before play can begin.
 #[derive(Component)]
 pub struct PendingScene;
+
+pub(crate) fn scene_ready(event: On<WorldInstanceReady>, mut commands: Commands) {
+    commands.entity(event.entity).remove::<PendingScene>();
+}
 
 #[derive(Resource, Default)]
 pub struct LoadStatus {
@@ -58,7 +86,7 @@ pub struct LoadStatus {
     pub spawning: bool,
     pub collision_ready: bool,
     pub relay_collision_ready: bool,
-    pub started: Option<std::time::Instant>,
+    pub started: Option<Instant>,
 }
 fn load(
     mut commands: Commands,
@@ -116,28 +144,17 @@ fn check(
     mut status: ResMut<LoadStatus>,
     mut next: ResMut<NextState<GameState>>,
     pending: Query<(), With<PendingScene>>,
-    spatial: avian3d::prelude::SpatialQuery,
+    spatial: SpatialQuery,
     arena_floor: Query<Entity, With<crate::smoke::ArenaFloor>>,
-    colliders: Query<&avian3d::prelude::Collider, Without<crate::player::Player>>,
+    colliders: Query<&Collider, Without<crate::player::Player>>,
     mut run: ResMut<RunSave>,
     mut slot: ResMut<SaveSlot>,
 ) {
-    let started = *status.started.get_or_insert_with(std::time::Instant::now);
-    if started.elapsed().as_secs() > 90 {
+    let started = *status.started.get_or_insert_with(Instant::now);
+    if started.elapsed().as_secs() > LOADING_TIMEOUT_SECONDS {
         status.error = Some("Timed out while loading or preparing the world".into());
     }
-    let handles = [&assets.character, &assets.core, &assets.dummy]
-        .into_iter()
-        .chain(
-            assets
-                .outpost
-                .iter()
-                .chain(assets.relay.iter())
-                .flat_map(|(outpost, collision)| [outpost, collision]),
-        )
-        .chain(assets.enemies.values())
-        .chain(assets.pickups.values())
-        .chain(assets.worn.values());
+    let mut handles = assets.model_handles();
     for handle in handles.clone() {
         if let Some(LoadState::Failed(error)) = server.get_load_state(handle.id()) {
             status.error = Some(format!("Could not load game assets: {error}"));
@@ -156,23 +173,10 @@ fn check(
         return;
     }
     if status.spawning {
-        // Scene-ready events alone do not guarantee physics constructors have finished.
-        let arena_ready = arena_floor.single().is_ok_and(|floor| {
-            use avian3d::prelude::SpatialQueryFilter;
-            spatial
-                .cast_ray(
-                    Vec3::new(0.0, 5.0, -12.0),
-                    Dir3::NEG_Y,
-                    6.0,
-                    true,
-                    &SpatialQueryFilter::default(),
-                )
-                .is_some_and(|hit| hit.entity == floor)
-        });
         if pending.is_empty()
-            && (status.collision_ready || arena_ready)
+            && (status.collision_ready || arena_floor_ready(&spatial, arena_floor.single().ok()))
             && (assets.relay.is_none() || status.relay_collision_ready)
-            && colliders.iter().nth(1).is_some()
+            && colliders.iter().nth(MIN_NON_PLAYER_COLLIDERS - 1).is_some()
         {
             next.set(GameState::Playing);
         }
@@ -184,7 +188,7 @@ fn check(
     {
         return;
     }
-    if handles.clone().any(|handle| {
+    if handles.any(|handle| {
         gltfs
             .get(handle)
             .is_none_or(|model| model.scenes.is_empty())
@@ -210,6 +214,43 @@ fn check(
     } else {
         QuestJournal::new(catalog.clone(), *layout)
     };
+    let (player_animations, enemy_visuals) =
+        match prepare_animations(&assets, &gltfs, &clips, &mut graphs) {
+            Ok(result) => result,
+            Err(error) => {
+                status.error = Some(error);
+                next.set(GameState::Failed);
+                return;
+            }
+        };
+    commands.insert_resource(player_animations);
+    commands.insert_resource(enemy_visuals);
+    commands.insert_resource(journal);
+    status.spawning = true;
+    commands.trigger(crate::world::SpawnWorld);
+}
+
+/// The arena uses a ray probe because it has no imported collider hierarchy.
+fn arena_floor_ready(spatial: &SpatialQuery, floor: Option<Entity>) -> bool {
+    floor.is_some_and(|floor| {
+        spatial
+            .cast_ray(
+                ARENA_FLOOR_PROBE_ORIGIN,
+                Dir3::NEG_Y,
+                ARENA_FLOOR_PROBE_RANGE,
+                true,
+                &SpatialQueryFilter::default(),
+            )
+            .is_some_and(|hit| hit.entity == floor)
+    })
+}
+
+fn prepare_animations(
+    assets: &GameAssets,
+    gltfs: &Assets<Gltf>,
+    clips: &Assets<AnimationClip>,
+    graphs: &mut Assets<AnimationGraph>,
+) -> Result<(AnimationLibrary, EnemyVisuals), String> {
     let model = gltfs.get(&assets.character).expect(
         "the character glTF must be present after all game models passed loading validation",
     );
@@ -219,47 +260,35 @@ fn check(
         .chain([crate::equipment::HOLSTER_ROOT_BONE])
     {
         if !model.named_nodes.contains_key(bone) {
-            status.error = Some(format!(
+            return Err(format!(
                 "The player rig is missing equipment attachment bone {bone}"
             ));
-            next.set(GameState::Failed);
-            return;
         }
     }
-    let graphs_and_nodes =
-        animation_graph(model, CLIPS, "plutonian.glb").and_then(|(mut graph, nodes)| {
-            let guards = add_sword_animation_masks(
-                &mut graph,
-                &nodes,
-                model.named_animations["SwordIdle"].clone(),
-                &clips,
-            )?;
-            let enemies = ENEMY_MODELS
-                .iter()
-                .map(|definition| {
-                    let model = gltfs
-                        .get(&assets.enemies[definition.path])
-                        .expect("enemy models must be present after loading validation");
-                    let (graph, nodes) = animation_graph(model, definition.clips, definition.path)?;
-                    Ok((definition.path, (model.scenes[0].clone(), graph, nodes)))
-                })
-                .collect::<Result<BTreeMap<_, _>, String>>()?;
-            Ok(((graph, nodes, guards), enemies))
-        });
-    let ((player_graph, player_nodes, sword_guards), enemies) = match graphs_and_nodes {
-        Ok(result) => result,
-        Err(error) => {
-            status.error = Some(error);
-            next.set(GameState::Failed);
-            return;
-        }
+    let (mut graph, nodes) = animation_graph(model, CLIPS, "plutonian.glb")?;
+    let guards = add_sword_animation_masks(
+        &mut graph,
+        &nodes,
+        model.named_animations["SwordIdle"].clone(),
+        clips,
+    )?;
+    let enemies = ENEMY_MODELS
+        .iter()
+        .map(|definition| {
+            let model = gltfs
+                .get(&assets.enemies[definition.path])
+                .expect("enemy models must be present after loading validation");
+            let (graph, nodes) = animation_graph(model, definition.clips, definition.path)?;
+            Ok((definition.path, (model.scenes[0].clone(), graph, nodes)))
+        })
+        .collect::<Result<BTreeMap<_, _>, String>>()?;
+
+    let player = AnimationLibrary {
+        graph: graphs.add(graph),
+        nodes,
+        sword_guards: guards,
     };
-    commands.insert_resource(AnimationLibrary {
-        graph: graphs.add(player_graph),
-        nodes: player_nodes,
-        sword_guards,
-    });
-    commands.insert_resource(EnemyVisuals(
+    let enemies = EnemyVisuals(
         enemies
             .into_iter()
             .map(|(path, (scene, graph, nodes))| {
@@ -270,10 +299,8 @@ fn check(
                 (path, EnemyVisual { scene, animations })
             })
             .collect(),
-    ));
-    commands.insert_resource(journal);
-    status.spawning = true;
-    commands.trigger(crate::world::SpawnWorld);
+    );
+    Ok((player, enemies))
 }
 
 fn animation_graph<const N: usize>(

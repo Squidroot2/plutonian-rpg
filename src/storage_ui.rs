@@ -6,7 +6,9 @@ use crate::{
     dungeon::Area,
     interaction::{ActiveChest, INTERACT_HEIGHT, INTERACT_RANGE, unobstructed},
     inventory::{Inventory, ItemKind},
-    menu_ui::{PANEL, button, column, scroll_hovered, scrollable_pane},
+    menu_ui::{
+        button, interaction_modal, scroll_hovered, scrollable_pane, set_display, wide_panel,
+    },
     player::Player,
     storage::{ChestId, ChestStorage},
     ui::text_style,
@@ -88,72 +90,48 @@ fn open(
     };
 
     commands
-        .spawn((
-            DespawnOnExit(GameState::Storage),
-            GlobalZIndex(50),
-            Node {
-                position_type: PositionType::Absolute,
-                width: percent(100),
-                height: percent(100),
-                align_items: AlignItems::Center,
-                justify_content: JustifyContent::Center,
-                ..default()
-            },
-            BackgroundColor(Color::srgba(0.005, 0.012, 0.025, 0.82)),
-        ))
+        .spawn(interaction_modal(GameState::Storage))
         .with_children(|screen| {
-            screen
-                .spawn((
-                    Node {
-                        width: percent(94),
-                        max_width: px(940),
-                        height: percent(76),
-                        max_height: px(650),
-                        padding: UiRect::all(px(16)),
-                        ..column()
-                    },
-                    BackgroundColor(PANEL),
-                ))
-                .with_children(|panel| {
-                    panel
-                        .spawn(Node {
-                            justify_content: JustifyContent::FlexEnd,
-                            flex_shrink: 0.0,
-                            ..default()
-                        })
-                        .with_children(|header| {
-                            action_button(header, StorageAction::Close, "Close [Esc]");
-                        });
-                    panel
-                        .spawn(Node {
-                            justify_content: JustifyContent::SpaceBetween,
-                            flex_grow: 1.0,
-                            min_height: px(0),
-                            ..default()
-                        })
-                        .with_children(|lists| {
-                            spawn_pane(
-                                lists,
-                                StorageSide::Backpack,
-                                "Backpack",
-                                "Store 1",
-                                "Store stack",
-                            );
-                            spawn_pane(
-                                lists,
-                                StorageSide::Chest,
-                                chest.name(),
-                                "Take 1",
-                                "Take stack",
-                            );
-                        });
-                    panel.spawn((
-                        StorageNotice,
-                        Text::default(),
-                        text_style(14.0),
-                        Pickable::IGNORE,
-                    ));
-                });
+            screen.spawn(wide_panel()).with_children(|panel| {
+                panel
+                    .spawn(Node {
+                        justify_content: JustifyContent::FlexEnd,
+                        flex_shrink: 0.0,
+                        ..default()
+                    })
+                    .with_children(|header| {
+                        action_button(header, StorageAction::Close, "Close [Esc]");
+                    });
+                panel
+                    .spawn(Node {
+                        justify_content: JustifyContent::SpaceBetween,
+                        flex_grow: 1.0,
+                        min_height: px(0),
+                        ..default()
+                    })
+                    .with_children(|lists| {
+                        spawn_pane(
+                            lists,
+                            StorageSide::Backpack,
+                            "Backpack",
+                            "Store 1",
+                            "Store stack",
+                        );
+                        spawn_pane(
+                            lists,
+                            StorageSide::Chest,
+                            chest.name(),
+                            "Take 1",
+                            "Take stack",
+                        );
+                    });
+                panel.spawn((
+                    StorageNotice,
+                    Text::default(),
+                    text_style(14.0),
+                    Pickable::IGNORE,
+                ));
+            });
         });
 }
 
@@ -297,23 +275,19 @@ fn refresh(
         StorageSide::Chest => storage.get(chest),
     };
     for (&StackRow(side, item), mut row) in &mut rows {
-        row.display = if inventory(side).count(item) > 0 {
-            Display::Flex
-        } else {
-            Display::None
-        };
+        set_display(&mut row, inventory(side).count(item) > 0);
     }
     for (&StackLabel(side, item), mut label) in &mut labels {
         let quantity = inventory(side).count(item);
         if quantity > 0 {
-            **label = format!("{} x{quantity}", item.name());
+            label.set_if_neq(Text::new(format!("{} x{quantity}", item.name())));
         }
     }
     for (&EmptyPane(side), mut node) in &mut empty {
         let empty = ItemKind::ALL
             .into_iter()
             .all(|item| inventory(side).count(item) == 0);
-        node.display = if empty { Display::Flex } else { Display::None };
+        set_display(&mut node, empty);
     }
 }
 

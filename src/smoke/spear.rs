@@ -90,8 +90,7 @@ pub(super) fn drive(
     inventory: Res<Inventory>,
     equipment: Res<Equipment>,
     nearby: Res<Nearby>,
-    thrust: Res<WeaponAttack>,
-    player: Query<(&Transform, &Player, &WeaponStance)>,
+    player: Query<(&Transform, &Player, &WeaponStance, &WeaponAttack)>,
     (dummy, captures, impacts, windows): (
         Query<(&HitReaction, &Transform), With<PracticeDummy>>,
         Query<(), With<Screenshot>>,
@@ -123,7 +122,7 @@ pub(super) fn drive(
         super::capture(commands, &format!("{screenshot_name}-{stage}"))
     };
     let now = time.elapsed_secs();
-    let (transform, controller, stance) = player
+    let (transform, controller, stance, thrust) = player
         .single()
         .expect("spear smoke requires one loaded player");
     let (window, camera) = materials

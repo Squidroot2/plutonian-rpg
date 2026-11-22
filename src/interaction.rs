@@ -12,7 +12,7 @@ use crate::{
     storage::ChestId,
 };
 use avian3d::prelude::*;
-use bevy::prelude::*;
+use bevy::{ecs::query::QueryData, prelude::*};
 
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Target {
@@ -46,6 +46,9 @@ impl CorpseLoot {
 
 pub(crate) const INTERACT_RANGE: f32 = 3.0;
 pub(crate) const INTERACT_HEIGHT: f32 = 0.45;
+const KEEPER_INTERACTION_OFFSET: f32 = 0.35;
+const PICKUP_INTERACTION_OFFSET: f32 = 0.18;
+const HATCH_INTERACTION_OFFSET: f32 = 0.65;
 
 #[derive(Resource, Default)]
 pub(crate) struct LootTarget(pub(crate) Option<Entity>);
@@ -74,21 +77,67 @@ impl Plugin for InteractionPlugin {
             );
     }
 }
+/// Collects the interaction capabilities that may be present on an entity.
+#[derive(QueryData)]
+struct Candidate {
+    entity: Entity,
+    transform: &'static Transform,
+    quest: Option<&'static Target>,
+    pickup: Option<&'static Pickup>,
+    dungeon: Option<&'static DungeonTarget>,
+    corpse: Option<&'static CorpseLoot>,
+    dead: Has<Dead>,
+    nemi: Option<&'static Nemi>,
+    chest: Option<&'static ChestId>,
+    bed: Has<Bed>,
+}
+
+impl CandidateItem<'_, '_> {
+    fn interaction(&self, area: Area, quest: &QuestJournal) -> Option<(InteractionTarget, Vec3)> {
+        let (interaction, height) = if let Some(&target) = self.quest {
+            if area != Area::Surface {
+                return None;
+            }
+            let height = match target {
+                Target::Keeper if !self.dead && self.nemi.is_none_or(Nemi::can_talk) => {
+                    KEEPER_INTERACTION_OFFSET
+                }
+                Target::Core if !quest.has_occurred(QuestAction::RecoveredCore) => 0.0,
+                Target::BeaconSocket if quest.expects(QuestAction::InstalledCore) => 0.0,
+                _ => return None,
+            };
+            (InteractionTarget::Quest(target), height)
+        } else if let Some(&pickup) = self.pickup {
+            (InteractionTarget::Pickup(pickup), PICKUP_INTERACTION_OFFSET)
+        } else if let Some(&dungeon) = self.dungeon {
+            if area != dungeon.area() {
+                return None;
+            }
+            let height = match dungeon {
+                DungeonTarget::Hatch | DungeonTarget::Exit => HATCH_INTERACTION_OFFSET,
+                _ => 0.0,
+            };
+            (InteractionTarget::Dungeon(dungeon), height)
+        } else if self
+            .corpse
+            .is_some_and(|loot| self.dead && loot.area == area && loot.stack.is_some())
+        {
+            (InteractionTarget::Corpse, 0.0)
+        } else if let Some(&chest) = self.chest.filter(|_| area == Area::Surface) {
+            (InteractionTarget::Chest(chest), 0.0)
+        } else if self.bed && area == Area::Surface {
+            (InteractionTarget::Bed, 0.0)
+        } else {
+            return None;
+        };
+        Some((interaction, self.transform.translation + Vec3::Y * height))
+    }
+}
+
 fn find_target(
     players: Query<(Entity, &Transform, &Player), Without<Dead>>,
     targets: Query<
-        (
-            Entity,
-            &Transform,
-            Option<&Target>,
-            Option<&Pickup>,
-            Option<&DungeonTarget>,
-            Option<&CorpseLoot>,
-            Has<Dead>,
-            Option<&Nemi>,
-            Option<&ChestId>,
-            Has<Bed>,
-        ),
+        Candidate,
         Or<(
             With<Target>,
             With<Pickup>,
@@ -115,53 +164,11 @@ fn find_target(
     let mut selected = None;
     let origin = transform.translation + Vec3::Y * INTERACT_HEIGHT;
     let mut closest = INTERACT_RANGE;
-    for (entity, transform, target, pickup, dungeon, corpse, dead, nemi, chest, bed) in &targets {
-        let (interaction, point) = if let Some(target) = target {
-            let available = match target {
-                Target::Keeper => !dead && nemi.is_none_or(Nemi::can_talk),
-                Target::Core => !quest.has_occurred(QuestAction::RecoveredCore),
-                Target::BeaconSocket => quest.expects(QuestAction::InstalledCore),
-            };
-            if player.area != Area::Surface || !available {
-                continue;
-            }
-            (
-                InteractionTarget::Quest(*target),
-                transform.translation
-                    + if *target == Target::Keeper {
-                        Vec3::Y * 0.35
-                    } else {
-                        Vec3::ZERO
-                    },
-            )
-        } else if let Some(pickup) = pickup {
-            (
-                InteractionTarget::Pickup(*pickup),
-                transform.translation + Vec3::Y * 0.18,
-            )
-        } else if let Some(&dungeon) = dungeon {
-            if player.area != dungeon.area() {
-                continue;
-            }
-            let height = match dungeon {
-                DungeonTarget::Hatch | DungeonTarget::Exit => 0.65,
-                _ => 0.0,
-            };
-            (
-                InteractionTarget::Dungeon(dungeon),
-                transform.translation + Vec3::Y * height,
-            )
-        } else if corpse
-            .is_some_and(|loot| dead && loot.area == player.area && loot.stack.is_some())
-        {
-            (InteractionTarget::Corpse, transform.translation)
-        } else if let Some(&chest) = chest.filter(|_| player.area == Area::Surface) {
-            (InteractionTarget::Chest(chest), transform.translation)
-        } else if bed && player.area == Area::Surface {
-            (InteractionTarget::Bed, transform.translation)
-        } else {
+    for candidate in &targets {
+        let Some((interaction, point)) = candidate.interaction(player.area, &quest) else {
             continue;
         };
+        let entity = candidate.entity;
         let delta = point - origin;
         let distance = delta.length();
         if distance >= closest {
@@ -175,6 +182,7 @@ fn find_target(
     nearby.set_if_neq(Nearby(selected));
 }
 
+/// Check line of sight between the player and target, excluding their own colliders.
 pub(crate) fn unobstructed(
     spatial: &SpatialQuery,
     origin: Vec3,
@@ -242,8 +250,7 @@ fn interact(
                     } else {
                         "POWER CORE RECOVERED\n\nIts light pulses against your hands. There is still warmth inside.\n\nReturn to Nemi at the outpost to restore the beacon."
                     });
-                    commands.entity(entity).despawn();
-                    commands.trigger(crate::combat_audio::ItemPickedUp);
+                    finish_pickup(&mut commands, entity);
                 }
             }
             InteractionTarget::Quest(Target::BeaconSocket) => {
@@ -253,8 +260,7 @@ fn interact(
                 // Re-read the live component before transferring the stack.
                 if let Ok(pickup) = pickups.get(entity) {
                     if inventory.add(pickup.item, pickup.quantity) {
-                        commands.entity(entity).despawn();
-                        commands.trigger(crate::combat_audio::ItemPickedUp);
+                        finish_pickup(&mut commands, entity);
                     }
                 }
             }
@@ -277,6 +283,11 @@ fn interact(
             _ => (),
         }
     }
+}
+
+fn finish_pickup(commands: &mut Commands, entity: Entity) {
+    commands.entity(entity).despawn();
+    commands.trigger(crate::combat_audio::ItemPickedUp);
 }
 
 fn install_core(quest: &mut QuestJournal, inventory: &mut Inventory) -> &'static str {

@@ -13,6 +13,7 @@ use crate::{
     GameState,
     combat::{CombatSystems, ConfirmedHit, Dead},
     enemy::Enemy,
+    player::Player,
     weapon::WeaponAttack,
 };
 
@@ -73,11 +74,11 @@ fn spawn_sound(commands: &mut Commands, sound: &Handle<Effect>) {
 fn play(
     mut commands: Commands,
     sounds: Res<Sounds>,
-    thrust: Res<WeaponAttack>,
+    attacks: Query<&WeaponAttack, With<Player>>,
     mut hits: MessageReader<ConfirmedHit>,
     deaths: Query<(), (Added<Dead>, With<Enemy>)>,
 ) {
-    if thrust.just_started() {
+    if attacks.iter().any(WeaponAttack::just_started) {
         spawn_sound(&mut commands, &sounds.thrust);
     }
     for _ in hits.read() {

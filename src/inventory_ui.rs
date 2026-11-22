@@ -4,7 +4,9 @@ use crate::{
     inventory::{
         CARRY_CAPACITY, DropRequest, IMMOBILE_WEIGHT, Inventory, InventoryNotice, ItemKind,
     },
-    menu_ui::{self, BUTTON, DISABLED, MenuTab, PlayerMenu, SELECTED, column, scroll_pane},
+    menu_ui::{
+        self, BUTTON, DISABLED, MenuTab, PlayerMenu, SELECTED, column, scroll_pane, set_display,
+    },
     ui::text_style as font,
 };
 use bevy::{
@@ -159,7 +161,17 @@ struct SlotPicker(EquipmentSlot);
 impl Plugin for InventoryUiPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<InventoryUiState>()
-            .add_systems(Update, (navigate_items, edit_quantity, sync).chain())
+            .add_systems(
+                Update,
+                (
+                    navigate_items,
+                    edit_quantity,
+                    (reconcile_selection, (refresh_controls, refresh_labels))
+                        .chain()
+                        .run_if(inventory_panel_changed),
+                )
+                    .chain(),
+            )
             .add_systems(Last, dismiss_prompt.after(menu_ui::close));
     }
 }
@@ -596,53 +608,72 @@ fn edit_quantity(
     }
 }
 
-fn sync(
+/// Refresh the views when their shared inputs change or the menu is opened.
+fn inventory_panel_changed(
     inventory: Res<Inventory>,
     equipment: Res<Equipment>,
-    mut ui: ResMut<InventoryUiState>,
+    ui: Res<InventoryUiState>,
     notice: Res<InventoryNotice>,
     bindings: Res<Keybinds>,
     menu: Res<PlayerMenu>,
-    mut nodes: ParamSet<(
-        Query<&mut Node, With<DropControls>>,
-        Query<(&InventoryAction, &mut Node, &mut BackgroundColor)>,
-        Query<(&EmptyList, &mut Node)>,
-        Query<(&SlotPicker, &mut Node)>,
-    )>,
-    mut texts: Query<(&PanelText, &mut Text)>,
-) {
-    if !menu.is_open()
-        || !(menu.is_changed()
+) -> bool {
+    menu.is_open()
+        && (menu.is_changed()
             || inventory.is_changed()
             || equipment.is_changed()
             || ui.is_changed()
             || notice.is_changed()
             || bindings.is_changed())
-    {
-        return;
-    }
+}
+
+fn reconcile_selection(
+    inventory: Res<Inventory>,
+    equipment: Res<Equipment>,
+    mut ui: ResMut<InventoryUiState>,
+) {
     if ui
         .selected
         .is_none_or(|item| owned(item, &inventory, &equipment) == 0)
     {
-        ui.selected = ItemKind::ALL
+        let selected = ItemKind::ALL
             .into_iter()
             .find(|&item| owned(item, &inventory, &equipment) > 0);
-        ui.cancel_drop();
+        if ui.selected != selected {
+            ui.selected = selected;
+        }
+        if ui.drop_is_open() {
+            ui.cancel_drop();
+        }
     }
     if ui.equip_slot.is_some_and(|slot| {
         equipment.get(slot).is_some() || !has_gear_for_slot(slot, &inventory, &equipment)
     }) {
         ui.equip_slot = None;
     }
-    let droppable = ui
-        .selected
-        .is_some_and(|item| available_to_drop(item, &inventory) > 0);
-    if !droppable {
+    if ui.drop_is_open() && !selection_is_droppable(&ui, &inventory) {
         ui.cancel_drop();
     }
+}
+
+fn selection_is_droppable(ui: &InventoryUiState, inventory: &Inventory) -> bool {
+    ui.selected
+        .is_some_and(|item| available_to_drop(item, inventory) > 0)
+}
+
+fn refresh_controls(
+    inventory: Res<Inventory>,
+    equipment: Res<Equipment>,
+    ui: Res<InventoryUiState>,
+    mut nodes: ParamSet<(
+        Query<&mut Node, With<DropControls>>,
+        Query<(&InventoryAction, &mut Node, &mut BackgroundColor)>,
+        Query<&mut Node, With<EmptyList>>,
+        Query<(&SlotPicker, &mut Node)>,
+    )>,
+) {
+    let droppable = selection_is_droppable(&ui, &inventory);
     for mut node in &mut nodes.p0() {
-        node.display = display(ui.drop_is_open());
+        set_display(&mut node, ui.drop_is_open());
     }
     for (action, mut node, mut color) in &mut nodes.p1() {
         let (shown, selected, disabled) = match *action {
@@ -661,27 +692,37 @@ fn sync(
                 false,
                 false,
             ),
-            InventoryAction::CloseSlotPicker(_) => (true, false, false),
             InventoryAction::Drop => (true, false, !droppable),
             InventoryAction::ConfirmDrop => (true, false, ui.amount(&inventory).is_none()),
             InventoryAction::Quantity => (true, ui.editing, false),
             _ => (true, false, false),
         };
-        node.display = display(shown);
-        color.0 = if disabled {
+        set_display(&mut node, shown);
+        color.set_if_neq(BackgroundColor(if disabled {
             DISABLED
         } else if selected {
             SELECTED
         } else {
             BUTTON
-        };
+        }));
     }
-    for (_, mut node) in &mut nodes.p2() {
-        node.display = display(ui.selected.is_none());
+    for mut node in &mut nodes.p2() {
+        set_display(&mut node, ui.selected.is_none());
     }
     for (picker, mut node) in &mut nodes.p3() {
-        node.display = display(ui.equip_slot == Some(picker.0));
+        set_display(&mut node, ui.equip_slot == Some(picker.0));
     }
+}
+
+fn refresh_labels(
+    inventory: Res<Inventory>,
+    equipment: Res<Equipment>,
+    ui: Res<InventoryUiState>,
+    notice: Res<InventoryNotice>,
+    bindings: Res<Keybinds>,
+    menu: Res<PlayerMenu>,
+    mut texts: Query<(&PanelText, &mut Text)>,
+) {
     let weight = inventory.carried_weight(&equipment);
     let load_status = if weight > IMMOBILE_WEIGHT {
         " / Cannot move"
@@ -691,7 +732,7 @@ fn sync(
         ""
     };
     for (kind, mut text) in &mut texts {
-        **text = match *kind {
+        let label = match *kind {
             PanelText::ItemQuantity(item) => owned(item, &inventory, &equipment).to_string(),
             PanelText::ItemWeight(item) => {
                 format!("{} kg", item.weight() * owned(item, &inventory, &equipment))
@@ -729,11 +770,8 @@ fn sync(
             }
             PanelText::Notice(_) => String::new(),
         };
+        text.set_if_neq(Text::new(label));
     }
-}
-
-fn display(shown: bool) -> Display {
-    if shown { Display::Flex } else { Display::None }
 }
 
 fn item_detail(item: ItemKind) -> String {

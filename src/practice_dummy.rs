@@ -4,8 +4,7 @@ use bevy::{gltf::Gltf, prelude::*};
 use crate::{
     GameState,
     combat::{CombatSystems, HitReaction, TrainingTarget},
-    inventory::scene_ready,
-    loading::{GameAssets, PendingScene},
+    loading::{GameAssets, PendingScene, scene_ready},
     world::{SessionEntity, SpawnWorld, WorldLayout},
 };
 

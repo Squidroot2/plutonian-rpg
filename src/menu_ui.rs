@@ -173,96 +173,112 @@ pub(crate) fn button() -> impl Bundle {
     )
 }
 
+/// A centered modal that follows the lifetime of an interaction state.
+pub(crate) fn interaction_modal(state: GameState) -> impl Bundle {
+    (
+        DespawnOnExit(state),
+        GlobalZIndex(50),
+        centered_overlay(),
+        BackgroundColor(Color::srgba(0.005, 0.012, 0.025, 0.82)),
+    )
+}
+
+fn centered_overlay() -> Node {
+    Node {
+        position_type: PositionType::Absolute,
+        width: percent(100),
+        height: percent(100),
+        justify_content: JustifyContent::Center,
+        align_items: AlignItems::Center,
+        ..default()
+    }
+}
+
+pub(crate) fn wide_panel() -> impl Bundle {
+    (
+        Node {
+            width: percent(94),
+            max_width: px(940),
+            height: percent(76),
+            max_height: px(650),
+            padding: UiRect::all(px(16)),
+            ..column()
+        },
+        BackgroundColor(PANEL),
+    )
+}
+
 fn setup(mut commands: Commands) {
     commands
         .spawn((
             PlayerMenuScreen,
             GlobalZIndex(45),
             Visibility::Hidden,
-            Node {
-                position_type: PositionType::Absolute,
-                width: percent(100),
-                height: percent(100),
-                justify_content: JustifyContent::Center,
-                align_items: AlignItems::Center,
-                ..default()
-            },
+            centered_overlay(),
             BackgroundColor(Color::srgba(0.005, 0.012, 0.025, 0.32)),
         ))
         .with_children(|screen| {
-            screen
-                .spawn((
-                    Node {
-                        width: percent(94),
-                        max_width: px(940),
-                        height: percent(76),
-                        max_height: px(650),
-                        padding: UiRect::all(px(16)),
-                        ..column()
-                    },
-                    BackgroundColor(PANEL),
-                ))
-                .with_children(|panel| {
-                    panel
-                        .spawn(Node {
-                            justify_content: JustifyContent::SpaceBetween,
-                            align_items: AlignItems::Center,
-                            column_gap: px(8),
-                            row_gap: px(6),
-                            flex_wrap: FlexWrap::Wrap,
-                            flex_shrink: 0.0,
-                            ..default()
-                        })
-                        .with_children(|header| {
-                            header
-                                .spawn(Node {
-                                    column_gap: px(6),
-                                    flex_wrap: FlexWrap::Wrap,
+            screen.spawn(wide_panel()).with_children(|panel| {
+                panel
+                    .spawn(Node {
+                        justify_content: JustifyContent::SpaceBetween,
+                        align_items: AlignItems::Center,
+                        column_gap: px(8),
+                        row_gap: px(6),
+                        flex_wrap: FlexWrap::Wrap,
+                        flex_shrink: 0.0,
+                        ..default()
+                    })
+                    .with_children(|header| {
+                        header
+                            .spawn(Node {
+                                column_gap: px(6),
+                                flex_wrap: FlexWrap::Wrap,
+                                ..default()
+                            })
+                            .with_children(|tabs| {
+                                for tab in MenuTab::ALL {
+                                    tabs.spawn((tab, button())).observe(select).with_child((
+                                        Text::new(tab.label()),
+                                        text_style(17.0),
+                                        Pickable::IGNORE,
+                                    ));
+                                }
+                            });
+                        header.spawn(button()).observe(close_button).with_child((
+                            Text::new("Close  [Tab / Esc]"),
+                            text_style(16.0),
+                            Pickable::IGNORE,
+                        ));
+                    });
+                panel
+                    .spawn(Node {
+                        flex_grow: 1.0,
+                        min_height: px(0),
+                        ..default()
+                    })
+                    .with_children(|body| {
+                        for tab in MenuTab::ALL {
+                            body.spawn((
+                                Page(tab),
+                                Visibility::Hidden,
+                                Node {
+                                    position_type: PositionType::Absolute,
+                                    width: percent(100),
+                                    height: percent(100),
+                                    column_gap: px(12),
                                     ..default()
-                                })
-                                .with_children(|tabs| {
-                                    for tab in MenuTab::ALL {
-                                        tabs.spawn((tab, button())).observe(select).with_child((
-                                            Text::new(tab.label()),
-                                            text_style(17.0),
-                                            Pickable::IGNORE,
-                                        ));
-                                    }
-                                });
-                            header.spawn(button()).observe(close_button).with_child((
-                                Text::new("Close  [Tab / Esc]"),
-                                text_style(16.0),
-                                Pickable::IGNORE,
-                            ));
-                        });
-                    panel
-                        .spawn(Node {
-                            flex_grow: 1.0,
-                            min_height: px(0),
-                            ..default()
-                        })
-                        .with_children(|body| {
-                            for tab in MenuTab::ALL {
-                                body.spawn((
-                                    Page(tab),
-                                    Visibility::Hidden,
-                                    Node {
-                                        position_type: PositionType::Absolute,
-                                        width: percent(100),
-                                        height: percent(100),
-                                        column_gap: px(12),
-                                        ..default()
-                                    },
-                                ))
-                                .with_children(|page| match tab {
-                                    MenuTab::Quest => quest_ui::spawn(page),
-                                    MenuTab::Inventory => inventory_ui::spawn(page),
-                                    MenuTab::Equipment => inventory_ui::spawn_equipment(page),
-                                    MenuTab::Character => character(page),
-                                });
-                            }
-                        });
-                });
+                                },
+                            ))
+                            .with_children(|page| match tab {
+                                MenuTab::Quest => quest_ui::spawn(page),
+                                MenuTab::Inventory => inventory_ui::spawn(page),
+                                MenuTab::Equipment => inventory_ui::spawn_equipment(page),
+                                MenuTab::Character => character(page),
+                            });
+                        }
+                    });
+            });
         });
 }
 
@@ -319,6 +335,13 @@ fn visibility(
         } else {
             BUTTON
         }));
+    }
+}
+
+pub(crate) fn set_display(node: &mut Mut<Node>, shown: bool) {
+    let display = if shown { Display::Flex } else { Display::None };
+    if node.display != display {
+        node.display = display;
     }
 }
 

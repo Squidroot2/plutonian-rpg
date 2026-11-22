@@ -3,14 +3,17 @@ use crate::{
     camera::Orbit,
     equipment::bind_equipment_attachments,
     interaction::Target,
-    loading::{GameAssets, LoadStatus, PendingScene},
+    loading::{GameAssets, LoadStatus, PendingScene, scene_ready},
     nemi::{self, Nemi},
-    player::{ActorVisual, Player, bind_actor_animation},
+    player::{
+        ActorVisual, PLAYER_COLLIDER_LENGTH, PLAYER_COLLIDER_RADIUS, PLAYER_GROUND_OFFSET, Player,
+        bind_actor_animation,
+    },
     quest::Beacon,
     save::Bed,
 };
 use avian3d::prelude::*;
-use bevy::{gltf::Gltf, prelude::*, world_serialization::WorldInstanceReady};
+use bevy::{gltf::Gltf, prelude::*};
 
 #[derive(Resource, Default, Clone, Copy, PartialEq, Eq)]
 pub enum WorldLayout {
@@ -23,7 +26,7 @@ impl WorldLayout {
     pub fn start(self) -> Vec3 {
         match self {
             Self::Outpost => Vec3::new(4.0, 0.5, 8.0),
-            Self::SmokeArena => Vec3::new(0.0, 0.905, 0.0),
+            Self::SmokeArena => Vec3::Y * PLAYER_GROUND_OFFSET,
         }
     }
     pub(crate) fn initial_spawn(self) -> Vec3 {
@@ -59,6 +62,7 @@ impl WorldLayout {
 }
 
 pub struct WorldPlugin;
+/// A world-session root that is despawned when starting or restoring a run.
 #[derive(Component)]
 pub(crate) struct SessionEntity;
 
@@ -71,10 +75,6 @@ impl Plugin for WorldPlugin {
             .add_systems(OnExit(GameState::Loading), ground_spawned_models);
     }
 }
-fn ready(event: On<WorldInstanceReady>, mut commands: Commands) {
-    commands.entity(event.entity).remove::<PendingScene>();
-}
-
 fn spawn_world(
     _: On<SpawnWorld>,
     mut commands: Commands,
@@ -87,25 +87,40 @@ fn spawn_world(
 ) {
     if let Some((outpost, collision)) = &assets.outpost {
         orbit.yaw = std::f32::consts::FRAC_PI_2;
-        commands
-            .spawn((
-                SessionEntity,
-                Name::new("Outpost visuals"),
-                PendingScene,
-                WorldAssetRoot(
-                    gltfs
-                        .get(outpost)
-                        .expect(
-                            "the validated outpost glTF must remain loaded when spawning the world",
-                        )
-                        .scenes[0]
-                        .clone(),
-                ),
-            ))
-            .observe(ready);
-        commands
+        spawn_outpost(&mut commands, &gltfs, outpost, collision);
+    } else {
+        crate::smoke::spawn_arena(&mut commands, &mut meshes, &mut materials);
+    }
+    spawn_actors(&mut commands, &gltfs, &assets, *layout);
+    spawn_core(&mut commands, &gltfs, &assets, *layout);
+    spawn_beacon(&mut commands, &mut meshes, &mut materials, *layout);
+    spawn_lights(&mut commands, *layout);
+    commands.trigger(crate::quest::SpawnBeaconLens(layout.beacon()));
+}
+
+fn spawn_outpost(
+    commands: &mut Commands,
+    gltfs: &Assets<Gltf>,
+    outpost: &Handle<Gltf>,
+    collision: &Handle<Gltf>,
+) {
+    commands
         .spawn((
-                SessionEntity,
+            SessionEntity,
+            Name::new("Outpost visuals"),
+            PendingScene,
+            WorldAssetRoot(
+                gltfs
+                    .get(outpost)
+                    .expect("the validated outpost glTF must remain loaded when spawning the world")
+                    .scenes[0]
+                    .clone(),
+            ),
+        ))
+        .observe(scene_ready);
+    commands
+        .spawn((
+            SessionEntity,
             Name::new("Outpost collision"),
             PendingScene,
             WorldAssetRoot(
@@ -121,34 +136,39 @@ fn spawn_world(
             Visibility::Hidden,
             ColliderConstructorHierarchy::new(ColliderConstructor::TrimeshFromMesh),
         ))
-        .observe(ready)
+        .observe(scene_ready)
         .observe(
             |_: On<ColliderConstructorHierarchyReady>, mut status: ResMut<LoadStatus>| {
                 status.collision_ready = true;
                 info!("Collision hierarchy ready");
             },
         );
-        commands.spawn((
-            SessionEntity,
-            Name::new("Starting tent lantern"),
-            PointLight {
-                color: Color::srgb(1.0, 0.57, 0.28),
-                intensity: 7_500.0,
-                range: 6.0,
-                ..default()
-            },
-            Transform::from_xyz(7.82, 0.32, -4.50),
-        ));
-        commands.spawn((
-            SessionEntity,
-            Bed,
-            Name::new("Starting tent bed"),
-            // The interaction point sits just above the mattress on its aisle side.
-            Transform::from_xyz(9.45, -0.12, -4.40),
-        ));
-    } else {
-        crate::smoke::spawn_arena(&mut commands, &mut meshes, &mut materials);
-    }
+    commands.spawn((
+        SessionEntity,
+        Name::new("Starting tent lantern"),
+        PointLight {
+            color: Color::srgb(1.0, 0.57, 0.28),
+            intensity: 7_500.0,
+            range: 6.0,
+            ..default()
+        },
+        Transform::from_xyz(7.82, 0.32, -4.50),
+    ));
+    commands.spawn((
+        SessionEntity,
+        Bed,
+        Name::new("Starting tent bed"),
+        // The interaction point sits just above the mattress on its aisle side.
+        Transform::from_xyz(9.45, -0.12, -4.40),
+    ));
+}
+
+fn spawn_actors(
+    commands: &mut Commands,
+    gltfs: &Assets<Gltf>,
+    assets: &GameAssets,
+    layout: WorldLayout,
+) {
     let character = gltfs
         .get(&assets.character)
         .expect("the validated character glTF must remain loaded when spawning the world")
@@ -162,18 +182,18 @@ fn spawn_world(
             Visibility::default(),
             RigidBody::Kinematic,
             CustomPositionIntegration,
-            Collider::capsule(0.32, 1.15),
+            Collider::capsule(PLAYER_COLLIDER_RADIUS, PLAYER_COLLIDER_LENGTH),
             Transform::from_translation(layout.initial_spawn()),
         ))
         .with_children(|parent| {
             parent
                 .spawn((
-                    ActorVisual { player: true },
+                    ActorVisual::Player,
                     PendingScene,
                     WorldAssetRoot(character.clone()),
                     Transform::from_xyz(0.0, -0.9, 0.0),
                 ))
-                .observe(ready)
+                .observe(scene_ready)
                 .observe(bind_actor_animation)
                 .observe(bind_equipment_attachments);
         });
@@ -193,14 +213,22 @@ fn spawn_world(
         .with_children(|parent| {
             parent
                 .spawn((
-                    ActorVisual { player: false },
+                    ActorVisual::Nemi,
                     PendingScene,
                     WorldAssetRoot(character),
                     Transform::from_xyz(0.0, -0.9, 0.0).with_scale(Vec3::splat(1.12)),
                 ))
-                .observe(ready)
+                .observe(scene_ready)
                 .observe(bind_actor_animation);
         });
+}
+
+fn spawn_core(
+    commands: &mut Commands,
+    gltfs: &Assets<Gltf>,
+    assets: &GameAssets,
+    layout: WorldLayout,
+) {
     commands
         .spawn((
             SessionEntity,
@@ -218,7 +246,15 @@ fn spawn_world(
             ),
             Transform::from_translation(layout.core()),
         ))
-        .observe(ready);
+        .observe(scene_ready);
+}
+
+fn spawn_beacon(
+    commands: &mut Commands,
+    meshes: &mut Assets<Mesh>,
+    materials: &mut Assets<StandardMaterial>,
+    layout: WorldLayout,
+) {
     commands.spawn((
         SessionEntity,
         Beacon,
@@ -230,7 +266,7 @@ fn spawn_world(
         },
         Transform::from_translation(layout.beacon()),
     ));
-    let socket_offset = if *layout == WorldLayout::Outpost {
+    let socket_offset = if layout == WorldLayout::Outpost {
         3.0
     } else {
         -2.0
@@ -257,6 +293,9 @@ fn spawn_world(
             })),
             Transform::from_xyz(0.0, 0.31, 0.0),
         ));
+}
+
+fn spawn_lights(commands: &mut Commands, layout: WorldLayout) {
     commands.spawn((
         SessionEntity,
         DirectionalLight {
@@ -275,7 +314,7 @@ fn spawn_world(
             20.0,
         ),
         (
-            if *layout == WorldLayout::Outpost {
+            if layout == WorldLayout::Outpost {
                 Vec3::new(4.5, 3.0, -1.5)
             } else {
                 Vec3::new(8.0, 3.0, -2.0)
@@ -291,7 +330,7 @@ fn spawn_world(
             20.0,
         ),
     ] {
-        if *layout == WorldLayout::SmokeArena && position.z < -20.0 {
+        if layout == WorldLayout::SmokeArena && position.z < -20.0 {
             continue;
         }
         commands.spawn((
@@ -305,8 +344,6 @@ fn spawn_world(
             Transform::from_translation(position),
         ));
     }
-    // Visible beacon lens, independent of the authored unlit tower.
-    commands.trigger(crate::quest::SpawnBeaconLens(layout.beacon()));
 }
 
 // Resolve support against the loaded collision scene once, before play starts.
@@ -340,7 +377,7 @@ fn ground_spawned_models(
                 Some(Target::Keeper) => nemi::GROUND_OFFSET,
                 Some(Target::Core) => 0.445,
                 Some(Target::BeaconSocket) => 0.30,
-                None => 0.905,
+                None => PLAYER_GROUND_OFFSET,
             };
             transform.translation.y = support + offset;
         }

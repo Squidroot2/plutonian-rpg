@@ -14,7 +14,6 @@ use crate::{
     quest_ui::QuestSelection,
     roach,
     storage::ChestStorage,
-    weapon::WeaponAttack,
     world::SessionEntity,
     worm,
 };
@@ -507,7 +506,6 @@ pub(crate) fn reset_session(world: &mut World) {
     world.insert_resource(QuestSelection::default());
     world.insert_resource(MovementInput::default());
     world.insert_resource(Orbit::default());
-    world.resource_mut::<WeaponAttack>().cancel();
     world.resource_mut::<Messages<Hit>>().clear();
     world.resource_mut::<Messages<ConfirmedHit>>().clear();
 }

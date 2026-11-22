@@ -1,5 +1,6 @@
 use crate::{
     controls::{Binding, Control, KeybindCategory, Keybinds},
+    menu_ui::set_display,
     title::TitleInput,
     ui,
 };
@@ -115,7 +116,15 @@ impl Plugin for SettingsPlugin {
                     .after(TitleInput)
                     .after(ui::pause),
             )
-            .add_systems(Update, (refresh, refresh_fps));
+            .add_systems(
+                Update,
+                (
+                    refresh_panel,
+                    refresh_labels,
+                    refresh_button_colors,
+                    refresh_fps,
+                ),
+            );
     }
 }
 
@@ -385,64 +394,55 @@ fn activate(
     }
 }
 
-fn refresh(
+fn refresh_panel(
+    settings: Res<SettingsMenu>,
+    mut panel: Query<&mut Visibility, With<SettingsPanel>>,
+    mut sections: Query<(&Section, &mut Node)>,
+    mut prompt: Query<&mut Text, With<CapturePrompt>>,
+    mut notice: Query<&mut Text, (With<CaptureNotice>, Without<CapturePrompt>)>,
+) {
+    if !settings.is_changed() {
+        return;
+    }
+    if let Ok(mut visibility) = panel.single_mut() {
+        visibility.set_if_neq(if settings.is_open() {
+            Visibility::Inherited
+        } else {
+            Visibility::Hidden
+        });
+    }
+    let visible = if settings.capture.is_some() {
+        Section::Capture
+    } else if settings.keybinds {
+        Section::Keybinds
+    } else {
+        Section::General
+    };
+    for (section, mut node) in &mut sections {
+        set_display(&mut node, *section == visible);
+    }
+    if let Some(control) = settings.capture
+        && let Ok(mut text) = prompt.single_mut()
+    {
+        let input = if control.accepts_mouse() {
+            "a key or mouse button"
+        } else {
+            "a key"
+        };
+        text.set_if_neq(Text::new(format!("Press {input} for {}.", control.label())));
+    }
+    if let Ok(mut text) = notice.single_mut() {
+        text.set_if_neq(Text::new(&settings.notice));
+    }
+}
+
+fn refresh_labels(
     settings: Res<SettingsMenu>,
     bindings: Res<Keybinds>,
     fps: Res<FpsPosition>,
-    mut panel: Query<&mut Visibility, With<SettingsPanel>>,
-    mut sections: Query<(&Section, &mut Node)>,
     windows: Query<Ref<Window>, With<PrimaryWindow>>,
     mut labels: Query<(&ActionLabel, &mut Text)>,
-    mut prompt: Query<&mut Text, (With<CapturePrompt>, Without<ActionLabel>)>,
-    mut notice: Query<
-        &mut Text,
-        (
-            With<CaptureNotice>,
-            Without<ActionLabel>,
-            Without<CapturePrompt>,
-        ),
-    >,
-    mut buttons: Query<
-        (&PickingInteraction, &mut BackgroundColor),
-        (With<Action>, Changed<PickingInteraction>),
-    >,
 ) {
-    if settings.is_changed() {
-        if let Ok(mut visibility) = panel.single_mut() {
-            *visibility = if settings.is_open() {
-                Visibility::Inherited
-            } else {
-                Visibility::Hidden
-            };
-        }
-        let visible = if settings.capture.is_some() {
-            Section::Capture
-        } else if settings.keybinds {
-            Section::Keybinds
-        } else {
-            Section::General
-        };
-        for (section, mut node) in &mut sections {
-            node.display = if *section == visible {
-                Display::Flex
-            } else {
-                Display::None
-            };
-        }
-        if let Some(control) = settings.capture
-            && let Ok(mut text) = prompt.single_mut()
-        {
-            let input = if control.accepts_mouse() {
-                "a key or mouse button"
-            } else {
-                "a key"
-            };
-            **text = format!("Press {input} for {}.", control.label());
-        }
-        if let Ok(mut text) = notice.single_mut() {
-            text.set_if_neq(Text::new(&settings.notice));
-        }
-    }
     let window = windows.single().ok();
     if settings.is_open()
         && (settings.is_changed()
@@ -469,12 +469,20 @@ fn refresh(
             text.set_if_neq(Text::new(title));
         }
     }
+}
+
+fn refresh_button_colors(
+    mut buttons: Query<
+        (&PickingInteraction, &mut BackgroundColor),
+        (With<Action>, Changed<PickingInteraction>),
+    >,
+) {
     for (interaction, mut color) in &mut buttons {
-        *color = BackgroundColor(match interaction {
+        color.set_if_neq(BackgroundColor(match interaction {
             PickingInteraction::None => Color::srgb(0.05, 0.13, 0.17),
             PickingInteraction::Hovered => Color::srgb(0.09, 0.22, 0.28),
             PickingInteraction::Pressed => Color::srgb(0.13, 0.30, 0.38),
-        });
+        }));
     }
 }
 

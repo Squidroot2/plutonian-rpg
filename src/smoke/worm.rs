@@ -101,7 +101,7 @@ pub(super) fn fight(
     mut phase: ResMut<Encounter>,
     mut smoke: ResMut<SpearSmoke>,
     visuals: Option<Res<EnemyVisuals>>,
-    player: Query<(&Player, &Transform, &Health)>,
+    player: Query<(&Player, &Transform, &Health, &WeaponAttack)>,
     worms: Query<
         (
             &MeleePursuit,
@@ -112,7 +112,6 @@ pub(super) fn fight(
         ),
         With<Worm>,
     >,
-    thrust: Res<WeaponAttack>,
     (state, time, nearby, bag): (
         Res<State<GameState>>,
         Res<Time>,
@@ -138,7 +137,7 @@ pub(super) fn fight(
     if *smoke != SpearSmoke::WormEncounter {
         return;
     }
-    let (controller, transform, player_health) =
+    let (controller, transform, player_health, thrust) =
         player.single().expect("worm smoke requires a player");
     let (pulse, impacts) = feedback;
     if matches!(*phase, Encounter::Spawn) {
