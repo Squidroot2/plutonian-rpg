@@ -17,7 +17,7 @@ use crate::{
     inventory::{Inventory, ItemKind},
     loot_ui::LootAction,
     menu_ui::{MenuTab, PlayerMenu},
-    player::{Dodge, MAX_HEALTH, Player},
+    player::{Dodge, Player},
     quest::{Dialogue, LAST_LIGHT, OLD_RELAY, QuestAction, QuestJournal, QuestStatus},
     quest_ui::{QuestRow, QuestSelection},
     roach::Roach,
@@ -396,7 +396,7 @@ fn check_fresh_run(frame: WorldFrame) {
             assert!(quest.expects(QuestAction::TalkedToNemi));
             assert_eq!(inventory.count(ItemKind::Scrap), 0);
             assert!(checkpoint.checkpoint().is_none());
-            assert_eq!(player_health.current(), MAX_HEALTH);
+            assert_eq!(player_health.current(), player_health.maximum());
             // Allow the new scene's render pipelines to compile before the first photo.
             *phase = WorldCheck::TentView(now + 0.75);
         }

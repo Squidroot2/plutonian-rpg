@@ -56,8 +56,8 @@ impl Plugin for PlayerPlugin {
     }
 }
 #[derive(Component, Default)]
-#[require(Dodge, Health = Health::new(MAX_HEALTH), Defense, crate::combat::HitProtection = crate::combat::HitProtection::new(PLAYER_HIT_PROTECTION_SECONDS))]
-#[require(HealthRecovery = HealthRecovery::player(10.0))]
+#[require(Dodge, Health = Health::new(AttributeRanks::default().effects().health), Defense, crate::combat::HitProtection = crate::combat::HitProtection::new(PLAYER_HIT_PROTECTION_SECONDS))]
+#[require(HealthRecovery = HealthRecovery::player(AttributeRanks::default().effects().health_per_second))]
 #[require(
     AttributeRanks,
     CharacterProgress,
@@ -138,7 +138,6 @@ impl Player {
     }
 }
 
-pub(crate) const MAX_HEALTH: u16 = 100;
 pub(crate) const PLAYER_COLLIDER_RADIUS: f32 = 0.32;
 pub(crate) const PLAYER_COLLIDER_LENGTH: f32 = 1.15;
 pub(crate) const PLAYER_GROUND_OFFSET: f32 = 0.905;
@@ -172,9 +171,7 @@ const DODGE_ANIMATION_BLEND: Duration = Duration::from_millis(50);
 const LOCOMOTION_ANIMATION_BLEND: Duration = Duration::from_millis(160);
 const RUN_SPEED: f32 = 4.0;
 const SPRINT_SPEED: f32 = 8.0;
-const MAX_STAMINA: f32 = 100.0;
 const SPRINT_STAMINA_PER_SECOND: f32 = 14.0;
-const STAMINA_RECOVERY_PER_SECOND: f32 = 25.0;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) enum Pace {
@@ -203,7 +200,8 @@ pub(crate) struct Stamina {
 
 impl Default for Stamina {
     fn default() -> Self {
-        Self::new(MAX_STAMINA, STAMINA_RECOVERY_PER_SECOND)
+        let effects = AttributeRanks::default().effects();
+        Self::new(effects.stamina, effects.stamina_per_second)
     }
 }
 
@@ -1441,7 +1439,7 @@ mod tests {
             .world()
             .get::<Health>(player)
             .expect("Player must supply its Health component");
-        assert_eq!(health.current(), MAX_HEALTH - 20);
+        assert_eq!(health.current(), health.maximum() - 20);
     }
 
     #[test]

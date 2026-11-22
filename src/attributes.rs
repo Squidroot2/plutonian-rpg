@@ -72,7 +72,7 @@ impl AttributeRanks {
         self
     }
 
-    fn effects(&self) -> AttributeEffects {
+    pub(crate) fn effects(&self) -> AttributeEffects {
         AttributeEffects::from(self)
     }
 }
@@ -204,11 +204,11 @@ impl MeleeDamageMultiplier {
     }
 }
 
-struct AttributeEffects {
-    health: u16,
-    health_per_second: f64,
-    stamina: f32,
-    stamina_per_second: f32,
+pub(crate) struct AttributeEffects {
+    pub(crate) health: u16,
+    pub(crate) health_per_second: f64,
+    pub(crate) stamina: f32,
+    pub(crate) stamina_per_second: f32,
     costs: MovementCosts,
     carry: CarryLimits,
     melee: MeleeDamageMultiplier,

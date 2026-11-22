@@ -596,8 +596,8 @@ fn restore_actors(
 mod tests {
     use super::*;
     use crate::{
-        equipment::EquipmentSlot, player::MAX_HEALTH, quest::test_journal, settings::SettingsMenu,
-        storage::ChestId, title::TitlePlugin, world::WorldLayout,
+        equipment::EquipmentSlot, quest::test_journal, settings::SettingsMenu, storage::ChestId,
+        title::TitlePlugin, world::WorldLayout,
     };
     use bevy::{asset::AssetPlugin, ecs::system::RunSystemOnce, state::app::StatesPlugin};
 
@@ -698,7 +698,7 @@ mod tests {
                 .get::<Health>(player)
                 .expect("player health")
                 .current(),
-            MAX_HEALTH
+            AttributeRanks::default().effects().health
         );
 
         let journal = &mut *world.resource_mut::<QuestJournal>();

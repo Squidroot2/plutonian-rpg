@@ -510,7 +510,7 @@ mod tests {
         combat::{CombatPlugin, ConfirmedHit, Defense},
         equipment::Equipment,
         inventory::{Inventory, ItemKind},
-        player::{MAX_HEALTH, MovementInput},
+        player::MovementInput,
         quest::{QuestAction, QuestJournal, test_journal},
         roach::{self, Roach},
         save::recover_defeated,
@@ -646,7 +646,7 @@ mod tests {
             .get::<Health>(player)
             .expect("the player must survive the bites");
         let accepted_damage = bites.first().expect("a bite must reach combat").1;
-        assert_eq!(health.current(), MAX_HEALTH - accepted_damage);
+        assert_eq!(health.current(), health.maximum() - accepted_damage);
         bites.sort_unstable_by_key(|&(_, damage)| damage);
         assert_eq!(bites, [(roach, 12), (worm, 20)]);
         assert_eq!(pulses, 1, "protection must suppress the second pulse");
@@ -682,7 +682,7 @@ mod tests {
         journal.record(QuestAction::RecoveredCore);
         app.insert_resource(bag).insert_resource(journal);
         app.world_mut().entity_mut(player).insert((
-            Health::new(MAX_HEALTH),
+            Health::new(100),
             Defense(2),
             crate::combat::HitProtection::new(0.0),
         ));
@@ -693,7 +693,7 @@ mod tests {
         app.world_mut().write_message(Hit {
             source: worm,
             target: player,
-            damage: MAX_HEALTH,
+            damage: 100,
             contact: None,
         });
         app.update();
