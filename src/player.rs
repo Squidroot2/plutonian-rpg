@@ -55,7 +55,7 @@ impl Plugin for PlayerPlugin {
 #[derive(Component, Default)]
 #[require(Dodge, Health = Health::new(MAX_HEALTH), Defense, crate::combat::HitProtection = crate::combat::HitProtection::new(0.75))]
 #[require(HealthRecovery = HealthRecovery::new(Duration::from_secs(5), Duration::from_millis(100)))]
-#[require(WeaponStance)]
+#[require(Stamina, WeaponStance)]
 pub struct Player {
     pub(crate) area: Area,
     pub velocity: Vec3,
@@ -92,6 +92,53 @@ const DODGE_DURATION: f32 = 0.32;
 const DODGE_COOLDOWN: f32 = 0.55;
 const WALK_SPEED: f32 = 3.0;
 const SPRINT_SPEED: f32 = 5.5;
+const MAX_STAMINA: f32 = 100.0;
+const JUMP_STAMINA: f32 = 20.0;
+const DODGE_STAMINA: f32 = 25.0;
+const SPRINT_STAMINA_PER_SECOND: f32 = 14.0;
+const STAMINA_RECOVERY_PER_SECOND: f32 = 25.0;
+
+#[derive(Component)]
+pub(crate) struct Stamina(f32);
+
+impl Default for Stamina {
+    fn default() -> Self {
+        Self(MAX_STAMINA)
+    }
+}
+
+impl Stamina {
+    pub(crate) fn fraction(&self) -> f32 {
+        self.0 / MAX_STAMINA
+    }
+
+    fn can_spend(&self, cost: f32) -> bool {
+        self.0 >= cost
+    }
+
+    pub(crate) fn try_spend(&mut self, cost: f32) -> bool {
+        if self.can_spend(cost) {
+            self.0 -= cost;
+            true
+        } else {
+            false
+        }
+    }
+
+    fn sprint(&mut self, delta: f32) -> bool {
+        if self.0 == 0.0 {
+            return false;
+        }
+        self.0 = (self.0 - SPRINT_STAMINA_PER_SECOND * delta).max(0.0);
+        true
+    }
+
+    pub(crate) fn recover(&mut self, delta: f32) {
+        if self.0 < MAX_STAMINA {
+            self.0 = (self.0 + STAMINA_RECOVERY_PER_SECOND * delta).min(MAX_STAMINA);
+        }
+    }
+}
 
 #[derive(Component, Default)]
 pub(crate) struct Dodge {
@@ -333,8 +380,8 @@ pub(crate) struct MovementInput {
 
 impl MovementInput {
     // Frame-based attacks can run before the next fixed step consumes the request.
-    pub(crate) fn dodge_pending(&self, grounded: bool, dodge: &Dodge) -> bool {
-        self.dodge.is_some() && grounded && dodge.ready()
+    pub(crate) fn dodge_pending(&self, grounded: bool, dodge: &Dodge, stamina: &Stamina) -> bool {
+        self.dodge.is_some() && grounded && dodge.ready() && stamina.can_spend(DODGE_STAMINA)
     }
 }
 
@@ -390,22 +437,30 @@ pub(crate) fn movement(
     time: Res<Time>,
     orbit: Res<Orbit>,
     dialogue: Res<Dialogue>,
-    thrust: Res<crate::weapon::WeaponAttack>,
+    attack: Res<WeaponAttack>,
     layout: Res<WorldLayout>,
     inventory: Res<Inventory>,
     equipment: Res<Equipment>,
     mut input: ResMut<MovementInput>,
     spatial: SpatialQuery,
     mover: MoveAndSlide,
-    mut players: Query<(Entity, &mut Transform, &Collider, &mut Player, &mut Dodge)>,
+    mut players: Query<(
+        Entity,
+        &mut Transform,
+        &Collider,
+        &mut Player,
+        &mut Dodge,
+        &mut Stamina,
+    )>,
 ) {
     let dodge_request = input.dodge.take();
     let jump_requested = std::mem::take(&mut input.jump);
     let delta = time.delta_secs();
     let weight = inventory.carried_weight(&equipment);
     let agile = weight <= CARRY_CAPACITY;
-    let can_move = weight <= IMMOBILE_WEIGHT && dialogue.text.is_none() && !thrust.active();
-    for (entity, mut transform, collider, mut player, mut dodge) in &mut players {
+    let can_act = dialogue.text.is_none() && !attack.active();
+    let can_move = weight <= IMMOBILE_WEIGHT && can_act;
+    for (entity, mut transform, collider, mut player, mut dodge, mut stamina) in &mut players {
         dodge.cooldown = (dodge.cooldown - delta).max(0.0);
         let filter = SpatialQueryFilter::from_excluded_entities([entity]);
         // Let the hop descend almost to the surface before ending its motion.
@@ -428,7 +483,9 @@ pub(crate) fn movement(
             player.velocity.y = -0.6;
         }
         if can_move && agile && player.grounded {
-            if let Some(direction) = dodge_request.filter(|_| dodge.ready()) {
+            if let Some(direction) =
+                dodge_request.filter(|_| dodge.ready() && stamina.try_spend(DODGE_STAMINA))
+            {
                 let heading = if direction == Vec2::ZERO {
                     camera_heading(Vec2::NEG_Y, orbit.yaw)
                 } else {
@@ -436,7 +493,7 @@ pub(crate) fn movement(
                 };
                 dodge.start(heading);
                 player.launch(DODGE_LAUNCH_SPEED);
-            } else if jump_requested {
+            } else if jump_requested && stamina.try_spend(JUMP_STAMINA) {
                 player.launch(4.7);
             }
         }
@@ -451,7 +508,7 @@ pub(crate) fn movement(
                 Vec2::ZERO
             };
             player.movement_direction = direction;
-            player.running = agile && input.sprint && direction.y > 0.0;
+            player.running = agile && input.sprint && direction.y > 0.0 && stamina.sprint(delta);
             let speed = if player.running {
                 SPRINT_SPEED
             } else {
@@ -488,6 +545,8 @@ pub(crate) fn movement(
             || transform.translation.z < -140.0
         {
             player.respawn(&mut dodge, &mut transform, layout.start());
+        } else if can_act && player.grounded && player.movement_direction == Vec2::ZERO {
+            stamina.recover(delta);
         }
     }
 }
@@ -767,6 +826,88 @@ mod tests {
             .active()
     }
 
+    fn stamina(app: &App, player: Entity) -> f32 {
+        app.world()
+            .get::<Stamina>(player)
+            .expect("Player must supply its Stamina component")
+            .0
+    }
+
+    fn equip_spear(app: &mut App) {
+        let mut bag = Inventory::default();
+        assert!(bag.add(ItemKind::FieldSpear, 1));
+        assert_eq!(
+            app.world_mut()
+                .resource_mut::<Equipment>()
+                .equip(&mut bag, ItemKind::FieldSpear),
+            Ok(true)
+        );
+    }
+
+    #[test]
+    fn jump_costs_stamina_once_and_recovery_begins_on_landing() {
+        let (mut app, player) = test_app();
+        press(&mut app, &[KeyCode::Space]);
+        tick(&mut app, 1);
+        assert_eq!(stamina(&app, player), 80.0);
+        release(&mut app, KeyCode::Space);
+        press(&mut app, &[KeyCode::Space]);
+        tick(&mut app, 32);
+        assert_eq!(stamina(&app, player), 80.0);
+
+        for _ in 0..128 {
+            tick(&mut app, 1);
+            if app
+                .world()
+                .get::<Player>(player)
+                .is_some_and(|p| p.grounded)
+            {
+                assert_eq!(stamina(&app, player), 80.0 + 25.0 * STEP.as_secs_f32());
+                return;
+            }
+            assert_eq!(stamina(&app, player), 80.0);
+        }
+        panic!("the player must land within two seconds of jumping");
+    }
+
+    #[test]
+    fn sprint_exhaustion_falls_back_to_walking_until_the_player_rests() {
+        let (mut app, player) = test_app();
+        press(&mut app, &[KeyCode::KeyW, KeyCode::ShiftLeft]);
+        tick(&mut app, 64);
+        assert_eq!(stamina(&app, player), 86.0);
+        app.world_mut()
+            .get_mut::<Stamina>(player)
+            .expect("Player must supply its Stamina component")
+            .0 = 0.25;
+        tick(&mut app, 3);
+        assert_eq!(stamina(&app, player), 0.0);
+        let controller = app
+            .world()
+            .get::<Player>(player)
+            .expect("player controller");
+        assert!(!controller.running);
+        assert_eq!(controller.velocity.z, -WALK_SPEED);
+
+        press(&mut app, &[KeyCode::Space, DODGE_KEY]);
+        tick(&mut app, 2);
+        assert_eq!(stamina(&app, player), 0.0);
+        assert!(
+            app.world()
+                .get::<Player>(player)
+                .is_some_and(|p| p.grounded)
+        );
+        assert!(!active(&app, player));
+
+        release(&mut app, KeyCode::ShiftLeft);
+        release(&mut app, KeyCode::KeyW);
+        tick(&mut app, 32);
+        assert_eq!(stamina(&app, player), 12.5);
+        press(&mut app, &[KeyCode::KeyW]);
+        tick(&mut app, 16);
+        assert_eq!(stamina(&app, player), 12.5);
+    }
+
     #[test]
     fn movement_uses_the_rebound_forward_key() {
         let (mut app, player) = test_app();
@@ -873,6 +1014,7 @@ mod tests {
         let start = transform(&app, player).translation;
         press(&mut app, &[DODGE_KEY, KeyCode::Space]);
         tick(&mut app, 10);
+        assert_eq!(stamina(&app, player), 75.0);
         let rise = transform(&app, player).translation.y - start.y;
         assert!(
             (0.10..0.18).contains(&rise),
@@ -957,14 +1099,7 @@ mod tests {
     #[test]
     fn pending_dodge_beats_a_new_thrust_and_an_active_thrust_blocks_dodge() {
         let (mut app, player) = test_app();
-        let mut bag = Inventory::default();
-        assert!(bag.add(ItemKind::FieldSpear, 1));
-        assert_eq!(
-            app.world_mut()
-                .resource_mut::<Equipment>()
-                .equip(&mut bag, ItemKind::FieldSpear),
-            Ok(true)
-        );
+        equip_spear(&mut app);
         app.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::ZERO));
         press(&mut app, &[DODGE_KEY]);
         app.world_mut()
@@ -989,6 +1124,35 @@ mod tests {
         press(&mut app, &[DODGE_KEY]);
         tick(&mut app, 1);
         assert!(!active(&app, player));
+    }
+
+    #[test]
+    fn unaffordable_dodge_allows_a_swing_that_holds_stamina_steady() {
+        let (mut app, player) = test_app();
+        equip_spear(&mut app);
+        assert!(
+            app.world_mut()
+                .get_mut::<Stamina>(player)
+                .expect("Player must supply its Stamina component")
+                .try_spend(90.0)
+        );
+        app.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::ZERO));
+        press(&mut app, &[DODGE_KEY]);
+        app.world_mut()
+            .resource_mut::<ButtonInput<MouseButton>>()
+            .press(MouseButton::Left);
+        tick(&mut app, 1);
+        assert!(app.world().resource::<WeaponAttack>().active());
+        assert_eq!(stamina(&app, player), 10.0);
+
+        app.insert_resource(TimeUpdateStrategy::ManualDuration(STEP));
+        tick(&mut app, 20);
+        assert!(!active(&app, player));
+        assert!(app.world().resource::<WeaponAttack>().active());
+        assert_eq!(stamina(&app, player), 10.0);
+        tick(&mut app, 30);
+        assert!(!app.world().resource::<WeaponAttack>().active());
+        assert!(stamina(&app, player) > 10.0);
     }
 
     #[test]
@@ -1017,12 +1181,14 @@ mod tests {
         let (mut app, player) = test_app();
         press(&mut app, &[DODGE_KEY]);
         tick(&mut app, 4);
+        let spent = stamina(&app, player);
         let position = transform(&app, player).translation;
         app.world_mut()
             .resource_mut::<NextState<GameState>>()
             .set(GameState::Paused);
         tick(&mut app, 40);
         assert!(active(&app, player));
+        assert_eq!(stamina(&app, player), spent);
         assert_eq!(transform(&app, player).translation, position);
         app.world_mut()
             .resource_mut::<NextState<GameState>>()
@@ -1032,6 +1198,7 @@ mod tests {
         press(&mut app, &[DODGE_KEY]);
         tick(&mut app, 1);
         assert!(!active(&app, player));
+        assert_eq!(stamina(&app, player), spent);
         assert_eq!(transform(&app, player).translation.z, position.z);
         app.world_mut().resource_mut::<Dialogue>().text = None;
         tick(&mut app, 40);
@@ -1039,6 +1206,7 @@ mod tests {
         press(&mut app, &[DODGE_KEY]);
         tick(&mut app, 2);
         assert!(active(&app, player));
+        let spent = stamina(&app, player);
 
         app.world_mut()
             .get_mut::<Transform>(player)
@@ -1046,6 +1214,7 @@ mod tests {
             .translation
             .y = -16.0;
         tick(&mut app, 1);
+        assert_eq!(stamina(&app, player), spent);
         assert_eq!(
             transform(&app, player).translation,
             WorldLayout::SmokeArena.start()

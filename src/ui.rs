@@ -7,7 +7,7 @@ use crate::{
     interaction::{InteractionSystems, InteractionTarget, Nearby, Target},
     loading::LoadStatus,
     menu_ui::PlayerMenu,
-    player::Player,
+    player::{Player, Stamina},
     quest::{Dialogue, QuestJournal},
     save::{SaveNotice, save_at_bed},
     settings::SettingsMenu,
@@ -23,13 +23,41 @@ struct Compass;
 #[derive(Component)]
 pub(crate) struct HealthBar;
 #[derive(Component)]
-struct HealthBarTrack;
-#[derive(Component)]
 pub(crate) struct HealthBarFill;
-const HEALTH_BAR_FADE_SECONDS: f32 = 0.65;
-const HEALTH_TRACK_COLOR: Color = Color::srgb(0.045, 0.065, 0.09);
-const HEALTH_BORDER_COLOR: Color = Color::srgb(0.30, 0.38, 0.44);
-const HEALTH_FILL_COLOR: Color = Color::srgb(0.94, 0.32, 0.35);
+#[derive(Component)]
+pub(crate) struct StaminaBar;
+#[derive(Component)]
+pub(crate) struct StaminaBarFill;
+
+#[derive(Component)]
+struct StatusBar {
+    kind: StatusBarKind,
+    track: Entity,
+    fill: Entity,
+    opacity: f32,
+}
+
+#[derive(Component)]
+struct StatusBarTrack;
+
+#[derive(Clone, Copy)]
+enum StatusBarKind {
+    Health,
+    Stamina,
+}
+
+impl StatusBarKind {
+    fn fill_color(self) -> Color {
+        match self {
+            Self::Health => Color::srgb(0.94, 0.32, 0.35),
+            Self::Stamina => Color::srgb(0.36, 0.78, 0.43),
+        }
+    }
+}
+
+const BAR_FADE_SECONDS: f32 = 0.65;
+const BAR_TRACK_COLOR: Color = Color::srgb(0.045, 0.065, 0.09);
+const BAR_BORDER_COLOR: Color = Color::srgb(0.30, 0.38, 0.44);
 #[derive(Component)]
 struct StatusText;
 #[derive(Component)]
@@ -49,7 +77,7 @@ impl Plugin for GameUiPlugin {
             .add_systems(
                 Update,
                 (
-                    (refresh_hud, refresh_health).after(save_at_bed),
+                    (refresh_hud, refresh_status_bars).after(save_at_bed),
                     refresh_compass,
                     refresh_prompt.after(save_at_bed),
                     refresh_dialogue,
@@ -104,47 +132,12 @@ fn setup(mut commands: Commands) {
                 Pickable::IGNORE,
             ));
         });
-    commands
-        .spawn((
-            HealthBar,
-            Node {
-                position_type: PositionType::Absolute,
-                left: px(0),
-                right: px(0),
-                bottom: px(24),
-                align_items: AlignItems::Center,
-                justify_content: JustifyContent::Center,
-                ..default()
-            },
-            Visibility::Hidden,
-            Pickable::IGNORE,
-        ))
-        .with_children(|bar| {
-            bar.spawn((
-                HealthBarTrack,
-                Node {
-                    width: px(368),
-                    height: px(10),
-                    border: UiRect::all(px(1)),
-                    border_radius: BorderRadius::all(px(2)),
-                    overflow: Overflow::clip(),
-                    ..default()
-                },
-                BackgroundColor(HEALTH_TRACK_COLOR),
-                BorderColor::all(HEALTH_BORDER_COLOR),
-                Pickable::IGNORE,
-            ))
-            .with_child((
-                HealthBarFill,
-                Node {
-                    width: percent(0),
-                    height: percent(100),
-                    ..default()
-                },
-                BackgroundColor(HEALTH_FILL_COLOR),
-                Pickable::IGNORE,
-            ));
-        });
+    let (bar, fill) = spawn_status_bar(&mut commands, StatusBarKind::Health, 24);
+    commands.entity(bar).insert(HealthBar);
+    commands.entity(fill).insert(HealthBarFill);
+    let (bar, fill) = spawn_status_bar(&mut commands, StatusBarKind::Stamina, 10);
+    commands.entity(bar).insert(StaminaBar);
+    commands.entity(fill).insert(StaminaBarFill);
     commands.spawn((
         StatusText,
         Text::new("Loading the ice shelf..."),
@@ -214,6 +207,61 @@ fn setup(mut commands: Commands) {
             }
         });
 }
+
+fn spawn_status_bar(commands: &mut Commands, kind: StatusBarKind, bottom: u16) -> (Entity, Entity) {
+    let bar = commands
+        .spawn((
+            Node {
+                position_type: PositionType::Absolute,
+                left: px(0),
+                right: px(0),
+                bottom: px(bottom),
+                align_items: AlignItems::Center,
+                justify_content: JustifyContent::Center,
+                ..default()
+            },
+            Visibility::Hidden,
+            Pickable::IGNORE,
+        ))
+        .id();
+    let track = commands
+        .spawn((
+            ChildOf(bar),
+            StatusBarTrack,
+            Node {
+                width: px(368),
+                height: px(10),
+                border: UiRect::all(px(1)),
+                border_radius: BorderRadius::all(px(2)),
+                overflow: Overflow::clip(),
+                ..default()
+            },
+            BackgroundColor(BAR_TRACK_COLOR),
+            BorderColor::all(BAR_BORDER_COLOR),
+            Pickable::IGNORE,
+        ))
+        .id();
+    let fill = commands
+        .spawn((
+            ChildOf(track),
+            Node {
+                width: percent(0),
+                height: percent(100),
+                ..default()
+            },
+            BackgroundColor(kind.fill_color()),
+            Pickable::IGNORE,
+        ))
+        .id();
+    commands.entity(bar).insert(StatusBar {
+        kind,
+        track,
+        fill,
+        opacity: 0.0,
+    });
+    (bar, fill)
+}
+
 pub(crate) fn pause(
     smoke: Option<Res<crate::smoke::SmokeRun>>,
     keys: Res<ButtonInput<KeyCode>>,
@@ -347,51 +395,53 @@ fn camera_bearing(yaw: f32) -> (u16, &'static str) {
     (degrees, DIRECTIONS[direction])
 }
 
-fn refresh_health(
+fn refresh_status_bars(
     state: Res<State<GameState>>,
     time: Res<Time>,
-    player: Query<&Health, With<Player>>,
-    mut bar: Query<&mut Visibility, With<HealthBar>>,
-    mut track: Query<(&mut BackgroundColor, &mut BorderColor), With<HealthBarTrack>>,
-    mut fill: Query<
-        (&mut Node, &mut BackgroundColor),
-        (With<HealthBarFill>, Without<HealthBarTrack>),
-    >,
-    mut opacity: Local<f32>,
+    player: Query<(&Health, &Stamina), With<Player>>,
+    mut bars: Query<(&mut StatusBar, &mut Visibility)>,
+    mut track: Query<(&mut BackgroundColor, &mut BorderColor), With<StatusBarTrack>>,
+    mut fill: Query<(&mut Node, &mut BackgroundColor), Without<StatusBarTrack>>,
 ) {
-    let Ok(mut bar) = bar.single_mut() else {
-        return;
-    };
-    let Some(health) = player.single().ok().filter(|health| health.maximum() > 0) else {
-        *opacity = 0.0;
-        bar.set_if_neq(Visibility::Hidden);
-        return;
-    };
-    match state.get() {
-        GameState::Playing | GameState::Paused | GameState::Looting | GameState::Storage => {
-            if health.current() < health.maximum() {
-                *opacity = 1.0;
-            } else if *state.get() == GameState::Playing {
-                *opacity = (*opacity - time.delta_secs() / HEALTH_BAR_FADE_SECONDS).max(0.0);
+    let player = player.single().ok();
+    let show_bars = matches!(
+        state.get(),
+        GameState::Playing | GameState::Paused | GameState::Looting | GameState::Storage
+    );
+    for (mut bar, mut visibility) in &mut bars {
+        let amount = player.and_then(|(health, stamina)| match bar.kind {
+            StatusBarKind::Health => (health.maximum() > 0)
+                .then(|| 100.0 * f32::from(health.current()) / f32::from(health.maximum())),
+            StatusBarKind::Stamina => Some(100.0 * stamina.fraction()),
+        });
+        let Some(amount) = amount.filter(|_| show_bars) else {
+            bar.opacity = 0.0;
+            visibility.set_if_neq(Visibility::Hidden);
+            continue;
+        };
+        if amount < 100.0 {
+            bar.opacity = 1.0;
+        } else if *state.get() == GameState::Playing && bar.opacity > 0.0 {
+            bar.opacity = (bar.opacity - time.delta_secs() / BAR_FADE_SECONDS).max(0.0);
+        }
+        if bar.opacity == 0.0 {
+            visibility.set_if_neq(Visibility::Hidden);
+            continue;
+        }
+        if let (Ok((mut track_color, mut border)), Ok((mut fill, mut fill_color))) =
+            (track.get_mut(bar.track), fill.get_mut(bar.fill))
+        {
+            visibility.set_if_neq(Visibility::Inherited);
+            let width = percent(amount);
+            if fill.width != width {
+                fill.width = width;
             }
+            track_color.set_if_neq(BackgroundColor(BAR_TRACK_COLOR.with_alpha(bar.opacity)));
+            border.set_if_neq(BorderColor::all(BAR_BORDER_COLOR.with_alpha(bar.opacity)));
+            fill_color.set_if_neq(BackgroundColor(
+                bar.kind.fill_color().with_alpha(bar.opacity),
+            ));
         }
-        _ => *opacity = 0.0,
-    }
-    if *opacity == 0.0 {
-        bar.set_if_neq(Visibility::Hidden);
-        return;
-    }
-    if let (Ok((mut track_color, mut border)), Ok((mut fill, mut fill_color))) =
-        (track.single_mut(), fill.single_mut())
-    {
-        bar.set_if_neq(Visibility::Inherited);
-        let width = percent(100.0 * f32::from(health.current()) / f32::from(health.maximum()));
-        if fill.width != width {
-            fill.width = width;
-        }
-        track_color.set_if_neq(BackgroundColor(HEALTH_TRACK_COLOR.with_alpha(*opacity)));
-        border.set_if_neq(BorderColor::all(HEALTH_BORDER_COLOR.with_alpha(*opacity)));
-        fill_color.set_if_neq(BackgroundColor(HEALTH_FILL_COLOR.with_alpha(*opacity)));
     }
 }
 
@@ -519,6 +569,74 @@ mod tests {
     }
 
     #[test]
+    fn the_stamina_bar_shows_spending_and_recovery_then_fades_independently() {
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, StatesPlugin))
+            .insert_state(GameState::Playing)
+            .insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_millis(
+                125,
+            )))
+            .add_systems(Startup, setup)
+            .add_systems(Update, refresh_status_bars);
+        let player = app.world_mut().spawn(Player::default()).id();
+        let stamina_bar = |app: &mut App| {
+            let world = app.world_mut();
+            let (node, visibility) = world
+                .query_filtered::<(&Node, &Visibility), With<StaminaBar>>()
+                .single(world)
+                .expect("HUD setup must spawn one stamina bar");
+            assert_eq!(node.bottom, px(10));
+            *visibility
+        };
+        let stamina_fill = |app: &mut App| {
+            let world = app.world_mut();
+            let (node, color) = world
+                .query_filtered::<(&Node, &BackgroundColor), With<StaminaBarFill>>()
+                .single(world)
+                .expect("HUD setup must spawn one stamina fill");
+            (node.width, color.0.alpha())
+        };
+
+        app.update();
+        assert_eq!(stamina_bar(&mut app), Visibility::Hidden);
+        let mut avatar = app.world_mut().entity_mut(player);
+        avatar
+            .get_mut::<Health>()
+            .expect("Player must supply its Health component")
+            .set_current(80);
+        assert!(
+            avatar
+                .get_mut::<Stamina>()
+                .expect("Player must supply its Stamina component")
+                .try_spend(50.0)
+        );
+        app.update();
+        assert_eq!(stamina_bar(&mut app), Visibility::Inherited);
+        assert_eq!(stamina_fill(&mut app), (percent(50), 1.0));
+
+        for width in [75, 100] {
+            app.world_mut()
+                .get_mut::<Stamina>(player)
+                .expect("Player must supply its Stamina component")
+                .recover(1.0);
+            app.update();
+            assert_eq!(stamina_fill(&mut app).0, percent(width));
+        }
+        let opacity = stamina_fill(&mut app).1;
+        assert!(opacity > 0.0 && opacity < 1.0);
+        for _ in 0..5 {
+            app.update();
+        }
+        assert_eq!(stamina_bar(&mut app), Visibility::Hidden);
+        let world = app.world_mut();
+        let visibility = world
+            .query_filtered::<&Visibility, With<HealthBar>>()
+            .single(world)
+            .expect("HUD setup must spawn one health bar");
+        assert_eq!(*visibility, Visibility::Inherited);
+    }
+
+    #[test]
     fn the_bar_stays_hidden_at_full_health_then_shows_damage_recovery_and_fade() {
         let step = Duration::from_millis(125);
         let mut app = App::new();
@@ -530,7 +648,7 @@ mod tests {
             .add_systems(Startup, setup)
             .add_systems(
                 Update,
-                refresh_health.after(crate::combat::CombatSystems::Resolve),
+                refresh_status_bars.after(crate::combat::CombatSystems::Resolve),
             );
         let target = app.world_mut().spawn(Player::default()).id();
         let source = app.world_mut().spawn_empty().id();

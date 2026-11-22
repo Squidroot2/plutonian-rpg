@@ -9,7 +9,7 @@ use crate::{
     interaction::InteractionSystems,
     inventory::{CARRY_CAPACITY, Inventory},
     menu_ui::PlayerMenu,
-    player::{Dodge, MovementInput, Player},
+    player::{Dodge, MovementInput, Player, Stamina},
     quest::Dialogue,
 };
 
@@ -140,12 +140,20 @@ fn attack(
     spatial: SpatialQuery,
     movement: Res<MovementInput>,
     mut swing: ResMut<WeaponAttack>,
-    mut player: Query<(Entity, &Player, &Dodge, &Transform, &mut WeaponStance)>,
+    mut player: Query<(
+        Entity,
+        &Player,
+        &Dodge,
+        &Stamina,
+        &Transform,
+        &mut WeaponStance,
+    )>,
     mut hits: MessageWriter<Hit>,
     log: Option<Res<PlayerMenu>>,
     next: Res<NextState<GameState>>,
 ) {
-    let Ok((entity, controller, dodge, transform, mut stance)) = player.single_mut() else {
+    let Ok((entity, controller, dodge, stamina, transform, mut stance)) = player.single_mut()
+    else {
         swing.cancel();
         return;
     };
@@ -176,7 +184,7 @@ fn attack(
         && !menu_open
         && !dodge.active()
         && !(inventory.carried_weight(&equipment) <= CARRY_CAPACITY
-            && movement.dodge_pending(controller.grounded, dodge));
+            && movement.dodge_pending(controller.grounded, dodge, stamina));
 
     for hand in Hand::ALL {
         let equipped = equipment.weapon(hand.slot());
@@ -623,6 +631,12 @@ mod tests {
                 Transform::from_xyz(0.0, 0.0, 1.1),
             ))
             .id();
+        let health = |app: &App| {
+            app.world()
+                .get::<Health>(target)
+                .expect("the melee target must have health to take damage")
+                .current()
+        };
         world.resource_mut::<Orbit>().yaw = std::f32::consts::PI;
         world
             .resource_mut::<NextState<GameState>>()
@@ -655,7 +669,7 @@ mod tests {
         for _ in 0..30 {
             app.update();
         }
-        assert_eq!(app.world().get::<Health>(target).unwrap().current(), 53);
+        assert_eq!(health(&app), 53);
 
         assert_eq!(equipment.equip_in(&mut bag, MainHand, Shortsword), Ok(true));
         app.insert_resource(equipment);
@@ -675,12 +689,12 @@ mod tests {
         for _ in 0..11 {
             app.update();
         }
-        assert_eq!(app.world().get::<Health>(target).unwrap().current(), 39);
+        assert_eq!(health(&app), 39);
         click(&mut app, &[Left, Right]);
         for _ in 0..30 {
             app.update();
         }
-        assert_eq!(app.world().get::<Health>(target).unwrap().current(), 39);
+        assert_eq!(health(&app), 39);
         assert!(!app.world().resource::<WeaponAttack>().active());
         assert_eq!(
             app.world().get::<WeaponStance>(player),
@@ -696,16 +710,22 @@ mod tests {
         }
         click(&mut app, &[Right]);
         let attack = app.world().resource::<WeaponAttack>();
-        assert!(attack.current(Hand::Main).unwrap().elapsed > 0.0);
-        assert_eq!(attack.current(Hand::Off).unwrap().elapsed, 0.0);
+        let main = attack
+            .current(Hand::Main)
+            .expect("the earlier main-hand swing must still be active");
+        let off = attack
+            .current(Hand::Off)
+            .expect("the off-hand click must start a swing");
+        assert!(main.elapsed > 0.0);
+        assert_eq!(off.elapsed, 0.0);
         for _ in 0..7 {
             app.update();
         }
-        assert_eq!(app.world().get::<Health>(target).unwrap().current(), 32);
+        assert_eq!(health(&app), 32);
         for _ in 0..14 {
             app.update();
         }
-        assert_eq!(app.world().get::<Health>(target).unwrap().current(), 25);
+        assert_eq!(health(&app), 25);
         let attack = app.world().resource::<WeaponAttack>();
         assert!(attack.current(Hand::Main).is_none());
         assert!(attack.current(Hand::Off).is_some());
@@ -725,7 +745,7 @@ mod tests {
         for _ in 0..30 {
             app.update();
         }
-        assert_eq!(app.world().get::<Health>(target).unwrap().current(), 25);
+        assert_eq!(health(&app), 25);
     }
 
     #[test]
@@ -767,7 +787,11 @@ mod tests {
             .set(GameState::Playing);
         app.update();
 
-        let stance = |app: &App| *app.world().get::<WeaponStance>(player).unwrap();
+        let stance = |app: &App| {
+            *app.world()
+                .get::<WeaponStance>(player)
+                .expect("the player must have a weapon stance even with empty hands")
+        };
         assert!(matches!(
             app.world().resource::<Keybinds>().get(Control::Holster),
             Binding::Key(KeyX)
@@ -811,7 +835,7 @@ mod tests {
         app.world_mut()
             .resource_mut::<Keybinds>()
             .assign(Control::Holster, Binding::Key(KeyH))
-            .unwrap();
+            .expect("H must be available to bind as the holster key");
         frame(&mut app, Some(KeyX), &[]);
         assert_eq!(stance(&app), Holstered);
         frame(&mut app, Some(KeyH), &[Right]);

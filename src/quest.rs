@@ -883,14 +883,29 @@ mod tests {
     fn early_credit_requires_a_crediting_occurred_transition() {
         let mut catalog = test_journal().catalog;
         catalog.0[0].objectives[1].transitions[0].credit_early = true;
-        assert!(catalog.validate().unwrap_err().contains("credit_early"));
+        assert!(
+            catalog
+                .validate()
+                .expect_err("early credit requires an occurred transition")
+                .contains("credit_early")
+        );
 
         catalog.0[0].objectives[1].transitions[0].credit_early = false;
         catalog.0[0].objectives[1].transitions[1].credit = false;
-        assert!(catalog.validate().unwrap_err().contains("credit_early"));
+        assert!(
+            catalog
+                .validate()
+                .expect_err("early credit requires a transition that grants credit")
+                .contains("credit_early")
+        );
 
         catalog.0[0].objectives[1].transitions[1].credit = true;
         catalog.0[0].objectives[1].transitions[1].to = Destination::Fail("Example outcome".into());
-        assert!(catalog.validate().unwrap_err().contains("credit_early"));
+        assert!(
+            catalog
+                .validate()
+                .expect_err("a failure transition cannot grant early credit")
+                .contains("credit_early")
+        );
     }
 }

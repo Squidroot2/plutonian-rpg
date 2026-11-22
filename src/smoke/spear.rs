@@ -221,7 +221,10 @@ pub(super) fn drive(
                 .get(holstered_weapon.unwrap())
                 .expect("holstering keeps the worn polearm scene");
             assert_eq!(
-                names.get(parent.parent()).unwrap().as_str(),
+                names
+                    .get(parent.parent())
+                    .expect("the holstered polearm must be parented to a named socket")
+                    .as_str(),
                 "polearm_holster"
             );
             *screenshot = Some(capture(&mut commands, "holstered"));
@@ -236,7 +239,13 @@ pub(super) fn drive(
             let (_, _, parent) = worn
                 .get(holstered_weapon.unwrap())
                 .expect("drawing keeps the worn polearm scene");
-            assert_eq!(names.get(parent.parent()).unwrap().as_str(), "spear_grip");
+            assert_eq!(
+                names
+                    .get(parent.parent())
+                    .expect("the drawn polearm must be parented to a named socket")
+                    .as_str(),
+                "spear_grip"
+            );
             let position = dummy_transform.translation + Vec3::new(-GRIP_SIDE, 0.0, -2.0);
             if transform
                 .translation

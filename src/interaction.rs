@@ -525,7 +525,7 @@ mod tests {
             world
                 .resource::<Dialogue>()
                 .text
-                .unwrap()
+                .expect("collecting the core must prompt the player to speak to Nemi")
                 .contains("Speak to Nemi")
         );
 
@@ -541,7 +541,7 @@ mod tests {
             world
                 .resource::<Dialogue>()
                 .text
-                .unwrap()
+                .expect("handing over the core must open Nemi's response")
                 .contains("You found the core")
         );
     }
