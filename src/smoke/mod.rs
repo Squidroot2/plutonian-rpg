@@ -19,7 +19,7 @@ use crate::{
     equipment::Equipment,
     interaction::{InteractionTarget, Nearby, Target},
     inventory::{CARRY_CAPACITY, DropRequest, IMMOBILE_WEIGHT, Inventory, ItemKind},
-    inventory_ui::{InventoryAction, InventoryUiState},
+    inventory_ui::{InventoryAction, InventoryRow, InventoryUiState},
     loading::LoadStatus,
     menu_ui::{MenuTab, PlayerMenu},
     player::{DODGE_KEY, Dodge, Pace, Player},
@@ -621,11 +621,14 @@ fn check_beacon_quest(
             }
         }
         ArenaStep::SelectCore if menu.is_on(MenuTab::Inventory) => {
-            click_action(&mut commands, InventoryAction::Select(ItemKind::BeaconCore));
+            click_action(
+                &mut commands,
+                InventoryAction::Select(InventoryRow::Stack(ItemKind::BeaconCore)),
+            );
             *step = ArenaStep::CheckCore;
         }
         ArenaStep::CheckCore => {
-            assert_eq!(ui.selected, Some(ItemKind::BeaconCore));
+            assert_eq!(ui.selected_item(), Some(ItemKind::BeaconCore));
             assert_eq!(
                 ui.amount(&inventory),
                 None,

@@ -1,7 +1,7 @@
 //! Play the spear and trident tutorials before the equipment and quest checks.
 use bevy::{input::InputSystems, prelude::*, render::view::screenshot::Screenshot};
 
-use super::inventory::{InventorySmoke, click, walk};
+use super::inventory::{InventorySmoke, click, pointer_click, walk};
 use crate::{
     GameState,
     camera::Orbit,
@@ -10,7 +10,7 @@ use crate::{
     equipment::{Equipment, EquipmentSlot, WornEquipment},
     interaction::{InteractionTarget, Nearby},
     inventory::{Inventory, ItemKind, Pickup},
-    inventory_ui::InventoryAction,
+    inventory_ui::{InventoryAction, InventoryRow},
     loading::PendingScene,
     menu_ui::{MenuTab, PlayerMenu},
     player::Player,
@@ -510,13 +510,10 @@ fn check_spear_drop(
         }
         SpearSmoke::SelectDrop if menu.is_on(MenuTab::Inventory) => {
             assert_eq!(inventory.count(weapon), 1);
-            click(
-                &mut commands,
-                InventoryAction::Select(weapon),
-                &actions,
-                window,
-                camera,
-            );
+            let (row, _) = actions.iter().find(|(_, action)| {
+                matches!(action, InventoryAction::Select(InventoryRow::BagGear(item, _)) if *item == weapon)
+            }).expect("unequipped spear has a bag row");
+            commands.trigger(pointer_click(row, window, camera));
             *smoke = SpearSmoke::Drop;
         }
         SpearSmoke::Drop => {

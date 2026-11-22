@@ -8,7 +8,7 @@ use crate::{
     equipment::{Equipment, EquipmentSlot, Handedness, WeaponKind, WornEquipment},
     interaction::{InteractionTarget, Nearby},
     inventory::{Inventory, ItemKind, Pickup},
-    inventory_ui::InventoryAction,
+    inventory_ui::{InventoryAction, InventoryRow},
     loading::PendingScene,
     menu_ui::PlayerMenuScreen,
     menu_ui::{MenuTab, PlayerMenu},
@@ -27,9 +27,7 @@ pub(super) enum ShortswordStep {
     #[default]
     Collect,
     EquipMain,
-    OpenEquipment,
-    PickOffHand,
-    EquipOffHand,
+    EquipOffHand(Entity),
     CheckWorn,
     Holster,
     HolsteredIdle,
@@ -47,9 +45,8 @@ pub(super) enum ShortswordStep {
     Unequip,
     SelectDrop,
     OpenDrop,
-    SetDropQuantity,
     ConfirmDrop,
-    CloseBag,
+    CheckDrop(u32),
     Done,
 }
 
@@ -96,6 +93,15 @@ pub(crate) struct View<'w, 's> {
     nodes: Query<'w, 's, (&'static Name, &'static GlobalTransform)>,
     parents: Query<'w, 's, &'static ChildOf>,
 }
+impl View<'_, '_> {
+    fn bag_rows(&self, item: ItemKind) -> impl Iterator<Item = (Entity, InventoryAction)> {
+        self.actions.iter().filter_map(move |(entity, &action)| {
+            matches!(action, InventoryAction::Select(InventoryRow::BagGear(kind, _)) if kind == item)
+                .then_some((entity, action))
+        })
+    }
+}
+
 impl EquipmentSmoke {
     pub fn stage(&self) -> u16 {
         self.stage
@@ -284,9 +290,7 @@ fn drive_shortswords(
     match *step {
         ShortswordStep::Collect
         | ShortswordStep::EquipMain
-        | ShortswordStep::OpenEquipment
-        | ShortswordStep::PickOffHand
-        | ShortswordStep::EquipOffHand
+        | ShortswordStep::EquipOffHand(_)
         | ShortswordStep::CheckWorn
         | ShortswordStep::Holster
         | ShortswordStep::HolsteredIdle
@@ -340,9 +344,8 @@ fn drive_shortswords(
         ShortswordStep::Unequip
         | ShortswordStep::SelectDrop
         | ShortswordStep::OpenDrop
-        | ShortswordStep::SetDropQuantity
         | ShortswordStep::ConfirmDrop
-        | ShortswordStep::CloseBag => drop_swords(
+        | ShortswordStep::CheckDrop(_) => drop_swords(
             step, menu, bag, equipment, &view, keys, commands, player, window, camera,
         ),
         ShortswordStep::Done => {}
@@ -373,11 +376,6 @@ fn equip_and_holster_swords(
     use EquipmentSlot::{MainHand, OffHand};
     use ItemKind::Shortsword;
 
-    macro_rules! click {
-        ($action:expr) => {
-            click(&mut commands, $action, &view.actions, window, camera)
-        };
-    }
     match *step {
         ShortswordStep::Collect if bag.count(Shortsword) < 2 => {
             approach_pickup(
@@ -394,38 +392,29 @@ fn equip_and_holster_swords(
             *step = ShortswordStep::EquipMain;
         }
         ShortswordStep::EquipMain if menu.accepts(MenuTab::Inventory) => {
-            let row = view
-                .actions
-                .iter()
-                .find(|(_, action)| **action == InventoryAction::Select(Shortsword))
-                .expect("shortsword inventory row")
-                .0;
+            let mut rows = view.bag_rows(Shortsword);
+            let (row, _) = rows.next().expect("first Shortsword has a bag row");
+            let (other, _) = rows.next().expect("second Shortsword has its own bag row");
+            assert!(rows.next().is_none());
             commands.trigger(PointerClick {
                 count: 2,
                 ..pointer_click(row, window, camera)
             });
-            *step = ShortswordStep::OpenEquipment;
+            *step = ShortswordStep::EquipOffHand(other);
         }
-        ShortswordStep::OpenEquipment => {
+        ShortswordStep::EquipOffHand(other) => {
             assert_eq!(equipment.get(MainHand), Some(Shortsword));
-            click(
-                &mut commands,
-                MenuTab::Equipment,
-                &view.tabs,
-                window,
-                camera,
-            );
-            *step = ShortswordStep::PickOffHand;
-        }
-        ShortswordStep::PickOffHand if menu.accepts(MenuTab::Equipment) => {
-            click!(InventoryAction::ToggleSlot(OffHand));
-            *step = ShortswordStep::EquipOffHand;
-        }
-        ShortswordStep::EquipOffHand => {
-            click!(InventoryAction::EquipFromSlot(OffHand, Shortsword));
+            assert_eq!(equipment.get(OffHand), None);
+            assert_eq!(bag.count(Shortsword), 1);
+            assert!(view.bag_rows(Shortsword).map(|(row, _)| row).eq([other]));
+            commands.trigger(PointerClick {
+                count: 2,
+                ..pointer_click(other, window, camera)
+            });
             *step = ShortswordStep::CheckWorn;
         }
         ShortswordStep::CheckWorn => {
+            assert_eq!(equipment.get(MainHand), Some(Shortsword));
             assert_eq!(equipment.get(OffHand), Some(Shortsword));
             assert_eq!(bag.count(Shortsword), 0);
             if check_worn(view, equipment, player) {
@@ -609,6 +598,15 @@ fn drop_swords(
         };
     }
     match *step {
+        ShortswordStep::Unequip if menu.accepts(MenuTab::Inventory) => {
+            click(
+                &mut commands,
+                MenuTab::Equipment,
+                &view.tabs,
+                window,
+                camera,
+            );
+        }
         ShortswordStep::Unequip if menu.accepts(MenuTab::Equipment) => {
             if let Some(slot) = EquipmentSlot::HANDS
                 .into_iter()
@@ -628,27 +626,31 @@ fn drop_swords(
             }
         }
         ShortswordStep::SelectDrop if menu.accepts(MenuTab::Inventory) => {
-            click!(InventoryAction::Select(Shortsword));
+            let (_, action) = view
+                .bag_rows(Shortsword)
+                .next()
+                .expect("a Shortsword remains in the bag");
+            click!(action);
             *step = ShortswordStep::OpenDrop;
         }
         ShortswordStep::OpenDrop => {
             click!(InventoryAction::Drop);
-            *step = ShortswordStep::SetDropQuantity;
-        }
-        ShortswordStep::SetDropQuantity => {
-            click!(InventoryAction::Plus);
             *step = ShortswordStep::ConfirmDrop;
         }
         ShortswordStep::ConfirmDrop => {
             click!(InventoryAction::ConfirmDrop);
-            *step = ShortswordStep::CloseBag;
+            *step = ShortswordStep::CheckDrop(bag.count(Shortsword) - 1);
         }
-        ShortswordStep::CloseBag => {
+        ShortswordStep::CheckDrop(remaining) => {
             assert_eq!(
                 bag.count(Shortsword),
-                0,
-                "return the arena carry load to its starting weight"
+                remaining,
+                "drop one sword per confirmation"
             );
+            if remaining > 0 {
+                *step = ShortswordStep::SelectDrop;
+                return;
+            }
             keys.press(KeyCode::Tab);
             info!(
                 "SHORTSWORD SMOKE PASS: collected, equipped and dropped both swords, and landed solo and simultaneous strikes"
@@ -779,15 +781,18 @@ fn equip_field_armor(
             }
         }
         2 if menu.is_on(MenuTab::Inventory) => {
-            click!(InventoryAction::Select(ItemKind::FieldArmor));
+            let (_, action) = view
+                .bag_rows(ItemKind::FieldArmor)
+                .next()
+                .expect("field armor bag row");
+            click!(action);
             smoke.stage = 3;
         }
         3 => {
             assert_eq!(equipment.get(EquipmentSlot::Body), None);
             let (row, _) = view
-                .actions
-                .iter()
-                .find(|(_, action)| **action == InventoryAction::Select(ItemKind::FieldArmor))
+                .bag_rows(ItemKind::FieldArmor)
+                .next()
                 .expect("field armor inventory row");
             commands.trigger(PointerClick {
                 count: 2,
@@ -826,14 +831,23 @@ fn equip_field_armor(
             let (_, cells) = view
                 .inventory_rows
                 .iter()
-                .find(|(action, _)| **action == InventoryAction::Select(ItemKind::FieldArmor))
+                .find(|(action, _)| {
+                    **action
+                        == InventoryAction::Select(InventoryRow::Equipped(
+                            ItemKind::FieldArmor,
+                            EquipmentSlot::Body,
+                        ))
+                })
                 .expect("the inventory table must have a row for worn armor");
             let values: Vec<_> = cells
                 .iter()
                 .filter_map(|cell| view.text.get(cell).ok())
                 .map(|text| text.as_str())
                 .collect();
-            assert_eq!(values, ["Field armor", "1", "5 kg", "Equipped"]);
+            assert_eq!(
+                values,
+                ["Field armor", "1", "5 kg", "Equipped (Body armor)"]
+            );
             photo!("field-equipment-inventory");
             smoke.stage = 61;
         }
@@ -955,7 +969,11 @@ fn check_field_armor_changes(
     }
     match smoke.stage {
         71 if menu.is_on(MenuTab::Inventory) => {
-            click!(InventoryAction::Select(ItemKind::FieldArmor));
+            let (_, action) = view
+                .bag_rows(ItemKind::FieldArmor)
+                .next()
+                .expect("unequipped field armor bag row");
+            click!(action);
             smoke.stage = 8;
         }
         8 => {

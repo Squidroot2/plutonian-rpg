@@ -4,7 +4,7 @@ use crate::{
     camera::{FollowCamera, Orbit},
     interaction::{InteractionTarget, Nearby},
     inventory::{Inventory, ItemKind, Pickup},
-    inventory_ui::{InventoryAction, InventoryUiState},
+    inventory_ui::{InventoryAction, InventoryRow, InventoryUiState},
     menu_ui::{MenuTab, PlayerMenu},
     player::Player,
 };
@@ -254,7 +254,7 @@ fn drop_battery(
                 );
                 click(
                     &mut commands,
-                    InventoryAction::Select(ItemKind::Battery),
+                    InventoryAction::Select(InventoryRow::Stack(ItemKind::Battery)),
                     &actions,
                     window,
                     camera,
@@ -264,17 +264,17 @@ fn drop_battery(
         }
         4 => {
             assert!(!ui.drop_is_open(), "the quantity prompt must start hidden");
-            assert_eq!(ui.selected, Some(ItemKind::Battery));
+            assert_eq!(ui.selected_item(), Some(ItemKind::Battery));
             keys.press(KeyCode::KeyS);
             smoke.phase = 43;
         }
         43 => {
-            assert_eq!(ui.selected, Some(ItemKind::Scrap));
+            assert_eq!(ui.selected_item(), Some(ItemKind::Scrap));
             keys.press(KeyCode::KeyW);
             smoke.phase = 44;
         }
         44 => {
-            assert_eq!(ui.selected, Some(ItemKind::Battery));
+            assert_eq!(ui.selected_item(), Some(ItemKind::Battery));
             keys.press(KeyCode::KeyQ);
             smoke.phase = 41;
         }
@@ -285,7 +285,7 @@ fn drop_battery(
             smoke.phase = 45;
         }
         45 => {
-            assert_eq!(ui.selected, Some(ItemKind::Battery));
+            assert_eq!(ui.selected_item(), Some(ItemKind::Battery));
             assert!(ui.drop_is_open());
             keys.press(KeyCode::Escape);
             smoke.phase = 42;
