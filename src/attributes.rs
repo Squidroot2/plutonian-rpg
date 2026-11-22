@@ -404,7 +404,9 @@ pub(crate) fn spawn_character(page: &mut ChildSpawnerCommands) {
                         ));
                         row.spawn((SpendButton(id), menu_ui::button()))
                             .with_child((Text::new("+"), text_style(20.0), Pickable::IGNORE))
-                            .observe(spend_click);
+                            .observe(spend_click)
+                            .observe(show_rank_up_details)
+                            .observe(hide_rank_up_details);
                     });
             }
         });
@@ -437,6 +439,51 @@ fn hide_attribute_details(
     };
     for (detail, mut visibility) in &mut details {
         if detail.0 == *id {
+            *visibility = Visibility::Hidden;
+        }
+    }
+}
+
+fn show_rank_up_details(
+    over: On<PointerOver>,
+    buttons: Query<&SpendButton>,
+    ranks: Single<&AttributeRanks, With<Player>>,
+    progress: Single<&CharacterProgress, With<Player>>,
+    mut details: Query<(&AttributeDetails, &mut Text, &mut Visibility)>,
+) {
+    let Ok(button) = buttons.get(over.entity) else {
+        return;
+    };
+    let id = button.0;
+    for (detail, mut text, mut visibility) in &mut details {
+        if detail.0 == id {
+            let rank = ranks.rank(id);
+            let enabled = progress.unspent > 0 && rank < MAX_RANK;
+            let value = if enabled {
+                let mut next = (*ranks).clone();
+                next.0[id as usize] += 1;
+                format!("Next rank: {}", next.effects().describe(id))
+            } else if rank >= MAX_RANK {
+                "Maximum rank".to_string()
+            } else {
+                "No unspent attribute points".to_string()
+            };
+            text.0 = value;
+            *visibility = Visibility::Visible;
+        }
+    }
+}
+
+fn hide_rank_up_details(
+    out: On<PointerOut>,
+    buttons: Query<&SpendButton>,
+    mut details: Query<(&AttributeDetails, &mut Visibility)>,
+) {
+    let Ok(button) = buttons.get(out.entity) else {
+        return;
+    };
+    for (detail, mut visibility) in &mut details {
+        if detail.0 == button.0 {
             *visibility = Visibility::Hidden;
         }
     }
