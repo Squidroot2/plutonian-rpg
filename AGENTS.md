@@ -37,6 +37,12 @@ Use rustfmt, four-space indentation, `snake_case` functions and modules, and `Pa
 - Separate AI decisions, `FixedUpdate` movement, and presentation. Schedule frame attacks in `CombatSystems::Detect` and reaction systems after `CombatSystems::Resolve`. Gate gameplay by state and make dependencies between systems explicit in the schedule.
 - Bind animation players and equipment sockets when the scene instance becomes ready. Resolve playback through the owning entity. Use change detection to synchronize equipment and UI, and skip component writes when the value is already current.
 
+## Documentation
+
+Design documents are stored in `./docs/design`
+
+Make sure all documentation is kept up to date as changes are made
+
 ## Testing Guidelines
 
 Use `#[test]` with descriptive behavior names. Cover quest progression, premature actions, and duplicates. Test gameplay systems without a renderer.
