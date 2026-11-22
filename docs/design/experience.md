@@ -1,12 +1,10 @@
 # Experience and Leveling
 
 Players start at level 1 with zero XP.
-  Killable NPCs award XP when they die
-after the player has damaged them.
+  Killable NPCs award XP when they die after the player has damaged them.
   The player can contribute any amount of
 actual damage and another source can finish the kill.
-  The practice dummy is
-an indestructible training target.
+  The practice dummy is an indestructible training target.
   Completing a quest awards the XP defined
 in the [quest catalog](quests.md).
 
@@ -24,13 +22,9 @@ in the [quest catalog](quests.md).
 The next level costs `70 + 50 × (current level − 1)` XP.
   Two worms on the
 early route are enough to unlock the first attribute upgrades.
-  The five
-worms and one roach across the shipped map total 200 XP, reaching level 3
-with 10 XP toward level 4.
-  This pacing lets players reach level 3 through
-hostile encounters alone.
-  Later levels take more encounters as the player
-builds up their attributes.
+  The five worms and one roach across the shipped map total 200 XP, reaching level 3 with 10 XP toward level 4.
+  This pacing lets players reach level 3 through hostile encounters alone.
+  Later levels take more encounters as the player builds up their attributes.
 
 The two beacon routes pay the same XP.
   Completing one route and Old Relay
@@ -101,14 +95,10 @@ the resulting level and points gained.
 ## Acceptance checks
 
 - A zero-damage hit earns no credit.
-  A hit followed by another source's
-  lethal blow earns one reward, including when both hits resolve in the same
-  update.
-  Repeated hits on a dead actor yield zero XP.
-- Exact thresholds, surplus XP, and multiple level gains grant the expected
-  attribute points.
+  A hit followed by another source's lethal blow earns one reward, including when both hits resolve in the same
+  update. Repeated hits on a dead actor yield zero XP.
+- Exact thresholds, surplus XP, and multiple level gains grant the expected attribute points.
   The Character tab reflects XP changes between levels too.
-- Checkpoint restoration preserves partial level progress and credit for
-  living actors.
-  Legacy saves load with their original progression and no
-  XP credit, and saved corpses produce no XP or notice on load.
+- Checkpoint restoration preserves partial level progress and credit for living actors. 
+- Legacy saves load with their original progression and no XP credit, 
+  and saved corpses produce no XP or notice on load.
