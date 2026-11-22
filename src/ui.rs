@@ -302,7 +302,10 @@ pub(crate) fn pause(
             return;
         }
     }
-    if keys.just_pressed(KeyCode::Escape) {
+    if keys.just_pressed(KeyCode::Escape)
+        || (keys.just_pressed(KeyCode::Tab)
+            && matches!(state.get(), GameState::Looting | GameState::Storage))
+    {
         match state.get() {
             GameState::Playing if dialogue.text.is_some() => dialogue.text = None,
             GameState::Playing => next.set(GameState::Paused),
