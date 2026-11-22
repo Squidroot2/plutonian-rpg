@@ -2,16 +2,24 @@
 
 ## Progression
 
-Each attribute has ranks **1–100**. New characters start at rank **5** in every
-attribute. Rank 5 reproduces the current health, stamina, melee damage, movement
-costs, and carrying capacity. Future character creation can set different
+Each attribute has ranks **1–100**.
+  New characters start at rank **5** in every
+attribute.
+  Rank 5 reproduces the current health, stamina, melee damage, movement
+costs, and carrying capacity.
+  Future character creation can set different
 starting ranks within the same bounds.
 
-The player starts at character level 1 with zero unspent points. Each level
-gained grants **3 attribute points** to a shared pool. One point raises one
-attribute by one rank. Players can bank points or spend them in the **Character**
+The player starts at character level 1 with zero unspent points.
+  Each level
+gained grants **3 attribute points** to a shared pool.
+  One point raises one
+attribute by one rank.
+  Players can bank points or spend them in the **Character**
 tab, which shows their level, unspent points, and the current and next rank's
-effects for each attribute. Each spend takes effect immediately. See the
+effects for each attribute.
+  Each spend takes effect immediately.
+  See the
 [experience design](experience.md) for XP sources, thresholds, and level
 pacing.
 
@@ -29,30 +37,42 @@ In each formula, `rank` is the rank of the attribute on that row.
 | **Strength** · Melee weapon damage | `(95 + rank)% × base damage` | 96% | 100% | 195% |
 
 **Vitality** sets the passive healing rate after the existing five-second wait
-following damage. Accumulate fractional healing and apply it in whole HP.
-Taking damage restarts the wait and clears the accumulated healing. Recovery
+following damage.
+  Accumulate fractional healing and apply it in whole HP.
+Taking damage restarts the wait and clears the accumulated healing.
+  Recovery
 applies to living characters up to their maximum health.
 
 **Endurance** grants full stamina recovery while eligible and stationary and
-half that rate while walking. Sprinting costs 14 stamina per second. Carried
-weight includes equipped gear. The player can run, sprint, jump, and dodge at
-or below carrying capacity. Above capacity, the player can only walk, up
-through `floor(1.2 × capacity)` kg. Exceeding that second threshold prevents
-movement. Movement, attack input, and the inventory display use the same
+half that rate while walking.
+  Sprinting costs 14 stamina per second.
+  Carried
+weight includes equipped gear.
+  The player can run, sprint, jump, and dodge at
+or below carrying capacity.
+  Above capacity, the player can only walk, up
+through `floor(1.2 × capacity)` kg.
+  Exceeding that second threshold prevents
+movement.
+  Movement, attack input, and the inventory display use the same
 derived limits.
 
 **Strength** scales each connecting melee weapon hit, including each hand when
-dual wielding. Round to the nearest whole point with halves rounding up, then
+dual wielding.
+  Round to the nearest whole point with halves rounding up, then
 apply the target's defense.
 
-Raising maximum health or stamina preserves the current amount. The HUD uses
+Raising maximum health or stamina preserves the current amount.
+  The HUD uses
 the new maximum immediately, and regular recovery fills the additional capacity.
 
 ### Agility
 
 Use `base cost × ln(105 / (rank + 5)) / ln(10.5)`, with base costs of **20
-stamina for a jump** and **25 for a dodge**. The curve gives larger stamina
-savings per rank early on and smaller savings near the cap. The final rank
+stamina for a jump** and **25 for a dodge**.
+  The curve gives larger stamina
+savings per rank early on and smaller savings near the cap.
+  The final rank
 removes the entire remaining cost, about 0.08 stamina for a jump and 0.10 for a
 dodge.
 
@@ -66,40 +86,59 @@ dodge.
 | **100** | **0.00** | **0.00** |
 
 Keep full precision for affordability and spending, and display costs to two
-decimal places. Use the same derived dodge cost for attack priority and the
-actual charge. Charge once per successful action. **Only rank 100** allows a
+decimal places.
+  Use the same derived dodge cost for attack priority and the
+actual charge.
+  Charge once per successful action.
+  **Only rank 100** allows a
 jump or dodge at zero stamina, subject to the usual action requirements.
 
 ## Strength requirements
 
-Each melee weapon or armor piece has a minimum Strength rank. The initial
+Each melee weapon or armor piece has a minimum Strength rank.
+  The initial
 requirements are **7** for the Reinforced Helmet, **8** for the Trident, and
-**10** for Reinforced Armor. The remaining shipped gear requires rank 1.
+**10** for Reinforced Armor.
+  The remaining shipped gear requires rank 1.
 
 Show the requirement on gear details and disable ineligible choices in the
-Equipment slot picker. A double-click on ineligible gear in Inventory shows
-a dismissible warning. Enforce the same check on both quick-equip and
-slot-specific requests before moving any items. Characters can carry gear
+Equipment slot picker.
+  A double-click on ineligible gear in Inventory shows
+a dismissible warning.
+  Enforce the same check on both quick-equip and
+slot-specific requests before moving any items.
+  Characters can carry gear
 they have yet to qualify for.
 
 ## Data, saves, and extension
 
-- Keep ranks, character level, and unspent points on the player entity. Grant
+- Keep ranks, character level, and unspent points on the player entity.
+  Grant
   points for each newly reached level and record the new level in the same
-  operation. Repeated or older levels award zero points. Check
+  operation.
+  Repeated or older levels award zero points.
+  Check
   the point balance and rank cap when applying each spend.
 - Define attributes centrally with stable IDs, default ranks, display text,
-  and tuning. Gameplay systems and Character tab previews use the same
-  derived values. To add an attribute, register its definition and connect
+  and tuning.
+  Gameplay systems and Character tab previews use the same
+  derived values.
+  To add an attribute, register its definition and connect
   its effects to the systems that use them.
 - Store actual ranks by stable ID alongside character level and unspent points
-  in bitcode bed saves. Missing ranks use their configured
-  defaults. Migrate v1 and v2 saves to level 1, ranks of 5, and zero unspent
-  points. Return newly ineligible equipped items to the backpack through
-  checked transfers. If a transfer fails, report the load error and preserve
+  in bitcode bed saves.
+  Missing ranks use their configured
+  defaults.
+  Migrate v1 and v2 saves to level 1, ranks of 5, and zero unspent
+  points.
+  Return newly ineligible equipped items to the backpack through
+  checked transfers.
+  If a transfer fails, report the load error and preserve
   the original save file.
-- Bed saves checkpoint ranks and points. Combat death restores that checkpoint,
-  while fall recovery preserves current allocations. Initialize health and
+- Bed saves checkpoint ranks and points.
+  Combat death restores that checkpoint,
+  while fall recovery preserves current allocations.
+  Initialize health and
   stamina at their restored maxima when loading a checkpoint.
 
 ## Bevy ECS implementation
@@ -107,9 +146,12 @@ they have yet to qualify for.
 ### Component ownership
 
 Put the attribute definitions, formulas, and progression systems in an
-`attributes` module registered from `main.rs`. Keep definitions in a static
-catalog keyed by a typed `AttributeId`. Each ID has an explicit stable save
-key. The catalog also provides display order, so the Character tab can build
+`attributes` module registered from `main.rs`.
+  Keep definitions in a static
+catalog keyed by a typed `AttributeId`.
+  Each ID has an explicit stable save
+key.
+  The catalog also provides display order, so the Character tab can build
 its rows from the definitions and automatically include new attributes.
 
 Attach the following components to the player root entity, alongside
@@ -127,9 +169,12 @@ Attach the following components to the player root entity, alongside
 | `MeleeDamageMultiplier` | Derived damage multiplier as a whole percentage |
 
 Use `AttributeRanks` and `CharacterProgress` as the source of truth for
-progression. Compute the derived values with pure functions. The same
+progression.
+  Compute the derived values with pure functions.
+  The same
 functions initialize actors, update capabilities when ranks change, and
-preview a candidate rank in the Character tab. Keep the current HP, current
+preview a candidate rank in the Character tab.
+  Keep the current HP, current
 stamina, and recovery timers in their owning components during a stat update.
 The shared recovery system continues to query `Health` and
 `HealthRecovery`, so actors can opt into healing with authored values.
@@ -145,43 +190,61 @@ The shared recovery system continues to query `Health` and
 | `Update`, after `CombatSystems::Resolve` | Award XP and apply level gains before saving or refreshing the Character panel. |
 | `Update`, after capability synchronization | Refresh inventory. Keep the HUD refresh after bed saves so it sees both the derived maxima and any health restored by the cot. |
 
-Gate progression updates to `GameState::Playing`. The Character tab's
+Gate progression updates to `GameState::Playing`.
+  The Character tab's
 button observer submits a spend request containing the player entity and
-attribute ID. At application time, verify that the target is the current
-living player and that the menu still accepts Character input. Apply each
+attribute ID.
+  At application time, verify that the target is the current
+living player and that the menu still accepts Character input.
+  Apply each
 spend against the balance left by the previous one, updating the rank and
-point balance together. The XP system commits its resulting absolute level
-and grants points only for newly reached levels. Those points are available
-to spend on the next update. Requests for despawned players are discarded.
+point balance together.
+  The XP system commits its resulting absolute level
+and grants points only for newly reached levels.
+  Those points are available
+to spend on the next update.
+  Requests for despawned players are discarded.
 
-Use `Changed<AttributeRanks>` to trigger capability synchronization. Compare
+Use `Changed<AttributeRanks>` to trigger capability synchronization.
+  Compare
 derived values before writing components, so a Strength spend marks only
-its affected capabilities. Keep the remaining post-hit wait and fractional
-progress when Vitality changes. Reset both on the next damaging hit using the
+its affected capabilities.
+  Keep the remaining post-hit wait and fractional
+progress when Vitality changes.
+  Reset both on the next damaging hit using the
 existing combat path.
 
-Equipment checks read the current Strength rank directly. Put the minimum
+Equipment checks read the current Strength rank directly.
+  Put the minimum
 rank in the item's `GearDefinition` and call one eligibility check from both
-equip paths and their UI controls. Check the requirement before mutating
+equip paths and their UI controls.
+  Check the requirement before mutating
 `Inventory` or `Equipment`, including when a two-handed weapon would
-displace off-hand gear. Refresh load text and statuses when inventory,
-equipment, or `CarryLimits` changes. Refresh gear controls when Strength
+displace off-hand gear.
+  Refresh load text and statuses when inventory,
+equipment, or `CarryLimits` changes.
+  Refresh gear controls when Strength
 changes and refresh both panels when opened.
 
 ### Spawn and save lifecycle
 
 In the existing `SpawnWorld` path, pass the starting rank and progression
-data into player spawning. Use the same initializer for a new game, the
-smoke arena, and checkpoint restoration. Select the saved values from
+data into player spawning.
+  Use the same initializer for a new game, the
+smoke arena, and checkpoint restoration.
+  Select the saved values from
 `RunSave` when it holds a checkpoint and use the starting profile otherwise.
 Insert ranks and derived capabilities together, with health and stamina
 initialized to their computed maxima, before the loading state releases the
-player to gameplay. The visual scene child continues to bind animations and
+player to gameplay.
+  The visual scene child continues to bind animations and
 equipment sockets when its instance becomes ready.
 
 Capture the player's progression components with the rest of the bed
-snapshot after combat resolution. Decode and migrate legacy snapshots before
-the loading path installs their inventory and equipment resources. Apply
+snapshot after combat resolution.
+  Decode and migrate legacy snapshots before
+the loading path installs their inventory and equipment resources.
+  Apply
 legacy gear transfers to the decoded snapshot as a unit so that the session
 starts with a consistent bag and equipped set.
 
