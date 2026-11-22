@@ -97,6 +97,39 @@
                 transitions: [(when: Action(ReadSurveyLog), to: Complete)],
             ),
         ],
-        completion: "The first survey log records how the beacon once guided survey crews to shelter. To return to Nivalis, head south through the archive gate and junction to the round hatch in the entry vestibule.",
+        completion: "The first survey log records how the beacon once guided survey crews to shelter. Head south through the archive gate and junction to the round hatch in the entry vestibule, then tell Nemi about the mushroom creature in the archive.",
+    ),
+    (
+        id: "contain_the_hushcaps",
+        title: "Contain the Hushcaps",
+        completion_xp: 150,
+        summary: "A mushroom creature has reached the Old Relay archive. Nemi may know where it came from.",
+        outpost_only: true,
+        starts_when: [Action(ReturnedThroughRelayHatch)],
+        first_objective: "report_hushcap",
+        interrupts: [
+            (on: AttackedNemi, reason: "You attacked Nemi. They will no longer hear your report or examine the Mycelium."),
+        ],
+        objectives: [
+            (
+                id: "report_hushcap",
+                title: "Report the mushroom creature to Nemi",
+                directions: "Find Nemi in the outpost courtyard, northeast of the beacon tower. Tell them about the creature in the Old Relay archive.",
+                transitions: [(when: Action(ReportedArchiveHushcap), to: Objective("defeat_hushcaps"))],
+            ),
+            (
+                id: "defeat_hushcaps",
+                title: "Defeat five Hushcaps in the caverns",
+                directions: "Head south from the courtyard into South Basin. Go around the ice fins and follow the bend behind the ridge to Hushcap Caverns. Defeat five Hushcaps there and collect Mycelium from the corpses along the way.",
+                transitions: [(when: Occurred(DefeatedFiveCavernHushcaps), to: Objective("show_mycelium"), credit_early: true)],
+            ),
+            (
+                id: "show_mycelium",
+                title: "Show Nemi five Mycelium",
+                directions: "Return to Nemi in the outpost courtyard with at least five Mycelium in your backpack. Nemi will examine the samples and let you keep them.",
+                transitions: [(when: Action(ShowedNemiMycelium), to: Complete)],
+            ),
+        ],
+        completion: "You thinned the colony in Hushcap Caverns and showed Nemi that you had reached the growth below. Nemi will watch the old passages for more signs of spread.",
     ),
 ]

@@ -89,7 +89,7 @@ South of the outpost courtyard, the ice shelf opens into South Basin.
   Interaction requires a nearby target with a clear line of sight.
   Save files use a versioned bitcode format.
 
-The game includes The Last Light, the Old Relay quest and dungeon, and one speaking NPC.
+The main quest line continues from The Last Light through Old Relay and Contain the Hushcaps.
   Survival, crafting, and controller support are deferred.
   This is a fictional Pluto with terrain, illumination, and gravity tuned for play.
   The included Blender scripts generate the original models and title backdrop.
@@ -256,6 +256,16 @@ After you restore the beacon, look for the round hatch northwest of the beacon t
   Use the hatch in the vestibule to return to Nivalis.
   Gate progress and the discovery are included in bed saves.
 
+## Contain the Hushcaps
+
+After reading the survey log and returning through the relay hatch,
+  tell Nemi about the mushroom creature.
+  They send you south through South Basin to Hushcap Caverns.
+  Defeat five Hushcaps in the caverns and return with at least five Mycelium in your backpack.
+  The archive specimen can supply one of the samples.
+  Nemi examines the Mycelium and lets you keep it.
+  The Quest Log shows how many cavern Hushcaps you have defeated and how many samples you carry.
+
 ## Blender workflow
 
 Pass `-- --relay` to the asset command to regenerate the Old Relay source and collision files.
@@ -396,6 +406,7 @@ Run one smoke scenario at a time on an idle graphical desktop without supplying 
   It also checks hatch unlocking, the relay encounters, roach loot and XP, archive discovery, return and reentry, fall recovery, and combat defeat with and without a bed save.
   In the archive it checks projectile cover, reads the log with the Hushcap alive, and uses a spear to defeat and loot it.
   It verifies journal reward text, completion XP for The Last Light and Old Relay, and restoration of saved XP after combat defeat.
+  After leaving Old Relay it also reports the archive Hushcap to Nemi and checks the new quest's journal counters.
   It prints `WORLD SMOKE PASS` on success.
 - `--smoke-nemi` checks spear damage, fleeing and returning, the failed quest entry, Nemi’s collapse and XP reward, and XP for opening the relay by completing Relight the Beacon.
   It prints `NEMI SMOKE PASS` on success.

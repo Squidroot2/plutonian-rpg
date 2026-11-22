@@ -82,6 +82,7 @@ Interaction selects eligible nearby capabilities, then dispatches feature-specif
 
 The asset-authored quest catalog and `QuestJournal` record actions and progression.
   Interaction and Nemi's confirmed-hit reaction can update the journal; quest effects run after interaction when the journal changes, and once on the Loading-to-Playing transition to reconstruct world effects.
+  Cavern defeat credit reads the authored Hushcaps after combat resolution and records the milestone before experience and checkpoint updates.
   A change from another producer without an explicit ordering to effects may be observed on a subsequent frame; do not assume all journal writers precede effects in the same Update.
   The quest UI synchronizes after experience updates when its tab is open.
 

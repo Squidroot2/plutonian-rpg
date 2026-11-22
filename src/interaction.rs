@@ -6,7 +6,10 @@ use crate::{
     inventory::{Inventory, ItemKind, Pickup},
     nemi::Nemi,
     player::Player,
-    quest::{Dialogue, LAST_LIGHT, QuestAction, QuestJournal},
+    quest::{
+        CONTAIN_THE_HUSHCAPS, Dialogue, LAST_LIGHT, MYCELIUM_GOAL, QuestAction, QuestJournal,
+        QuestStatus,
+    },
     save::{Bed, SaveAtBed},
     storage::ChestId,
     ui::menu_ui::PlayerMenu,
@@ -317,12 +320,52 @@ fn speak_to_nemi(quest: &mut QuestJournal, inventory: &mut Inventory) -> &'stati
         }
         return "NEMI\n\nBring the beacon power core back to me first.";
     }
+    if let Some(response) = speak_about_cavern(quest, inventory) {
+        return response;
+    }
     if first_meeting {
         "NEMI / BEACON KEEPER\n\nYou made it home before the long dark. Our beacon has gone silent. The families here depend on its signal to cross the ice.\n\nA charged core waits in the blue cavern, beyond the waystones. Follow their lights north, then bring it back."
     } else if quest.is_complete(LAST_LIGHT) {
         "NEMI\n\nThe light reaches across the ice again. Look for the round Old Relay hatch west and a little south of here."
     } else {
         "NEMI\n\nFollow the blue waystones north from the outpost. The core is inside the cavern at the end of the trail."
+    }
+}
+
+fn speak_about_cavern(quest: &mut QuestJournal, inventory: &Inventory) -> Option<&'static str> {
+    let reported = quest.expects(QuestAction::ReportedArchiveHushcap);
+    if reported {
+        quest.record(QuestAction::ReportedArchiveHushcap);
+    }
+    let ready_to_show = quest.expects(QuestAction::ShowedNemiMycelium);
+    if ready_to_show && inventory.count(ItemKind::Mycelium) >= MYCELIUM_GOAL {
+        quest.record(QuestAction::ShowedNemiMycelium);
+        return Some(if reported {
+            "YOU\n\nThere was a mushroom creature in the Relay archive. I found more of them in a cave south of here.\n\nNEMI\n\nHushcaps. Their colony in Hushcap Caverns has started to spread. You've already thinned it, and these samples tell me you reached the growth below. Keep them. I'll watch the old passages.\n\nQUEST COMPLETE / CONTAIN THE HUSHCAPS"
+        } else {
+            "NEMI\n\nFive samples. You've thinned the colony enough to slow the spread. Keep the Mycelium. I'll watch the old passages for more.\n\nQUEST COMPLETE / CONTAIN THE HUSHCAPS"
+        });
+    }
+    if reported && ready_to_show {
+        Some(
+            "YOU\n\nThere was a mushroom creature in the Relay archive. I found more of them in a cave south of here.\n\nNEMI\n\nHushcaps. Their colony in Hushcap Caverns has started to spread. You've already thinned it. Bring five Mycelium in your backpack so I can examine the growth.",
+        )
+    } else if reported {
+        Some(
+            "YOU\n\nThere was a mushroom creature in the Relay archive.\n\nNEMI\n\nA Hushcap. Their colony is spreading beyond Hushcap Caverns. Go south from the courtyard into South Basin. Round the ice fins and follow the bend behind the ridge. Defeat five Hushcaps in the caverns and bring five Mycelium back for me to examine.",
+        )
+    } else if ready_to_show {
+        Some(
+            "NEMI\n\nBring me five Mycelium in your backpack so I can examine the growth. You can keep the samples afterward.",
+        )
+    } else if quest.is_complete(CONTAIN_THE_HUSHCAPS) {
+        Some("NEMI\n\nI'll keep watch on the old passages. For now, the spread has slowed.")
+    } else if quest.status(CONTAIN_THE_HUSHCAPS) == Some(QuestStatus::Active) {
+        Some(
+            "NEMI\n\nThe caverns lie south, behind the ridge in South Basin. Defeat five Hushcaps inside before you come back.",
+        )
+    } else {
+        None
     }
 }
 
@@ -394,6 +437,120 @@ mod tests {
         assert!(inventory.add(ItemKind::BeaconCore, 1));
         install_core(&mut journal, &mut inventory);
         assert_eq!(inventory.count(ItemKind::BeaconCore), 1);
+    }
+
+    #[test]
+    fn nemi_checks_the_backpack_and_leaves_the_mycelium_with_the_player() {
+        let mut app = test_app();
+        let mut journal = crate::quest::test_relay_journal();
+        journal.offer_cavern_report();
+        let world = app.world_mut();
+        world.insert_resource(journal);
+        world.spawn((Target::Keeper, Transform::from_xyz(0.0, 0.0, -2.0)));
+        assert!(world.resource_mut::<Inventory>().add(ItemKind::Mycelium, 4));
+        assert!(
+            world
+                .resource_mut::<ChestStorage>()
+                .get_mut(ChestId::Supply)
+                .add(ItemKind::Mycelium, 1)
+        );
+
+        press_interact(&mut app);
+        assert!(
+            app.world()
+                .resource::<Dialogue>()
+                .text
+                .is_some_and(|text| text.contains("South Basin"))
+        );
+        let mut journal = app.world_mut().resource_mut::<QuestJournal>();
+        journal.record(QuestAction::DefeatedFiveCavernHushcaps);
+        assert!(journal.expects(QuestAction::ShowedNemiMycelium));
+        press_interact(&mut app);
+        press_interact(&mut app);
+        assert!(
+            !app.world()
+                .resource::<QuestJournal>()
+                .is_complete(CONTAIN_THE_HUSHCAPS)
+        );
+        assert!(
+            app.world()
+                .resource::<Dialogue>()
+                .text
+                .is_some_and(|text| text.contains("backpack"))
+        );
+
+        app.world_mut()
+            .resource_scope(|world, mut storage: Mut<ChestStorage>| {
+                assert!(storage.get_mut(ChestId::Supply).transfer_to(
+                    &mut world.resource_mut::<Inventory>(),
+                    ItemKind::Mycelium,
+                    1
+                ));
+            });
+        press_interact(&mut app);
+        press_interact(&mut app);
+        assert!(
+            app.world()
+                .resource::<QuestJournal>()
+                .is_complete(CONTAIN_THE_HUSHCAPS)
+        );
+        assert_eq!(
+            app.world()
+                .resource::<Inventory>()
+                .count(ItemKind::Mycelium),
+            5
+        );
+        assert_eq!(
+            app.world_mut()
+                .resource_mut::<QuestJournal>()
+                .take_completion_xp(),
+            150
+        );
+        press_interact(&mut app);
+        press_interact(&mut app);
+        assert_eq!(
+            app.world()
+                .resource::<Inventory>()
+                .count(ItemKind::Mycelium),
+            5
+        );
+        assert_eq!(
+            app.world_mut()
+                .resource_mut::<QuestJournal>()
+                .take_completion_xp(),
+            0
+        );
+    }
+
+    #[test]
+    fn early_cavern_progress_waits_for_the_hatch_exit_and_report() {
+        let mut journal = crate::quest::test_relay_journal();
+        let mut inventory = Inventory::default();
+        assert!(inventory.add(ItemKind::Mycelium, 6));
+        journal.record(QuestAction::DefeatedFiveCavernHushcaps);
+        speak_to_nemi(&mut journal, &mut inventory);
+        assert_eq!(journal.status(CONTAIN_THE_HUSHCAPS), None);
+        journal.offer_cavern_report();
+        assert!(journal.expects(QuestAction::ReportedArchiveHushcap));
+        assert!(!journal.expects(QuestAction::ShowedNemiMycelium));
+        let response = speak_to_nemi(&mut journal, &mut inventory);
+        assert!(response.contains("mushroom creature") && response.contains("QUEST COMPLETE"));
+        assert!(journal.is_complete(CONTAIN_THE_HUSHCAPS));
+        assert_eq!(inventory.count(ItemKind::Mycelium), 6);
+        assert_eq!(journal.take_completion_xp(), 150);
+    }
+
+    #[test]
+    fn the_briefing_recognizes_early_defeats_when_samples_are_still_missing() {
+        let mut journal = crate::quest::test_relay_journal();
+        let mut inventory = Inventory::default();
+        journal.record(QuestAction::DefeatedFiveCavernHushcaps);
+        journal.offer_cavern_report();
+
+        let response = speak_to_nemi(&mut journal, &mut inventory);
+        assert!(response.contains("already thinned it") && response.contains("five Mycelium"));
+        assert!(journal.expects(QuestAction::ShowedNemiMycelium));
+        assert_eq!(journal.take_completion_xp(), 0);
     }
 
     fn test_app() -> App {

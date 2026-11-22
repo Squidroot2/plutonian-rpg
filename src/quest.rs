@@ -14,6 +14,9 @@ pub struct QuestPlugin;
 pub(crate) const LAST_LIGHT: &str = "last_light";
 pub(crate) const OLD_RELAY: &str = "old_relay";
 pub(crate) const RELIGHT_BEACON: &str = "relight_beacon";
+pub(crate) const CONTAIN_THE_HUSHCAPS: &str = "contain_the_hushcaps";
+pub(crate) const CAVERN_HUSHCAP_GOAL: usize = 5;
+pub(crate) const MYCELIUM_GOAL: u32 = 5;
 
 #[derive(
     Clone,
@@ -28,6 +31,7 @@ pub(crate) const RELIGHT_BEACON: &str = "relight_beacon";
     bitcode::Decode,
 )]
 pub(crate) enum QuestAction {
+    // Save files use these discriminants. Append new actions and verify their packing.
     TalkedToNemi,
     RecoveredCore,
     ReturnedCore,
@@ -37,6 +41,10 @@ pub(crate) enum QuestAction {
     EnteredRelay,
     OpenedArchiveGate,
     ReadSurveyLog,
+    ReturnedThroughRelayHatch,
+    ReportedArchiveHushcap,
+    DefeatedFiveCavernHushcaps,
+    ShowedNemiMycelium,
 }
 
 #[derive(Clone, Deserialize, PartialEq, Eq)]
@@ -237,7 +245,7 @@ impl QuestCatalog {
                 return Err(format!("Missing or duplicate quest ID: {:?}", quest.id));
             }
         }
-        for required in [LAST_LIGHT, OLD_RELAY, RELIGHT_BEACON] {
+        for required in [LAST_LIGHT, OLD_RELAY, RELIGHT_BEACON, CONTAIN_THE_HUSHCAPS] {
             if !ids.contains(required) {
                 return Err(format!("The quest catalog is missing {required}"));
             }
@@ -349,6 +357,20 @@ pub(crate) struct SavedJournal {
     occurred: BTreeSet<QuestAction>,
 }
 
+impl SavedJournal {
+    /// Older bed saves put the player on the surface without recording the hatch exit.
+    pub(crate) fn credit_legacy_relay_return(&mut self) {
+        if self
+            .progress
+            .get(OLD_RELAY)
+            .is_some_and(|quest| matches!(quest.outcome, SavedOutcome::Completed))
+            && !self.occurred.contains(&QuestAction::AttackedNemi)
+        {
+            self.occurred.insert(QuestAction::ReturnedThroughRelayHatch);
+        }
+    }
+}
+
 #[derive(bitcode::Encode, bitcode::Decode)]
 struct SavedQuest {
     outcome: SavedOutcome,
@@ -421,13 +443,17 @@ impl QuestJournal {
                 .collect::<Result<_, _>>()?;
             progress.insert(id.clone(), QuestProgress { outcome, completed });
         }
-        Ok(Self {
+        let mut journal = Self {
             catalog,
             layout,
             progress,
             occurred: snapshot.occurred.clone(),
             pending_completion_xp: 0,
-        })
+        };
+        if journal.has_occurred(QuestAction::ReturnedThroughRelayHatch) {
+            journal.offer_cavern_report();
+        }
+        Ok(journal)
     }
 
     pub(crate) fn entries(&self) -> impl Iterator<Item = (&QuestDefinition, &QuestProgress)> {
@@ -448,6 +474,15 @@ impl QuestJournal {
 
     pub(crate) fn beacon_powered(&self) -> bool {
         self.is_complete(LAST_LIGHT) || self.is_complete(RELIGHT_BEACON)
+    }
+
+    pub(crate) fn offer_cavern_report(&mut self) {
+        if self.is_complete(OLD_RELAY)
+            && !self.has_occurred(QuestAction::AttackedNemi)
+            && self.status(CONTAIN_THE_HUSHCAPS).is_none()
+        {
+            self.record(QuestAction::ReturnedThroughRelayHatch);
+        }
     }
 
     pub(crate) fn expects(&self, action: QuestAction) -> bool {
@@ -586,6 +621,30 @@ pub(crate) fn test_journal() -> QuestJournal {
     QuestJournal::new(catalog, WorldLayout::Outpost)
 }
 
+#[cfg(test)]
+pub(crate) fn test_relay_journal() -> QuestJournal {
+    let mut journal = test_journal();
+    for action in [
+        QuestAction::TalkedToNemi,
+        QuestAction::RecoveredCore,
+        QuestAction::ReturnedCore,
+        QuestAction::EnteredRelay,
+        QuestAction::OpenedArchiveGate,
+        QuestAction::ReadSurveyLog,
+    ] {
+        journal.record(action);
+    }
+    assert!(journal.is_complete(OLD_RELAY));
+    journal.take_completion_xp();
+    journal
+}
+
+#[cfg(test)]
+pub(crate) fn restore_test_journal(saved: &SavedJournal) -> QuestJournal {
+    QuestJournal::from_snapshot(test_journal().catalog, WorldLayout::Outpost, saved)
+        .expect("the fixture uses stable shipped quest and objective IDs")
+}
+
 #[derive(Resource, Default)]
 pub struct Dialogue {
     pub text: Option<&'static str>,
@@ -662,6 +721,100 @@ fn effects(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cave_actions_preserve_the_original_save_encoding() {
+        #[derive(bitcode::Encode, PartialEq, Eq, PartialOrd, Ord)]
+        enum OriginalAction {
+            TalkedToNemi,
+            RecoveredCore,
+            ReturnedCore,
+            AttackedNemi,
+            InstalledCore,
+            InspectedSealedHatch,
+            EnteredRelay,
+            OpenedArchiveGate,
+            ReadSurveyLog,
+        }
+        use OriginalAction as Old;
+        use QuestAction as New;
+        let old = BTreeSet::from([
+            Old::TalkedToNemi,
+            Old::RecoveredCore,
+            Old::ReturnedCore,
+            Old::AttackedNemi,
+            Old::InstalledCore,
+            Old::InspectedSealedHatch,
+            Old::EnteredRelay,
+            Old::OpenedArchiveGate,
+            Old::ReadSurveyLog,
+        ]);
+        let current = BTreeSet::from([
+            New::TalkedToNemi,
+            New::RecoveredCore,
+            New::ReturnedCore,
+            New::AttackedNemi,
+            New::InstalledCore,
+            New::InspectedSealedHatch,
+            New::EnteredRelay,
+            New::OpenedArchiveGate,
+            New::ReadSurveyLog,
+        ]);
+        let encoded = bitcode::encode(&old);
+        assert_eq!(bitcode::encode(&current), encoded);
+        assert_eq!(
+            bitcode::decode::<BTreeSet<QuestAction>>(&encoded).expect("legacy action set decodes"),
+            current
+        );
+    }
+
+    #[test]
+    fn a_completed_relay_exit_opens_the_cave_quest_once_for_friendly_players() {
+        let mut journal = test_journal();
+        for action in [
+            QuestAction::TalkedToNemi,
+            QuestAction::RecoveredCore,
+            QuestAction::ReturnedCore,
+            QuestAction::EnteredRelay,
+        ] {
+            journal.record(action);
+        }
+        journal.offer_cavern_report();
+        assert_eq!(journal.status(OLD_RELAY), Some(QuestStatus::Active));
+        assert_eq!(journal.status(CONTAIN_THE_HUSHCAPS), None);
+
+        journal.record(QuestAction::OpenedArchiveGate);
+        journal.record(QuestAction::ReadSurveyLog);
+        journal.take_completion_xp();
+        assert_eq!(journal.status(CONTAIN_THE_HUSHCAPS), None);
+        journal.offer_cavern_report();
+        assert!(journal.expects(QuestAction::ReportedArchiveHushcap));
+        journal.record(QuestAction::ReportedArchiveHushcap);
+        journal.offer_cavern_report();
+        assert!(!journal.expects(QuestAction::ReportedArchiveHushcap));
+        assert_eq!(journal.progress[CONTAIN_THE_HUSHCAPS].completed, [0]);
+        assert_eq!(journal.take_completion_xp(), 0);
+    }
+
+    #[test]
+    fn attacking_nemi_prevents_or_fails_the_cave_quest() {
+        let mut journal = test_relay_journal();
+        journal.record(QuestAction::AttackedNemi);
+        journal.offer_cavern_report();
+        assert_eq!(journal.status(CONTAIN_THE_HUSHCAPS), None);
+
+        let mut journal = test_relay_journal();
+        journal.offer_cavern_report();
+        journal.record(QuestAction::AttackedNemi);
+        journal.record(QuestAction::DefeatedFiveCavernHushcaps);
+        journal.record(QuestAction::ShowedNemiMycelium);
+        journal.offer_cavern_report();
+        assert_eq!(
+            journal.status(CONTAIN_THE_HUSHCAPS),
+            Some(QuestStatus::Failed)
+        );
+        assert_eq!(journal.take_completion_xp(), 0);
+    }
 
     #[test]
     fn quest_snapshot_survives_catalog_reordering_and_rejects_missing_objectives() {

@@ -17,6 +17,7 @@ in the [quest catalog](quests.md).
 | The Last Light | 70 |
 | Relight the Beacon | 70 |
 | Old Relay | 120 |
+| Contain the Hushcaps | 150 |
 
 ## Level pacing
 

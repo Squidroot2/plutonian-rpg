@@ -19,7 +19,10 @@ use crate::{
     interaction::{CorpseLoot, INTERACT_HEIGHT, INTERACT_RANGE, InteractionTarget, Nearby, Target},
     inventory::{Inventory, ItemKind},
     player::{Dodge, Player},
-    quest::{Dialogue, LAST_LIGHT, OLD_RELAY, QuestAction, QuestJournal, QuestStatus},
+    quest::{
+        CONTAIN_THE_HUSHCAPS, Dialogue, LAST_LIGHT, OLD_RELAY, QuestAction, QuestJournal,
+        QuestStatus,
+    },
     roach::Roach,
     save::{EncounterId, RunSave},
     storage::{ChestId, ChestStorage},
@@ -131,6 +134,12 @@ pub(super) enum WorldCheck {
     LeaveArchive,
     LeaveJunction,
     Exit,
+    ApproachNemi,
+    CavernBriefing,
+    OpenCavernJournal,
+    SelectCavernQuest,
+    CheckCavernJournal,
+    CavernJournalPhoto(Entity),
     Reenter,
     Revisited,
     Recover,
@@ -326,6 +335,12 @@ pub(super) fn drive(
         | WorldCheck::LeaveArchive
         | WorldCheck::LeaveJunction
         | WorldCheck::Exit => finish_relay_quest(frame),
+        WorldCheck::ApproachNemi
+        | WorldCheck::CavernBriefing
+        | WorldCheck::OpenCavernJournal
+        | WorldCheck::SelectCavernQuest
+        | WorldCheck::CheckCavernJournal
+        | WorldCheck::CavernJournalPhoto(..) => check_cavern_briefing(frame),
         WorldCheck::ApproachHushcap
         | WorldCheck::FightHushcap { .. }
         | WorldCheck::TakeMycelium
@@ -1126,6 +1141,7 @@ fn finish_relay_quest(frame: WorldFrame) {
         }
         WorldCheck::ReadNotice => {
             assert!(quest.is_complete(OLD_RELAY));
+            assert_eq!(quest.status(CONTAIN_THE_HUSHCAPS), None);
             assert!(!relay_encounter(&hushcaps, EncounterId::RelayArchiveHushcap).4);
             assert_eq!((*attributes, *xp), (RELAY_PROGRESS, Experience(25)));
             assert_eq!(
@@ -1193,6 +1209,88 @@ fn finish_relay_quest(frame: WorldFrame) {
             assert_eq!(controller.area, Area::Surface);
             assert!((position.xz().distance(HATCH.xz()) - 2.1).abs() < 0.1);
             assert!(quest.is_complete(OLD_RELAY));
+            assert!(quest.expects(QuestAction::ReportedArchiveHushcap));
+            *phase = WorldCheck::ApproachNemi;
+        }
+        _ => {}
+    }
+}
+
+fn check_cavern_briefing(frame: WorldFrame) {
+    let WorldFrame {
+        mut phase,
+        quest,
+        nearby,
+        dialogue,
+        position,
+        mut keys,
+        mut orbit,
+        mut commands,
+        rows,
+        texts,
+        journal,
+        selection,
+        window,
+        camera,
+        captures,
+        ..
+    } = frame;
+    match *phase {
+        WorldCheck::ApproachNemi
+            if target_ready(&nearby, InteractionTarget::Quest(Target::Keeper)) =>
+        {
+            keys.press(KeyCode::KeyE);
+            *phase = WorldCheck::CavernBriefing;
+        }
+        WorldCheck::ApproachNemi => {
+            walk_to(
+                &mut keys,
+                &mut orbit,
+                position,
+                WorldLayout::Outpost.keeper(),
+            );
+        }
+        WorldCheck::CavernBriefing => {
+            assert!(quest.has_occurred(QuestAction::ReportedArchiveHushcap));
+            assert!(dialogue.text.is_some_and(|text| {
+                text.contains("mushroom creature")
+                    && text.contains("Hushcap Caverns")
+                    && text.contains("five Mycelium")
+            }));
+            keys.press(KeyCode::KeyE);
+            *phase = WorldCheck::OpenCavernJournal;
+        }
+        WorldCheck::OpenCavernJournal if dialogue.text.is_none() => {
+            keys.press(KeyCode::Tab);
+            *phase = WorldCheck::SelectCavernQuest;
+        }
+        WorldCheck::SelectCavernQuest if journal.is_on(MenuTab::Quest) => {
+            let (row, _) = rows
+                .iter()
+                .find(|(_, row)| {
+                    row.id == CONTAIN_THE_HUSHCAPS && row.status == QuestStatus::Active
+                })
+                .expect("the cave quest should appear in the Active log");
+            commands.trigger(pointer_click(
+                row,
+                window.single().expect("smoke window"),
+                camera.single().expect("player camera"),
+            ));
+            *phase = WorldCheck::CheckCavernJournal;
+        }
+        WorldCheck::CheckCavernJournal if selection.selected() == Some(CONTAIN_THE_HUSHCAPS) => {
+            assert!(texts.iter().any(|text| {
+                text.as_str()
+                    .contains("Defeat five Hushcaps in the caverns")
+            }));
+            assert!(texts.iter().any(|text| {
+                text.as_str()
+                    .contains("Hushcaps defeated  0/5\nMycelium in backpack  1/5")
+            }));
+            *phase = WorldCheck::CavernJournalPhoto(capture(&mut commands, "contain-the-hushcaps"));
+        }
+        WorldCheck::CavernJournalPhoto(photo) if captures.get(photo).is_err() => {
+            keys.press(KeyCode::Tab);
             *phase = WorldCheck::Reenter;
         }
         _ => {}
@@ -1348,7 +1446,9 @@ fn check_relay_revisit(frame: WorldFrame) {
         roaches,
         hushcaps,
         mut keys,
+        mut orbit,
         controller,
+        position,
         mut transform,
         nearby,
         spatial,
@@ -1363,9 +1463,13 @@ fn check_relay_revisit(frame: WorldFrame) {
             keys.press(KeyCode::KeyE);
             *phase = WorldCheck::Revisited;
         }
+        WorldCheck::Reenter => {
+            walk_to(&mut keys, &mut orbit, position, HATCH + Vec3::Z);
+        }
         WorldCheck::Revisited if controller.grounded => {
             assert_eq!(controller.area, Area::OldRelay);
             assert!(quest.is_complete(OLD_RELAY) && progress.gate_open());
+            assert!(quest.has_occurred(QuestAction::ReportedArchiveHushcap));
             assert!(
                 relay_encounter(&roaches, EncounterId::RelayRoach).2,
                 "the roach corpse persists across area changes"
@@ -1424,6 +1528,10 @@ fn check_bed_rollback(frame: WorldFrame) {
         WorldCheck::Recover if controller.area == Area::Surface && controller.grounded => {
             assert!(position.xz().distance(WorldLayout::Outpost.start().xz()) < 0.1);
             assert!(quest.is_complete(OLD_RELAY) && progress.gate_open());
+            assert_eq!(
+                quest.status(CONTAIN_THE_HUSHCAPS),
+                Some(QuestStatus::Active)
+            );
             assert_eq!(storage.get(ChestId::Lamp).count(ItemKind::Battery), 1);
             fixture(
                 &spatial,
@@ -1500,6 +1608,11 @@ fn check_bed_rollback(frame: WorldFrame) {
             assert_eq!(inventory.count(ItemKind::Mycelium), 1);
             assert_eq!(storage.get(ChestId::Lamp).count(ItemKind::Battery), 1);
             assert!(quest.is_complete(OLD_RELAY) && progress.gate_open());
+            assert_eq!(
+                quest.status(CONTAIN_THE_HUSHCAPS),
+                Some(QuestStatus::Active)
+            );
+            assert!(quest.has_occurred(QuestAction::ReportedArchiveHushcap));
             assert!(relay_encounter(&roaches, EncounterId::RelayRoach).2);
             let (_, _, health, loot, dead, solid) =
                 relay_encounter(&hushcaps, EncounterId::RelayArchiveHushcap);
@@ -1511,7 +1624,7 @@ fn check_bed_rollback(frame: WorldFrame) {
                 "restored gate must be clear"
             );
             info!(
-                "WORLD SMOKE PASS: tent storage, shipped map, Old Relay, and bed save rollback including XP verified in {:.2}s",
+                "WORLD SMOKE PASS: tent storage, Old Relay, Nemi's cavern briefing, and bed save rollback verified in {:.2}s",
                 run.0.elapsed().as_secs_f64()
             );
             exit.write(AppExit::Success);

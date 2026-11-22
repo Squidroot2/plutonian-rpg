@@ -101,6 +101,21 @@ finding the survey log, which brings either route to level 3.
   The archive Hushcap makes reaching the log dangerous,
   but defeating it is optional and grants a separate combat reward.
 
+## Contain the Hushcaps
+
+Leaving through the relay hatch after completing Old Relay makes the report to Nemi available.
+  The report introduces Hushcap Caverns and sends the player through South Basin.
+  The objective counts five distinct defeated cavern Hushcaps using their saved encounter identities.
+  Reaching five before the briefing earns early credit while the report remains the current objective.
+  When speaking to Nemi after the report and five defeats,
+  the backpack must hold at least five Mycelium.
+  The archive specimen can contribute a sample.
+  Nemi leaves the samples with the player and completion awards 150 XP.
+  If the requirements were met early, Nemi can give the briefing and complete the quest in one conversation.
+  Prior hostility prevents the report, and attacking Nemi fails an active quest.
+
+## Reward lifecycle
+
 `QuestJournal` queues the reward when an active quest transitions to
 `Complete`, whether the transition follows a fresh action or settles a
 persistent condition.
@@ -128,7 +143,7 @@ invalid quest references, missing or zero `completion_xp`, invalid
 `credit_early` combinations, and cycles made
 of persistent transitions.
   The shipped catalog also requires the IDs
-`last_light`, `old_relay`, and `relight_beacon`; keep these definitions unless
+`last_light`, `old_relay`, `relight_beacon`, and `contain_the_hushcaps`; keep these definitions unless
 the runtime's required-ID check is deliberately changed.
 
 `outpost_only: true` prevents a quest from activating or settling outside the

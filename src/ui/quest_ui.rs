@@ -1,6 +1,11 @@
 use crate::{
+    cave::{DefeatedHushcaps, defeated_hushcap_count},
     experience::ExperienceUpdates,
-    quest::{QuestJournal, QuestOutcome, QuestStatus},
+    inventory::{Inventory, ItemKind},
+    quest::{
+        CAVERN_HUSHCAP_GOAL, CONTAIN_THE_HUSHCAPS, MYCELIUM_GOAL, QuestJournal, QuestOutcome,
+        QuestStatus,
+    },
     ui::menu_ui::{BUTTON, MenuTab, PlayerMenu, SELECTED, button, scroll_pane},
     ui::text_style,
 };
@@ -22,6 +27,8 @@ struct QuestList;
 #[derive(Component)]
 struct QuestDetails;
 #[derive(Component)]
+struct CavernQuestCounts;
+#[derive(Component)]
 pub(crate) struct QuestRow {
     pub(crate) id: String,
     pub(crate) status: QuestStatus,
@@ -30,7 +37,9 @@ impl Plugin for QuestUiPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<QuestSelection>().add_systems(
             Update,
-            sync.after(ExperienceUpdates)
+            (sync, refresh_cavern_counts)
+                .chain()
+                .after(ExperienceUpdates)
                 .run_if(|menu: Res<PlayerMenu>| menu.is_on(MenuTab::Quest)),
         );
     }
@@ -135,6 +144,9 @@ fn sync(
                             Text::new(format!("Current objective\n{}", objective.title)),
                             text_style(19.0),
                         ));
+                        if quest.id == CONTAIN_THE_HUSHCAPS {
+                            details.spawn((CavernQuestCounts, Text::default(), text_style(17.0)));
+                        }
                         details.spawn((Text::new(&objective.directions), text_style(17.0)));
                     }
                     QuestOutcome::Completed => {
@@ -162,6 +174,26 @@ fn sync(
                 ));
             }
         });
+    }
+}
+
+fn refresh_cavern_counts(
+    mut text: Query<&mut Text, With<CavernQuestCounts>>,
+    hushcaps: DefeatedHushcaps,
+    inventory: Res<Inventory>,
+    mut previous: Local<Option<(usize, u32)>>,
+) {
+    let Ok(mut text) = text.single_mut() else {
+        return;
+    };
+    let defeated = defeated_hushcap_count(&hushcaps).min(CAVERN_HUSHCAP_GOAL);
+    let carried = inventory.count(ItemKind::Mycelium).min(MYCELIUM_GOAL);
+    let counts = Some((defeated, carried));
+    if *previous != counts || text.is_added() {
+        text.0 = format!(
+            "Hushcaps defeated  {defeated}/{CAVERN_HUSHCAP_GOAL}\nMycelium in backpack  {carried}/{MYCELIUM_GOAL}"
+        );
+        *previous = counts;
     }
 }
 

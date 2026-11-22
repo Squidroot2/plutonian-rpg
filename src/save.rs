@@ -33,7 +33,8 @@ use std::{
 };
 
 // Four magic bytes followed by the little-endian save schema version.
-const HEADER: &[u8; 6] = b"PLUT\x06\x00";
+const HEADER: &[u8; 6] = b"PLUT\x07\x00";
+const V6_HEADER: &[u8; 6] = b"PLUT\x06\x00";
 const V5_HEADER: &[u8; 6] = b"PLUT\x05\x00";
 const V4_HEADER: &[u8; 6] = b"PLUT\x04\x00";
 const V3_HEADER: &[u8; 6] = b"PLUT\x03\x00";
@@ -466,9 +467,16 @@ fn read_save(path: &Path) -> io::Result<Snapshot> {
         ));
     }
     let invalid_data = |error| io::Error::new(io::ErrorKind::InvalidData, error);
-    if let Some(payload) = data.strip_prefix(HEADER) {
+    if let Some(payload) = data
+        .strip_prefix(HEADER)
+        .or_else(|| data.strip_prefix(V6_HEADER))
+    {
         let snapshot: Snapshot = bitcode::decode(payload).map_err(invalid_data)?;
-        return validate_contents(snapshot, hushcap::HEALTH, true);
+        let mut snapshot = validate_contents(snapshot, hushcap::HEALTH, true)?;
+        if data.starts_with(V6_HEADER) {
+            snapshot.journal.credit_legacy_relay_return();
+        }
+        return Ok(snapshot);
     }
     let v5 = data.starts_with(V5_HEADER);
     let snapshot = decode_legacy(&data)?;
@@ -482,6 +490,7 @@ fn read_save(path: &Path) -> io::Result<Snapshot> {
         snapshot.replace_archive_worm();
     }
     snapshot.seed_cave();
+    snapshot.journal.credit_legacy_relay_return();
     Ok(snapshot)
 }
 
@@ -850,8 +859,12 @@ fn restore_actors(
 mod tests {
     use super::*;
     use crate::{
-        equipment::EquipmentSlot, quest::test_journal, storage::ChestId,
-        ui::settings::SettingsMenu, ui::title::TitlePlugin, world::WorldLayout,
+        equipment::EquipmentSlot,
+        quest::{CONTAIN_THE_HUSHCAPS, restore_test_journal, test_journal, test_relay_journal},
+        storage::ChestId,
+        ui::settings::SettingsMenu,
+        ui::title::TitlePlugin,
+        world::WorldLayout,
     };
     use bevy::{asset::AssetPlugin, ecs::system::RunSystemOnce, state::app::StatesPlugin};
 
@@ -1507,6 +1520,69 @@ mod tests {
             assert!(encounter.has_loot);
         }
         assert_eq!(fs::read(path).expect("v5 file remains on disk"), bytes);
+    }
+
+    #[test]
+    fn only_legacy_checkpoints_infer_the_relay_return() {
+        let dir = TestDirectory::new();
+        let path = dir.path();
+        let (mut world, bed, _, _) = bed_world(path.clone());
+        for attacked in [false, true] {
+            let mut journal = test_relay_journal();
+            if attacked {
+                journal.record(QuestAction::AttackedNemi);
+            }
+            world.insert_resource(journal);
+            interact_with(&mut world, bed);
+            let current = read_save(&path).expect("read v7 with no hatch return");
+            assert_eq!(
+                restore_test_journal(&current.journal).status(CONTAIN_THE_HUSHCAPS),
+                None
+            );
+
+            let mut bytes = V6_HEADER.to_vec();
+            bytes.extend(bitcode::encode(&current));
+            fs::write(&path, &bytes).expect("write the v6 fixture");
+            let migrated = read_save(&path).expect("read v6 without exit history");
+            let mut journal = restore_test_journal(&migrated.journal);
+            assert_eq!(
+                journal.expects(QuestAction::ReportedArchiveHushcap),
+                !attacked
+            );
+            assert_eq!(journal.take_completion_xp(), 0);
+            assert_eq!(
+                fs::read(&path).expect("migration leaves disk untouched"),
+                bytes
+            );
+        }
+    }
+
+    #[test]
+    fn the_cavern_quest_restores_its_current_step_and_completion_without_repeating_xp() {
+        let dir = TestDirectory::new();
+        let path = dir.path();
+        let (mut world, bed, _, _) = bed_world(path.clone());
+        let mut journal = test_relay_journal();
+        journal.offer_cavern_report();
+        journal.record(QuestAction::ReportedArchiveHushcap);
+        journal.record(QuestAction::DefeatedFiveCavernHushcaps);
+        world.insert_resource(journal);
+        interact_with(&mut world, bed);
+
+        let checkpoint = read_save(&path).expect("read the cave quest checkpoint");
+        let mut restored = restore_test_journal(&checkpoint.journal);
+        assert!(restored.expects(QuestAction::ShowedNemiMycelium));
+        assert_eq!(restored.take_completion_xp(), 0);
+        restored.record(QuestAction::ShowedNemiMycelium);
+        assert!(restored.is_complete(CONTAIN_THE_HUSHCAPS));
+        assert_eq!(restored.take_completion_xp(), 150);
+        world.insert_resource(restored);
+        interact_with(&mut world, bed);
+
+        let checkpoint = read_save(&path).expect("read the completed cave quest checkpoint");
+        let mut restored = restore_test_journal(&checkpoint.journal);
+        assert!(restored.is_complete(CONTAIN_THE_HUSHCAPS));
+        assert_eq!(restored.take_completion_xp(), 0);
     }
 
     fn encounter_entity(world: &mut World, id: CaveEncounter) -> Entity {

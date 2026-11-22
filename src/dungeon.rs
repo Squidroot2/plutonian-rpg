@@ -393,6 +393,8 @@ fn use_target(
     player.area = area;
     if area == Area::OldRelay {
         quest.record(QuestAction::EnteredRelay);
+    } else {
+        quest.offer_cavern_report();
     }
     orbit.yaw = yaw;
     orbit.pitch = LANDING_CAMERA_PITCH;
