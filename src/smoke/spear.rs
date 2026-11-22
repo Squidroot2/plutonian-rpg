@@ -78,10 +78,10 @@ impl Plugin for SpearSmokePlugin {
 
 pub(super) fn drive(
     materials: Res<InventorySmoke>,
-    mut smoke: ResMut<SpearSmoke>,
+    smoke: ResMut<SpearSmoke>,
     (state, menu): (Res<State<GameState>>, Res<PlayerMenu>),
     time: Res<Time>,
-    (mut screenshot, mut captured_at, mut testing_trident, mut holstered_weapon): (
+    (screenshot, captured_at, testing_trident, holstered_weapon): (
         Local<Option<Entity>>,
         Local<f32>,
         Local<bool>,
@@ -103,12 +103,12 @@ pub(super) fn drive(
         Query<&Name>,
     ),
     (actions, tabs): (Query<(Entity, &InventoryAction)>, Query<(Entity, &MenuTab)>),
-    (mut keys, mut buttons, mut orbit): (
+    (mut keys, mut buttons, orbit): (
         ResMut<ButtonInput<KeyCode>>,
         ResMut<ButtonInput<MouseButton>>,
         ResMut<Orbit>,
     ),
-    mut commands: Commands,
+    commands: Commands,
 ) {
     if !materials.done || smoke.done() {
         return;
@@ -118,7 +118,7 @@ pub(super) fn drive(
     } else {
         (ItemKind::FieldSpear, "spear")
     };
-    let capture = |commands: &mut Commands, stage| {
+    let capture = |commands: &mut Commands, stage: &str| {
         super::capture(commands, &format!("{screenshot_name}-{stage}"))
     };
     let now = time.elapsed_secs();
@@ -134,6 +134,114 @@ pub(super) fn drive(
     keys.reset_all();
     buttons.reset_all();
 
+    match *smoke {
+        SpearSmoke::Collect
+        | SpearSmoke::Recollect
+        | SpearSmoke::Select
+        | SpearSmoke::Equip
+        | SpearSmoke::Close
+        | SpearSmoke::CaptureInventory
+        | SpearSmoke::Holster
+        | SpearSmoke::CaptureHolstered
+        | SpearSmoke::Draw => check_spear_equipment(
+            smoke,
+            state,
+            menu,
+            screenshot,
+            testing_trident,
+            holstered_weapon,
+            inventory,
+            equipment,
+            nearby,
+            captures,
+            pickups,
+            worn,
+            names,
+            actions,
+            tabs,
+            keys,
+            orbit,
+            commands,
+            weapon,
+            capture,
+            transform,
+            stance,
+            window,
+            camera,
+        ),
+        SpearSmoke::Approach
+        | SpearSmoke::Chamber
+        | SpearSmoke::Impact
+        | SpearSmoke::Recovery
+        | SpearSmoke::CaptureCarry
+        | SpearSmoke::StartMiss
+        | SpearSmoke::Miss => check_spear_combat(
+            smoke,
+            state,
+            menu,
+            screenshot,
+            captured_at,
+            testing_trident,
+            holstered_weapon,
+            equipment,
+            dummy,
+            captures,
+            impacts,
+            windows,
+            worn,
+            names,
+            keys,
+            buttons,
+            orbit,
+            commands,
+            capture,
+            now,
+            transform,
+            controller,
+            stance,
+            thrust,
+            window,
+            dummy_transform,
+        ),
+        SpearSmoke::Unequip
+        | SpearSmoke::SwitchToDrop
+        | SpearSmoke::SelectDrop
+        | SpearSmoke::Drop
+        | SpearSmoke::ConfirmDrop
+        | SpearSmoke::CloseBag => check_spear_drop(
+            smoke, menu, inventory, worn, actions, tabs, keys, orbit, commands, weapon, window,
+            camera,
+        ),
+        SpearSmoke::WormEncounter | SpearSmoke::Done => {}
+    }
+}
+
+fn check_spear_equipment(
+    mut smoke: ResMut<SpearSmoke>,
+    state: Res<State<GameState>>,
+    menu: Res<PlayerMenu>,
+    mut screenshot: Local<Option<Entity>>,
+    mut testing_trident: Local<bool>,
+    mut holstered_weapon: Local<Option<Entity>>,
+    inventory: Res<Inventory>,
+    equipment: Res<Equipment>,
+    nearby: Res<Nearby>,
+    captures: Query<(), With<Screenshot>>,
+    pickups: Query<(&Pickup, &Transform)>,
+    worn: Query<(Entity, &WornEquipment, &ChildOf), Without<PendingScene>>,
+    names: Query<&Name>,
+    actions: Query<(Entity, &InventoryAction)>,
+    tabs: Query<(Entity, &MenuTab)>,
+    mut keys: ResMut<ButtonInput<KeyCode>>,
+    mut orbit: ResMut<Orbit>,
+    mut commands: Commands,
+    weapon: ItemKind,
+    capture: impl Fn(&mut Commands, &str) -> Entity,
+    transform: &Transform,
+    stance: &WeaponStance,
+    window: Entity,
+    camera: Entity,
+) {
     match *smoke {
         SpearSmoke::Collect | SpearSmoke::Recollect
             if *state.get() == GameState::Playing && !menu.is_open() =>
@@ -233,6 +341,39 @@ pub(super) fn drive(
             keys.press(KeyCode::KeyX);
             *smoke = SpearSmoke::Approach;
         }
+        _ => {}
+    }
+}
+
+fn check_spear_combat(
+    mut smoke: ResMut<SpearSmoke>,
+    state: Res<State<GameState>>,
+    menu: Res<PlayerMenu>,
+    mut screenshot: Local<Option<Entity>>,
+    mut captured_at: Local<f32>,
+    testing_trident: Local<bool>,
+    holstered_weapon: Local<Option<Entity>>,
+    equipment: Res<Equipment>,
+    dummy: &HitReaction,
+    captures: Query<(), With<Screenshot>>,
+    impacts: Query<&Transform, With<AttackImpact>>,
+    windows: Query<&Window>,
+    worn: Query<(Entity, &WornEquipment, &ChildOf), Without<PendingScene>>,
+    names: Query<&Name>,
+    mut keys: ResMut<ButtonInput<KeyCode>>,
+    mut buttons: ResMut<ButtonInput<MouseButton>>,
+    mut orbit: ResMut<Orbit>,
+    mut commands: Commands,
+    capture: impl Fn(&mut Commands, &str) -> Entity,
+    now: f32,
+    transform: &Transform,
+    controller: &Player,
+    stance: &WeaponStance,
+    thrust: &WeaponAttack,
+    window: Entity,
+    dummy_transform: &Transform,
+) {
+    match *smoke {
         SpearSmoke::Approach if *state.get() == GameState::Playing && !menu.is_open() => {
             assert_eq!(*stance, WeaponStance::Drawn);
             let (_, _, parent) = worn
@@ -331,6 +472,25 @@ pub(super) fn drive(
                 }
             }
         }
+        _ => {}
+    }
+}
+
+fn check_spear_drop(
+    mut smoke: ResMut<SpearSmoke>,
+    menu: Res<PlayerMenu>,
+    inventory: Res<Inventory>,
+    worn: Query<(Entity, &WornEquipment, &ChildOf), Without<PendingScene>>,
+    actions: Query<(Entity, &InventoryAction)>,
+    tabs: Query<(Entity, &MenuTab)>,
+    mut keys: ResMut<ButtonInput<KeyCode>>,
+    mut orbit: ResMut<Orbit>,
+    mut commands: Commands,
+    weapon: ItemKind,
+    window: Entity,
+    camera: Entity,
+) {
+    match *smoke {
         SpearSmoke::Unequip if menu.is_on(MenuTab::Inventory) => {
             click(&mut commands, MenuTab::Equipment, &tabs, window, camera);
         }
@@ -390,6 +550,6 @@ pub(super) fn drive(
             orbit.distance = 5.5;
             *smoke = SpearSmoke::Recollect;
         }
-        _ => (),
+        _ => {}
     }
 }

@@ -2,6 +2,7 @@
 #![allow(clippy::too_many_arguments)]
 #![allow(clippy::collapsible_if)]
 #![deny(clippy::perf)]
+#![deny(clippy::too_many_lines)]
 #![deny(clippy::unwrap_used)]
 mod camera;
 mod combat;

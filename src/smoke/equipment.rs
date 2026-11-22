@@ -235,7 +235,7 @@ fn check_worn(view: &View, equipment: &Equipment, player: Entity) -> bool {
 
 fn drive_shortswords(
     spear_smoke: Res<super::spear::SpearSmoke>,
-    mut step: ResMut<ShortswordStep>,
+    step: ResMut<ShortswordStep>,
     inventory_smoke: Res<InventorySmoke>,
     (menu, bag, equipment, nearby): (Res<PlayerMenu>, Res<Inventory>, Res<Equipment>, Res<Nearby>),
     attacks: Query<&WeaponAttack, With<Player>>,
@@ -243,14 +243,13 @@ fn drive_shortswords(
     impacts: Query<(), With<AttackImpact>>,
     view: View,
     (time, mut sword_entities): (Res<Time>, Local<[Option<Entity>; 2]>),
-    (mut keys, mut buttons, mut orbit): (
+    (mut keys, mut buttons, orbit): (
         ResMut<ButtonInput<KeyCode>>,
         ResMut<ButtonInput<MouseButton>>,
         ResMut<Orbit>,
     ),
-    mut commands: Commands,
+    commands: Commands,
 ) {
-    use EquipmentSlot::{MainHand, OffHand};
     use ItemKind::Shortsword;
 
     if !spear_smoke.done() || *step == ShortswordStep::Done {
@@ -271,28 +270,120 @@ fn drive_shortswords(
             })
         })
     };
-    let check_holstered = || {
+    let check_holstered = |expected| {
         assert_eq!(*stance, WeaponStance::Holstered);
         assert!(check_worn(&view, &equipment, player));
         assert_eq!(
             worn_swords(),
-            *sword_entities,
+            expected,
             "holstering keeps both sword scenes"
         );
         assert!(!attack.active(), "holstered weapons cannot attack");
     };
+
+    match *step {
+        ShortswordStep::Collect
+        | ShortswordStep::EquipMain
+        | ShortswordStep::OpenEquipment
+        | ShortswordStep::PickOffHand
+        | ShortswordStep::EquipOffHand
+        | ShortswordStep::CheckWorn
+        | ShortswordStep::Holster
+        | ShortswordStep::HolsteredIdle
+        | ShortswordStep::HolsteredWalk(..)
+        | ShortswordStep::HolsteredRun(..)
+        | ShortswordStep::HolsteredJump(..)
+        | ShortswordStep::Redraw => equip_and_holster_swords(
+            step,
+            menu,
+            bag,
+            &equipment,
+            nearby,
+            &view,
+            &mut sword_entities,
+            keys,
+            buttons,
+            orbit,
+            commands,
+            player,
+            transform,
+            controller,
+            window,
+            camera,
+            now,
+            worn_swords,
+            check_holstered,
+        ),
+        ShortswordStep::Approach
+        | ShortswordStep::Swing { .. }
+        | ShortswordStep::DualSwing
+        | ShortswordStep::DualRecovery => check_sword_combat(
+            step,
+            menu,
+            equipment,
+            dummy,
+            impacts,
+            &view,
+            sword_entities,
+            keys,
+            buttons,
+            orbit,
+            commands,
+            player,
+            transform,
+            controller,
+            stance,
+            attack,
+            dummy_transform,
+            worn_swords,
+        ),
+        ShortswordStep::Unequip
+        | ShortswordStep::SelectDrop
+        | ShortswordStep::OpenDrop
+        | ShortswordStep::SetDropQuantity
+        | ShortswordStep::ConfirmDrop
+        | ShortswordStep::CloseBag => drop_swords(
+            step, menu, bag, equipment, &view, keys, commands, player, window, camera,
+        ),
+        ShortswordStep::Done => {}
+    }
+}
+
+fn equip_and_holster_swords(
+    mut step: ResMut<ShortswordStep>,
+    menu: Res<PlayerMenu>,
+    bag: Res<Inventory>,
+    equipment: &Equipment,
+    nearby: Res<Nearby>,
+    view: &View,
+    sword_entities: &mut [Option<Entity>; 2],
+    mut keys: ResMut<ButtonInput<KeyCode>>,
+    mut buttons: ResMut<ButtonInput<MouseButton>>,
+    mut orbit: ResMut<Orbit>,
+    mut commands: Commands,
+    player: Entity,
+    transform: &Transform,
+    controller: &Player,
+    window: Entity,
+    camera: Entity,
+    now: f32,
+    worn_swords: impl Fn() -> [Option<Entity>; 2],
+    check_holstered: impl Fn([Option<Entity>; 2]),
+) {
+    use EquipmentSlot::{MainHand, OffHand};
+    use ItemKind::Shortsword;
+
     macro_rules! click {
         ($action:expr) => {
             click(&mut commands, $action, &view.actions, window, camera)
         };
     }
-
     match *step {
         ShortswordStep::Collect if bag.count(Shortsword) < 2 => {
             approach_pickup(
                 Shortsword,
                 &nearby,
-                &view,
+                view,
                 &mut keys,
                 &mut orbit,
                 transform.translation,
@@ -337,7 +428,7 @@ fn drive_shortswords(
         ShortswordStep::CheckWorn => {
             assert_eq!(equipment.get(OffHand), Some(Shortsword));
             assert_eq!(bag.count(Shortsword), 0);
-            if check_worn(&view, &equipment, player) {
+            if check_worn(view, equipment, player) {
                 keys.press(KeyCode::Tab);
                 *step = ShortswordStep::Holster;
             }
@@ -352,14 +443,14 @@ fn drive_shortswords(
             *step = ShortswordStep::HolsteredIdle;
         }
         ShortswordStep::HolsteredIdle => {
-            check_holstered();
+            check_holstered(*sword_entities);
             buttons.press(MouseButton::Left);
             buttons.press(MouseButton::Right);
             super::capture(&mut commands, "shortswords-holstered-idle");
             *step = ShortswordStep::HolsteredWalk(now);
         }
         ShortswordStep::HolsteredWalk(started) => {
-            check_holstered();
+            check_holstered(*sword_entities);
             keys.press(KeyCode::KeyW);
             if now - started > 0.3 {
                 assert!(
@@ -373,7 +464,7 @@ fn drive_shortswords(
             }
         }
         ShortswordStep::HolsteredRun(started) => {
-            check_holstered();
+            check_holstered(*sword_entities);
             keys.press(KeyCode::KeyW);
             if now - started > 0.3 {
                 assert!(controller.grounded && controller.pace == Pace::Run);
@@ -384,19 +475,45 @@ fn drive_shortswords(
             }
         }
         ShortswordStep::HolsteredJump(started) if now - started > 0.22 => {
-            check_holstered();
+            check_holstered(*sword_entities);
             assert!(!controller.grounded);
             super::capture(&mut commands, "shortswords-holstered-jump");
             *step = ShortswordStep::Redraw;
         }
         ShortswordStep::Redraw if controller.grounded => {
-            check_holstered();
+            check_holstered(*sword_entities);
             keys.press(KeyCode::KeyX);
             *step = ShortswordStep::Approach;
         }
+        _ => {}
+    }
+}
+
+fn check_sword_combat(
+    mut step: ResMut<ShortswordStep>,
+    menu: Res<PlayerMenu>,
+    equipment: Res<Equipment>,
+    dummy: &HitReaction,
+    impacts: Query<(), With<AttackImpact>>,
+    view: &View,
+    sword_entities: Local<[Option<Entity>; 2]>,
+    mut keys: ResMut<ButtonInput<KeyCode>>,
+    mut buttons: ResMut<ButtonInput<MouseButton>>,
+    mut orbit: ResMut<Orbit>,
+    mut commands: Commands,
+    player: Entity,
+    transform: &Transform,
+    controller: &Player,
+    stance: &WeaponStance,
+    attack: &WeaponAttack,
+    dummy_transform: &Transform,
+    worn_swords: impl Fn() -> [Option<Entity>; 2],
+) {
+    use ItemKind::Shortsword;
+    match *step {
         ShortswordStep::Approach if !menu.is_open() => {
             assert_eq!(*stance, WeaponStance::Drawn);
-            assert!(check_worn(&view, &equipment, player));
+            assert!(check_worn(view, &equipment, player));
             assert_eq!(
                 worn_swords(),
                 *sword_entities,
@@ -468,13 +585,37 @@ fn drive_shortswords(
             keys.press(KeyCode::Tab);
             *step = ShortswordStep::Unequip;
         }
+        _ => {}
+    }
+}
+
+fn drop_swords(
+    mut step: ResMut<ShortswordStep>,
+    menu: Res<PlayerMenu>,
+    bag: Res<Inventory>,
+    equipment: Res<Equipment>,
+    view: &View,
+    mut keys: ResMut<ButtonInput<KeyCode>>,
+    mut commands: Commands,
+    player: Entity,
+    window: Entity,
+    camera: Entity,
+) {
+    use ItemKind::Shortsword;
+
+    macro_rules! click {
+        ($action:expr) => {
+            click(&mut commands, $action, &view.actions, window, camera)
+        };
+    }
+    match *step {
         ShortswordStep::Unequip if menu.accepts(MenuTab::Equipment) => {
             if let Some(slot) = EquipmentSlot::HANDS
                 .into_iter()
                 .find(|&slot| equipment.get(slot).is_some())
             {
                 click!(InventoryAction::ToggleSlot(slot));
-            } else if check_worn(&view, &equipment, player) {
+            } else if check_worn(view, &equipment, player) {
                 assert_eq!(bag.count(Shortsword), 2);
                 click(
                     &mut commands,
@@ -520,17 +661,17 @@ fn drive_shortswords(
 
 pub(super) fn drive(
     swords: Res<ShortswordStep>,
-    mut smoke: ResMut<EquipmentSmoke>,
+    smoke: ResMut<EquipmentSmoke>,
     inventory_smoke: Res<InventorySmoke>,
     (state, menu): (Res<State<GameState>>, Res<PlayerMenu>),
     time: Res<Time>,
     bag: Res<Inventory>,
     equipment: Res<Equipment>,
     nearby: Res<Nearby>,
-    mut view: View,
+    view: View,
     mut keys: ResMut<ButtonInput<KeyCode>>,
-    mut orbit: ResMut<Orbit>,
-    mut commands: Commands,
+    orbit: ResMut<Orbit>,
+    commands: Commands,
     mut last_log: Local<f32>,
 ) {
     if *swords != ShortswordStep::Done
@@ -540,7 +681,7 @@ pub(super) fn drive(
     {
         return;
     }
-    let Ok((player, transform, controller, stance)) = view.player.single() else {
+    let Ok((player, transform, _, _)) = view.player.single() else {
         return;
     };
     keys.reset_all();
@@ -557,6 +698,48 @@ pub(super) fn drive(
     let (window, camera) = inventory_smoke
         .context
         .expect("completed inventory smoke must provide the test window and camera");
+    let transform = *transform;
+    match smoke.stage {
+        0 | 1 | 2 | 3 | 4 | 41 | 5 | 6 => equip_field_armor(
+            smoke, menu, bag, equipment, nearby, &view, keys, orbit, commands, player, transform,
+            window, camera,
+        ),
+        61 | 62 | 63 | 7 | 700 | 701 | 702 => {
+            check_inventory_layout(smoke, bag, equipment, view, commands, window, camera)
+        }
+        71 | 8 | 81 | 9 | 10 | 11 | 12 | 13 => check_field_armor_changes(
+            smoke, state, menu, bag, equipment, nearby, &view, keys, orbit, commands, player,
+            transform, window, camera,
+        ),
+        100 | 101 | 102 | 103 | 104 | 105 | 106 | 161 | 107 | 108 | 109 | 110 | 111 | 112 => {
+            equip_reinforced_armor(
+                smoke, menu, bag, equipment, nearby, &view, keys, orbit, commands, player,
+                transform, window, camera,
+            )
+        }
+        49..=59 => check_worn_armor_in_motion(
+            smoke, state, menu, equipment, &view, keys, orbit, commands, player, window, camera,
+            now,
+        ),
+        _ => {}
+    }
+}
+
+fn equip_field_armor(
+    mut smoke: ResMut<EquipmentSmoke>,
+    menu: Res<PlayerMenu>,
+    bag: Res<Inventory>,
+    equipment: Res<Equipment>,
+    nearby: Res<Nearby>,
+    view: &View,
+    mut keys: ResMut<ButtonInput<KeyCode>>,
+    mut orbit: ResMut<Orbit>,
+    mut commands: Commands,
+    player: Entity,
+    transform: Transform,
+    window: Entity,
+    camera: Entity,
+) {
     macro_rules! click {
         ($action:expr) => {
             click(&mut commands, $action, &view.actions, window, camera)
@@ -573,7 +756,7 @@ pub(super) fn drive(
                 ItemKind::FieldArmor,
                 &bag,
                 &nearby,
-                &view,
+                view,
                 &mut keys,
                 &mut orbit,
                 transform.translation,
@@ -586,7 +769,7 @@ pub(super) fn drive(
                 ItemKind::FieldHelmet,
                 &bag,
                 &nearby,
-                &view,
+                view,
                 &mut keys,
                 &mut orbit,
                 transform.translation,
@@ -637,7 +820,7 @@ pub(super) fn drive(
             ));
             smoke.stage = 6;
         }
-        6 if check_worn(&view, &equipment, player) => {
+        6 if check_worn(view, &equipment, player) => {
             assert_eq!(equipment.total_defense(), 3);
             assert_eq!(bag.count(ItemKind::FieldArmor), 0);
             let (_, cells) = view
@@ -654,6 +837,30 @@ pub(super) fn drive(
             photo!("field-equipment-inventory");
             smoke.stage = 61;
         }
+        _ => {}
+    }
+}
+
+fn check_inventory_layout(
+    mut smoke: ResMut<EquipmentSmoke>,
+    bag: Res<Inventory>,
+    equipment: Res<Equipment>,
+    mut view: View,
+    mut commands: Commands,
+    window: Entity,
+    camera: Entity,
+) {
+    macro_rules! click {
+        ($action:expr) => {
+            click(&mut commands, $action, &view.actions, window, camera)
+        };
+    }
+    macro_rules! photo {
+        ($name:expr) => {
+            smoke.screenshot = Some(super::capture(&mut commands, $name));
+        };
+    }
+    match smoke.stage {
         61 if smoke.captured(&view) => {
             let (mut screen, _) = view
                 .screen
@@ -721,6 +928,32 @@ pub(super) fn drive(
             );
             smoke.stage = 71;
         }
+        _ => {}
+    }
+}
+
+fn check_field_armor_changes(
+    mut smoke: ResMut<EquipmentSmoke>,
+    state: Res<State<GameState>>,
+    menu: Res<PlayerMenu>,
+    bag: Res<Inventory>,
+    equipment: Res<Equipment>,
+    nearby: Res<Nearby>,
+    view: &View,
+    mut keys: ResMut<ButtonInput<KeyCode>>,
+    mut orbit: ResMut<Orbit>,
+    mut commands: Commands,
+    player: Entity,
+    transform: Transform,
+    window: Entity,
+    camera: Entity,
+) {
+    macro_rules! click {
+        ($action:expr) => {
+            click(&mut commands, $action, &view.actions, window, camera)
+        };
+    }
+    match smoke.stage {
         71 if menu.is_on(MenuTab::Inventory) => {
             click!(InventoryAction::Select(ItemKind::FieldArmor));
             smoke.stage = 8;
@@ -748,7 +981,7 @@ pub(super) fn drive(
                 ItemKind::FieldArmor,
                 &bag,
                 &nearby,
-                &view,
+                view,
                 &mut keys,
                 &mut orbit,
                 transform.translation,
@@ -777,17 +1010,47 @@ pub(super) fn drive(
             ));
             smoke.stage = 13;
         }
-        13 if check_worn(&view, &equipment, player) => {
+        13 if check_worn(view, &equipment, player) => {
             assert_eq!(equipment.total_defense(), 3);
             keys.press(KeyCode::Tab);
             smoke.stage = 49;
         }
+        _ => {}
+    }
+}
+
+fn equip_reinforced_armor(
+    mut smoke: ResMut<EquipmentSmoke>,
+    menu: Res<PlayerMenu>,
+    bag: Res<Inventory>,
+    equipment: Res<Equipment>,
+    nearby: Res<Nearby>,
+    view: &View,
+    mut keys: ResMut<ButtonInput<KeyCode>>,
+    mut orbit: ResMut<Orbit>,
+    mut commands: Commands,
+    player: Entity,
+    transform: Transform,
+    window: Entity,
+    camera: Entity,
+) {
+    macro_rules! click {
+        ($action:expr) => {
+            click(&mut commands, $action, &view.actions, window, camera)
+        };
+    }
+    macro_rules! photo {
+        ($name:expr) => {
+            smoke.screenshot = Some(super::capture(&mut commands, $name));
+        };
+    }
+    match smoke.stage {
         100 => {
             if collect(
                 ItemKind::ReinforcedArmor,
                 &bag,
                 &nearby,
-                &view,
+                view,
                 &mut keys,
                 &mut orbit,
                 transform.translation,
@@ -800,7 +1063,7 @@ pub(super) fn drive(
                 ItemKind::ReinforcedHelmet,
                 &bag,
                 &nearby,
-                &view,
+                view,
                 &mut keys,
                 &mut orbit,
                 transform.translation,
@@ -842,13 +1105,13 @@ pub(super) fn drive(
             ));
             smoke.stage = 106;
         }
-        106 if check_worn(&view, &equipment, player) => {
+        106 if check_worn(view, &equipment, player) => {
             assert_eq!(equipment.total_defense(), 8);
             assert_eq!(bag.count(ItemKind::FieldHelmet), 1);
             photo!("reinforced-equipment-inventory");
             smoke.stage = 161;
         }
-        161 if smoke.captured(&view) => {
+        161 if smoke.captured(view) => {
             click!(InventoryAction::ToggleSlot(EquipmentSlot::Helmet));
             smoke.stage = 107;
         }
@@ -865,7 +1128,7 @@ pub(super) fn drive(
             ));
             smoke.stage = 109;
         }
-        109 if check_worn(&view, &equipment, player) => {
+        109 if check_worn(view, &equipment, player) => {
             assert_eq!(equipment.total_defense(), 8);
             click!(InventoryAction::ToggleSlot(EquipmentSlot::MainHand));
             smoke.stage = 110;
@@ -877,7 +1140,7 @@ pub(super) fn drive(
             ));
             smoke.stage = 111;
         }
-        111 if check_worn(&view, &equipment, player) => {
+        111 if check_worn(view, &equipment, player) => {
             assert_eq!(
                 equipment.get(EquipmentSlot::MainHand),
                 Some(ItemKind::Trident)
@@ -889,6 +1152,36 @@ pub(super) fn drive(
             keys.press(KeyCode::KeyX);
             smoke.stage = 49;
         }
+        _ => {}
+    }
+}
+
+fn check_worn_armor_in_motion(
+    mut smoke: ResMut<EquipmentSmoke>,
+    state: Res<State<GameState>>,
+    menu: Res<PlayerMenu>,
+    equipment: Res<Equipment>,
+    view: &View,
+    mut keys: ResMut<ButtonInput<KeyCode>>,
+    mut orbit: ResMut<Orbit>,
+    mut commands: Commands,
+    player: Entity,
+    window: Entity,
+    camera: Entity,
+    now: f32,
+) {
+    let (_, _, controller, stance) = view.player.get(player).expect("arena player");
+    macro_rules! click {
+        ($action:expr) => {
+            click(&mut commands, $action, &view.actions, window, camera)
+        };
+    }
+    macro_rules! photo {
+        ($name:expr) => {
+            smoke.screenshot = Some(super::capture(&mut commands, $name));
+        };
+    }
+    match smoke.stage {
         49 if *state.get() == GameState::Playing && !menu.is_open() => {
             if smoke.heavy {
                 assert_eq!(*stance, WeaponStance::Holstered);
@@ -901,7 +1194,7 @@ pub(super) fn drive(
             smoke.stage = 50;
         }
         50 if now - smoke.timer > 0.3 => {
-            assert!(check_worn(&view, &equipment, player));
+            assert!(check_worn(view, &equipment, player));
             photo!(if smoke.heavy {
                 "reinforced-gear-idle"
             } else {
@@ -919,7 +1212,7 @@ pub(super) fn drive(
                         && controller.velocity.xz().length() > 0.1,
                     "the walk capture requires grounded walking"
                 );
-                assert!(check_worn(&view, &equipment, player));
+                assert!(check_worn(view, &equipment, player));
                 photo!(if smoke.heavy {
                     "reinforced-gear-walk"
                 } else {
@@ -939,7 +1232,7 @@ pub(super) fn drive(
                         && controller.velocity.xz().length() > 0.1,
                     "the sprint capture requires grounded sprinting"
                 );
-                assert!(check_worn(&view, &equipment, player));
+                assert!(check_worn(view, &equipment, player));
                 photo!(if smoke.heavy {
                     "reinforced-gear-run"
                 } else {
@@ -958,7 +1251,7 @@ pub(super) fn drive(
                 !controller.grounded,
                 "equipment jump check did not leave the ground"
             );
-            assert!(check_worn(&view, &equipment, player));
+            assert!(check_worn(view, &equipment, player));
             photo!(if smoke.heavy {
                 "reinforced-gear-jump"
             } else {
@@ -967,7 +1260,7 @@ pub(super) fn drive(
             smoke.stage = 55;
         }
         55 if controller.grounded => {
-            assert!(check_worn(&view, &equipment, player));
+            assert!(check_worn(view, &equipment, player));
             orbit.yaw = 0.0;
             orbit.pitch = 0.22;
             orbit.distance = 5.5;
@@ -981,7 +1274,7 @@ pub(super) fn drive(
         }
         56 => {
             assert_eq!(*stance, WeaponStance::Drawn);
-            assert!(check_worn(&view, &equipment, player));
+            assert!(check_worn(view, &equipment, player));
             keys.press(KeyCode::Tab);
             smoke.stage = 57;
         }
@@ -989,7 +1282,7 @@ pub(super) fn drive(
             click!(InventoryAction::ToggleSlot(EquipmentSlot::MainHand));
             smoke.stage = 58;
         }
-        58 if check_worn(&view, &equipment, player) => {
+        58 if check_worn(view, &equipment, player) => {
             assert_eq!(equipment.get(EquipmentSlot::MainHand), None);
             keys.press(KeyCode::Tab);
             smoke.stage = 59;
@@ -1000,6 +1293,6 @@ pub(super) fn drive(
             );
             smoke.stage = 60;
         }
-        _ => (),
+        _ => {}
     }
 }

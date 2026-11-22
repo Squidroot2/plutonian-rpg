@@ -112,7 +112,7 @@ pub(crate) fn drive(
     fixed: Res<Time<Fixed>>,
     captures: Query<(), With<Screenshot>>,
     mut keys: ResMut<ButtonInput<KeyCode>>,
-    mut orbit: ResMut<Orbit>,
+    orbit: ResMut<Orbit>,
     inventory: Res<Inventory>,
     ui: Res<InventoryUiState>,
     nearby: Res<Nearby>,
@@ -121,8 +121,8 @@ pub(crate) fn drive(
     actions: Query<(Entity, &InventoryAction)>,
     windows: Query<Entity, With<Window>>,
     cameras: Query<Entity, With<FollowCamera>>,
-    mut keyboard: MessageWriter<KeyboardInput>,
-    mut commands: Commands,
+    keyboard: MessageWriter<KeyboardInput>,
+    commands: Commands,
 ) {
     if smoke.done || matches!(state.get(), GameState::Title | GameState::Loading) {
         return;
@@ -138,6 +138,32 @@ pub(crate) fn drive(
         .single()
         .expect("the inventory smoke test requires exactly one follow camera");
     smoke.context = Some((window, camera));
+    match smoke.phase {
+        1 | 10 | 11 => collect_materials(
+            smoke, keys, orbit, inventory, nearby, pickups, transform, controller,
+        ),
+        2 | 3 | 4 | 43 | 44 | 41 | 45 | 42 => drop_battery(
+            smoke, state, menu, fixed, keys, orbit, inventory, ui, actions, commands, transform,
+            controller, window, camera,
+        ),
+        5..=9 => recollect_battery(
+            smoke, state, menu, captures, keys, orbit, inventory, ui, nearby, pickups, actions,
+            keyboard, commands, transform, window, camera,
+        ),
+        _ => {}
+    }
+}
+
+fn collect_materials(
+    mut smoke: ResMut<InventorySmoke>,
+    mut keys: ResMut<ButtonInput<KeyCode>>,
+    mut orbit: ResMut<Orbit>,
+    inventory: Res<Inventory>,
+    nearby: Res<Nearby>,
+    pickups: Query<(&Pickup, &Transform)>,
+    transform: &Transform,
+    controller: &Player,
+) {
     match smoke.phase {
         1 => {
             let order = [
@@ -183,6 +209,27 @@ pub(crate) fn drive(
             keys.press(KeyCode::KeyI);
             smoke.phase = 2;
         }
+        _ => {}
+    }
+}
+
+fn drop_battery(
+    mut smoke: ResMut<InventorySmoke>,
+    state: Res<State<GameState>>,
+    menu: Res<PlayerMenu>,
+    fixed: Res<Time<Fixed>>,
+    mut keys: ResMut<ButtonInput<KeyCode>>,
+    orbit: ResMut<Orbit>,
+    inventory: Res<Inventory>,
+    ui: Res<InventoryUiState>,
+    actions: Query<(Entity, &InventoryAction)>,
+    mut commands: Commands,
+    transform: &Transform,
+    controller: &Player,
+    window: Entity,
+    camera: Entity,
+) {
+    match smoke.phase {
         2 if menu.is_on(MenuTab::Inventory) => {
             smoke.position = transform.translation;
             smoke.yaw = orbit.yaw;
@@ -255,6 +302,29 @@ pub(crate) fn drive(
             );
             smoke.phase = 5;
         }
+        _ => {}
+    }
+}
+
+fn recollect_battery(
+    mut smoke: ResMut<InventorySmoke>,
+    state: Res<State<GameState>>,
+    menu: Res<PlayerMenu>,
+    captures: Query<(), With<Screenshot>>,
+    mut keys: ResMut<ButtonInput<KeyCode>>,
+    mut orbit: ResMut<Orbit>,
+    inventory: Res<Inventory>,
+    ui: Res<InventoryUiState>,
+    nearby: Res<Nearby>,
+    pickups: Query<(&Pickup, &Transform)>,
+    actions: Query<(Entity, &InventoryAction)>,
+    mut keyboard: MessageWriter<KeyboardInput>,
+    mut commands: Commands,
+    transform: &Transform,
+    window: Entity,
+    camera: Entity,
+) {
+    match smoke.phase {
         5 => {
             assert!(ui.drop_is_open(), "the footer button must open the prompt");
             keyboard.write(KeyboardInput {
@@ -331,6 +401,6 @@ pub(crate) fn drive(
                 .translation;
             walk(&mut keys, &mut orbit, transform.translation, destination);
         }
-        _ => (),
+        _ => {}
     }
 }

@@ -283,7 +283,7 @@ fn drive(
         Res<InventoryUiState>,
         Query<(Entity, &InventoryAction)>,
     ),
-    (mut step, mut core_checked, fixed): (ResMut<ArenaStep>, Local<bool>, Res<Time<Fixed>>),
+    (step, core_checked, fixed): (ResMut<ArenaStep>, Local<bool>, Res<Time<Fixed>>),
     (state, quest, dialogue, nearby): (
         Res<State<GameState>>,
         Res<QuestJournal>,
@@ -302,15 +302,15 @@ fn drive(
     beacon: Query<&PointLight, With<Beacon>>,
     layout: Res<WorldLayout>,
     captures: Query<(), With<Screenshot>>,
-    mut orbit: ResMut<Orbit>,
+    orbit: ResMut<Orbit>,
     mut keys: ResMut<ButtonInput<KeyCode>>,
-    mut commands: Commands,
-    mut exit: MessageWriter<AppExit>,
+    commands: Commands,
+    exit: MessageWriter<AppExit>,
 ) {
     if !armor.done() {
         return;
     }
-    let (mut transform, controller, dodge) =
+    let (transform, controller, dodge) =
         player.single_mut().expect("the arena must have one player");
     keys.reset_all();
     let click_action = |commands: &mut Commands, action| {
@@ -319,6 +319,82 @@ fn drive(
             .expect("the inventory smoke phase must supply the window and camera for the quest UI");
         click(commands, action, &actions, window, camera);
     };
+    match *step {
+        ArenaStep::CaptureArena
+        | ArenaStep::Pause(..)
+        | ArenaStep::Paused { .. }
+        | ArenaStep::Strafe { .. }
+        | ArenaStep::Backpedal { .. } => check_pause_and_movement(
+            step, fixed, state, captures, orbit, keys, commands, transform, controller,
+        ),
+        ArenaStep::SwitchToCharacter
+        | ArenaStep::CloseCharacter(..)
+        | ArenaStep::ReopenCharacter
+        | ArenaStep::SelectQuestTab
+        | ArenaStep::OpenJournal(..)
+        | ArenaStep::SelectJournal(..)
+        | ArenaStep::CloseJournal => check_journal(
+            inventory_smoke,
+            inventory,
+            step,
+            state,
+            dialogue,
+            menu,
+            selection,
+            rows,
+            tabs,
+            keys,
+            commands,
+            transform,
+        ),
+        ArenaStep::Quest
+        | ArenaStep::SelectCore
+        | ArenaStep::CheckCore
+        | ArenaStep::TryCoreDrop(..)
+        | ArenaStep::CloseCore
+        | ArenaStep::Fall(..)
+        | ArenaStep::Recover => check_beacon_quest(
+            inventory,
+            ui,
+            step,
+            core_checked,
+            state,
+            quest,
+            dialogue,
+            nearby,
+            menu,
+            targets,
+            beacon,
+            layout,
+            captures,
+            orbit,
+            keys,
+            commands,
+            transform,
+            controller,
+            click_action,
+        ),
+        ArenaStep::CollectBoulder(..)
+        | ArenaStep::CheckBurden { .. }
+        | ArenaStep::DropBoulder(..)
+        | ArenaStep::ResumeAfterDrop(..) => check_carrying_limits(
+            run, inventory, step, fixed, state, nearby, equipment, menu, orbit, keys, commands,
+            exit, transform, controller, dodge,
+        ),
+    }
+}
+
+fn check_pause_and_movement(
+    mut step: ResMut<ArenaStep>,
+    fixed: Res<Time<Fixed>>,
+    state: Res<State<GameState>>,
+    captures: Query<(), With<Screenshot>>,
+    mut orbit: ResMut<Orbit>,
+    mut keys: ResMut<ButtonInput<KeyCode>>,
+    mut commands: Commands,
+    transform: Mut<Transform>,
+    controller: &Player,
+) {
     match *step {
         ArenaStep::CaptureArena if *state.get() == GameState::Playing && controller.grounded => {
             *step = ArenaStep::Pause(capture(&mut commands, "smoke-arena"));
@@ -392,6 +468,25 @@ fn drive(
                 *step = ArenaStep::SwitchToCharacter;
             }
         }
+        _ => {}
+    }
+}
+
+fn check_journal(
+    inventory_smoke: Res<InventorySmoke>,
+    inventory: Res<Inventory>,
+    mut step: ResMut<ArenaStep>,
+    state: Res<State<GameState>>,
+    dialogue: Res<Dialogue>,
+    menu: Res<PlayerMenu>,
+    selection: Res<QuestSelection>,
+    rows: Query<(Entity, &QuestRow)>,
+    tabs: Query<(Entity, &MenuTab)>,
+    mut keys: ResMut<ButtonInput<KeyCode>>,
+    mut commands: Commands,
+    transform: Mut<Transform>,
+) {
+    match *step {
         ArenaStep::SwitchToCharacter => {
             assert!(
                 menu.is_on(MenuTab::Equipment),
@@ -458,6 +553,32 @@ fn drive(
             assert!(dialogue.text.is_none());
             *step = ArenaStep::Quest;
         }
+        _ => {}
+    }
+}
+
+fn check_beacon_quest(
+    inventory: Res<Inventory>,
+    ui: Res<InventoryUiState>,
+    mut step: ResMut<ArenaStep>,
+    mut core_checked: Local<bool>,
+    state: Res<State<GameState>>,
+    quest: Res<QuestJournal>,
+    dialogue: Res<Dialogue>,
+    nearby: Res<Nearby>,
+    menu: Res<PlayerMenu>,
+    targets: Query<(&Target, &Transform), Without<Player>>,
+    beacon: Query<&PointLight, With<Beacon>>,
+    layout: Res<WorldLayout>,
+    captures: Query<(), With<Screenshot>>,
+    mut orbit: ResMut<Orbit>,
+    mut keys: ResMut<ButtonInput<KeyCode>>,
+    mut commands: Commands,
+    mut transform: Mut<Transform>,
+    controller: &Player,
+    click_action: impl Fn(&mut Commands, InventoryAction),
+) {
+    match *step {
         ArenaStep::Quest if *state.get() == GameState::Playing => {
             if dialogue.text.is_some() {
                 keys.press(KeyCode::KeyE);
@@ -537,6 +658,28 @@ fn drive(
             assert_eq!(inventory.count(ItemKind::BeaconCore), 0);
             *step = ArenaStep::CollectBoulder(1);
         }
+        _ => {}
+    }
+}
+
+fn check_carrying_limits(
+    run: Res<SmokeRun>,
+    inventory: Res<Inventory>,
+    mut step: ResMut<ArenaStep>,
+    fixed: Res<Time<Fixed>>,
+    state: Res<State<GameState>>,
+    nearby: Res<Nearby>,
+    equipment: Res<Equipment>,
+    menu: Res<PlayerMenu>,
+    mut orbit: ResMut<Orbit>,
+    mut keys: ResMut<ButtonInput<KeyCode>>,
+    mut commands: Commands,
+    mut exit: MessageWriter<AppExit>,
+    transform: Mut<Transform>,
+    controller: &Player,
+    dodge: &Dodge,
+) {
+    match *step {
         ArenaStep::CollectBoulder(count) => {
             if inventory.count(ItemKind::LargeBoulder) == count {
                 *step = ArenaStep::CheckBurden {

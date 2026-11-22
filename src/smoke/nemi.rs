@@ -42,8 +42,8 @@ pub(super) enum Check {
 }
 
 pub(super) fn drive(
-    mut stage: ResMut<Check>,
-    mut home: Local<Vec3>,
+    stage: ResMut<Check>,
+    home: Local<Vec3>,
     mut avatar: Query<
         (
             Entity,
@@ -74,7 +74,7 @@ pub(super) fn drive(
         Res<PlayerMenu>,
         Res<QuestSelection>,
     ),
-    (mut bag, mut equipment): (ResMut<Inventory>, ResMut<Equipment>),
+    (bag, equipment): (ResMut<Inventory>, ResMut<Equipment>),
     (lights, animations, rows): (
         Query<&PointLight, With<Beacon>>,
         Query<&AnimationPlayer>,
@@ -84,16 +84,16 @@ pub(super) fn drive(
         Query<Entity, With<Window>>,
         Query<Entity, With<FollowCamera>>,
     ),
-    (mut keys, mut mouse, mut orbit): (
+    (mut keys, mut mouse, orbit): (
         ResMut<ButtonInput<KeyCode>>,
         ResMut<ButtonInput<MouseButton>>,
         ResMut<Orbit>,
     ),
     spatial: SpatialQuery,
-    mut commands: Commands,
-    mut exit: MessageWriter<AppExit>,
+    commands: Commands,
+    exit: MessageWriter<AppExit>,
 ) {
-    let Ok((entity, mut player, mut dodge, mut transform, thrust)) = avatar.single_mut() else {
+    let Ok((entity, player, dodge, transform, thrust)) = avatar.single_mut() else {
         return;
     };
     let (keeper, nemi, health, keeper_transform, dead, collider, death) = nemi
@@ -132,6 +132,64 @@ pub(super) fn drive(
             fixture(anchor.translation + offset, player, dodge, transform);
         };
 
+    match *stage {
+        Check::Start
+        | Check::Attack(..)
+        | Check::Hit(..)
+        | Check::Flee
+        | Check::Return
+        | Check::Talk
+        | Check::Refusal
+        | Check::OpenLog
+        | Check::SelectFailure
+        | Check::CloseLog => check_nemi_reactions(
+            stage, home, nemi, quest, dialogue, log, selection, bag, equipment, rows, window,
+            camera, keys, mouse, orbit, commands, player, dodge, transform, thrust, health,
+            position, dead, collider, fixture, aim, near,
+        ),
+        Check::FinishRecovering
+        | Check::Collapse
+        | Check::RecoverCore
+        | Check::CoreNotice
+        | Check::InstallCore
+        | Check::BeaconNotice
+        | Check::EnterRelay
+        | Check::Done => check_solo_route(
+            stage, quest, dialogue, bag, lights, animations, keys, orbit, commands, exit, player,
+            dodge, transform, thrust, position, dead, collider, death, fixture, near, place,
+        ),
+    }
+}
+
+fn check_nemi_reactions(
+    mut stage: ResMut<Check>,
+    mut home: Local<Vec3>,
+    nemi: &Nemi,
+    quest: Res<QuestJournal>,
+    dialogue: Res<Dialogue>,
+    log: Res<PlayerMenu>,
+    selection: Res<QuestSelection>,
+    mut bag: ResMut<Inventory>,
+    mut equipment: ResMut<Equipment>,
+    rows: Query<(Entity, &QuestRow)>,
+    window: Query<Entity, With<Window>>,
+    camera: Query<Entity, With<FollowCamera>>,
+    mut keys: ResMut<ButtonInput<KeyCode>>,
+    mut mouse: ResMut<ButtonInput<MouseButton>>,
+    mut orbit: ResMut<Orbit>,
+    mut commands: Commands,
+    mut player: Mut<Player>,
+    mut dodge: Mut<Dodge>,
+    mut transform: Mut<Transform>,
+    thrust: &WeaponAttack,
+    health: &Health,
+    position: Vec3,
+    dead: bool,
+    collider: bool,
+    fixture: impl Fn(Vec3, &mut Player, &mut Dodge, &mut Transform),
+    aim: impl Fn(&mut Orbit, Vec3, Vec3),
+    near: impl Fn(InteractionTarget) -> bool,
+) {
     match *stage {
         Check::Start if player.grounded => {
             assert!(bag.add(ItemKind::FieldSpear, 1));
@@ -221,6 +279,34 @@ pub(super) fn drive(
             keys.press(KeyCode::Tab);
             *stage = Check::Attack(20);
         }
+        _ => {}
+    }
+}
+
+fn check_solo_route(
+    mut stage: ResMut<Check>,
+    quest: Res<QuestJournal>,
+    dialogue: Res<Dialogue>,
+    bag: ResMut<Inventory>,
+    lights: Query<&PointLight, With<Beacon>>,
+    animations: Query<&AnimationPlayer>,
+    mut keys: ResMut<ButtonInput<KeyCode>>,
+    mut orbit: ResMut<Orbit>,
+    mut commands: Commands,
+    mut exit: MessageWriter<AppExit>,
+    mut player: Mut<Player>,
+    mut dodge: Mut<Dodge>,
+    mut transform: Mut<Transform>,
+    thrust: &WeaponAttack,
+    position: Vec3,
+    dead: bool,
+    collider: bool,
+    death: &DeathAnimation,
+    fixture: impl Fn(Vec3, &mut Player, &mut Dodge, &mut Transform),
+    near: impl Fn(InteractionTarget) -> bool,
+    place: impl Fn(Target, Vec3, &mut Player, &mut Dodge, &mut Transform),
+) {
+    match *stage {
         Check::FinishRecovering if !thrust.active() => {
             fixture(
                 position + Vec3::Z * 1.0,

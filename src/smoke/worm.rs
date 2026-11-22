@@ -99,7 +99,7 @@ pub(super) fn check_outpost_sites(
 
 pub(super) fn fight(
     mut phase: ResMut<Encounter>,
-    mut smoke: ResMut<SpearSmoke>,
+    smoke: ResMut<SpearSmoke>,
     visuals: Option<Res<EnemyVisuals>>,
     player: Query<(&Player, &Transform, &Health, &WeaponAttack)>,
     worms: Query<
@@ -131,7 +131,7 @@ pub(super) fn fight(
     ),
     mut orbit: ResMut<Orbit>,
     mut keys: ResMut<ButtonInput<KeyCode>>,
-    mut mouse: ResMut<ButtonInput<MouseButton>>,
+    mouse: ResMut<ButtonInput<MouseButton>>,
     mut commands: Commands,
 ) {
     if *smoke != SpearSmoke::WormEncounter {
@@ -161,6 +161,58 @@ pub(super) fn fight(
     let (worm, enemy, worm_health, dead, collider) = worms
         .single()
         .expect("the encounter worm must remain spawned");
+    match *phase {
+        Encounter::Pursuit(..)
+        | Encounter::Dodge { .. }
+        | Encounter::TakeBite
+        | Encounter::Fight { .. } => check_worm_combat(
+            phase,
+            health_bar,
+            bar_visibility,
+            orbit,
+            keys,
+            mouse,
+            commands,
+            controller,
+            transform,
+            player_health,
+            thrust,
+            pulse,
+            impacts,
+            worm,
+            enemy,
+            worm_health,
+            collider,
+        ),
+        Encounter::Collapse { .. } | Encounter::Loot | Encounter::CloseLoot | Encounter::Finish => {
+            check_worm_loot(
+                phase, smoke, state, time, nearby, bag, actions, window, camera, orbit, keys,
+                commands, transform, enemy, dead, collider,
+            )
+        }
+        _ => {}
+    }
+}
+
+fn check_worm_combat(
+    mut phase: ResMut<Encounter>,
+    health_bar: Query<&Node, With<HealthBarFill>>,
+    bar_visibility: Query<&Visibility, With<HealthBar>>,
+    mut orbit: ResMut<Orbit>,
+    mut keys: ResMut<ButtonInput<KeyCode>>,
+    mut mouse: ResMut<ButtonInput<MouseButton>>,
+    mut commands: Commands,
+    controller: &Player,
+    transform: &Transform,
+    player_health: &Health,
+    thrust: &WeaponAttack,
+    pulse: Query<&Visibility, With<BitePulse>>,
+    impacts: Query<(), With<AttackImpact>>,
+    worm: &MeleePursuit,
+    enemy: &Transform,
+    worm_health: &Health,
+    collider: Option<&Collider>,
+) {
     match *phase {
         Encounter::Pursuit(home) if matches!(worm.phase, MeleePhase::Windup(_)) => {
             assert!(
@@ -252,6 +304,29 @@ pub(super) fn fight(
             orbit.yaw = delta.x.atan2(delta.z) + offset - std::f32::consts::PI;
             mouse.press(MouseButton::Left);
         }
+        _ => {}
+    }
+}
+
+fn check_worm_loot(
+    mut phase: ResMut<Encounter>,
+    mut smoke: ResMut<SpearSmoke>,
+    state: Res<State<GameState>>,
+    time: Res<Time>,
+    nearby: Res<Nearby>,
+    bag: Res<Inventory>,
+    actions: Query<(Entity, &LootAction)>,
+    window: Query<Entity, With<Window>>,
+    camera: Query<Entity, With<FollowCamera>>,
+    mut orbit: ResMut<Orbit>,
+    mut keys: ResMut<ButtonInput<KeyCode>>,
+    mut commands: Commands,
+    transform: &Transform,
+    enemy: &Transform,
+    dead: bool,
+    collider: Option<&Collider>,
+) {
+    match *phase {
         Encounter::Collapse {
             elapsed,
             mut captured,

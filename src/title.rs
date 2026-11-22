@@ -70,41 +70,7 @@ fn setup(
             BackgroundColor(Color::srgb(0.03, 0.06, 0.11)),
         ))
         .with_children(|screen| {
-            screen.spawn((
-                TitleBackdrop,
-                ImageNode::new(assets.load("ui/title.png")).with_mode(NodeImageMode::Stretch),
-                Node {
-                    position_type: PositionType::Absolute,
-                    right: px(0),
-                    top: px(0),
-                    min_width: percent(100),
-                    min_height: percent(100),
-                    width: vh(1600.0 / 9.0),
-                    height: vw(56.25),
-                    ..default()
-                },
-                Pickable::IGNORE,
-            ));
-            screen.spawn((
-                Node {
-                    position_type: PositionType::Absolute,
-                    left: px(0),
-                    top: px(0),
-                    width: percent(100),
-                    height: percent(100),
-                    ..default()
-                },
-                BackgroundGradient::from(LinearGradient::new(
-                    LinearGradient::TO_RIGHT,
-                    vec![
-                        ColorStop::percent(Color::srgba(0.02, 0.04, 0.08, 0.98), 0),
-                        ColorStop::percent(Color::srgba(0.02, 0.04, 0.08, 0.87), 35),
-                        ColorStop::percent(Color::srgba(0.02, 0.04, 0.08, 0.15), 70),
-                        ColorStop::percent(Color::srgba(0.02, 0.04, 0.08, 0.0), 100),
-                    ],
-                )),
-                Pickable::IGNORE,
-            ));
+            spawn_backdrop(screen, &assets);
             screen
                 .spawn(Node {
                     width: percent(100),
@@ -205,6 +171,43 @@ fn setup(
                         });
                 });
         });
+}
+fn spawn_backdrop(screen: &mut ChildSpawnerCommands, assets: &AssetServer) {
+    screen.spawn((
+        TitleBackdrop,
+        ImageNode::new(assets.load("ui/title.png")).with_mode(NodeImageMode::Stretch),
+        Node {
+            position_type: PositionType::Absolute,
+            right: px(0),
+            top: px(0),
+            min_width: percent(100),
+            min_height: percent(100),
+            width: vh(1600.0 / 9.0),
+            height: vw(56.25),
+            ..default()
+        },
+        Pickable::IGNORE,
+    ));
+    screen.spawn((
+        Node {
+            position_type: PositionType::Absolute,
+            left: px(0),
+            top: px(0),
+            width: percent(100),
+            height: percent(100),
+            ..default()
+        },
+        BackgroundGradient::from(LinearGradient::new(
+            LinearGradient::TO_RIGHT,
+            vec![
+                ColorStop::percent(Color::srgba(0.02, 0.04, 0.08, 0.98), 0),
+                ColorStop::percent(Color::srgba(0.02, 0.04, 0.08, 0.87), 35),
+                ColorStop::percent(Color::srgba(0.02, 0.04, 0.08, 0.15), 70),
+                ColorStop::percent(Color::srgba(0.02, 0.04, 0.08, 0.0), 100),
+            ],
+        )),
+        Pickable::IGNORE,
+    ));
 }
 
 fn navigate(

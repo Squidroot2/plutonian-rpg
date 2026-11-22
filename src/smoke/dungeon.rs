@@ -90,7 +90,7 @@ pub(super) enum WorldCheck {
 
 pub(super) fn drive(
     run: Res<SmokeRun>,
-    mut phase: ResMut<WorldCheck>,
+    phase: ResMut<WorldCheck>,
     mut last_log: Local<f64>,
     mut player: Query<
         (
@@ -114,34 +114,36 @@ pub(super) fn drive(
         Res<DungeonProgress>,
         Res<PlayerMenu>,
         Res<QuestSelection>,
-        Query<(Entity, &QuestRow)>,
+        Query<(Entity, &'static QuestRow)>,
     ),
     (gate, names, parents, chests): (
         Query<Entity, With<ArchiveGate>>,
-        Query<&Name>,
-        Query<&ChildOf>,
-        Query<(&ChestId, &Transform), Without<Player>>,
+        Query<&'static Name>,
+        Query<&'static ChildOf>,
+        Query<(&'static ChestId, &'static Transform), Without<Player>>,
     ),
-    worms: Query<(Entity, &Transform, &MeleePursuit), (With<Worm>, Without<Player>)>,
+    worms: Query<
+        (Entity, &'static Transform, &'static MeleePursuit),
+        (With<Worm>, Without<Player>),
+    >,
     captures: Query<(), With<Screenshot>>,
     (state, roaches, actions, window, camera, storage, storage_actions): (
         Res<State<GameState>>,
-        Query<(Entity, &Transform, Has<Dead>), (With<Roach>, Without<Player>)>,
-        Query<(Entity, &LootAction)>,
+        Query<(Entity, &'static Transform, Has<Dead>), (With<Roach>, Without<Player>)>,
+        Query<(Entity, &'static LootAction)>,
         Query<Entity, With<Window>>,
         Query<Entity, With<FollowCamera>>,
         Res<ChestStorage>,
-        Query<(Entity, &StorageAction)>,
+        Query<(Entity, &'static StorageAction)>,
     ),
-    mut hits: MessageWriter<Hit>,
+    hits: MessageWriter<Hit>,
     spatial: SpatialQuery,
-    mut orbit: ResMut<Orbit>,
+    orbit: ResMut<Orbit>,
     mut keys: ResMut<ButtonInput<KeyCode>>,
-    mut commands: Commands,
-    mut exit: MessageWriter<AppExit>,
+    commands: Commands,
+    exit: MessageWriter<AppExit>,
 ) {
-    let Ok((entity, mut controller, mut dodge, mut transform, capsule, player_health)) =
-        player.single_mut()
+    let Ok((entity, controller, dodge, transform, capsule, player_health)) = player.single_mut()
     else {
         return;
     };
@@ -152,58 +154,172 @@ pub(super) fn drive(
         info!("WORLD SMOKE: {:?} at {position:?}", *phase);
         *last_log = now;
     }
-    let ready = |target| matches!(nearby.0, Some((_, InteractionTarget::Dungeon(current))) if current == target);
-    let quest_ready = |target| matches!(nearby.0, Some((_, InteractionTarget::Quest(current))) if current == target);
-    let chest_ready = |chest| matches!(nearby.0, Some((_, InteractionTarget::Chest(current))) if current == chest);
-    let storage_open = *state.get() == GameState::Storage;
-    let click_storage = |commands: &mut Commands, action| {
-        click(
-            commands,
-            action,
-            &storage_actions,
-            window.single().expect("smoke window"),
-            camera.single().expect("player camera"),
-        );
+    let frame = WorldFrame {
+        phase,
+        quest,
+        inventory,
+        checkpoint,
+        names,
+        parents,
+        worms,
+        captures,
+        hits,
+        spatial,
+        orbit,
+        commands,
+        entity,
+        controller,
+        dodge,
+        transform,
+        player_health,
+        position,
+        now,
+        storage,
+        keys,
+        nearby,
+        storage_actions,
+        window,
+        camera,
+        state,
+        chests,
+        dialogue,
+        progress,
+        journal,
+        selection,
+        rows,
+        gate,
+        capsule,
+        roaches,
+        actions,
+        run,
+        exit,
     };
-    let walk_to = |keys: &mut ButtonInput<KeyCode>, orbit: &mut Orbit, destination: Vec3| {
-        if position.xz().distance(destination.xz()) < 0.28 {
-            true
-        } else {
-            walk(keys, orbit, position, destination);
-            false
-        }
-    };
-    let passage_hit = || {
-        spatial
-            .cast_shape(
-                capsule,
-                ORIGIN + Vec3::new(0.0, 0.91, -16.1),
-                Quat::IDENTITY,
-                Dir3::NEG_Z,
-                &ShapeCastConfig::from_max_distance(3.4),
-                &SpatialQueryFilter::from_excluded_entities([entity]),
-            )
-            .map(|hit| hit.entity)
-    };
-    let fixture =
-        |player: &mut Player, dodge: &mut Dodge, transform: &mut Transform, point: Vec3| {
-            let probe = point.with_y(2.0);
-            let support = spatial
-                .cast_ray(
-                    probe,
-                    Dir3::NEG_Y,
-                    6.0,
-                    true,
-                    &SpatialQueryFilter::from_excluded_entities([entity]),
-                )
-                .expect("the exterior smoke fixture must stand over the ice shelf");
-            player.respawn(
-                dodge,
-                transform,
-                probe - Vec3::Y * (support.distance - 0.905),
-            );
-        };
-    let junction = ORIGIN + Vec3::new(3.8, 0.0, -10.75);
+    match *frame.phase {
+        WorldCheck::Spawn
+        | WorldCheck::FreshRespawn(..)
+        | WorldCheck::TentView(..)
+        | WorldCheck::TentPhoto(..) => check_fresh_run(frame),
+        WorldCheck::InspectChest(..)
+        | WorldCheck::TakeFromChest(..)
+        | WorldCheck::StoreInChest(..)
+        | WorldCheck::CloseChest(..)
+        | WorldCheck::NextChest(..) => check_tent_chests(frame),
+        WorldCheck::LeaveTent
+        | WorldCheck::OutpostPhoto(..)
+        | WorldCheck::OutsideChestWall
+        | WorldCheck::BlockedChest
+        | WorldCheck::ReturnToTent
+        | WorldCheck::InspectStoredChest
+        | WorldCheck::CheckStoredChest
+        | WorldCheck::LeaveStorage => check_outpost_storage(frame),
+        WorldCheck::RecoverCore
+        | WorldCheck::CheckRecoveredCore
+        | WorldCheck::InspectLocked
+        | WorldCheck::LockedNotice
+        | WorldCheck::OpenDiscoveredJournal
+        | WorldCheck::CheckDiscoveredJournal
+        | WorldCheck::CheckRelaySelection
+        | WorldCheck::SetUpTurnIn
+        | WorldCheck::TurnIn
+        | WorldCheck::ApproachHatch
+        | WorldCheck::Enter => unlock_relay(frame),
+        WorldCheck::LureWorm
+        | WorldCheck::DodgeWorm(..)
+        | WorldCheck::Junction
+        | WorldCheck::ApproachRoach
+        | WorldCheck::TakeRoachMeat
+        | WorldCheck::CloseRoachLoot
+        | WorldCheck::Switch
+        | WorldCheck::OpenGateJournal
+        | WorldCheck::GateRises => check_relay_encounters(frame),
+        WorldCheck::ReturnToJunction
+        | WorldCheck::GateApproach
+        | WorldCheck::CrossGate
+        | WorldCheck::ApproachLog
+        | WorldCheck::ReadLog
+        | WorldCheck::ReadNotice
+        | WorldCheck::OpenCompletedJournal
+        | WorldCheck::CheckCompletedJournal
+        | WorldCheck::LeaveArchive
+        | WorldCheck::LeaveJunction
+        | WorldCheck::Exit => finish_relay_quest(frame),
+        WorldCheck::Reenter | WorldCheck::Revisited => check_relay_revisit(frame),
+        WorldCheck::Recover
+        | WorldCheck::SaveAtBed
+        | WorldCheck::ChangeAfterSave
+        | WorldCheck::SavedRespawn(..) => check_bed_rollback(frame),
+    }
+}
+
+struct WorldFrame<'w, 's, 'a> {
+    phase: ResMut<'w, WorldCheck>,
+    quest: Res<'w, QuestJournal>,
+    inventory: Res<'w, Inventory>,
+    checkpoint: Res<'w, RunSave>,
+    names: Query<'w, 's, &'static Name>,
+    parents: Query<'w, 's, &'static ChildOf>,
+    worms: Query<
+        'w,
+        's,
+        (Entity, &'static Transform, &'static MeleePursuit),
+        (With<Worm>, Without<Player>),
+    >,
+    captures: Query<'w, 's, (), With<Screenshot>>,
+    hits: MessageWriter<'w, Hit>,
+    spatial: SpatialQuery<'w, 's>,
+    orbit: ResMut<'w, Orbit>,
+    commands: Commands<'w, 's>,
+    entity: Entity,
+    controller: Mut<'a, Player>,
+    dodge: Mut<'a, Dodge>,
+    transform: Mut<'a, Transform>,
+    player_health: &'a Health,
+    position: Vec3,
+    now: f64,
+    storage: Res<'w, ChestStorage>,
+    keys: ResMut<'w, ButtonInput<KeyCode>>,
+    nearby: Res<'w, Nearby>,
+    storage_actions: Query<'w, 's, (Entity, &'static StorageAction)>,
+    window: Query<'w, 's, Entity, With<Window>>,
+    camera: Query<'w, 's, Entity, With<FollowCamera>>,
+    state: Res<'w, State<GameState>>,
+    chests: Query<'w, 's, (&'static ChestId, &'static Transform), Without<Player>>,
+    dialogue: Res<'w, Dialogue>,
+    progress: Res<'w, DungeonProgress>,
+    journal: Res<'w, PlayerMenu>,
+    selection: Res<'w, QuestSelection>,
+    rows: Query<'w, 's, (Entity, &'static QuestRow)>,
+    gate: Query<'w, 's, Entity, With<ArchiveGate>>,
+    capsule: &'a Collider,
+    roaches: Query<'w, 's, (Entity, &'static Transform, Has<Dead>), (With<Roach>, Without<Player>)>,
+    actions: Query<'w, 's, (Entity, &'static LootAction)>,
+    run: Res<'w, SmokeRun>,
+    exit: MessageWriter<'w, AppExit>,
+}
+
+fn check_fresh_run(frame: WorldFrame) {
+    let WorldFrame {
+        mut phase,
+        quest,
+        inventory,
+        checkpoint,
+        names,
+        parents,
+        worms,
+        captures,
+        mut hits,
+        spatial,
+        orbit,
+        mut commands,
+        entity,
+        mut controller,
+        mut dodge,
+        mut transform,
+        player_health,
+        position,
+        now,
+        ..
+    } = frame;
 
     match *phase {
         WorldCheck::Spawn if controller.grounded => {
@@ -281,6 +397,8 @@ pub(super) fn drive(
         }
         WorldCheck::TentPhoto(photo) if captures.get(photo).is_err() => {
             fixture(
+                &spatial,
+                entity,
                 &mut controller,
                 &mut dodge,
                 &mut transform,
@@ -288,7 +406,37 @@ pub(super) fn drive(
             );
             *phase = WorldCheck::InspectChest(ChestId::Gear);
         }
-        WorldCheck::InspectChest(chest) if chest_ready(chest) => {
+        _ => {}
+    }
+}
+
+fn check_tent_chests(frame: WorldFrame) {
+    let WorldFrame {
+        mut phase,
+        inventory,
+        storage,
+        mut keys,
+        mut commands,
+        mut controller,
+        mut dodge,
+        mut transform,
+        nearby,
+        spatial,
+        entity,
+        storage_actions,
+        window,
+        camera,
+        state,
+        ..
+    } = frame;
+    let click_storage = |commands: &mut Commands, action| {
+        click_storage(commands, action, &storage_actions, &window, &camera);
+    };
+    let storage_open = *state.get() == GameState::Storage;
+    match *phase {
+        WorldCheck::InspectChest(chest)
+            if target_ready(&nearby, InteractionTarget::Chest(chest)) =>
+        {
             keys.press(KeyCode::KeyE);
             *phase = WorldCheck::TakeFromChest(chest);
         }
@@ -335,6 +483,8 @@ pub(super) fn drive(
         WorldCheck::NextChest(chest) if !storage_open => match chest {
             ChestId::Gear => {
                 fixture(
+                    &spatial,
+                    entity,
                     &mut controller,
                     &mut dodge,
                     &mut transform,
@@ -344,6 +494,8 @@ pub(super) fn drive(
             }
             ChestId::Supply => {
                 fixture(
+                    &spatial,
+                    entity,
                     &mut controller,
                     &mut dodge,
                     &mut transform,
@@ -360,6 +512,35 @@ pub(super) fn drive(
                 *phase = WorldCheck::LeaveTent;
             }
         },
+        _ => {}
+    }
+}
+
+fn check_outpost_storage(frame: WorldFrame) {
+    let WorldFrame {
+        mut phase,
+        inventory,
+        nearby,
+        chests,
+        captures,
+        storage,
+        mut orbit,
+        mut keys,
+        mut commands,
+        mut controller,
+        mut dodge,
+        mut transform,
+        position,
+        spatial,
+        entity,
+        storage_actions,
+        window,
+        camera,
+        state,
+        ..
+    } = frame;
+    let storage_open = *state.get() == GameState::Storage;
+    match *phase {
         WorldCheck::LeaveTent if position.x < 5.55 && controller.grounded => {
             orbit.yaw = -std::f32::consts::FRAC_PI_2;
             *phase = WorldCheck::OutpostPhoto(capture(&mut commands, "outpost"));
@@ -367,6 +548,8 @@ pub(super) fn drive(
         WorldCheck::LeaveTent => keys.press(KeyCode::KeyW),
         WorldCheck::OutpostPhoto(photo) if captures.get(photo).is_err() => {
             fixture(
+                &spatial,
+                entity,
                 &mut controller,
                 &mut dodge,
                 &mut transform,
@@ -392,6 +575,8 @@ pub(super) fn drive(
         WorldCheck::BlockedChest => {
             assert!(!storage_open);
             fixture(
+                &spatial,
+                entity,
                 &mut controller,
                 &mut dodge,
                 &mut transform,
@@ -405,6 +590,8 @@ pub(super) fn drive(
         {
             assert!((position.z - WorldLayout::Outpost.initial_spawn().z).abs() < 0.08);
             fixture(
+                &spatial,
+                entity,
                 &mut controller,
                 &mut dodge,
                 &mut transform,
@@ -413,7 +600,9 @@ pub(super) fn drive(
             *phase = WorldCheck::InspectStoredChest;
         }
         WorldCheck::ReturnToTent => keys.press(KeyCode::KeyS),
-        WorldCheck::InspectStoredChest if chest_ready(ChestId::Lamp) => {
+        WorldCheck::InspectStoredChest
+            if target_ready(&nearby, InteractionTarget::Chest(ChestId::Lamp)) =>
+        {
             keys.press(KeyCode::KeyE);
             *phase = WorldCheck::CheckStoredChest;
         }
@@ -424,10 +613,18 @@ pub(super) fn drive(
             *phase = WorldCheck::LeaveStorage;
         }
         WorldCheck::LeaveStorage if storage_open && captures.is_empty() => {
-            click_storage(&mut commands, StorageAction::Close);
+            click_storage(
+                &mut commands,
+                StorageAction::Close,
+                &storage_actions,
+                &window,
+                &camera,
+            );
         }
         WorldCheck::LeaveStorage if !storage_open => {
             fixture(
+                &spatial,
+                entity,
                 &mut controller,
                 &mut dodge,
                 &mut transform,
@@ -435,7 +632,41 @@ pub(super) fn drive(
             );
             *phase = WorldCheck::RecoverCore;
         }
-        WorldCheck::RecoverCore if quest_ready(Target::Core) => {
+        _ => {}
+    }
+}
+
+fn unlock_relay(frame: WorldFrame) {
+    let WorldFrame {
+        mut phase,
+        quest,
+        inventory,
+        dialogue,
+        progress,
+        journal,
+        selection,
+        rows,
+        gate,
+        window,
+        camera,
+        mut orbit,
+        mut keys,
+        mut commands,
+        mut controller,
+        mut dodge,
+        mut transform,
+        position,
+        nearby,
+        spatial,
+        entity,
+        capsule,
+        ..
+    } = frame;
+
+    match *phase {
+        WorldCheck::RecoverCore
+            if target_ready(&nearby, InteractionTarget::Quest(Target::Core)) =>
+        {
             keys.press(KeyCode::KeyE);
             *phase = WorldCheck::CheckRecoveredCore;
         }
@@ -450,6 +681,8 @@ pub(super) fn drive(
             );
             keys.press(KeyCode::KeyE);
             fixture(
+                &spatial,
+                entity,
                 &mut controller,
                 &mut dodge,
                 &mut transform,
@@ -457,7 +690,9 @@ pub(super) fn drive(
             );
             *phase = WorldCheck::InspectLocked;
         }
-        WorldCheck::InspectLocked if ready(DungeonTarget::Hatch) => {
+        WorldCheck::InspectLocked
+            if target_ready(&nearby, InteractionTarget::Dungeon(DungeonTarget::Hatch)) =>
+        {
             keys.press(KeyCode::KeyE);
             *phase = WorldCheck::LockedNotice;
         }
@@ -506,6 +741,8 @@ pub(super) fn drive(
         }
         WorldCheck::SetUpTurnIn if !journal.is_open() => {
             fixture(
+                &spatial,
+                entity,
                 &mut controller,
                 &mut dodge,
                 &mut transform,
@@ -522,15 +759,15 @@ pub(super) fn drive(
             keys.press(KeyCode::KeyE);
             *phase = WorldCheck::ApproachHatch;
         }
-        WorldCheck::TurnIn if quest_ready(Target::Keeper) => {
+        WorldCheck::TurnIn if target_ready(&nearby, InteractionTarget::Quest(Target::Keeper)) => {
             keys.press(KeyCode::KeyE);
         }
         WorldCheck::ApproachHatch => {
-            if ready(DungeonTarget::Hatch) {
+            if target_ready(&nearby, InteractionTarget::Dungeon(DungeonTarget::Hatch)) {
                 keys.press(KeyCode::KeyE);
                 *phase = WorldCheck::Enter;
             } else {
-                walk_to(&mut keys, &mut orbit, HATCH);
+                walk_to(&mut keys, &mut orbit, position, HATCH);
             }
         }
         WorldCheck::Enter if controller.grounded => {
@@ -538,7 +775,7 @@ pub(super) fn drive(
             assert!((position.y - (ORIGIN.y + 0.9)).abs() < 0.1);
             assert!(!progress.gate_open());
             assert_eq!(
-                passage_hit(),
+                passage_hit(&spatial, capsule, entity),
                 Some(
                     gate.single()
                         .expect("the relay should have one archive gate")
@@ -548,6 +785,37 @@ pub(super) fn drive(
             capture(&mut commands, "relay-vestibule");
             *phase = WorldCheck::LureWorm;
         }
+        _ => {}
+    }
+}
+
+fn check_relay_encounters(frame: WorldFrame) {
+    let WorldFrame {
+        mut phase,
+        quest,
+        inventory,
+        nearby,
+        progress,
+        journal,
+        worms,
+        state,
+        roaches,
+        actions,
+        window,
+        camera,
+        mut hits,
+        mut orbit,
+        mut keys,
+        mut commands,
+        entity,
+        player_health,
+        position,
+        spatial,
+        capsule,
+        ..
+    } = frame;
+    let junction = ORIGIN + Vec3::new(3.8, 0.0, -10.75);
+    match *phase {
         WorldCheck::LureWorm => {
             if junction_worm(&worms).is_some_and(
                 |worm| matches!(worm.phase, MeleePhase::Windup(remaining) if remaining <= 0.36),
@@ -557,11 +825,16 @@ pub(super) fn drive(
                 capture(&mut commands, "relay-worm");
                 *phase = WorldCheck::DodgeWorm(player_health.current());
             } else {
-                walk_to(&mut keys, &mut orbit, ORIGIN + Vec3::new(0.1, 0.0, -8.7));
+                walk_to(
+                    &mut keys,
+                    &mut orbit,
+                    position,
+                    ORIGIN + Vec3::new(0.1, 0.0, -8.7),
+                );
             }
         }
         WorldCheck::DodgeWorm(health) => {
-            walk_to(&mut keys, &mut orbit, junction);
+            walk_to(&mut keys, &mut orbit, position, junction);
             if junction_worm(&worms)
                 .is_some_and(|worm| matches!(worm.phase, MeleePhase::Recovery(_)))
             {
@@ -574,7 +847,7 @@ pub(super) fn drive(
             }
         }
         WorldCheck::Junction => {
-            if walk_to(&mut keys, &mut orbit, junction) {
+            if walk_to(&mut keys, &mut orbit, position, junction) {
                 let (roach, _, _) = roaches.single().expect("Old Relay roach");
                 hits.write(Hit {
                     source: entity,
@@ -592,7 +865,7 @@ pub(super) fn drive(
                 keys.press(KeyCode::KeyE);
                 *phase = WorldCheck::TakeRoachMeat;
             } else {
-                walk_to(&mut keys, &mut orbit, corpse.translation);
+                walk_to(&mut keys, &mut orbit, position, corpse.translation);
             }
         }
         WorldCheck::TakeRoachMeat if *state.get() == GameState::Looting => {
@@ -612,11 +885,11 @@ pub(super) fn drive(
             *phase = WorldCheck::Switch;
         }
         WorldCheck::Switch if *state.get() == GameState::Playing => {
-            if ready(DungeonTarget::Switch) {
+            if target_ready(&nearby, InteractionTarget::Dungeon(DungeonTarget::Switch)) {
                 keys.press(KeyCode::KeyE);
                 *phase = WorldCheck::OpenGateJournal;
             } else {
-                walk_to(&mut keys, &mut orbit, ORIGIN + SWITCH_LOCAL);
+                walk_to(&mut keys, &mut orbit, position, ORIGIN + SWITCH_LOCAL);
             }
         }
         WorldCheck::OpenGateJournal => {
@@ -624,41 +897,80 @@ pub(super) fn drive(
             keys.press(KeyCode::Tab);
             *phase = WorldCheck::GateRises;
         }
-        WorldCheck::GateRises if progress.gate_open() && passage_hit().is_none() => {
+        WorldCheck::GateRises
+            if progress.gate_open() && passage_hit(&spatial, capsule, entity).is_none() =>
+        {
             assert!(journal.is_on(MenuTab::Quest));
             assert!(quest.expects(QuestAction::ReadSurveyLog));
             keys.press(KeyCode::Tab);
             capture(&mut commands, "relay-maintenance");
             *phase = WorldCheck::ReturnToJunction;
         }
+        _ => {}
+    }
+}
+
+fn finish_relay_quest(frame: WorldFrame) {
+    let WorldFrame {
+        mut phase,
+        quest,
+        dialogue,
+        journal,
+        rows,
+        mut orbit,
+        mut keys,
+        mut commands,
+        controller,
+        position,
+        nearby,
+        ..
+    } = frame;
+    let junction = ORIGIN + Vec3::new(3.8, 0.0, -10.75);
+    match *phase {
         WorldCheck::ReturnToJunction => {
-            if walk_to(&mut keys, &mut orbit, junction) {
+            if walk_to(&mut keys, &mut orbit, position, junction) {
                 *phase = WorldCheck::GateApproach;
             }
         }
         WorldCheck::GateApproach => {
-            if walk_to(&mut keys, &mut orbit, ORIGIN + Vec3::new(0.0, 0.0, -14.2)) {
+            if walk_to(
+                &mut keys,
+                &mut orbit,
+                position,
+                ORIGIN + Vec3::new(0.0, 0.0, -14.2),
+            ) {
                 *phase = WorldCheck::CrossGate;
             }
         }
         WorldCheck::CrossGate => {
-            if walk_to(&mut keys, &mut orbit, ORIGIN + Vec3::new(0.0, 0.0, -21.0)) {
+            if walk_to(
+                &mut keys,
+                &mut orbit,
+                position,
+                ORIGIN + Vec3::new(0.0, 0.0, -21.0),
+            ) {
                 assert!(position.z < ORIGIN.z + GATE_LOCAL.z);
                 *phase = WorldCheck::ApproachLog;
             }
         }
         WorldCheck::ApproachLog => {
-            if ready(DungeonTarget::SurveyLog) {
+            if target_ready(
+                &nearby,
+                InteractionTarget::Dungeon(DungeonTarget::SurveyLog),
+            ) {
                 orbit.yaw = 0.30;
                 orbit.pitch = 0.23;
                 *phase = WorldCheck::ReadLog;
                 capture(&mut commands, "relay-archive");
             } else {
-                walk_to(&mut keys, &mut orbit, ORIGIN + LOG_LOCAL);
+                walk_to(&mut keys, &mut orbit, position, ORIGIN + LOG_LOCAL);
             }
         }
         WorldCheck::ReadLog => {
-            assert!(ready(DungeonTarget::SurveyLog));
+            assert!(target_ready(
+                &nearby,
+                InteractionTarget::Dungeon(DungeonTarget::SurveyLog)
+            ));
             keys.press(KeyCode::KeyE);
             *phase = WorldCheck::ReadNotice;
         }
@@ -689,16 +1001,26 @@ pub(super) fn drive(
         WorldCheck::LeaveArchive => {
             if dialogue.text.is_some() {
                 keys.press(KeyCode::KeyE);
-            } else if walk_to(&mut keys, &mut orbit, ORIGIN + Vec3::new(0.0, 0.0, -14.1)) {
+            } else if walk_to(
+                &mut keys,
+                &mut orbit,
+                position,
+                ORIGIN + Vec3::new(0.0, 0.0, -14.1),
+            ) {
                 *phase = WorldCheck::LeaveJunction;
             }
         }
         WorldCheck::LeaveJunction => {
-            if ready(DungeonTarget::Exit) {
+            if target_ready(&nearby, InteractionTarget::Dungeon(DungeonTarget::Exit)) {
                 keys.press(KeyCode::KeyE);
                 *phase = WorldCheck::Exit;
             } else {
-                walk_to(&mut keys, &mut orbit, ORIGIN + Vec3::new(0.0, 0.0, -2.35));
+                walk_to(
+                    &mut keys,
+                    &mut orbit,
+                    position,
+                    ORIGIN + Vec3::new(0.0, 0.0, -2.35),
+                );
             }
         }
         WorldCheck::Exit if controller.grounded => {
@@ -707,7 +1029,30 @@ pub(super) fn drive(
             assert!(quest.is_complete(OLD_RELAY));
             *phase = WorldCheck::Reenter;
         }
-        WorldCheck::Reenter if ready(DungeonTarget::Hatch) => {
+        _ => {}
+    }
+}
+
+fn check_relay_revisit(frame: WorldFrame) {
+    let WorldFrame {
+        mut phase,
+        quest,
+        inventory,
+        progress,
+        roaches,
+        mut keys,
+        controller,
+        mut transform,
+        nearby,
+        spatial,
+        capsule,
+        entity,
+        ..
+    } = frame;
+    match *phase {
+        WorldCheck::Reenter
+            if target_ready(&nearby, InteractionTarget::Dungeon(DungeonTarget::Hatch)) =>
+        {
             keys.press(KeyCode::KeyE);
             *phase = WorldCheck::Revisited;
         }
@@ -722,18 +1067,51 @@ pub(super) fn drive(
             );
             assert_eq!(inventory.count(ItemKind::RoachMeat), 1);
             assert_eq!(
-                passage_hit(),
+                passage_hit(&spatial, capsule, entity),
                 None,
                 "the gate must stay clear after returning"
             );
             transform.translation.y = -20.0;
             *phase = WorldCheck::Recover;
         }
+        _ => {}
+    }
+}
+
+fn check_bed_rollback(frame: WorldFrame) {
+    let WorldFrame {
+        run,
+        mut phase,
+        quest,
+        inventory,
+        nearby,
+        checkpoint,
+        progress,
+        roaches,
+        storage,
+        mut hits,
+        mut keys,
+        mut commands,
+        mut exit,
+        entity,
+        mut controller,
+        mut dodge,
+        mut transform,
+        player_health,
+        position,
+        spatial,
+        capsule,
+        ..
+    } = frame;
+
+    match *phase {
         WorldCheck::Recover if controller.area == Area::Surface && controller.grounded => {
             assert!(position.xz().distance(WorldLayout::Outpost.start().xz()) < 0.1);
             assert!(quest.is_complete(OLD_RELAY) && progress.gate_open());
             assert_eq!(storage.get(ChestId::Lamp).count(ItemKind::Battery), 1);
             fixture(
+                &spatial,
+                entity,
                 &mut controller,
                 &mut dodge,
                 &mut transform,
@@ -780,7 +1158,11 @@ pub(super) fn drive(
             assert_eq!(storage.get(ChestId::Lamp).count(ItemKind::Battery), 1);
             assert!(quest.is_complete(OLD_RELAY) && progress.gate_open());
             assert!(roaches.single().expect("saved roach").2);
-            assert_eq!(passage_hit(), None, "restored gate must be clear");
+            assert_eq!(
+                passage_hit(&spatial, capsule, entity),
+                None,
+                "restored gate must be clear"
+            );
             info!(
                 "WORLD SMOKE PASS: tent storage, shipped map, Old Relay, and bed save rollback verified in {:.2}s",
                 run.0.elapsed().as_secs_f64()
@@ -789,6 +1171,78 @@ pub(super) fn drive(
         }
         _ => {}
     }
+}
+
+fn walk_to(
+    keys: &mut ButtonInput<KeyCode>,
+    orbit: &mut Orbit,
+    position: Vec3,
+    destination: Vec3,
+) -> bool {
+    if position.xz().distance(destination.xz()) < 0.28 {
+        true
+    } else {
+        walk(keys, orbit, position, destination);
+        false
+    }
+}
+
+fn passage_hit(spatial: &SpatialQuery, capsule: &Collider, entity: Entity) -> Option<Entity> {
+    spatial
+        .cast_shape(
+            capsule,
+            ORIGIN + Vec3::new(0.0, 0.91, -16.1),
+            Quat::IDENTITY,
+            Dir3::NEG_Z,
+            &ShapeCastConfig::from_max_distance(3.4),
+            &SpatialQueryFilter::from_excluded_entities([entity]),
+        )
+        .map(|hit| hit.entity)
+}
+
+fn fixture(
+    spatial: &SpatialQuery,
+    entity: Entity,
+    player: &mut Player,
+    dodge: &mut Dodge,
+    transform: &mut Transform,
+    point: Vec3,
+) {
+    let probe = point.with_y(2.0);
+    let support = spatial
+        .cast_ray(
+            probe,
+            Dir3::NEG_Y,
+            6.0,
+            true,
+            &SpatialQueryFilter::from_excluded_entities([entity]),
+        )
+        .expect("the exterior smoke fixture must stand over the ice shelf");
+    player.respawn(
+        dodge,
+        transform,
+        probe - Vec3::Y * (support.distance - 0.905),
+    );
+}
+
+fn click_storage(
+    commands: &mut Commands,
+    action: StorageAction,
+    storage_actions: &Query<(Entity, &StorageAction)>,
+    window: &Query<Entity, With<Window>>,
+    camera: &Query<Entity, With<FollowCamera>>,
+) {
+    click(
+        commands,
+        action,
+        storage_actions,
+        window.single().expect("smoke window"),
+        camera.single().expect("player camera"),
+    );
+}
+
+fn target_ready(nearby: &Nearby, target: InteractionTarget) -> bool {
+    nearby.0.is_some_and(|(_, current)| current == target)
 }
 
 fn chest_stack(chest: ChestId) -> (ItemKind, u32, TransferAmount) {
