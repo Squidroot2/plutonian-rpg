@@ -105,6 +105,10 @@ pub(crate) struct RemoveColliderOnDeath;
 #[derive(Component)]
 pub(crate) struct DeathLifetime(pub(crate) f32);
 
+/// A corpse that is being removed after its loot was taken.
+#[derive(Component)]
+pub(crate) struct LootedCorpseFade(pub(crate) f32);
+
 #[derive(Component)]
 pub(crate) struct HitReaction {
     duration: f32,
@@ -154,6 +158,7 @@ impl Plugin for CombatPlugin {
                     mark_deaths,
                     release_dead_colliders,
                     update_hit_reactions,
+                    fade_looted_corpses,
                 )
                     .chain()
                     .in_set(CombatSystems::Resolve)
@@ -290,6 +295,27 @@ fn update_hit_reactions(
     for hit in hits.read() {
         if let Ok(mut reaction) = reactions.get_mut(hit.target) {
             reaction.remaining = reaction.duration;
+        }
+    }
+}
+
+fn fade_looted_corpses(
+    time: Res<Time>,
+    mut commands: Commands,
+    mut corpses: Query<(Entity, &mut LootedCorpseFade, &Children)>,
+    mut visuals: Query<&mut Transform>,
+) {
+    const FADE_SECONDS: f32 = 0.65;
+    for (entity, mut fade, children) in &mut corpses {
+        fade.0 = (fade.0 + time.delta_secs() / FADE_SECONDS).clamp(0.0, 1.0);
+        let scale = 1.0 - fade.0;
+        for child in children.iter() {
+            if let Ok(mut transform) = visuals.get_mut(child) {
+                transform.scale = Vec3::splat(scale);
+            }
+        }
+        if fade.0 >= 1.0 {
+            commands.entity(entity).despawn();
         }
     }
 }

@@ -1,6 +1,6 @@
 use crate::{
     GameState,
-    combat::Dead,
+    combat::{Dead, LootedCorpseFade},
     interaction::{CorpseLoot, INTERACT_HEIGHT, INTERACT_RANGE, LootTarget},
     inventory::Inventory,
     menu_ui::{PANEL, interaction_modal},
@@ -121,7 +121,7 @@ fn click(
     state: Res<State<GameState>>,
     mut next: ResMut<NextState<GameState>>,
     target: Res<LootTarget>,
-    mut corpses: Query<&mut CorpseLoot, With<Dead>>,
+    mut corpses: Query<(Entity, &mut CorpseLoot), With<Dead>>,
     mut inventory: ResMut<Inventory>,
     mut contents: Query<&mut Text, (With<LootContents>, Without<LootNotice>)>,
     mut notices: Query<&mut Text, With<LootNotice>>,
@@ -133,7 +133,8 @@ fn click(
     match actions.get(event.entity) {
         Ok(LootAction::Close) => next.set(GameState::Playing),
         Ok(LootAction::Take) => {
-            let Some(mut loot) = target.0.and_then(|entity| corpses.get_mut(entity).ok()) else {
+            let Some((corpse, mut loot)) = target.0.and_then(|entity| corpses.get_mut(entity).ok())
+            else {
                 next.set(GameState::Playing);
                 return;
             };
@@ -147,6 +148,7 @@ fn click(
                 return;
             }
             loot.stack = None;
+            commands.entity(corpse).insert(LootedCorpseFade(0.0));
             commands.trigger(crate::combat_audio::ItemPickedUp);
             if let Ok(mut text) = contents.single_mut() {
                 **text = "Looted".into();
