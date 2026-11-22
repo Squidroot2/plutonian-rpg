@@ -176,32 +176,6 @@ fn setup(mut commands: Commands) {
                         menu.spawn((Text::new(header), ui::text_style(20.0), Pickable::IGNORE));
                         menu.spawn(Node {
                             width: percent(100),
-                            flex_direction: FlexDirection::Row,
-                            justify_content: JustifyContent::SpaceBetween,
-                            ..default()
-                        })
-                        .with_children(|columns| {
-                            columns.spawn((
-                                Text::new("Action"),
-                                ui::text_style(14.0),
-                                Pickable::IGNORE,
-                                Node {
-                                    width: percent(68),
-                                    ..default()
-                                },
-                            ));
-                            columns.spawn((
-                                Text::new("Key"),
-                                ui::text_style(14.0),
-                                Pickable::IGNORE,
-                                Node {
-                                    width: percent(30),
-                                    ..default()
-                                },
-                            ));
-                        });
-                        menu.spawn(Node {
-                            width: percent(100),
                             flex_direction: FlexDirection::Column,
                             row_gap: px(4),
                             ..default()
