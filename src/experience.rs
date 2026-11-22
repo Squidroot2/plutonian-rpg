@@ -1,11 +1,14 @@
-//! Kill credit, XP thresholds, and player level gains.
+//! Combat and quest XP, thresholds, and player level gains.
 use bevy::prelude::*;
 
 use crate::{
     GameState,
     attributes::CharacterProgress,
     combat::{ActorDefeated, CombatSystems, ConfirmedHit, Dead, Health},
+    interaction::InteractionSystems,
+    nemi::react_to_player_hit,
     player::Player,
+    quest::QuestJournal,
 };
 
 const FIRST_LEVEL_XP: u64 = 70;
@@ -78,6 +81,8 @@ impl Plugin for ExperiencePlugin {
                 .chain()
                 .in_set(ExperienceUpdates)
                 .after(CombatSystems::Resolve)
+                .after(InteractionSystems)
+                .after(react_to_player_hit)
                 .run_if(in_state(GameState::Playing)),
         );
     }
@@ -100,8 +105,11 @@ fn award_experience(
         (With<Player>, Without<Dead>),
     >,
     mut rewards: Query<&mut ExperienceReward, (With<Health>, Without<Player>)>,
+    mut journal: ResMut<QuestJournal>,
     mut notice: ResMut<ExperienceNotice>,
 ) {
+    // Draining the transient reward does not change journal progress or world effects.
+    let quest_xp = journal.bypass_change_detection().take_completion_xp();
     let Ok((player, mut xp, mut progress)) = players.single_mut() else {
         hits.clear();
         defeats.clear();
@@ -115,13 +123,14 @@ fn award_experience(
             reward.player_contributed = true;
         }
     }
-    let earned: u64 = defeats
+    let combat_xp: u64 = defeats
         .read()
         .filter_map(|defeat| {
             let mut reward = rewards.get_mut(defeat.0).ok()?;
             std::mem::take(&mut reward.player_contributed).then_some(u64::from(reward.amount))
         })
         .sum();
+    let earned = combat_xp + quest_xp;
     if earned == 0 || Experience::required(progress.level).is_none() {
         return;
     }
@@ -147,7 +156,7 @@ mod tests {
     use super::*;
     use crate::{
         combat::{CombatPlugin, Hit, TrainingTarget},
-        quest::Dialogue,
+        quest::{Dialogue, QuestAction, test_journal},
     };
     use bevy::state::app::StatesPlugin;
 
@@ -181,6 +190,7 @@ mod tests {
         let mut app = App::new();
         app.add_plugins((MinimalPlugins, StatesPlugin, CombatPlugin, ExperiencePlugin))
             .insert_state(GameState::Playing)
+            .init_resource::<QuestJournal>()
             .init_resource::<Dialogue>();
         let world = app.world_mut();
         let player = world.spawn(Player::default()).id();
@@ -230,5 +240,44 @@ mod tests {
         hit(world, player, worm_b, 40);
         app.update();
         assert_eq!(app.world().get::<Experience>(player), Some(&Experience(0)));
+    }
+
+    #[test]
+    fn a_quest_and_kill_in_one_update_share_level_progress_and_one_notice() {
+        let mut journal = test_journal();
+        journal.record(QuestAction::TalkedToNemi);
+        journal.record(QuestAction::RecoveredCore);
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, StatesPlugin, CombatPlugin, ExperiencePlugin))
+            .insert_state(GameState::Playing)
+            .insert_resource(journal)
+            .init_resource::<Dialogue>()
+            .add_systems(
+                Update,
+                (|mut journal: ResMut<QuestJournal>| journal.record(QuestAction::ReturnedCore))
+                    .in_set(InteractionSystems),
+            );
+        let world = app.world_mut();
+        let player = world.spawn(Player::default()).id();
+        let worm = world
+            .spawn((Health::new(30), ExperienceReward::new(35)))
+            .id();
+        hit(world, player, worm, 30);
+        app.update();
+        let world = app.world();
+        assert_eq!(world.get::<Experience>(player), Some(&Experience(35)));
+        assert_eq!(
+            world.get::<CharacterProgress>(player),
+            Some(&CharacterProgress {
+                level: 2,
+                unspent: 3
+            }),
+        );
+        assert_eq!(
+            world.resource::<ExperienceNotice>().text.as_deref(),
+            Some("+105 XP | Level 2 (+3 attribute points)"),
+        );
+        app.update();
+        assert_eq!(app.world().get::<Experience>(player), Some(&Experience(35)));
     }
 }

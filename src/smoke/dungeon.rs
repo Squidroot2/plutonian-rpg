@@ -13,7 +13,7 @@ use crate::{
         SWITCH_LOCAL,
     },
     enemy::{MeleePhase, MeleePursuit},
-    experience::Experience,
+    experience::{Experience, ExperienceNotice},
     interaction::{INTERACT_HEIGHT, INTERACT_RANGE, InteractionTarget, Nearby, Target},
     inventory::{Inventory, ItemKind},
     player::{Dodge, Player},
@@ -30,6 +30,15 @@ use crate::{
 };
 use avian3d::prelude::*;
 use bevy::{app::AppExit, prelude::*, render::view::screenshot::Screenshot};
+
+const BEACON_PROGRESS: CharacterProgress = CharacterProgress {
+    level: 2,
+    unspent: 3,
+};
+const RELAY_PROGRESS: CharacterProgress = CharacterProgress {
+    level: 3,
+    unspent: 6,
+};
 
 #[derive(Resource, Debug, Default)]
 pub(super) enum WorldCheck {
@@ -115,11 +124,13 @@ pub(super) fn drive(
         Res<Nearby>,
         Res<RunSave>,
     ),
-    (progress, journal, selection, rows): (
+    (progress, journal, selection, rows, texts, xp_notice): (
         Res<DungeonProgress>,
         Res<PlayerMenu>,
         Res<QuestSelection>,
         Query<(Entity, &'static QuestRow)>,
+        Query<&'static Text>,
+        Res<ExperienceNotice>,
     ),
     (gate, names, parents, chests): (
         Query<Entity, With<ArchiveGate>>,
@@ -196,6 +207,8 @@ pub(super) fn drive(
         journal,
         selection,
         rows,
+        texts,
+        xp_notice,
         gate,
         capsule,
         roaches,
@@ -227,8 +240,8 @@ pub(super) fn drive(
         | WorldCheck::LockedNotice
         | WorldCheck::OpenDiscoveredJournal
         | WorldCheck::CheckDiscoveredJournal
-        | WorldCheck::CheckRelaySelection
-        | WorldCheck::SetUpTurnIn
+        | WorldCheck::CheckRelaySelection => discover_relay(frame),
+        WorldCheck::SetUpTurnIn
         | WorldCheck::TurnIn
         | WorldCheck::ApproachHatch
         | WorldCheck::Enter => unlock_relay(frame),
@@ -301,6 +314,8 @@ struct WorldFrame<'w, 's, 'a> {
     journal: Res<'w, PlayerMenu>,
     selection: Res<'w, QuestSelection>,
     rows: Query<'w, 's, (Entity, &'static QuestRow)>,
+    texts: Query<'w, 's, &'static Text>,
+    xp_notice: Res<'w, ExperienceNotice>,
     gate: Query<'w, 's, Entity, With<ArchiveGate>>,
     capsule: &'a Collider,
     roaches: Query<'w, 's, (Entity, &'static Transform, Has<Dead>), (With<Roach>, Without<Player>)>,
@@ -648,30 +663,27 @@ fn check_outpost_storage(frame: WorldFrame) {
     }
 }
 
-fn unlock_relay(frame: WorldFrame) {
+fn discover_relay(frame: WorldFrame) {
     let WorldFrame {
         mut phase,
         quest,
         inventory,
         dialogue,
-        progress,
         journal,
         selection,
         rows,
-        gate,
+        texts,
+        xp,
         window,
         camera,
-        mut orbit,
         mut keys,
         mut commands,
         mut controller,
         mut dodge,
         mut transform,
-        position,
         nearby,
         spatial,
         entity,
-        capsule,
         ..
     } = frame;
 
@@ -686,6 +698,7 @@ fn unlock_relay(frame: WorldFrame) {
             assert_eq!(inventory.count(ItemKind::BeaconCore), 1);
             assert!(quest.expects(QuestAction::TalkedToNemi));
             assert!(!quest.beacon_powered());
+            assert_eq!(*xp, Experience(0));
             assert!(
                 dialogue
                     .text
@@ -747,10 +760,46 @@ fn unlock_relay(frame: WorldFrame) {
         }
         WorldCheck::CheckRelaySelection => {
             assert_eq!(selection.selected(), Some(OLD_RELAY));
+            assert!(
+                texts
+                    .iter()
+                    .any(|text| text.as_str() == "Completion reward | 120 XP")
+            );
             capture(&mut commands, "relay-quest-log");
             keys.press(KeyCode::Tab);
             *phase = WorldCheck::SetUpTurnIn;
         }
+        _ => {}
+    }
+}
+
+fn unlock_relay(frame: WorldFrame) {
+    let WorldFrame {
+        mut phase,
+        quest,
+        inventory,
+        dialogue,
+        progress,
+        journal,
+        xp_notice,
+        attributes,
+        xp,
+        gate,
+        mut orbit,
+        mut keys,
+        mut commands,
+        mut controller,
+        mut dodge,
+        mut transform,
+        position,
+        nearby,
+        spatial,
+        entity,
+        capsule,
+        ..
+    } = frame;
+
+    match *phase {
         WorldCheck::SetUpTurnIn if !journal.is_open() => {
             fixture(
                 &spatial,
@@ -764,6 +813,11 @@ fn unlock_relay(frame: WorldFrame) {
         }
         WorldCheck::TurnIn if quest.is_complete(LAST_LIGHT) => {
             assert_eq!(inventory.count(ItemKind::BeaconCore), 0);
+            assert_eq!((*attributes, *xp), (BEACON_PROGRESS, Experience(0)));
+            assert_eq!(
+                xp_notice.text.as_deref(),
+                Some("+70 XP | Level 2 (+3 attribute points)")
+            );
             let text = dialogue
                 .text
                 .expect("first meeting completes The Last Light");
@@ -931,6 +985,9 @@ fn finish_relay_quest(frame: WorldFrame) {
         dialogue,
         journal,
         rows,
+        xp_notice,
+        attributes,
+        xp,
         mut orbit,
         mut keys,
         mut commands,
@@ -990,6 +1047,11 @@ fn finish_relay_quest(frame: WorldFrame) {
         }
         WorldCheck::ReadNotice => {
             assert!(quest.is_complete(OLD_RELAY));
+            assert_eq!((*attributes, *xp), (RELAY_PROGRESS, Experience(25)));
+            assert_eq!(
+                xp_notice.text.as_deref(),
+                Some("+120 XP | Level 3 (+3 attribute points)")
+            );
             assert!(
                 dialogue
                     .text
@@ -1115,6 +1177,7 @@ fn check_bed_rollback(frame: WorldFrame) {
         ranks,
         attributes,
         xp,
+        xp_notice,
         position,
         spatial,
         capsule,
@@ -1122,10 +1185,6 @@ fn check_bed_rollback(frame: WorldFrame) {
     } = frame;
 
     const SAVED_VITALITY: u8 = 7;
-    const SAVED_PROGRESS: CharacterProgress = CharacterProgress {
-        level: 2,
-        unspent: 1,
-    };
 
     match *phase {
         WorldCheck::Recover if controller.area == Area::Surface && controller.grounded => {
@@ -1140,10 +1199,9 @@ fn check_bed_rollback(frame: WorldFrame) {
                 &mut transform,
                 Vec3::new(9.7, 0.0, -3.35),
             );
-            commands.entity(entity).insert((
-                AttributeRanks::default().with_rank(AttributeId::Vitality, SAVED_VITALITY),
-                SAVED_PROGRESS,
-            ));
+            commands
+                .entity(entity)
+                .insert(AttributeRanks::default().with_rank(AttributeId::Vitality, SAVED_VITALITY));
             *phase = WorldCheck::SaveAtBed;
         }
         WorldCheck::SaveAtBed
@@ -1157,11 +1215,11 @@ fn check_bed_rollback(frame: WorldFrame) {
                 checkpoint.checkpoint().is_some(),
                 "the cot must write the checkpoint"
             );
-            assert_eq!(*xp, Experience(25));
+            assert_eq!((*attributes, *xp), (RELAY_PROGRESS, Experience(25)));
             commands.entity(entity).insert((
                 AttributeRanks::default().with_rank(AttributeId::Vitality, 8),
                 CharacterProgress {
-                    level: 2,
+                    level: 3,
                     unspent: 0,
                 },
                 Experience(90),
@@ -1190,8 +1248,11 @@ fn check_bed_rollback(frame: WorldFrame) {
         WorldCheck::SavedRespawn(old) if entity != old && controller.grounded => {
             assert!(position.distance(WorldLayout::Outpost.initial_spawn()) < 0.04);
             assert_eq!(ranks.rank(AttributeId::Vitality), SAVED_VITALITY);
-            assert_eq!(*attributes, SAVED_PROGRESS);
-            assert_eq!(*xp, Experience(25));
+            assert_eq!((*attributes, *xp), (RELAY_PROGRESS, Experience(25)));
+            assert!(
+                xp_notice.text.is_none(),
+                "restored completions must not award XP again"
+            );
             assert_eq!(
                 (player_health.current(), player_health.maximum()),
                 (108, 108)

@@ -65,17 +65,17 @@ Press Tab during gameplay to open the player menu. Choose **Quest**, **Inventory
 View Vitality, Endurance, Agility, and Strength and preview each next rank.
 New characters start at rank 5, and ranks cap at 100. Use **+** to spend
 available points. The progression system awards three points per level gained.
-You earn XP when an actor you've damaged dies. The Character tab shows your
-level and progress toward the next one, and the cot saves that progress with
-your attributes. See [Experience and Leveling](docs/design/experience.md).
+You earn XP by completing quests and when an actor you've damaged dies. The
+Character tab shows your level and progress toward the next one, and the cot
+saves that progress with your attributes. See [Experience and Leveling](docs/design/experience.md).
 
 ### Quest
 
-Select an active, completed, or failed quest to read its details. Inspecting the sealed Old Relay hatch adds that quest alongside The Last Light. Restoring power also adds it if you missed the hatch.
+Select a quest to read its details. Active and completed entries list their completion reward. Inspecting the sealed Old Relay hatch adds that quest alongside The Last Light. Restoring power also adds it if you missed the hatch.
 
 A landed attack makes Nemi flee and fails The Last Light if it is active. A surviving Nemi returns after the player backs off, then refuses to help. Follow **Relight the Beacon** to use the charged core at the tower base. If you already restored the beacon with Nemi, attacking them leaves the beacon powered.
 
-Quest definitions live in `data/quests/catalog.quest.ron`. Add a definition with a unique ID, activation rules, named objectives, and conditional transitions. Definitions can use the catalog’s existing world actions and quest-completion conditions. The game loads the catalog when you start or load a run.
+Quest definitions live in `data/quests/catalog.quest.ron`. Add a definition with a unique ID, a positive `completion_xp` reward, activation rules, named objectives, and conditional transitions. Definitions can use the catalog’s existing world actions and quest-completion conditions. The game loads the catalog when you start or load a run. See [Quest System](docs/design/quests.md).
 
 ## Inventory
 
@@ -216,8 +216,8 @@ Clippy enforces a 150-line function limit, including smoke drivers. GitHub Actio
 Run one smoke scenario at a time on an idle graphical desktop without supplying mouse or keyboard input. Add `--windowed` to a smoke command to run it in a window. Each scenario uses a temporary save slot.
 
 - `--smoke-test` starts a standalone arena with nearby materials, equipment, a practice dummy, and the keeper and core. It checks tab switching, live physics while the menu is open, inventory quantities, equipped rows, the drop prompt, both polearms' hits and misses, and shortsword attachment and hits, including simultaneous strikes. It also checks a worm pursuit, dodge, bite, and defeat, the Character tab's XP total, armor swaps and attachment during movement, the 640×704 player-menu layout, wall collision, pause/resume, and fall recovery. After corpse looting, it checks that an ineligible equip shows a dismissible Strength warning and leaves the gear in the bag. The short beacon interaction verifies that the core is protected in the bag, consumed on turn-in, and lights the beacon. The run prints `SMOKE PASS` and its duration, or fails within 60 seconds with the current phase.
-- `--smoke-world` loads the shipped outpost, checks transfers in all three tent chests, and walks out of and back into the tent to verify stored contents. It checks grounded worm spawns, traversable routes, and pillar collision from four directions. It also checks hatch unlocking, the relay encounters, roach loot and XP, archive discovery, return and reentry, fall recovery, and combat defeat with and without a bed save. It verifies that combat defeat restores saved XP and prints `WORLD SMOKE PASS` on success.
-- `--smoke-nemi` checks spear damage, fleeing and returning, the failed quest entry, Nemi’s collapse and XP reward, and opening the relay by installing the core at the beacon. It prints `NEMI SMOKE PASS` on success.
+- `--smoke-world` loads the shipped outpost, checks transfers in all three tent chests, and walks out of and back into the tent to verify stored contents. It checks grounded worm spawns, traversable routes, and pillar collision from four directions. It also checks hatch unlocking, the relay encounters, roach loot and XP, archive discovery, return and reentry, fall recovery, and combat defeat with and without a bed save. It verifies journal reward text, completion XP for The Last Light and Old Relay, and restoration of saved XP after combat defeat. It prints `WORLD SMOKE PASS` on success.
+- `--smoke-nemi` checks spear damage, fleeing and returning, the failed quest entry, Nemi’s collapse and XP reward, and XP for opening the relay by completing Relight the Beacon. It prints `NEMI SMOKE PASS` on success.
 
 The checks save screenshots in `/tmp/plutonian-*.png`, including the arena, outpost, inventory, beacon, and weapon and armor poses.
 

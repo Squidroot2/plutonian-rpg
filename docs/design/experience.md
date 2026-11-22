@@ -3,14 +3,17 @@
 Players start at level 1 with zero XP. Killable NPCs award XP when they die
 after the player has damaged them. The player can contribute any amount of
 actual damage and another source can finish the kill. The practice dummy is
-an indestructible training target. Player defeat and quest completion carry
-no XP reward.
+an indestructible training target. Completing a quest awards the XP defined
+in the [quest catalog](quests.md).
 
-| Actor | XP |
+| Source | XP |
 | --- | ---: |
 | Ice worm | 35 |
 | Relay roach | 25 |
 | Keeper Nemi | 35 |
+| The Last Light | 70 |
+| Relight the Beacon | 70 |
+| Old Relay | 120 |
 
 ## Level pacing
 
@@ -20,6 +23,9 @@ worms and one roach across the shipped map total 200 XP, reaching level 3
 with 10 XP toward level 4. This pacing lets players reach level 3 through
 hostile encounters alone. Later levels take more encounters as the player
 builds up their attributes.
+
+The two beacon routes pay the same XP. Completing one route and Old Relay
+earns 190 XP, enough to reach level 3 through questing alone.
 
 | Level reached | XP from previous level | Total XP |
 | --- | ---: | ---: |
@@ -32,9 +38,9 @@ Carry surplus XP into the next level. A large award can cross multiple
 thresholds and grants three [attribute points](attributes.md) for each
 level reached. The Character tab shows the current level, XP toward the
 next level, its threshold, and the unspent point balance. A three-second
-gameplay notice shows XP from all credited kills in the same update. When
-the award levels the player, the same notice shows the resulting level and
-points gained.
+gameplay notice shows the combined XP from kills and completed quests in
+the same update. When the award levels the player, the same notice shows
+the resulting level and points gained.
 
 ## ECS and checkpoint lifecycle
 
@@ -52,6 +58,9 @@ points gained.
   includes hits that landed earlier in the lethal update. The system consumes
   the actor's credit when it awards XP. Restoring a corpse only restores its
   death marker, so loading and looting produce no second reward.
+- The quest journal queues XP for fresh completions. The XP system drains
+  the queue after interactions and combat reactions have recorded their
+  quest actions. Saved quest outcomes do not queue rewards on load.
 - The cot snapshots XP after combat and level changes resolve. Bitcode v4
   stores XP toward the next level and contribution credit for living actors,
   keyed by encounter ID and Nemi's saved identity. Legacy saves start with

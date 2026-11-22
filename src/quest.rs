@@ -102,6 +102,7 @@ pub(crate) struct QuestDefinition {
     pub(crate) title: String,
     pub(crate) summary: String,
     pub(crate) completion: String,
+    pub(crate) completion_xp: u32,
     #[serde(default)]
     outpost_only: bool,
     starts_when: Vec<Condition>,
@@ -119,6 +120,9 @@ impl QuestDefinition {
     }
 
     fn validate(&self, ids: &BTreeSet<&str>) -> Result<(), String> {
+        if self.completion_xp == 0 {
+            return Err(format!("Quest {} needs positive completion_xp", self.id));
+        }
         if self.starts_when.is_empty() || self.objectives.is_empty() {
             return Err(format!(
                 "Quest {} needs an activation rule and objectives",
@@ -299,7 +303,8 @@ impl QuestProgress {
         }
     }
 
-    fn advance(&mut self, quest: &QuestDefinition, transition: &Transition) {
+    /// Apply a transition from an active objective and return any completion XP.
+    fn advance(&mut self, quest: &QuestDefinition, transition: &Transition) -> u32 {
         if let QuestOutcome::Active(current) = self.outcome
             && transition.credit
             && !matches!(transition.to, Destination::Fail(_))
@@ -315,6 +320,11 @@ impl QuestProgress {
             Destination::Complete => QuestOutcome::Completed,
             Destination::Fail(reason) => QuestOutcome::Failed(reason.clone()),
         };
+        if matches!(self.outcome, QuestOutcome::Completed) {
+            quest.completion_xp
+        } else {
+            0
+        }
     }
 
     fn credit(&mut self, objective: usize) {
@@ -330,6 +340,7 @@ pub(crate) struct QuestJournal {
     layout: WorldLayout,
     progress: BTreeMap<String, QuestProgress>,
     occurred: BTreeSet<QuestAction>,
+    pending_completion_xp: u64,
 }
 
 #[derive(bitcode::Encode, bitcode::Decode)]
@@ -415,6 +426,7 @@ impl QuestJournal {
             layout,
             progress,
             occurred: snapshot.occurred.clone(),
+            pending_completion_xp: 0,
         })
     }
 
@@ -449,6 +461,11 @@ impl QuestJournal {
         self.occurred.contains(&action)
     }
 
+    /// Drain XP from new completions. Checkpoints store the resulting player XP.
+    pub(crate) fn take_completion_xp(&mut self) -> u64 {
+        std::mem::take(&mut self.pending_completion_xp)
+    }
+
     pub(crate) fn record(&mut self, action: QuestAction) {
         self.occurred.insert(action);
         let condition = Condition::Action(action);
@@ -470,7 +487,7 @@ impl QuestJournal {
                 .iter()
                 .find(|transition| transition.when == condition)
             {
-                progress.advance(quest, transition);
+                self.pending_completion_xp += u64::from(progress.advance(quest, transition));
             }
         }
         self.settle(Some(condition));
@@ -551,10 +568,12 @@ impl QuestJournal {
                 );
             }
             for (quest, transition) in advances {
-                self.progress
+                let earned = self
+                    .progress
                     .get_mut(&quest.id)
                     .expect("active quest")
                     .advance(quest, transition);
+                self.pending_completion_xp += u64::from(earned);
             }
         }
     }
@@ -683,6 +702,82 @@ mod tests {
                 .expect_err("unknown ID")
                 .contains("missing")
         );
+    }
+
+    #[test]
+    fn quest_catalog_rejects_zero_completion_xp() {
+        let mut catalog = test_journal().catalog;
+        catalog.0[0].completion_xp = 0;
+        assert!(
+            catalog
+                .validate()
+                .expect_err("quests must have a positive XP reward")
+                .contains("completion_xp")
+        );
+    }
+
+    #[test]
+    fn only_new_completions_award_xp_after_partial_progress_failure_or_loading() {
+        let mut journal = test_journal();
+        journal.record(QuestAction::ReturnedCore);
+        journal.record(QuestAction::RecoveredCore);
+        assert_eq!(journal.take_completion_xp(), 0);
+        journal.record(QuestAction::AttackedNemi);
+        assert_eq!(journal.status(LAST_LIGHT), Some(QuestStatus::Failed));
+        assert_eq!(journal.take_completion_xp(), 0);
+
+        let active_checkpoint = journal.snapshot();
+        journal.record(QuestAction::InstalledCore);
+        journal.record(QuestAction::InstalledCore);
+        assert_eq!(journal.take_completion_xp(), 70);
+        assert_eq!(journal.take_completion_xp(), 0);
+
+        let completed_checkpoint = journal.snapshot();
+        let mut restored = QuestJournal::from_snapshot(
+            journal.catalog.clone(),
+            WorldLayout::Outpost,
+            &completed_checkpoint,
+        )
+        .expect("completed quest checkpoint");
+        assert!(restored.is_complete(RELIGHT_BEACON));
+        restored.record(QuestAction::InstalledCore);
+        assert_eq!(restored.take_completion_xp(), 0);
+
+        let mut restored =
+            QuestJournal::from_snapshot(journal.catalog, WorldLayout::Outpost, &active_checkpoint)
+                .expect("active quest checkpoint");
+        assert_eq!(restored.take_completion_xp(), 0);
+        restored.record(QuestAction::InstalledCore);
+        assert_eq!(restored.take_completion_xp(), 70);
+    }
+
+    #[test]
+    fn a_completion_that_settles_a_dependent_quest_awards_both_rewards() {
+        let mut catalog = test_journal().catalog;
+        let relay = catalog
+            .0
+            .iter_mut()
+            .find(|quest| quest.id == OLD_RELAY)
+            .expect("Old Relay");
+        let transition = &mut relay.objectives[0].transitions[0];
+        transition.to = Destination::Complete;
+        transition.credit = false;
+        catalog
+            .validate()
+            .expect("completion based on a quest dependency is valid");
+        let mut journal = QuestJournal::new(catalog, WorldLayout::Outpost);
+        for action in [
+            QuestAction::TalkedToNemi,
+            QuestAction::RecoveredCore,
+            QuestAction::ReturnedCore,
+            QuestAction::ReturnedCore,
+        ] {
+            journal.record(action);
+        }
+        assert!(journal.is_complete(LAST_LIGHT));
+        assert!(journal.is_complete(OLD_RELAY));
+        assert_eq!(journal.take_completion_xp(), 190);
+        assert_eq!(journal.take_completion_xp(), 0);
     }
 
     #[test]

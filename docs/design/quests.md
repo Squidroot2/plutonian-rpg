@@ -17,9 +17,9 @@ Quest text should be detailed enough that the user can find the next objective w
 ## Runtime model
 
 The asset catalog contains a list of `QuestDefinition`s. Each definition has a
-stable quest ID, player-facing title, summary and completion text, activation
-conditions, a first objective, optional interrupts, and ordered objective
-definitions. An objective has a stable ID, title, directions, and transitions.
+stable quest ID, player-facing title, summary and completion text, completion
+XP, activation conditions, a first objective, optional interrupts, and ordered
+objective definitions. An objective has a stable ID, title, directions, and transitions.
 Each transition matches a condition and selects a destination: another
 objective, completion, or failure.
 
@@ -70,13 +70,32 @@ non-failure destination. This is useful when a player performs a later task
 before receiving the quest, while the quest should still begin at its intended
 first objective.
 
+## Completion rewards
+
+Set `completion_xp` to a positive whole number in every quest definition.
+The Last Light and Relight the Beacon each award 70 XP. Both routes restore
+the beacon and earn level 2 from quest XP alone. Old Relay awards 120 XP for
+finding the survey log, which brings either route to level 3.
+
+`QuestJournal` queues the reward when an active quest transitions to
+`Complete`, whether the transition follows a fresh action or settles a
+persistent condition. Activation, individual objectives, early credit, and
+failure grant zero XP. A completed outcome is terminal, which prevents
+repeated actions from awarding XP again.
+
+The experience system drains the queued rewards after quest actions and
+combat resolve. It combines them with any kill XP from the same update,
+applies level gains, and displays the shared XP notice. Bed saves capture
+the resulting XP and quest outcomes together. See [Experience and Leveling](experience.md).
+
 ## Loading, layout, and saves
 
 During loading, the game requests `data://quests/catalog.quest.ron`. The
 `QuestCatalogLoader` parses RON and validates the catalog before play begins.
 Validation rejects missing or duplicate quest IDs and objective IDs, blank
 IDs, empty activation/objective/transition lists, unknown objective targets,
-invalid quest references, invalid `credit_early` combinations, and cycles made
+invalid quest references, missing or zero `completion_xp`, invalid
+`credit_early` combinations, and cycles made
 of persistent transitions. The shipped catalog also requires the IDs
 `last_light`, `old_relay`, and `relight_beacon`; keep these definitions unless
 the runtime's required-ID check is deliberately changed.
@@ -91,12 +110,18 @@ that checkpoint invalid; the loader rejects it and returns the player to the
 title flow rather than silently remapping progress. Treat IDs as save data and
 preserve them when editing quest prose or order.
 
+Restored journals start with an empty reward queue. Completed quests in an
+existing save keep their outcome and the player keeps their saved XP. If
+combat death rolls a quest back to an active objective, reaching completion
+again awards XP on that restored run.
+
 ## Journal UI
 
 The Quest Log is the Quest tab in the player menu and is opened by the
 rebindable Quest Log shortcut (default `L`). Entries are grouped into Active,
 Completed, and Failed sections. Selecting an entry shows its summary, current
-objective and directions, or its completion/failure text. Completed objective
+objective and directions, or its completion/failure text. Active and completed
+entries show the configured completion XP. Completed objective
 titles are listed as completed steps. The menu remains part of the live game:
 opening it does not pause the world.
 
@@ -108,8 +133,8 @@ For a quest that can use existing gameplay actions, add a definition to
 1. Choose a stable, unique snake_case quest ID and stable objective IDs. IDs
    are persisted in bed saves; changing display text does not require changing
    IDs.
-2. Write `title`, `summary`, and `completion` for the journal. Add
-   `starts_when` conditions and choose `first_objective`.
+2. Write `title`, `summary`, and `completion` for the journal. Set a positive
+   `completion_xp`, add `starts_when` conditions, and choose `first_objective`.
 3. Add objectives with a player-facing `title`, actionable `directions`, and
    one or more transitions. Use `Action(...)` for a new event at the current
    step, `Occurred(...)` for an event that can be credited after the fact, and
@@ -124,10 +149,10 @@ For a quest that can use existing gameplay actions, add a definition to
    exists, quest references point to another catalog quest, and persistent
    transitions cannot loop. Keep the three required shipped quest IDs in the
    catalog.
-7. Run the game or relevant smoke scenario and inspect the Quest Log through
+7. Run the relevant smoke scenario and inspect the Quest Log through
    activation, progression, completion/failure, and any intended early-action
-   path. The loader's validation catches structural errors, but not whether
-   the player's directions match the world.
+   path. Verify the directions against the world and check that completion
+   awards the configured XP once.
 
 Example of a minimal shape (replace the sample IDs and prose):
 
@@ -136,6 +161,7 @@ Example of a minimal shape (replace the sample IDs and prose):
     id: "sample_signal",
     title: "A Signal in the Snow",
     summary: "Find the source of a distant signal.",
+    completion_xp: 40,
     starts_when: [SessionStart],
     first_objective: "inspect_signal",
     objectives: [

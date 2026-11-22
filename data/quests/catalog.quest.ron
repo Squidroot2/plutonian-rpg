@@ -2,6 +2,7 @@
     (
         id: "last_light",
         title: "The Last Light",
+        completion_xp: 70,
         summary: "Nivalis's beacon has gone dark. The families crossing the ice depend on its light.",
         starts_when: [SessionStart],
         first_objective: "meet_nemi",
@@ -36,6 +37,7 @@
     (
         id: "relight_beacon",
         title: "Relight the Beacon",
+        completion_xp: 70,
         summary: "The beacon can still be restored. A socket at the tower base takes the charged core.",
         starts_when: [QuestFailed("last_light")],
         first_objective: "recover_core",
@@ -61,6 +63,7 @@
     (
         id: "old_relay",
         title: "Old Relay",
+        completion_xp: 120,
         summary: "A sealed hatch beneath Nivalis leads to an archive that may hold the first survey log.",
         outpost_only: true,
         starts_when: [Action(InspectedSealedHatch), QuestCompleted("last_light"), QuestCompleted("relight_beacon")],

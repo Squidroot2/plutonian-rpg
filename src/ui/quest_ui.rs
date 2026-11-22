@@ -1,4 +1,5 @@
 use crate::{
+    experience::ExperienceUpdates,
     quest::{QuestJournal, QuestOutcome, QuestStatus},
     ui::menu_ui::{BUTTON, MenuTab, PlayerMenu, SELECTED, button, scroll_pane},
     ui::text_style,
@@ -29,7 +30,8 @@ impl Plugin for QuestUiPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<QuestSelection>().add_systems(
             Update,
-            sync.run_if(|menu: Res<PlayerMenu>| menu.is_on(MenuTab::Quest)),
+            sync.after(ExperienceUpdates)
+                .run_if(|menu: Res<PlayerMenu>| menu.is_on(MenuTab::Quest)),
         );
     }
 }
@@ -120,6 +122,12 @@ fn sync(
             {
                 details.spawn((Text::new(&quest.title), text_style(23.0)));
                 details.spawn((Text::new(&quest.summary), text_style(17.0)));
+                if !matches!(progress.outcome, QuestOutcome::Failed(_)) {
+                    details.spawn((
+                        Text::new(format!("Completion reward | {} XP", quest.completion_xp)),
+                        text_style(17.0),
+                    ));
+                }
                 match &progress.outcome {
                     QuestOutcome::Active(index) => {
                         let objective = &quest.objectives[*index];

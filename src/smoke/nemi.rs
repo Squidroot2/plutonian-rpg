@@ -1,6 +1,7 @@
 //! Exercise the hostile quest branch with the real spear and interaction input.
 use super::{capture, inventory::pointer_click};
 use crate::{
+    attributes::CharacterProgress,
     camera::{FollowCamera, Orbit},
     combat::{Dead, Health},
     combat_feedback::DeathAnimation,
@@ -53,6 +54,7 @@ pub(super) fn drive(
             &mut Transform,
             &WeaponAttack,
             &Experience,
+            &CharacterProgress,
         ),
         Without<Nemi>,
     >,
@@ -95,13 +97,21 @@ pub(super) fn drive(
     commands: Commands,
     exit: MessageWriter<AppExit>,
 ) {
-    let Ok((entity, player, dodge, transform, thrust, xp)) = avatar.single_mut() else {
+    let Ok((entity, player, dodge, transform, thrust, xp, progress)) = avatar.single_mut() else {
         return;
     };
     let (keeper, nemi, health, keeper_transform, dead, collider, death) = nemi
         .single()
         .expect("the shipped outpost must spawn a skinned Nemi");
     assert_eq!(*xp, Experience(if dead { 35 } else { 0 }));
+    assert_eq!(
+        (progress.level, progress.unspent),
+        if quest.is_complete(RELIGHT_BEACON) {
+            (2, 3)
+        } else {
+            (1, 0)
+        },
+    );
     let position = keeper_transform.translation;
     keys.reset_all();
     mouse.reset_all();
@@ -394,7 +404,7 @@ fn check_solo_route(
         Check::Done => {
             assert_eq!(player.area, Area::OldRelay);
             info!(
-                "NEMI SMOKE PASS: fled, returned, awarded XP on death, and the solo route opened the relay"
+                "NEMI SMOKE PASS: fled, returned, and awarded XP for the kill and the solo beacon quest"
             );
             exit.write(AppExit::Success);
         }
