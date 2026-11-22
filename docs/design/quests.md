@@ -9,6 +9,11 @@ and can also be queried by gameplay systems to gate interactions and world
 progress. Quest objectives are presented in the journal; the system does not
 spawn objective markers or put objective text on the HUD.
 
+## Philosophy
+
+The game relies on exploration rather than following quest markers. 
+Quest text should be detailed enough that the user can find the next objective without assistance from quest markers.
+
 ## Runtime model
 
 The asset catalog contains a list of `QuestDefinition`s. Each definition has a
