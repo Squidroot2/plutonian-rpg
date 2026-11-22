@@ -99,6 +99,88 @@ moving any items. Characters can carry gear they have yet to qualify for.
   while fall recovery preserves current allocations. Initialize health and
   stamina at their restored maxima when loading a checkpoint.
 
+## Bevy ECS implementation
+
+### Component ownership
+
+Put the attribute definitions, formulas, and progression systems in an
+`attributes` module registered from `main.rs`. Keep definitions in a static
+catalog keyed by a typed `AttributeId`. Each ID has an explicit stable save
+key. The catalog also provides display order, so the Character tab can build
+its rows from the definitions and automatically include new attributes.
+
+Attach the following components to the player root entity, alongside
+`Player` and `WeaponAttack`.
+
+| Component | Owns |
+| --- | --- |
+| `AttributeRanks` | Current ranks keyed by attribute ID |
+| `CharacterProgress` | Character level and unspent points |
+| `Health` | Current and maximum HP |
+| `HealthRecovery` | HP per second, post-hit wait, and accumulated fractional HP |
+| `Stamina` | Current and maximum stamina and the full recovery rate |
+| `MovementCosts` | Derived jump and dodge costs |
+| `CarryLimits` | Derived carrying capacity and walk-only weight limit |
+| `MeleeDamageMultiplier` | Derived damage multiplier as a whole percentage |
+
+Use `AttributeRanks` and `CharacterProgress` as the source of truth for
+progression. Compute the derived values with pure functions. The same
+functions initialize actors, update capabilities when ranks change, and
+preview a candidate rank in the Character tab. Keep the current HP, current
+stamina, and recovery timers in their owning components during a stat update.
+The shared recovery system continues to query `Health` and
+`HealthRecovery`, so actors can opt into healing with authored values.
+
+### Systems and ordering
+
+| Schedule | Work |
+| --- | --- |
+| `Update`, before `CombatSystems::Detect` | Apply level gains and spend requests, then synchronize capabilities for changed ranks. Chain these systems so weapon detection reads the updated values. |
+| `FixedUpdate` | Movement reads `MovementCosts` and `CarryLimits` and spends or recovers `Stamina`. Keep the existing grounded, action, and walk-pace checks for stamina recovery. Health recovery uses `Time<Fixed>` and `HealthRecovery` to apply whole points to living actors. A fixed tick uses the latest committed values. |
+| `Update`, `CombatSystems::Detect` | Weapon detection uses the same dodge cost and carrying limits as movement. At contact, scale that hand's base weapon damage and emit the existing `Hit` message. |
+| `Update`, `CombatSystems::Resolve` | Shared combat applies defense and hit protection, emits `ConfirmedHit`, resets the recovery wait on a damaging hit, and marks deaths. |
+| `Update`, after capability synchronization | Refresh the Character and inventory panels. Keep the HUD refresh after bed saves so it sees both the derived maxima and any health restored by the cot. |
+
+Gate progression updates to `GameState::Playing`. The Character tab's
+button observer submits a spend request containing the player entity and
+attribute ID. At application time, verify that the target is the current
+living player and that the menu still accepts Character input. Handle queued
+level gains before spends. Apply each spend against the balance left by the
+previous one, updating the rank and point balance together. Future XP logic
+supplies the new absolute character level, so a repeated notification
+cannot grant points twice. Requests for despawned players are discarded.
+
+Use `Changed<AttributeRanks>` to trigger capability synchronization. Compare
+derived values before writing components, so a Strength spend marks only
+its affected capabilities. Keep the remaining post-hit wait and fractional
+progress when Vitality changes. Reset both on the next damaging hit using the
+existing combat path.
+
+Equipment checks read the current Strength rank directly. Put the minimum
+rank in the item's `GearDefinition` and call one eligibility check from both
+equip paths and their UI controls. Check the requirement before mutating
+`Inventory` or `Equipment`, including when a two-handed weapon would
+displace off-hand gear. Refresh load text and statuses when inventory,
+equipment, or `CarryLimits` changes. Refresh gear controls when Strength
+changes and refresh both panels when opened.
+
+### Spawn and save lifecycle
+
+In the existing `SpawnWorld` path, pass the starting rank and progression
+data into player spawning. Use the same initializer for a new game, the
+smoke arena, and checkpoint restoration. Select the saved values from
+`RunSave` when it holds a checkpoint and use the starting profile otherwise.
+Insert ranks and derived capabilities together, with health and stamina
+initialized to their computed maxima, before the loading state releases the
+player to gameplay. The visual scene child continues to bind animations and
+equipment sockets when its instance becomes ready.
+
+Capture the player's progression components with the rest of the bed
+snapshot after combat resolution. Decode and migrate legacy snapshots before
+the loading path installs their inventory and equipment resources. Apply
+legacy gear transfers to the decoded snapshot as a unit so that the session
+starts with a consistent bag and equipped set.
+
 ## Acceptance checks
 
 - Verify rank 1, 5, and 100 values, recovery timing, live HUD maxima, and
@@ -109,3 +191,6 @@ moving any items. Characters can carry gear they have yet to qualify for.
   equip paths, and inventory preservation when an equip attempt fails.
 - Verify level awards, spending, banking, save round-trips, legacy gear
   migration, combat death rollback, and fall recovery.
+- Use renderer-free Bevy apps to test multiple spends against one point
+  balance, same-update capability changes, the first fixed tick after
+  loading, and combat resolution with rank-scaled damage.
