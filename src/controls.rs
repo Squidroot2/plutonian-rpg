@@ -6,6 +6,7 @@ pub(crate) enum Control {
     Backward,
     Left,
     Right,
+    ToggleRun,
     Sprint,
     Jump,
     Dodge,
@@ -23,11 +24,12 @@ pub(crate) enum Control {
 }
 
 impl Control {
-    pub(crate) const ALL: [Self; 18] = [
+    pub(crate) const ALL: [Self; 19] = [
         Self::Forward,
         Self::Backward,
         Self::Left,
         Self::Right,
+        Self::ToggleRun,
         Self::Sprint,
         Self::Jump,
         Self::Dodge,
@@ -59,6 +61,7 @@ impl Control {
             Self::Backward => "Move backward",
             Self::Left => "Strafe left",
             Self::Right => "Strafe right",
+            Self::ToggleRun => "Toggle walk / run",
             Self::Sprint => "Sprint",
             Self::Jump => "Jump",
             Self::Dodge => "Dodge",
@@ -150,6 +153,7 @@ impl Binding {
                 KeyCode::ShiftRight => "Right Shift".into(),
                 KeyCode::AltLeft => "Left Alt".into(),
                 KeyCode::AltRight => "Right Alt".into(),
+                KeyCode::CapsLock => "Caps Lock".into(),
                 _ => {
                     let name = format!("{key:?}");
                     name.strip_prefix("Key")
@@ -179,6 +183,7 @@ impl Default for Keybinds {
             (Control::Backward, KeyS),
             (Control::Left, KeyA),
             (Control::Right, KeyD),
+            (Control::ToggleRun, CapsLock),
             (Control::Sprint, ShiftLeft),
             (Control::Jump, Space),
             (Control::Dodge, crate::player::DODGE_KEY),

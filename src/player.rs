@@ -60,7 +60,9 @@ pub struct Player {
     pub(crate) area: Area,
     pub velocity: Vec3,
     pub grounded: bool,
-    pub running: bool,
+    pub(crate) pace: Pace,
+    run_enabled: bool,
+    sprint_exhausted: bool,
     jumping: bool,
     movement_direction: Vec2,
 }
@@ -71,7 +73,7 @@ impl Player {
         self.velocity = Vec3::ZERO;
         self.jumping = false;
         self.grounded = false;
-        self.running = false;
+        self.pace = Pace::Walk;
         self.movement_direction = Vec2::ZERO;
         *dodge = Dodge::default();
     }
@@ -90,13 +92,32 @@ const DODGE_GRAVITY: f32 = 10.0;
 const DODGE_SPEED: f32 = 6.0;
 const DODGE_DURATION: f32 = 0.32;
 const DODGE_COOLDOWN: f32 = 0.55;
-const WALK_SPEED: f32 = 3.0;
-const SPRINT_SPEED: f32 = 5.5;
+const WALK_SPEED: f32 = 2.5;
+const RUN_SPEED: f32 = 4.0;
+const SPRINT_SPEED: f32 = 8.0;
 const MAX_STAMINA: f32 = 100.0;
 const JUMP_STAMINA: f32 = 20.0;
 const DODGE_STAMINA: f32 = 25.0;
 const SPRINT_STAMINA_PER_SECOND: f32 = 14.0;
 const STAMINA_RECOVERY_PER_SECOND: f32 = 25.0;
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum Pace {
+    #[default]
+    Walk,
+    Run,
+    Sprint,
+}
+
+impl Pace {
+    fn speed(self) -> f32 {
+        match self {
+            Self::Walk => WALK_SPEED,
+            Self::Run => RUN_SPEED,
+            Self::Sprint => SPRINT_SPEED,
+        }
+    }
+}
 
 #[derive(Component)]
 pub(crate) struct Stamina(f32);
@@ -125,12 +146,12 @@ impl Stamina {
         }
     }
 
-    fn sprint(&mut self, delta: f32) -> bool {
-        if self.0 == 0.0 {
-            return false;
-        }
+    fn is_empty(&self) -> bool {
+        self.0 == 0.0
+    }
+
+    fn drain_sprint(&mut self, delta: f32) {
         self.0 = (self.0 - SPRINT_STAMINA_PER_SECOND * delta).max(0.0);
-        true
     }
 
     pub(crate) fn recover(&mut self, delta: f32) {
@@ -198,7 +219,11 @@ fn footsteps(
             AudioPlayer::new(assets.load("sounds/footstep05.ogg")),
             PlaybackSettings::DESPAWN.with_volume(bevy::audio::Volume::Linear(0.2)),
         ));
-        *elapsed = if player.running { 0.32 } else { 0.5 };
+        *elapsed = match player.pace {
+            Pace::Walk => 0.5,
+            Pace::Run => 0.4,
+            Pace::Sprint => 0.32,
+        };
     }
 }
 
@@ -243,7 +268,7 @@ impl Gait {
             player.movement_direction.x.round() as i8,
             player.movement_direction.y.round() as i8,
         ) {
-            (0, 1) if player.running => Self::Run,
+            (0, 1) if player.pace != Pace::Walk => Self::Run,
             (0, 1) => Self::Walk,
             (0, -1) => Self::WalkBack,
             (-1, 0) => Self::StrafeLeft,
@@ -256,11 +281,11 @@ impl Gait {
         }
     }
 
-    fn playback_speed(self, running: bool) -> f32 {
-        if running && matches!(self, Self::WalkForwardLeft | Self::WalkForwardRight) {
-            SPRINT_SPEED / WALK_SPEED
-        } else {
-            1.0
+    fn playback_speed(self, pace: Pace) -> f32 {
+        match self {
+            Self::Idle | Self::Jump => 1.0,
+            Self::Run => pace.speed() / RUN_SPEED,
+            _ => pace.speed() / WALK_SPEED,
         }
     }
 }
@@ -390,14 +415,24 @@ pub(crate) fn input(
     bindings: Res<Keybinds>,
     dialogue: Res<Dialogue>,
     mut input: ResMut<MovementInput>,
+    mut players: Query<&mut Player>,
     log: Option<Res<PlayerMenu>>,
 ) {
     input.direction = Vec2::ZERO;
-    input.sprint = false;
-    if dialogue.text.is_some()
+    input.sprint = bindings.pressed(Control::Sprint, &keys);
+    let blocked = dialogue.text.is_some()
         || log.is_some_and(|log| log.is_open())
-        || keys.just_pressed(KeyCode::Escape)
-    {
+        || keys.just_pressed(KeyCode::Escape);
+    let toggle_run = !blocked && bindings.just_pressed(Control::ToggleRun, &keys);
+    for mut player in &mut players {
+        if toggle_run {
+            player.run_enabled = !player.run_enabled;
+        }
+        if !input.sprint && player.sprint_exhausted {
+            player.sprint_exhausted = false;
+        }
+    }
+    if blocked {
         input.jump = false;
         input.dodge = None;
         return;
@@ -409,7 +444,6 @@ pub(crate) fn input(
             - bindings.pressed(Control::Backward, &keys) as i8 as f32,
     )
     .normalize_or_zero();
-    input.sprint = bindings.pressed(Control::Sprint, &keys);
     input.jump |= bindings.just_pressed(Control::Jump, &keys);
     if bindings.just_pressed(Control::Dodge, &keys) {
         input.dodge = Some(input.direction);
@@ -498,7 +532,7 @@ pub(crate) fn movement(
             }
         }
         let (horizontal, gravity) = if let Some(hop) = &dodge.hop {
-            player.running = false;
+            player.pace = Pace::Walk;
             player.movement_direction = Vec2::ZERO;
             (hop.heading * DODGE_SPEED, DODGE_GRAVITY)
         } else {
@@ -508,13 +542,22 @@ pub(crate) fn movement(
                 Vec2::ZERO
             };
             player.movement_direction = direction;
-            player.running = agile && input.sprint && direction.y > 0.0 && stamina.sprint(delta);
-            let speed = if player.running {
-                SPRINT_SPEED
+            player.pace = if agile && player.run_enabled && direction != Vec2::ZERO {
+                Pace::Run
             } else {
-                WALK_SPEED
+                Pace::Walk
             };
-            (camera_heading(direction, orbit.yaw) * speed, 5.0)
+            if agile && input.sprint && direction.y > 0.0 && !player.sprint_exhausted {
+                if !stamina.is_empty() {
+                    player.pace = Pace::Sprint;
+                    stamina.drain_sprint(delta);
+                }
+                player.sprint_exhausted = stamina.is_empty();
+            }
+            (
+                camera_heading(direction, orbit.yaw) * player.pace.speed(),
+                5.0,
+            )
         };
         player.velocity.x = horizontal.x;
         player.velocity.z = horizontal.z;
@@ -545,8 +588,13 @@ pub(crate) fn movement(
             || transform.translation.z < -140.0
         {
             player.respawn(&mut dodge, &mut transform, layout.start());
-        } else if can_act && player.grounded && player.movement_direction == Vec2::ZERO {
-            stamina.recover(delta);
+        } else if can_act && player.grounded && player.pace == Pace::Walk {
+            let recovery_time = if player.movement_direction == Vec2::ZERO {
+                delta
+            } else {
+                delta * 0.5
+            };
+            stamina.recover(recovery_time);
         }
     }
 }
@@ -683,7 +731,7 @@ fn animate(
             actor.current = Some(index);
         }
         if !thrusting {
-            let speed = gait.playback_speed(player.running);
+            let speed = gait.playback_speed(player.pace);
             if let Some(clip) = animation.animation_mut(library.nodes[index])
                 && clip.speed() != speed
             {
@@ -871,7 +919,7 @@ mod tests {
     }
 
     #[test]
-    fn sprint_exhaustion_falls_back_to_walking_until_the_player_rests() {
+    fn exhausted_sprint_waits_for_a_new_press_while_walking_recovers_stamina() {
         let (mut app, player) = test_app();
         press(&mut app, &[KeyCode::KeyW, KeyCode::ShiftLeft]);
         tick(&mut app, 64);
@@ -880,32 +928,69 @@ mod tests {
             .get_mut::<Stamina>(player)
             .expect("Player must supply its Stamina component")
             .0 = 0.25;
-        tick(&mut app, 3);
+        tick(&mut app, 2);
         assert_eq!(stamina(&app, player), 0.0);
+
+        press(&mut app, &[KeyCode::Space, DODGE_KEY]);
+        tick(&mut app, 16);
+        assert_eq!(stamina(&app, player), 3.125);
         let controller = app
             .world()
             .get::<Player>(player)
-            .expect("player controller");
-        assert!(!controller.running);
+            .expect("the movement fixture must have a controller");
+        assert_eq!(controller.pace, Pace::Walk);
         assert_eq!(controller.velocity.z, -WALK_SPEED);
-
-        press(&mut app, &[KeyCode::Space, DODGE_KEY]);
-        tick(&mut app, 2);
-        assert_eq!(stamina(&app, player), 0.0);
-        assert!(
-            app.world()
-                .get::<Player>(player)
-                .is_some_and(|p| p.grounded)
-        );
+        assert!(controller.grounded);
         assert!(!active(&app, player));
 
         release(&mut app, KeyCode::ShiftLeft);
-        release(&mut app, KeyCode::KeyW);
-        tick(&mut app, 32);
-        assert_eq!(stamina(&app, player), 12.5);
-        press(&mut app, &[KeyCode::KeyW]);
+        app.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::ZERO));
+        tick(&mut app, 1);
+        app.insert_resource(TimeUpdateStrategy::ManualDuration(STEP));
+        press(&mut app, &[KeyCode::ShiftLeft]);
+        tick(&mut app, 1);
+        assert_eq!(stamina(&app, player), 3.125 - 14.0 * STEP.as_secs_f32());
+        assert!(
+            app.world()
+                .get::<Player>(player)
+                .is_some_and(|p| p.pace == Pace::Sprint)
+        );
+    }
+
+    #[test]
+    fn caps_lock_toggles_the_movement_pace_and_running_holds_stamina_steady() {
+        let (mut app, player) = test_app();
+        assert!(
+            app.world_mut()
+                .get_mut::<Stamina>(player)
+                .expect("Player must supply its Stamina component")
+                .try_spend(50.0)
+        );
+        let velocity = |app: &App| {
+            app.world()
+                .get::<Player>(player)
+                .expect("the movement fixture must have a controller")
+                .velocity
+                .xz()
+        };
+        press(&mut app, &[KeyCode::KeyD]);
         tick(&mut app, 16);
-        assert_eq!(stamina(&app, player), 12.5);
+        assert_eq!(velocity(&app), Vec2::X * WALK_SPEED);
+        assert_eq!(stamina(&app, player), 53.125);
+
+        press(&mut app, &[KeyCode::CapsLock]);
+        tick(&mut app, 16);
+        assert_eq!(velocity(&app), Vec2::X * RUN_SPEED);
+        assert_eq!(stamina(&app, player), 53.125);
+        release(&mut app, KeyCode::KeyD);
+        tick(&mut app, 32);
+        assert_eq!(stamina(&app, player), 65.625);
+
+        release(&mut app, KeyCode::CapsLock);
+        press(&mut app, &[KeyCode::CapsLock, KeyCode::KeyW]);
+        tick(&mut app, 16);
+        assert_eq!(velocity(&app), Vec2::NEG_Y * WALK_SPEED);
+        assert_eq!(stamina(&app, player), 68.75);
     }
 
     #[test]
@@ -947,37 +1032,37 @@ mod tests {
     fn camera_relative_walking_and_sprint_choose_the_expected_gaits() {
         let (mut app, player) = test_app();
         app.world_mut().resource_mut::<Orbit>().yaw = std::f32::consts::FRAC_PI_2;
-        let cases: &[(&[KeyCode], Vec3, Gait, bool)] = &[
-            (&[KeyCode::KeyW], Vec3::NEG_X, Gait::Run, true),
-            (&[KeyCode::KeyA], Vec3::Z, Gait::StrafeLeft, false),
-            (&[KeyCode::KeyD], Vec3::NEG_Z, Gait::StrafeRight, false),
-            (&[KeyCode::KeyS], Vec3::X, Gait::WalkBack, false),
+        let cases: &[(&[KeyCode], Vec3, Gait, Pace)] = &[
+            (&[KeyCode::KeyW], Vec3::NEG_X, Gait::Run, Pace::Sprint),
+            (&[KeyCode::KeyA], Vec3::Z, Gait::StrafeLeft, Pace::Walk),
+            (&[KeyCode::KeyD], Vec3::NEG_Z, Gait::StrafeRight, Pace::Walk),
+            (&[KeyCode::KeyS], Vec3::X, Gait::WalkBack, Pace::Walk),
             (
                 &[KeyCode::KeyW, KeyCode::KeyA],
                 Vec3::NEG_X + Vec3::Z,
                 Gait::WalkForwardLeft,
-                true,
+                Pace::Sprint,
             ),
             (
                 &[KeyCode::KeyW, KeyCode::KeyD],
                 Vec3::NEG_X + Vec3::NEG_Z,
                 Gait::WalkForwardRight,
-                true,
+                Pace::Sprint,
             ),
             (
                 &[KeyCode::KeyS, KeyCode::KeyA],
                 Vec3::X + Vec3::Z,
                 Gait::WalkBackLeft,
-                false,
+                Pace::Walk,
             ),
             (
                 &[KeyCode::KeyS, KeyCode::KeyD],
                 Vec3::X + Vec3::NEG_Z,
                 Gait::WalkBackRight,
-                false,
+                Pace::Walk,
             ),
         ];
-        for &(keys, heading, gait, sprint) in cases {
+        for &(keys, heading, gait, pace) in cases {
             press(&mut app, &[KeyCode::ShiftLeft]);
             press(&mut app, keys);
             let start = transform(&app, player).translation;
@@ -987,7 +1072,7 @@ mod tests {
                 .world()
                 .get::<Player>(player)
                 .expect("the movement fixture must have a controller");
-            let meters = if sprint { 5.5 } else { 3.0 } * STEP.as_secs_f32() * 3.0;
+            let meters = pace.speed() * STEP.as_secs_f32() * 3.0;
             assert!(
                 (end.translation - start)
                     .xz()
@@ -995,16 +1080,24 @@ mod tests {
             );
             assert!((end.rotation * Vec3::Z).abs_diff_eq(Vec3::NEG_X, 0.001));
             assert_eq!(Gait::for_player(controller), gait);
-            assert_eq!(controller.running, sprint);
+            assert_eq!(controller.pace, pace);
             app.world_mut()
                 .resource_mut::<ButtonInput<KeyCode>>()
                 .reset_all();
         }
         assert_eq!(
-            Gait::WalkForwardRight.playback_speed(true),
+            Gait::WalkForwardRight.playback_speed(Pace::Sprint),
             SPRINT_SPEED / WALK_SPEED
         );
-        assert_eq!(Gait::WalkForwardRight.playback_speed(false), 1.0);
+        assert_eq!(
+            Gait::Run.playback_speed(Pace::Sprint),
+            SPRINT_SPEED / RUN_SPEED
+        );
+        assert_eq!(
+            Gait::StrafeRight.playback_speed(Pace::Run),
+            RUN_SPEED / WALK_SPEED
+        );
+        assert_eq!(Gait::WalkForwardRight.playback_speed(Pace::Walk), 1.0);
     }
 
     #[test]

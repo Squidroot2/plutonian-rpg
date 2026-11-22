@@ -12,7 +12,7 @@ use crate::{
     loading::PendingScene,
     menu_ui::PlayerMenuScreen,
     menu_ui::{MenuTab, PlayerMenu},
-    player::Player,
+    player::{Pace, Player},
     practice_dummy::PracticeDummy,
     weapon::{Hand, WeaponAttack, WeaponStance},
 };
@@ -363,20 +363,21 @@ fn drive_shortswords(
             if now - started > 0.3 {
                 assert!(
                     controller.grounded
-                        && !controller.running
+                        && controller.pace == Pace::Walk
                         && controller.velocity.xz().length() > 0.1
                 );
                 super::capture(&mut commands, "shortswords-holstered-walk");
+                keys.press(KeyCode::CapsLock);
                 *step = ShortswordStep::HolsteredRun(now);
             }
         }
         ShortswordStep::HolsteredRun(started) => {
             check_holstered();
             keys.press(KeyCode::KeyW);
-            keys.press(KeyCode::ShiftLeft);
             if now - started > 0.3 {
-                assert!(controller.grounded && controller.running);
+                assert!(controller.grounded && controller.pace == Pace::Run);
                 super::capture(&mut commands, "shortswords-holstered-run");
+                keys.press(KeyCode::CapsLock);
                 keys.press(KeyCode::Space);
                 *step = ShortswordStep::HolsteredJump(now);
             }
@@ -913,7 +914,7 @@ pub(super) fn drive(
             if now - smoke.timer > 0.5 {
                 assert!(
                     controller.grounded
-                        && !controller.running
+                        && controller.pace == Pace::Walk
                         && controller.velocity.xz().length() > 0.1,
                     "the walk capture requires grounded walking"
                 );
@@ -933,7 +934,7 @@ pub(super) fn drive(
             if now - smoke.timer > 0.5 {
                 assert!(
                     controller.grounded
-                        && controller.running
+                        && controller.pace == Pace::Sprint
                         && controller.velocity.xz().length() > 0.1,
                     "the sprint capture requires grounded sprinting"
                 );

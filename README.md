@@ -21,10 +21,11 @@ Choose **Start Game** on the title screen to begin a fresh run in Nivalis, or **
 
 | Control | Action |
 | --- | --- |
-| W / S | Walk forward / backpedal in play. Move selection up / down in Inventory. |
+| W / S | Move forward / backward in play. Move selection up / down in Inventory. |
 | A / D | Strafe left / right |
 | Mouse | Orbit camera and turn to face its horizontal look direction |
 | Scroll | Adjust camera distance |
+| Caps Lock | Toggle between walking and running |
 | Left Shift | Sprint forward or on a forward diagonal |
 | Left click | Attack with the main-hand weapon |
 | Right click | Attack with the off-hand weapon |
@@ -68,7 +69,7 @@ Quest definitions live in `data/quests/catalog.quest.ron`. Add a definition with
 
 ## Inventory
 
-You can carry 60 kg, including equipped gear. Above 60 kg you can still walk. Sprinting, jumping, and dodging require a load of 60 kg or less. Above 72 kg, drop items to move again. The smoke arena has two 40 kg Large Boulders.
+You can carry 60 kg, including equipped gear. Above 60 kg you can still walk. Running, sprinting, jumping, and dodging require a load of 60 kg or less. Above 72 kg, drop items to move again. The smoke arena has two 40 kg Large Boulders.
 
 E picks up the nearest eligible item within three meters and clear line of sight. E also speaks to Nemi and collects the quest core; one press performs one action. E or Enter dismisses an open conversation before any other interaction.
 

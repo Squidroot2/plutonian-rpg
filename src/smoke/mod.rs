@@ -22,7 +22,7 @@ use crate::{
     inventory_ui::{InventoryAction, InventoryUiState},
     loading::LoadStatus,
     menu_ui::{MenuTab, PlayerMenu},
-    player::{DODGE_KEY, Dodge, Player},
+    player::{DODGE_KEY, Dodge, Pace, Player},
     quest::{Beacon, Dialogue, LAST_LIGHT, QuestAction, QuestJournal, QuestStatus},
     quest_ui::{QuestRow, QuestSelection},
     title::{TitleBackdrop, TitleInput},
@@ -355,7 +355,7 @@ fn drive(
                     "D must strafe right: {travel:?}"
                 );
                 assert!(
-                    !controller.running,
+                    controller.pace == Pace::Walk,
                     "shift must keep pure strafing at walking speed"
                 );
                 assert!((transform.rotation * Vec3::Z).abs_diff_eq(Vec3::NEG_Z, 0.001));
@@ -379,7 +379,7 @@ fn drive(
                     "S must backpedal: {travel:?}"
                 );
                 assert!(
-                    !controller.running,
+                    controller.pace == Pace::Walk,
                     "shift must keep backpedaling at walking speed"
                 );
                 assert!((transform.rotation * Vec3::Z).abs_diff_eq(Vec3::NEG_Z, 0.001));
@@ -589,7 +589,7 @@ fn drive(
                             "the moderate load must allow walking, load {weight}, travel {travel:?}"
                         );
                         assert!(
-                            !controller.running && controller.grounded && !dodge.active(),
+                            controller.pace == Pace::Walk && controller.grounded && !dodge.active(),
                             "a load above capacity must prevent sprinting, jumping and dodging"
                         );
                         if !after_drop {
@@ -601,7 +601,7 @@ fn drive(
                     }
                     _ => {
                         assert!(
-                            controller.running && travel.z < -0.4,
+                            controller.pace == Pace::Sprint && travel.z < -0.4,
                             "dropping the boulders must restore sprinting"
                         );
                         info!(
