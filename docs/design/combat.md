@@ -6,13 +6,22 @@ Combat separates attack detection from shared resolution. Attack systems emit `H
 
 ## Player melee
 
-The player can attack independently with either equipped hand. The weapon must remain equipped for its swing to continue. Attacks start only while grounded, drawn, outside a dodge, and with menus/dialogue not blocking input. A spear reaches 2.5 m and deals 10 base damage; a shortsword reaches 1.4 m and deals 7. A sphere shape cast checks contact at the weapon's impact frame. Spear impact is frame 6 and recovery ends at frame 16; shortsword impact is frame 5 and recovery ends at frame 12, at 24 animation frames per second. The shortsword sweeps inward from its hand. Only the first contact at impact produces a hit.
+The player can attack independently with either equipped hand. The weapon must remain equipped for its swing to continue. Attacks start only while grounded, drawn, outside a dodge, and with menus/dialogue not blocking input. 
+A sphere shape cast checks contact at the weapon's impact frame. Only the first contact at impact produces a hit.
 
 Player weapon damage is scaled by the Strength derived multiplier before a `Hit` is emitted. The multiplier is `(95 + Strength rank)%`; rank 5 gives 100%, and ranks 1 through 10 give 96% through 105%.
 
+## Melee types
+
+- Spear: 2.5m reach
+- Shortsword: 1.4 m reach
+
 ## Enemy melee
 
-Enemies use shared pursuit and melee behavior configured with species-specific bite range, windup, recovery, and damage. A bite is emitted once when its windup expires. For example, the roach bite deals 12 damage and the worm bite deals 20. Enemy attacks enter the same shared resolver as player attacks.
+Enemies use shared pursuit and melee behavior configured with species-specific bite range, windup, recovery, and damage. 
+A bite is emitted once when its windup expires. 
+For example, the roach bite deals 12 damage and the worm bite deals 20. 
+Enemy attacks enter the same shared resolver as player attacks.
 
 ## Damage resolution
 
@@ -24,7 +33,8 @@ Health is reduced by that amount and saturates at zero. A hit-protection timer, 
 
 ## Death and recovery
 
-Changed health at zero marks an actor `Dead` and emits `ActorDefeated`. Components opt actors into collider removal and optional corpse lifetime. Player health recovery waits five seconds after a confirmed damaging hit, then restores fractional-rate health in whole points; any new hit restarts the delay and clears fractional progress. Recovery and hit-protection timers advance in fixed updates while playing and outside dialogue. Death and hit reactions, collider release, corpse expiry, and presentation are handled by their owning systems.
+Changed health at zero marks an actor `Dead` and emits `ActorDefeated`. Components opt actors into collider removal and optional corpse lifetime. Player health recovery waits five seconds after a confirmed damaging hit, then restores fractional-rate health in whole points; any new hit restarts the delay and clears fractional progress. Only the first contact at impact produces a hit.
+protection timers advance in fixed updates while playing and outside dialogue. Death and hit reactions, collider release, corpse expiry, and presentation are handled by their owning systems.
 
 ## System order
 
