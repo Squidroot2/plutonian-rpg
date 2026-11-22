@@ -58,7 +58,14 @@ The game includes The Last Light, the Old Relay quest and dungeon, and one speak
 
 ## Player menu
 
-Press Tab during gameplay to open the player menu. Choose **Quest**, **Inventory**, **Equipment**, or **Character**. The menu starts on Quest and remembers the last tab during the current run. Tab, Escape, and Close return control to the player. The cursor is available while the menu is open, and the world keeps running. Character shows placeholder data.
+Press Tab during gameplay to open the player menu. Choose **Quest**, **Inventory**, **Equipment**, or **Character**. The menu starts on Quest and remembers the last tab during the current run. Tab, Escape, and Close return control to the player. The cursor is available while the menu is open, and the world keeps running.
+
+### Character
+
+View Vitality, Endurance, Agility, and Strength and preview each next rank.
+New characters start at rank 5, and ranks cap at 100. Use **+** to spend
+available points. The progression system awards three points per level gained.
+XP sources and level pacing are planned separately.
 
 ### Quest
 
@@ -70,7 +77,7 @@ Quest definitions live in `data/quests/catalog.quest.ron`. Add a definition with
 
 ## Inventory
 
-Carried weight includes equipped gear. Running, sprinting, jumping, and dodging require a load of 60 kg or less. You can still walk with more than 60 kg, up to 72 kg. Above 72 kg, drop items to move again. The smoke arena has two 40 kg Large Boulders.
+Carried weight includes equipped gear. Endurance sets the weight limits. At the starting rank, running, sprinting, jumping, and dodging require a load of 60 kg or less. You can still walk with more than 60 kg, up to 72 kg. Above the walking limit, drop items to move again. The smoke arena has two 40 kg Large Boulders.
 
 E picks up the nearest eligible item within three meters and clear line of sight. E also speaks to Nemi and collects the quest core; one press performs one action. E or Enter dismisses an open conversation before any other interaction.
 
@@ -99,7 +106,7 @@ Start with empty equipment slots. Find the field armor and helmet in the tent ch
 | Field helmet | Helmet | 1 |
 | Reinforced helmet | Helmet | 3 |
 
-On the **Equipment** tab, click **Equip** beside an empty slot and choose a compatible item. You can also double-click a gear row in **Inventory**. Equipping moves one copy into a slot and returns any displaced gear to the bag. Click **Unequip** to return an equipped item to the bag before dropping it. You can drop spare bag copies at any time.
+On the **Equipment** tab, click **Equip** beside an empty slot and choose a compatible item. The Reinforced Helmet, Trident, and Reinforced Armor require Strength ranks 7, 8, and 10 respectively. You can also double-click a gear row in **Inventory**. Equipping moves one copy into a slot and returns any displaced gear to the bag. Click **Unequip** to return an equipped item to the bag before dropping it. You can drop spare bag copies at any time.
 
 Slots show their equipped piece and defense, with a combined total above them. Each point of defense reduces incoming damage by one, to a minimum of one damage per hit. Equipment survives fall recovery and is included in bed saves.
 
@@ -115,7 +122,7 @@ Press X to put your equipped weapons on your back or hips. Press it again to dra
 
 ## Ice worms
 
-Two ice worms roam beside the trail and a third waits near the cavern entrance. Watch for the worm to rear up, move out of its bite, then attack during its recovery. Three spear or trident thrusts defeat a worm. A worm bite deals 20 damage before armor. After five seconds without taking damage, you recover 10 health per second. The health bar fades away when you reach full health. Defeated worms and relay roaches leave corpses with loot that persists in bed saves. Press E near an unlooted corpse, select **Take**, and use **Close** or Escape to return to play. Meat stacks in the backpack and can be dropped.
+Two ice worms roam beside the trail and a third waits near the cavern entrance. Watch for the worm to rear up, move out of its bite, then attack during its recovery. Three spear or trident thrusts defeat a worm. A worm bite deals 20 damage before armor. After five seconds without taking damage, you recover 10% of maximum health per second. The health bar fades away when you reach full health. Defeated worms and relay roaches leave corpses with loot that persists in bed saves. Press E near an unlooted corpse, select **Take**, and use **Close** or Escape to return to play. Meat stacks in the backpack and can be dropped.
 
 ## The Old Relay
 

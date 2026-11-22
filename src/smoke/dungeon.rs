@@ -5,6 +5,7 @@ use super::{
 };
 use crate::{
     GameState,
+    attributes::{AttributeId, AttributeRanks, CharacterProgress},
     camera::{FollowCamera, Orbit},
     combat::{Dead, Health, Hit},
     dungeon::{
@@ -100,6 +101,8 @@ pub(super) fn drive(
             &mut Transform,
             &Collider,
             &Health,
+            &AttributeRanks,
+            &CharacterProgress,
         ),
         With<Player>,
     >,
@@ -143,7 +146,8 @@ pub(super) fn drive(
     commands: Commands,
     exit: MessageWriter<AppExit>,
 ) {
-    let Ok((entity, controller, dodge, transform, capsule, player_health)) = player.single_mut()
+    let Ok((entity, controller, dodge, transform, capsule, player_health, ranks, attributes)) =
+        player.single_mut()
     else {
         return;
     };
@@ -172,6 +176,8 @@ pub(super) fn drive(
         dodge,
         transform,
         player_health,
+        ranks,
+        attributes,
         position,
         now,
         storage,
@@ -274,6 +280,8 @@ struct WorldFrame<'w, 's, 'a> {
     dodge: Mut<'a, Dodge>,
     transform: Mut<'a, Transform>,
     player_health: &'a Health,
+    ranks: &'a AttributeRanks,
+    attributes: &'a CharacterProgress,
     position: Vec3,
     now: f64,
     storage: Res<'w, ChestStorage>,
@@ -1098,11 +1106,19 @@ fn check_bed_rollback(frame: WorldFrame) {
         mut dodge,
         mut transform,
         player_health,
+        ranks,
+        attributes,
         position,
         spatial,
         capsule,
         ..
     } = frame;
+
+    const SAVED_VITALITY: u8 = 7;
+    const SAVED_PROGRESS: CharacterProgress = CharacterProgress {
+        level: 2,
+        unspent: 1,
+    };
 
     match *phase {
         WorldCheck::Recover if controller.area == Area::Surface && controller.grounded => {
@@ -1117,6 +1133,10 @@ fn check_bed_rollback(frame: WorldFrame) {
                 &mut transform,
                 Vec3::new(9.7, 0.0, -3.35),
             );
+            commands.entity(entity).insert((
+                AttributeRanks::default().with_rank(AttributeId::Vitality, SAVED_VITALITY),
+                SAVED_PROGRESS,
+            ));
             *phase = WorldCheck::SaveAtBed;
         }
         WorldCheck::SaveAtBed
@@ -1130,6 +1150,13 @@ fn check_bed_rollback(frame: WorldFrame) {
                 checkpoint.checkpoint().is_some(),
                 "the cot must write the checkpoint"
             );
+            commands.entity(entity).insert((
+                AttributeRanks::default().with_rank(AttributeId::Vitality, 8),
+                CharacterProgress {
+                    level: 2,
+                    unspent: 0,
+                },
+            ));
             commands.queue(|world: &mut World| {
                 assert!(
                     world
@@ -1153,7 +1180,12 @@ fn check_bed_rollback(frame: WorldFrame) {
         }
         WorldCheck::SavedRespawn(old) if entity != old && controller.grounded => {
             assert!(position.distance(WorldLayout::Outpost.initial_spawn()) < 0.04);
-            assert_eq!(player_health.current(), MAX_HEALTH);
+            assert_eq!(ranks.rank(AttributeId::Vitality), SAVED_VITALITY);
+            assert_eq!(*attributes, SAVED_PROGRESS);
+            assert_eq!(
+                (player_health.current(), player_health.maximum()),
+                (108, 108)
+            );
             assert_eq!(inventory.count(ItemKind::RoachMeat), 1);
             assert_eq!(storage.get(ChestId::Lamp).count(ItemKind::Battery), 1);
             assert!(quest.is_complete(OLD_RELAY) && progress.gate_open());

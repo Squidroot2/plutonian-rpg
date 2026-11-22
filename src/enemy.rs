@@ -675,7 +675,7 @@ mod tests {
         assert!(bag.add(ItemKind::BeaconCore, 1));
         app.world_mut()
             .resource_mut::<Equipment>()
-            .equip(&mut bag, ItemKind::FieldArmor)
+            .equip(&mut bag, ItemKind::FieldArmor, 10)
             .expect("the armor fixture must be equipable");
         let mut journal = test_journal();
         journal.record(QuestAction::TalkedToNemi);

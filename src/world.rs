@@ -1,5 +1,6 @@
 use crate::{
     GameState,
+    attributes::{AttributeId, AttributeRanks, CharacterProgress, SavedProgress},
     camera::Orbit,
     equipment::bind_equipment_attachments,
     interaction::Target,
@@ -10,7 +11,7 @@ use crate::{
         bind_actor_animation,
     },
     quest::Beacon,
-    save::Bed,
+    save::{Bed, RunSave},
 };
 use avian3d::prelude::*;
 use bevy::{gltf::Gltf, prelude::*};
@@ -81,6 +82,7 @@ fn spawn_world(
     assets: Res<GameAssets>,
     gltfs: Res<Assets<Gltf>>,
     layout: Res<WorldLayout>,
+    run: Res<RunSave>,
     mut orbit: ResMut<Orbit>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
@@ -91,7 +93,16 @@ fn spawn_world(
     } else {
         crate::smoke::spawn_arena(&mut commands, &mut meshes, &mut materials);
     }
-    spawn_actors(&mut commands, &gltfs, &assets, *layout);
+    let fresh = if *layout == WorldLayout::SmokeArena {
+        SavedProgress::capture(
+            &AttributeRanks::default().with_rank(AttributeId::Strength, 10),
+            CharacterProgress::default(),
+        )
+    } else {
+        SavedProgress::default()
+    };
+    let progress = run.checkpoint().map_or(&fresh, |save| &save.progression);
+    spawn_actors(&mut commands, &gltfs, &assets, *layout, progress);
     spawn_core(&mut commands, &gltfs, &assets, *layout);
     spawn_beacon(&mut commands, &mut meshes, &mut materials, *layout);
     spawn_lights(&mut commands, *layout);
@@ -168,6 +179,7 @@ fn spawn_actors(
     gltfs: &Assets<Gltf>,
     assets: &GameAssets,
     layout: WorldLayout,
+    progress: &SavedProgress,
 ) {
     let character = gltfs
         .get(&assets.character)
@@ -184,6 +196,7 @@ fn spawn_actors(
             CustomPositionIntegration,
             Collider::capsule(PLAYER_COLLIDER_RADIUS, PLAYER_COLLIDER_LENGTH),
             Transform::from_translation(layout.initial_spawn()),
+            progress.player_components(),
         ))
         .with_children(|parent| {
             parent

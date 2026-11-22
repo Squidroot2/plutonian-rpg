@@ -1,5 +1,8 @@
 use crate::{
     GameState,
+    attributes::{
+        AttributeRanks, CarryLimits, CharacterProgress, MeleeDamageMultiplier, MovementCosts,
+    },
     camera::Orbit,
     combat::{CombatSystems, Defense, Health, HealthRecovery},
     combat_feedback::DeathAnimation,
@@ -7,7 +10,7 @@ use crate::{
     dungeon::Area,
     equipment::{Equipment, EquipmentSlot, WeaponKind},
     interaction::InteractionSystems,
-    inventory::{CARRY_CAPACITY, IMMOBILE_WEIGHT, Inventory},
+    inventory::Inventory,
     menu_ui::PlayerMenu,
     nemi::NemiPlayback,
     quest::Dialogue,
@@ -54,7 +57,14 @@ impl Plugin for PlayerPlugin {
 }
 #[derive(Component, Default)]
 #[require(Dodge, Health = Health::new(MAX_HEALTH), Defense, crate::combat::HitProtection = crate::combat::HitProtection::new(PLAYER_HIT_PROTECTION_SECONDS))]
-#[require(HealthRecovery = HealthRecovery::new(HEALTH_RECOVERY_DELAY, HEALTH_RECOVERY_INTERVAL))]
+#[require(HealthRecovery = HealthRecovery::player(10.0))]
+#[require(
+    AttributeRanks,
+    CharacterProgress,
+    CarryLimits,
+    MovementCosts,
+    MeleeDamageMultiplier
+)]
 #[require(Stamina, WeaponStance, WeaponAttack, FootstepCadence)]
 pub struct Player {
     pub(crate) area: Area,
@@ -133,8 +143,6 @@ pub(crate) const PLAYER_COLLIDER_RADIUS: f32 = 0.32;
 pub(crate) const PLAYER_COLLIDER_LENGTH: f32 = 1.15;
 pub(crate) const PLAYER_GROUND_OFFSET: f32 = 0.905;
 const PLAYER_HIT_PROTECTION_SECONDS: f32 = 0.75;
-const HEALTH_RECOVERY_DELAY: Duration = Duration::from_secs(5);
-const HEALTH_RECOVERY_INTERVAL: Duration = Duration::from_millis(100);
 pub(crate) const DODGE_KEY: KeyCode = KeyCode::ControlLeft;
 const DODGE_LAUNCH_SPEED: f32 = 1.7;
 const DODGE_GRAVITY: f32 = 10.0;
@@ -165,8 +173,6 @@ const LOCOMOTION_ANIMATION_BLEND: Duration = Duration::from_millis(160);
 const RUN_SPEED: f32 = 4.0;
 const SPRINT_SPEED: f32 = 8.0;
 const MAX_STAMINA: f32 = 100.0;
-const JUMP_STAMINA: f32 = 20.0;
-const DODGE_STAMINA: f32 = 25.0;
 const SPRINT_STAMINA_PER_SECOND: f32 = 14.0;
 const STAMINA_RECOVERY_PER_SECOND: f32 = 25.0;
 
@@ -189,26 +195,48 @@ impl Pace {
 }
 
 #[derive(Component)]
-pub(crate) struct Stamina(f32);
+pub(crate) struct Stamina {
+    current: f32,
+    maximum: f32,
+    recovery_per_second: f32,
+}
 
 impl Default for Stamina {
     fn default() -> Self {
-        Self(MAX_STAMINA)
+        Self::new(MAX_STAMINA, STAMINA_RECOVERY_PER_SECOND)
     }
 }
 
 impl Stamina {
+    pub(crate) fn new(maximum: f32, recovery_per_second: f32) -> Self {
+        Self {
+            current: maximum,
+            maximum,
+            recovery_per_second,
+        }
+    }
+
+    pub(crate) fn tuning(&self) -> (f32, f32) {
+        (self.maximum, self.recovery_per_second)
+    }
+
+    pub(crate) fn set_tuning(&mut self, maximum: f32, recovery_per_second: f32) {
+        self.maximum = maximum;
+        self.recovery_per_second = recovery_per_second;
+        self.current = self.current.min(maximum);
+    }
+
     pub(crate) fn fraction(&self) -> f32 {
-        self.0 / MAX_STAMINA
+        self.current / self.maximum
     }
 
     fn can_spend(&self, cost: f32) -> bool {
-        self.0 >= cost
+        self.current >= cost
     }
 
     pub(crate) fn try_spend(&mut self, cost: f32) -> bool {
         if self.can_spend(cost) {
-            self.0 -= cost;
+            self.current -= cost;
             true
         } else {
             false
@@ -216,16 +244,16 @@ impl Stamina {
     }
 
     fn is_empty(&self) -> bool {
-        self.0 == 0.0
+        self.current == 0.0
     }
 
     fn drain_sprint(&mut self, delta: f32) {
-        self.0 = (self.0 - SPRINT_STAMINA_PER_SECOND * delta).max(0.0);
+        self.current = (self.current - SPRINT_STAMINA_PER_SECOND * delta).max(0.0);
     }
 
     pub(crate) fn recover(&mut self, delta: f32) {
-        if self.0 < MAX_STAMINA {
-            self.0 = (self.0 + STAMINA_RECOVERY_PER_SECOND * delta).min(MAX_STAMINA);
+        if self.current < self.maximum {
+            self.current = (self.current + self.recovery_per_second * delta).min(self.maximum);
         }
     }
 }
@@ -477,8 +505,14 @@ pub(crate) struct MovementInput {
 
 impl MovementInput {
     // Frame-based attacks can run before the next fixed step consumes the request.
-    pub(crate) fn dodge_pending(&self, grounded: bool, dodge: &Dodge, stamina: &Stamina) -> bool {
-        self.dodge.is_some() && grounded && dodge.ready() && stamina.can_spend(DODGE_STAMINA)
+    pub(crate) fn dodge_pending(
+        &self,
+        grounded: bool,
+        dodge: &Dodge,
+        stamina: &Stamina,
+        cost: f32,
+    ) -> bool {
+        self.dodge.is_some() && grounded && dodge.ready() && stamina.can_spend(cost)
     }
 }
 
@@ -557,18 +591,29 @@ pub(crate) fn movement(
         &mut Dodge,
         &mut Stamina,
         &WeaponAttack,
+        &MovementCosts,
+        &CarryLimits,
     )>,
 ) {
     let dodge_request = input.dodge.take();
     let jump_requested = std::mem::take(&mut input.jump);
     let delta = time.delta_secs();
     let weight = inventory.carried_weight(&equipment);
-    let agile = weight <= CARRY_CAPACITY;
-    for (entity, mut transform, collider, mut player, mut dodge, mut stamina, attack) in
-        &mut players
+    for (
+        entity,
+        mut transform,
+        collider,
+        mut player,
+        mut dodge,
+        mut stamina,
+        attack,
+        costs,
+        limits,
+    ) in &mut players
     {
         let can_act = dialogue.text.is_none() && !attack.active();
-        let can_move = weight <= IMMOBILE_WEIGHT && can_act;
+        let agile = weight <= limits.capacity_kg;
+        let can_move = weight <= limits.movement_limit_kg && can_act;
         dodge.cooldown = (dodge.cooldown - delta).max(0.0);
         let filter = SpatialQueryFilter::from_excluded_entities([entity]);
         // Let the hop descend almost to the surface before ending its motion.
@@ -596,7 +641,7 @@ pub(crate) fn movement(
         }
         if can_move && agile && player.grounded {
             if let Some(direction) =
-                dodge_request.filter(|_| dodge.ready() && stamina.try_spend(DODGE_STAMINA))
+                dodge_request.filter(|_| dodge.ready() && stamina.try_spend(costs.dodge))
             {
                 let heading = if direction == Vec2::ZERO {
                     camera_heading(Vec2::NEG_Y, orbit.yaw)
@@ -605,7 +650,7 @@ pub(crate) fn movement(
                 };
                 dodge.start(heading);
                 player.launch(DODGE_LAUNCH_SPEED);
-            } else if jump_requested && stamina.try_spend(JUMP_STAMINA) {
+            } else if jump_requested && stamina.try_spend(costs.jump) {
                 player.launch(JUMP_SPEED);
             }
         }
@@ -947,7 +992,7 @@ mod tests {
         app.world()
             .get::<Stamina>(player)
             .expect("Player must supply its Stamina component")
-            .0
+            .current
     }
 
     fn equip_spear(app: &mut App) {
@@ -956,9 +1001,44 @@ mod tests {
         assert_eq!(
             app.world_mut()
                 .resource_mut::<Equipment>()
-                .equip(&mut bag, ItemKind::FieldSpear),
+                .equip(&mut bag, ItemKind::FieldSpear, 10),
             Ok(true)
         );
+    }
+
+    #[test]
+    fn only_rank_100_can_dodge_or_jump_at_empty_stamina() {
+        use crate::attributes::{AttributeId, SavedProgress};
+
+        for rank in [99, 100] {
+            for key in [DODGE_KEY, KeyCode::Space] {
+                let (mut app, player) = test_app();
+                let ranks = AttributeRanks::default().with_rank(AttributeId::Agility, rank);
+                let profile = SavedProgress::capture(&ranks, CharacterProgress::default());
+                app.world_mut()
+                    .entity_mut(player)
+                    .insert(profile.player_components());
+                app.world_mut()
+                    .get_mut::<Stamina>(player)
+                    .expect("player must have stamina")
+                    .current = 0.0;
+                press(&mut app, &[key]);
+                tick(&mut app, 1);
+                let controller = app
+                    .world()
+                    .get::<Player>(player)
+                    .expect("player controller");
+                let moved = if key == DODGE_KEY {
+                    active(&app, player)
+                } else {
+                    controller.jumping
+                };
+                assert_eq!(moved, rank == 100);
+                if moved {
+                    assert_eq!(stamina(&app, player), 0.0);
+                }
+            }
+        }
     }
 
     #[test]
@@ -1022,7 +1102,7 @@ mod tests {
         app.world_mut()
             .get_mut::<Stamina>(player)
             .expect("Player must supply its Stamina component")
-            .0 = 0.25;
+            .current = 0.25;
         tick(&mut app, 2);
         assert_eq!(stamina(&app, player), 0.0);
 

@@ -274,21 +274,11 @@ fn setup(mut commands: Commands) {
                                 MenuTab::Quest => quest_ui::spawn(page),
                                 MenuTab::Inventory => inventory_ui::spawn(page),
                                 MenuTab::Equipment => inventory_ui::spawn_equipment(page),
-                                MenuTab::Character => character(page),
+                                MenuTab::Character => crate::attributes::spawn_character(page),
                             });
                         }
                     });
             });
-        });
-}
-
-fn character(page: &mut ChildSpawnerCommands) {
-    page.spawn(scroll_pane(MenuTab::Character, percent(100)))
-        .with_children(|pane| {
-            pane.spawn((Text::new("Plutonian"), text_style(23.0)));
-            pane.spawn((Text::new("Explorer"), text_style(17.0)));
-            pane.spawn((Text::new("Level 1"), text_style(17.0)));
-            pane.spawn((Text::new("Placeholder character data"), text_style(14.0)));
         });
 }
 

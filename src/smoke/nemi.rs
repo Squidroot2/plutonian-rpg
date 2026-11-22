@@ -194,7 +194,7 @@ fn check_nemi_reactions(
         Check::Start if player.grounded => {
             assert!(bag.add(ItemKind::FieldSpear, 1));
             equipment
-                .equip(&mut bag, ItemKind::FieldSpear)
+                .equip(&mut bag, ItemKind::FieldSpear, 10)
                 .expect("equip smoke spear");
             *home = position;
             fixture(

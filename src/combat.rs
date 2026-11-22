@@ -30,6 +30,11 @@ impl Health {
         self.current = self.maximum;
     }
 
+    pub(crate) fn set_maximum(&mut self, maximum: u16) {
+        self.maximum = maximum;
+        self.current = self.current.min(maximum);
+    }
+
     pub(crate) fn set_current(&mut self, health: u16) {
         self.current = health.min(self.maximum);
     }
@@ -39,16 +44,30 @@ impl Health {
 pub(crate) struct HealthRecovery {
     delay: Duration,
     wait: Duration,
-    healing: Timer,
+    points_per_second: f64,
+    accrued: f64,
 }
 
 impl HealthRecovery {
-    pub(crate) fn new(delay: Duration, per_point: Duration) -> Self {
+    pub(crate) fn player(points_per_second: f64) -> Self {
+        Self::new(Duration::from_secs(5), points_per_second)
+    }
+
+    pub(crate) fn new(delay: Duration, points_per_second: f64) -> Self {
         Self {
             delay,
             wait: Duration::ZERO,
-            healing: Timer::new(per_point, TimerMode::Repeating),
+            points_per_second,
+            accrued: 0.0,
         }
+    }
+
+    pub(crate) fn rate(&self) -> f64 {
+        self.points_per_second
+    }
+
+    pub(crate) fn set_rate(&mut self, points_per_second: f64) {
+        self.points_per_second = points_per_second;
     }
 }
 
@@ -105,7 +124,7 @@ pub(crate) struct RemoveColliderOnDeath;
 #[derive(Component)]
 pub(crate) struct DeathLifetime(pub(crate) f32);
 
-/// A corpse that is being removed after its loot was taken.
+/// A corpse whose visuals are fading after its loot was taken.
 #[derive(Component)]
 pub(crate) struct LootedCorpseFade(pub(crate) f32);
 
@@ -217,7 +236,7 @@ fn delay_recovery_on_hit(
     for hit in hits.read() {
         if let Ok(mut recovery) = recovery.get_mut(hit.target) {
             recovery.wait = recovery.delay;
-            recovery.healing.reset();
+            recovery.accrued = 0.0;
         }
     }
 }
@@ -233,10 +252,11 @@ fn recover_health(
         let delta = time.delta();
         let active = delta.saturating_sub(recovery.wait);
         recovery.wait = recovery.wait.saturating_sub(delta);
-        let points = recovery.healing.tick(active).times_finished_this_tick();
-        if points > 0 {
-            let missing = u32::from(health.maximum - health.current);
-            health.current += points.min(missing) as u16;
+        recovery.accrued += active.as_secs_f64() * recovery.points_per_second;
+        let points = recovery.accrued.floor();
+        recovery.accrued -= points;
+        if points > 0.0 {
+            health.current += (points as u16).min(health.maximum - health.current);
         }
     }
 }
@@ -302,20 +322,24 @@ fn update_hit_reactions(
 fn fade_looted_corpses(
     time: Res<Time>,
     mut commands: Commands,
-    mut corpses: Query<(Entity, &mut LootedCorpseFade, &Children)>,
+    mut corpses: Query<(Entity, &mut LootedCorpseFade, Option<&Children>)>,
     mut visuals: Query<&mut Transform>,
 ) {
     const FADE_SECONDS: f32 = 0.65;
     for (entity, mut fade, children) in &mut corpses {
         fade.0 = (fade.0 + time.delta_secs() / FADE_SECONDS).clamp(0.0, 1.0);
         let scale = 1.0 - fade.0;
-        for child in children.iter() {
+        for &child in children.into_iter().flatten() {
             if let Ok(mut transform) = visuals.get_mut(child) {
                 transform.scale = Vec3::splat(scale);
             }
         }
         if fade.0 >= 1.0 {
-            commands.entity(entity).despawn();
+            // Keep the defeated encounter available to the bed snapshot.
+            commands
+                .entity(entity)
+                .insert(Visibility::Hidden)
+                .remove::<LootedCorpseFade>();
         }
     }
 }

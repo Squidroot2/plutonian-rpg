@@ -276,7 +276,9 @@ fn check_worm_combat(
             capture(&mut commands, "worm-bite");
             *phase = Encounter::Fight { captured: false };
         }
-        Encounter::Fight { captured: false } if worm_health.current() == 20 => {
+        Encounter::Fight { captured: false }
+            if (1..worm_health.maximum()).contains(&worm_health.current()) =>
+        {
             assert_eq!(
                 impacts.iter().count(),
                 1,

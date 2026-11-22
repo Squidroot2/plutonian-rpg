@@ -123,9 +123,6 @@ impl ItemKind {
         }
     }
 }
-pub(crate) const CARRY_CAPACITY: u64 = 60;
-pub(crate) const IMMOBILE_WEIGHT: u64 = CARRY_CAPACITY * 6 / 5;
-
 #[derive(Resource, Clone, Default, Debug, bitcode::Encode, bitcode::Decode)]
 pub struct Inventory(BTreeMap<ItemKind, u32>);
 impl Inventory {

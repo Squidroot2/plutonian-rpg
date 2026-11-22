@@ -4,7 +4,8 @@ use bevy::{gltf::Gltf, prelude::*, world_serialization::WorldInstanceReady};
 
 use crate::{
     GameState,
-    combat::CombatSystems,
+    attributes::{AttributeId, AttributeRanks},
+    combat::{CombatSystems, Dead},
     inventory::{Inventory, InventoryNotice, ItemKind},
     loading::{GameAssets, PendingScene, scene_ready},
     menu_ui::{MenuTab, PlayerMenu},
@@ -62,6 +63,7 @@ impl WeaponKind {
 pub struct GearDefinition {
     slot: EquipmentSlot,
     pub defense: u16,
+    pub minimum_strength: u8,
     pub pickup_size: Vec3,
 }
 impl ItemKind {
@@ -81,20 +83,26 @@ impl ItemKind {
                     .is_some_and(|weapon| weapon.handedness() == Handedness::OneHanded))
     }
 
+    pub(crate) fn meets_strength(self, strength: u8) -> bool {
+        self.gear()
+            .is_some_and(|gear| strength >= gear.minimum_strength)
+    }
+
     pub fn gear(self) -> Option<GearDefinition> {
-        let (slot, defense, pickup_size) = match self {
-            Self::FieldArmor => (EquipmentSlot::Body, 2, Vec3::new(0.86, 0.76, 0.8)),
-            Self::ReinforcedArmor => (EquipmentSlot::Body, 5, Vec3::new(1.02, 0.8, 0.84)),
-            Self::FieldHelmet => (EquipmentSlot::Helmet, 1, Vec3::new(0.9, 0.58, 0.72)),
-            Self::ReinforcedHelmet => (EquipmentSlot::Helmet, 3, Vec3::new(1.0, 0.64, 0.8)),
-            Self::FieldSpear => (EquipmentSlot::MainHand, 0, Vec3::new(0.28, 0.23, 2.3)),
-            Self::Trident => (EquipmentSlot::MainHand, 0, Vec3::new(0.58, 0.23, 2.3)),
-            Self::Shortsword => (EquipmentSlot::MainHand, 0, Vec3::new(0.26, 0.2, 0.9)),
+        let (slot, defense, minimum_strength, pickup_size) = match self {
+            Self::FieldArmor => (EquipmentSlot::Body, 2, 1, Vec3::new(0.86, 0.76, 0.8)),
+            Self::ReinforcedArmor => (EquipmentSlot::Body, 5, 10, Vec3::new(1.02, 0.8, 0.84)),
+            Self::FieldHelmet => (EquipmentSlot::Helmet, 1, 1, Vec3::new(0.9, 0.58, 0.72)),
+            Self::ReinforcedHelmet => (EquipmentSlot::Helmet, 3, 7, Vec3::new(1.0, 0.64, 0.8)),
+            Self::FieldSpear => (EquipmentSlot::MainHand, 0, 1, Vec3::new(0.28, 0.23, 2.3)),
+            Self::Trident => (EquipmentSlot::MainHand, 0, 8, Vec3::new(0.58, 0.23, 2.3)),
+            Self::Shortsword => (EquipmentSlot::MainHand, 0, 1, Vec3::new(0.26, 0.2, 0.9)),
             _ => return None,
         };
         Some(GearDefinition {
             slot,
             defense,
+            minimum_strength,
             pickup_size,
         })
     }
@@ -136,7 +144,12 @@ impl Equipment {
             .map(|gear| gear.defense)
             .sum()
     }
-    pub fn equip(&mut self, bag: &mut Inventory, item: ItemKind) -> Result<bool, &'static str> {
+    pub fn equip(
+        &mut self,
+        bag: &mut Inventory,
+        item: ItemKind,
+        strength: u8,
+    ) -> Result<bool, &'static str> {
         let gear = item.gear().ok_or("This item cannot be equipped.")?;
         let slot = if item.fits_slot(EquipmentSlot::OffHand)
             && self
@@ -148,7 +161,7 @@ impl Equipment {
         } else {
             gear.slot
         };
-        self.equip_in(bag, slot, item)
+        self.equip_in(bag, slot, item, strength)
     }
 
     pub fn equip_in(
@@ -156,9 +169,13 @@ impl Equipment {
         bag: &mut Inventory,
         slot: EquipmentSlot,
         item: ItemKind,
+        strength: u8,
     ) -> Result<bool, &'static str> {
         if !item.fits_slot(slot) {
             return Err("This item cannot be equipped in that slot.");
+        }
+        if !item.meets_strength(strength) {
+            return Err("Strength is too low to equip this item.");
         }
         if slot == EquipmentSlot::OffHand && self.off_hand_reserved() {
             return Err("The main-hand weapon uses both hands.");
@@ -248,7 +265,7 @@ fn equip(
     request: On<EquipRequest>,
     state: Res<State<GameState>>,
     menu: Res<PlayerMenu>,
-    mut attacks: Query<&mut WeaponAttack, With<Player>>,
+    mut players: Query<(&AttributeRanks, &mut WeaponAttack), (With<Player>, Without<Dead>)>,
     mut equipment: ResMut<Equipment>,
     mut bag: ResMut<Inventory>,
     mut notice: ResMut<InventoryNotice>,
@@ -260,15 +277,19 @@ fn equip(
     {
         return;
     }
+    let Ok((ranks, mut attack)) = players.single_mut() else {
+        return;
+    };
+    let strength = ranks.rank(AttributeId::Strength);
     let (item, result) = match *request {
-        EquipRequest::Quick(item) => (item, equipment.equip(&mut bag, item)),
-        EquipRequest::InSlot(slot, item) => (item, equipment.equip_in(&mut bag, slot, item)),
+        EquipRequest::Quick(item) => (item, equipment.equip(&mut bag, item, strength)),
+        EquipRequest::InSlot(slot, item) => {
+            (item, equipment.equip_in(&mut bag, slot, item, strength))
+        }
     };
     notice.0 = match result {
         Ok(true) => {
-            if item.weapon().is_some()
-                && let Ok(mut attack) = attacks.single_mut()
-            {
+            if item.weapon().is_some() {
                 attack.cancel();
             }
             if let Some(assets) = assets {
@@ -468,17 +489,47 @@ fn sync_worn(
 mod tests {
     use super::*;
     #[test]
+    fn insufficient_strength_leaves_both_hands_and_inventory_intact() {
+        use EquipmentSlot::{MainHand, OffHand};
+        use ItemKind::{Shortsword, Trident};
+
+        let mut bag = Inventory::default();
+        assert!(bag.add(Shortsword, 2));
+        assert!(bag.add(Trident, 1));
+        let mut gear = Equipment::default();
+        assert_eq!(gear.equip(&mut bag, Shortsword, 5), Ok(true));
+        assert_eq!(gear.equip(&mut bag, Shortsword, 5), Ok(true));
+        for attempt in [
+            gear.equip(&mut bag, Trident, 7),
+            gear.equip_in(&mut bag, MainHand, Trident, 7),
+        ] {
+            assert!(attempt.is_err());
+        }
+        assert_eq!(gear.get(MainHand), Some(Shortsword));
+        assert_eq!(gear.get(OffHand), Some(Shortsword));
+        assert_eq!(bag.count(Trident), 1);
+
+        assert_eq!(gear.equip(&mut bag, Trident, 8), Ok(true));
+        assert_eq!(gear.get(MainHand), Some(Trident));
+        assert_eq!(gear.get(OffHand), None);
+        assert_eq!(bag.count(Shortsword), 2);
+    }
+
+    #[test]
     fn equip_swap_unequip_conserve_items_and_update_defense() {
         let mut bag = Inventory::default();
         let mut gear = Equipment::default();
         assert!(bag.add(ItemKind::FieldArmor, 2));
         assert!(bag.add(ItemKind::ReinforcedArmor, 1));
         assert!(bag.add(ItemKind::FieldHelmet, 1));
-        assert_eq!(gear.equip(&mut bag, ItemKind::FieldArmor), Ok(true));
-        assert_eq!(gear.equip(&mut bag, ItemKind::FieldHelmet), Ok(true));
+        assert_eq!(gear.equip(&mut bag, ItemKind::FieldArmor, 10), Ok(true));
+        assert_eq!(gear.equip(&mut bag, ItemKind::FieldHelmet, 10), Ok(true));
         assert_eq!(gear.total_defense(), 3);
         assert_eq!(bag.count(ItemKind::FieldArmor), 1);
-        assert_eq!(gear.equip(&mut bag, ItemKind::ReinforcedArmor), Ok(true));
+        assert_eq!(
+            gear.equip(&mut bag, ItemKind::ReinforcedArmor, 10),
+            Ok(true)
+        );
         assert_eq!(gear.total_defense(), 6);
         assert_eq!(bag.count(ItemKind::FieldArmor), 2);
         assert_eq!(bag.count(ItemKind::ReinforcedArmor), 0);
@@ -490,13 +541,13 @@ mod tests {
     fn invalid_and_repeated_operations_preserve_ownership() {
         let mut bag = Inventory::default();
         let mut gear = Equipment::default();
-        assert!(gear.equip(&mut bag, ItemKind::FieldArmor).is_err());
+        assert!(gear.equip(&mut bag, ItemKind::FieldArmor, 10).is_err());
         bag.add(ItemKind::Battery, 1);
-        assert!(gear.equip(&mut bag, ItemKind::Battery).is_err());
+        assert!(gear.equip(&mut bag, ItemKind::Battery, 10).is_err());
         bag.add(ItemKind::FieldHelmet, 2);
-        gear.equip(&mut bag, ItemKind::FieldHelmet)
+        gear.equip(&mut bag, ItemKind::FieldHelmet, 10)
             .expect("the owned field helmet must equip into the empty helmet slot");
-        assert_eq!(gear.equip(&mut bag, ItemKind::FieldHelmet), Ok(false));
+        assert_eq!(gear.equip(&mut bag, ItemKind::FieldHelmet, 10), Ok(false));
         assert_eq!(bag.count(ItemKind::FieldHelmet), 1);
         assert_eq!(gear.unequip(&mut bag, EquipmentSlot::Body), Ok(false));
         gear.unequip(&mut bag, EquipmentSlot::Helmet)
@@ -509,11 +560,11 @@ mod tests {
         let mut bag = Inventory::default();
         let mut gear = Equipment::default();
         bag.add(ItemKind::FieldArmor, 1);
-        gear.equip(&mut bag, ItemKind::FieldArmor)
+        gear.equip(&mut bag, ItemKind::FieldArmor, 10)
             .expect("the owned field armor must equip into the empty body slot");
         bag.add(ItemKind::FieldArmor, u32::MAX);
         bag.add(ItemKind::ReinforcedArmor, 1);
-        assert!(gear.equip(&mut bag, ItemKind::ReinforcedArmor).is_err());
+        assert!(gear.equip(&mut bag, ItemKind::ReinforcedArmor, 10).is_err());
         assert!(gear.unequip(&mut bag, EquipmentSlot::Body).is_err());
         assert_eq!(gear.get(EquipmentSlot::Body), Some(ItemKind::FieldArmor));
         assert_eq!(bag.count(ItemKind::ReinforcedArmor), 1);
@@ -523,7 +574,7 @@ mod tests {
         let mut bag = Inventory::default();
         let mut gear = Equipment::default();
         bag.add(ItemKind::FieldArmor, 2);
-        gear.equip(&mut bag, ItemKind::FieldArmor)
+        gear.equip(&mut bag, ItemKind::FieldArmor, 10)
             .expect("one of the two owned armor pieces must equip");
         assert!(
             bag.drop_stack(ItemKind::FieldArmor, 1, Some(Vec3::ZERO))
@@ -552,26 +603,37 @@ mod tests {
         assert!(bag.add(Shortsword, 2));
         assert!(bag.add(FieldSpear, 1));
         let weight = bag.carried_weight(&equipment);
-        assert_eq!(equipment.equip(&mut bag, Shortsword), Ok(true));
-        assert_eq!(equipment.equip(&mut bag, Shortsword), Ok(true));
+        assert_eq!(equipment.equip(&mut bag, Shortsword, 10), Ok(true));
+        assert_eq!(equipment.equip(&mut bag, Shortsword, 10), Ok(true));
         assert_eq!(equipment.get(MainHand), Some(Shortsword));
         assert_eq!(equipment.get(OffHand), Some(Shortsword));
         assert_eq!(equipment.count(Shortsword), 2);
         assert_eq!(bag.carried_weight(&equipment), weight);
         assert!(bag.drop_stack(Shortsword, 1, Some(Vec3::ZERO)).is_none());
-        assert!(equipment.equip_in(&mut bag, OffHand, FieldSpear).is_err());
+        assert!(
+            equipment
+                .equip_in(&mut bag, OffHand, FieldSpear, 10)
+                .is_err()
+        );
 
-        assert_eq!(equipment.equip(&mut bag, FieldSpear), Ok(true));
+        assert_eq!(equipment.equip(&mut bag, FieldSpear, 10), Ok(true));
         assert_eq!(equipment.get(MainHand), Some(FieldSpear));
         assert_eq!(equipment.get(OffHand), None);
         assert!(equipment.off_hand_reserved());
         assert_eq!(bag.count(Shortsword), 2);
         assert_eq!(bag.carried_weight(&equipment), weight);
-        assert!(equipment.equip_in(&mut bag, OffHand, Shortsword).is_err());
+        assert!(
+            equipment
+                .equip_in(&mut bag, OffHand, Shortsword, 10)
+                .is_err()
+        );
         assert!(equipment.valid_slots());
 
         assert_eq!(equipment.unequip(&mut bag, MainHand), Ok(true));
-        assert_eq!(equipment.equip_in(&mut bag, OffHand, Shortsword), Ok(true));
+        assert_eq!(
+            equipment.equip_in(&mut bag, OffHand, Shortsword, 10),
+            Ok(true)
+        );
         assert_eq!(equipment.get(MainHand), None);
         assert_eq!(equipment.get(OffHand), Some(Shortsword));
     }
@@ -583,13 +645,13 @@ mod tests {
         let mut bag = Inventory::default();
         let mut equipment = Equipment::default();
         assert!(bag.add(Shortsword, 2));
-        assert_eq!(equipment.equip(&mut bag, Shortsword), Ok(true));
-        assert_eq!(equipment.equip(&mut bag, Shortsword), Ok(true));
+        assert_eq!(equipment.equip(&mut bag, Shortsword, 10), Ok(true));
+        assert_eq!(equipment.equip(&mut bag, Shortsword, 10), Ok(true));
         assert!(bag.add(Shortsword, u32::MAX - 1));
         assert!(bag.add(Trident, 1));
 
         let before = equipment.clone();
-        assert!(equipment.equip(&mut bag, Trident).is_err());
+        assert!(equipment.equip(&mut bag, Trident, 10).is_err());
         assert_eq!(equipment, before);
         assert_eq!(bag.count(Shortsword), u32::MAX - 1);
         assert_eq!(bag.count(Trident), 1);
@@ -609,6 +671,7 @@ mod tests {
             .add_observer(unequip);
         app.finish();
         app.cleanup();
+        app.world_mut().spawn(Player::default());
         app.world_mut()
             .resource_mut::<Inventory>()
             .add(ItemKind::FieldArmor, 1);

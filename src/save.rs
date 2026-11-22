@@ -1,5 +1,6 @@
 use crate::{
     GameState,
+    attributes::{AttributeId, AttributeRanks, CharacterProgress, SavedProgress},
     camera::Orbit,
     combat::{CombatSystems, ConfirmedHit, Dead, Health, Hit},
     dungeon::{Area, DungeonProgress},
@@ -29,7 +30,8 @@ use std::{
 };
 
 // Four magic bytes followed by the little-endian save schema version.
-const HEADER: &[u8; 6] = b"PLUT\x02\x00";
+const HEADER: &[u8; 6] = b"PLUT\x03\x00";
+const V2_HEADER: &[u8; 6] = b"PLUT\x02\x00";
 const LEGACY_HEADER: &[u8; 6] = b"PLUT\x01\x00";
 const MAX_SAVE_BYTES: usize = 1024 * 1024;
 
@@ -105,7 +107,7 @@ struct SavedEncounter {
 }
 
 #[derive(bitcode::Encode, bitcode::Decode)]
-pub(crate) struct Snapshot<E = Equipment> {
+pub(crate) struct Snapshot<E = Equipment, P = SavedProgress> {
     pub(crate) journal: SavedJournal,
     inventory: Inventory,
     equipment: E,
@@ -115,6 +117,7 @@ pub(crate) struct Snapshot<E = Equipment> {
     nemi: SavedActor,
     nemi_state: NemiState,
     encounters: BTreeMap<EncounterId, SavedEncounter>,
+    pub(crate) progression: P,
     #[bitcode(skip)]
     pub(crate) add_shortswords_on_spawn: bool,
 }
@@ -129,39 +132,52 @@ enum LegacyEquipmentSlot {
     Weapon,
 }
 
-impl From<Snapshot<BTreeMap<LegacyEquipmentSlot, ItemKind>>> for Snapshot {
-    fn from(old: Snapshot<BTreeMap<LegacyEquipmentSlot, ItemKind>>) -> Self {
-        Self {
-            journal: old.journal,
-            inventory: old.inventory,
-            equipment: Equipment(
-                old.equipment
-                    .into_iter()
-                    .map(|(slot, item)| {
-                        let slot = match slot {
-                            LegacyEquipmentSlot::Body => EquipmentSlot::Body,
-                            LegacyEquipmentSlot::Helmet => EquipmentSlot::Helmet,
-                            LegacyEquipmentSlot::Weapon => EquipmentSlot::MainHand,
-                        };
-                        (slot, item)
-                    })
-                    .collect(),
-            ),
-            chests: old.chests,
-            dungeon: old.dungeon,
-            pickups: old.pickups,
-            nemi: old.nemi,
-            nemi_state: old.nemi_state,
-            encounters: old.encounters,
-            add_shortswords_on_spawn: true,
+fn migrate<E>(
+    old: Snapshot<E, ()>,
+    equipment: Equipment,
+    add_shortswords_on_spawn: bool,
+) -> io::Result<Snapshot> {
+    let mut snapshot = Snapshot {
+        journal: old.journal,
+        inventory: old.inventory,
+        equipment,
+        chests: old.chests,
+        dungeon: old.dungeon,
+        pickups: old.pickups,
+        nemi: old.nemi,
+        nemi_state: old.nemi_state,
+        encounters: old.encounters,
+        progression: SavedProgress::default(),
+        add_shortswords_on_spawn,
+    };
+    if !snapshot.equipment.valid_slots() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "Invalid legacy equipment slots",
+        ));
+    }
+    let strength = snapshot.progression.ranks().rank(AttributeId::Strength);
+    for slot in EquipmentSlot::ALL {
+        if let Some(item) = snapshot.equipment.get(slot)
+            && !item.meets_strength(strength)
+        {
+            snapshot
+                .equipment
+                .unequip(&mut snapshot.inventory, slot)
+                .map_err(|reason| io::Error::new(io::ErrorKind::InvalidData, reason))?;
         }
     }
+    Ok(snapshot)
 }
 
 impl Snapshot {
     fn is_valid(&self) -> bool {
         self.inventory.valid_stacks()
+            && self.progression.is_valid()
             && self.equipment.valid_slots()
+            && self.equipment.0.values().all(|item| {
+                item.meets_strength(self.progression.ranks().rank(AttributeId::Strength))
+            })
             && self.chests.valid_stacks()
             && self.dungeon.is_valid()
             && self.nemi.is_valid(Nemi::MAX_HEALTH)
@@ -282,13 +298,30 @@ fn read_save(path: &Path) -> io::Result<Snapshot> {
             "Save file is too large",
         ));
     }
+    let invalid_data = |error| io::Error::new(io::ErrorKind::InvalidData, error);
     let snapshot: Snapshot = if let Some(payload) = data.strip_prefix(HEADER) {
-        bitcode::decode(payload)
-            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?
+        bitcode::decode(payload).map_err(invalid_data)?
+    } else if let Some(payload) = data.strip_prefix(V2_HEADER) {
+        let old: Snapshot<Equipment, ()> = bitcode::decode(payload).map_err(invalid_data)?;
+        let equipment = old.equipment.clone();
+        migrate(old, equipment, false)?
     } else if let Some(payload) = data.strip_prefix(LEGACY_HEADER) {
-        let legacy: Snapshot<BTreeMap<LegacyEquipmentSlot, ItemKind>> = bitcode::decode(payload)
-            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
-        legacy.into()
+        let old: Snapshot<BTreeMap<LegacyEquipmentSlot, ItemKind>, ()> =
+            bitcode::decode(payload).map_err(invalid_data)?;
+        let equipment = Equipment(
+            old.equipment
+                .iter()
+                .map(|(&slot, &item)| {
+                    let slot = match slot {
+                        LegacyEquipmentSlot::Body => EquipmentSlot::Body,
+                        LegacyEquipmentSlot::Helmet => EquipmentSlot::Helmet,
+                        LegacyEquipmentSlot::Weapon => EquipmentSlot::MainHand,
+                    };
+                    (slot, item)
+                })
+                .collect(),
+        );
+        migrate(old, equipment, true)?
     } else {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
@@ -404,7 +437,10 @@ pub(crate) fn recover_defeated(
 pub(crate) fn save_at_bed(
     mut requests: MessageReader<SaveAtBed>,
     beds: Query<(), With<Bed>>,
-    mut player: Query<(&Player, &mut Health), (Without<Dead>, Without<Nemi>, Without<EncounterId>)>,
+    mut player: Query<
+        (&Player, &mut Health, &AttributeRanks, &CharacterProgress),
+        (Without<Dead>, Without<Nemi>, Without<EncounterId>),
+    >,
     nemi: Query<(&Transform, &Health, &Nemi)>,
     encounters: Query<(&EncounterId, &Transform, &Health, &CorpseLoot)>,
     pickups: Query<(&Pickup, &Transform)>,
@@ -423,7 +459,7 @@ pub(crate) fn save_at_bed(
     {
         return;
     }
-    let Ok((player, mut player_health)) = player.single_mut() else {
+    let Ok((player, mut player_health, ranks, progress)) = player.single_mut() else {
         return;
     };
     let Ok((pose, health, nemi)) = nemi.single() else {
@@ -459,6 +495,7 @@ pub(crate) fn save_at_bed(
                 )
             })
             .collect(),
+        progression: SavedProgress::capture(ranks, *progress),
         add_shortswords_on_spawn: false,
     };
     let text = match slot.save(snapshot, &mut run) {
@@ -542,6 +579,7 @@ fn restore_actors(
                 .restore(&mut transform, &mut health, &mut commands.entity(entity));
             if !encounter.has_loot {
                 loot.stack = None;
+                commands.entity(entity).insert(Visibility::Hidden);
             }
         }
     }
@@ -676,7 +714,7 @@ mod tests {
         assert!(inventory.add(ItemKind::FieldArmor, 1));
         world
             .resource_mut::<Equipment>()
-            .equip(&mut inventory, ItemKind::FieldArmor)
+            .equip(&mut inventory, ItemKind::FieldArmor, 10)
             .expect("equip armor");
         world.insert_resource(inventory);
         let lamp = world
@@ -819,7 +857,7 @@ mod tests {
     }
 
     #[test]
-    fn v1_equipment_loads_into_main_hand_and_v2_persists_both_swords() {
+    fn v1_equipment_loads_into_main_hand_and_new_saves_persist_both_swords() {
         use EquipmentSlot::{MainHand, OffHand};
         use ItemKind::{FieldArmor, FieldHelmet, FieldSpear, Shortsword};
 
@@ -842,6 +880,7 @@ mod tests {
             nemi: base.nemi,
             nemi_state: base.nemi_state,
             encounters: base.encounters,
+            progression: (),
             add_shortswords_on_spawn: false,
         };
         let mut bytes = LEGACY_HEADER.to_vec();
@@ -866,18 +905,98 @@ mod tests {
             assert_eq!(
                 migrated
                     .equipment
-                    .equip(&mut migrated.inventory, Shortsword),
+                    .equip(&mut migrated.inventory, Shortsword, 10),
                 Ok(true)
             );
         }
         write_save(&file, &migrated).expect("save dual-wield loadout");
-        let saved = read_save(&file).expect("read the v2 loadout");
+        let saved = read_save(&file).expect("read the current loadout");
         assert!(fs::read(&file).expect("new save bytes").starts_with(HEADER));
         assert_eq!(saved.equipment.get(MainHand), Some(Shortsword));
         assert_eq!(saved.equipment.get(OffHand), Some(Shortsword));
         assert_eq!(saved.inventory.count(FieldSpear), 1);
         assert_eq!(saved.inventory.count(Shortsword), 0);
         assert!(!saved.add_shortswords_on_spawn);
+    }
+
+    #[test]
+    fn v2_migration_returns_ineligible_gear_and_preserves_eligible_items() {
+        use ItemKind::{FieldHelmet, ReinforcedArmor, Trident};
+
+        let dir = TestDirectory::new();
+        let file = dir.path();
+        let (mut world, bed, _, _) = bed_world(file.clone());
+        interact_with(&mut world, bed);
+        let base = read_save(&file).expect("read the fixture save");
+        let legacy = Snapshot {
+            journal: base.journal,
+            inventory: base.inventory,
+            equipment: Equipment(BTreeMap::from([
+                (EquipmentSlot::Body, ReinforcedArmor),
+                (EquipmentSlot::Helmet, FieldHelmet),
+                (EquipmentSlot::MainHand, Trident),
+            ])),
+            chests: base.chests,
+            dungeon: base.dungeon,
+            pickups: base.pickups,
+            nemi: base.nemi,
+            nemi_state: base.nemi_state,
+            encounters: base.encounters,
+            progression: (),
+            add_shortswords_on_spawn: false,
+        };
+        let mut bytes = V2_HEADER.to_vec();
+        bytes.extend(bitcode::encode(&legacy));
+        fs::write(&file, &bytes).expect("write legacy v2 save");
+
+        let saved = read_save(&file).expect("migrate v2 save");
+        assert_eq!(
+            saved.equipment.get(EquipmentSlot::Helmet),
+            Some(FieldHelmet)
+        );
+        assert_eq!(saved.equipment.get(EquipmentSlot::MainHand), None);
+        assert_eq!(saved.equipment.get(EquipmentSlot::Body), None);
+        assert_eq!(saved.inventory.count(Trident), 1);
+        assert_eq!(saved.inventory.count(ReinforcedArmor), 1);
+        assert_eq!(saved.progression.ranks(), AttributeRanks::default());
+        assert_eq!(fs::read(&file).expect("read original bytes"), bytes);
+    }
+
+    #[test]
+    fn bed_save_restores_ranks_points_and_full_derived_pools() {
+        use crate::player::Stamina;
+
+        let dir = TestDirectory::new();
+        let file = dir.path();
+        let (mut world, bed, player, _) = bed_world(file.clone());
+        let ranks = AttributeRanks::default()
+            .with_rank(AttributeId::Vitality, 12)
+            .with_rank(AttributeId::Endurance, 10);
+        let progress = CharacterProgress {
+            level: 8,
+            unspent: 9,
+        };
+        world.entity_mut(player).insert((ranks.clone(), progress));
+        interact_with(&mut world, bed);
+        let saved = read_save(&file).expect("read the saved progression");
+        let restored = world.spawn((Player::default(), saved.progression.player_components()));
+        assert_eq!(restored.get::<AttributeRanks>(), Some(&ranks));
+        assert_eq!(restored.get::<CharacterProgress>(), Some(&progress));
+        assert_eq!(
+            restored.get::<Health>().expect("derived health").current(),
+            128
+        );
+        assert_eq!(
+            restored.get::<Stamina>().expect("derived stamina").tuning(),
+            (120.0, 30.0)
+        );
+        assert_eq!(
+            restored
+                .get::<Stamina>()
+                .expect("derived stamina")
+                .fraction(),
+            1.0
+        );
     }
 
     #[test]

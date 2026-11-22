@@ -3,11 +3,12 @@ use bevy::{prelude::*, window::PrimaryWindow};
 
 use crate::{
     GameState,
+    attributes::{CarryLimits, MeleeDamageMultiplier, MovementCosts},
     combat::{CombatSystems, Contact, Hit},
     controls::{Control, Keybinds},
     equipment::{Equipment, EquipmentSlot, WeaponKind},
     interaction::InteractionSystems,
-    inventory::{CARRY_CAPACITY, Inventory},
+    inventory::Inventory,
     menu_ui::PlayerMenu,
     player::{Dodge, MovementInput, Player, Stamina},
     quest::Dialogue,
@@ -159,6 +160,9 @@ fn attack(
         &Player,
         &Dodge,
         &Stamina,
+        &MovementCosts,
+        &CarryLimits,
+        &MeleeDamageMultiplier,
         &Transform,
         &mut WeaponStance,
         &mut WeaponAttack,
@@ -167,10 +171,20 @@ fn attack(
     log: Option<Res<PlayerMenu>>,
     next: Res<NextState<GameState>>,
 ) {
-    let Ok((entity, controller, dodge, stamina, transform, mut stance, mut swing)) =
-        player.single_mut()
+    let Ok((
+        entity,
+        controller,
+        dodge,
+        stamina,
+        costs,
+        limits,
+        melee,
+        transform,
+        mut stance,
+        mut swing,
+    )) = player.single_mut()
     else {
-        for (_, _, _, _, _, _, mut swing) in &mut player {
+        for (.., mut swing) in &mut player {
             swing.cancel();
         }
         return;
@@ -201,8 +215,8 @@ fn attack(
     let can_start = controller.grounded
         && !menu_open
         && !dodge.active()
-        && !(inventory.carried_weight(&equipment) <= CARRY_CAPACITY
-            && movement.dodge_pending(controller.grounded, dodge, stamina));
+        && !(inventory.carried_weight(&equipment) <= limits.capacity_kg
+            && movement.dodge_pending(controller.grounded, dodge, stamina, costs.dodge));
 
     for hand in Hand::ALL {
         let equipped = equipment.weapon(hand.slot());
@@ -210,7 +224,7 @@ fn attack(
             if equipped != Some(current.weapon) {
                 swing.swings[hand as usize] = None;
             } else if let Some(weapon) = swing.advance(hand, time.delta_secs())
-                && let Some(hit) = weapon_contact(
+                && let Some(mut hit) = weapon_contact(
                     weapon,
                     hand,
                     &spatial,
@@ -219,6 +233,7 @@ fn attack(
                     transform.rotation,
                 )
             {
+                hit.damage = melee.scale(hit.damage);
                 hits.write(hit);
             }
         } else if can_start
@@ -496,7 +511,7 @@ mod tests {
         assert_eq!(
             world
                 .resource_mut::<Equipment>()
-                .equip(&mut bag, ItemKind::FieldSpear),
+                .equip(&mut bag, ItemKind::FieldSpear, 10),
             Ok(true)
         );
         world
@@ -596,7 +611,7 @@ mod tests {
         assert_eq!(
             world
                 .resource_mut::<Equipment>()
-                .equip(&mut bag, ItemKind::FieldSpear),
+                .equip(&mut bag, ItemKind::FieldSpear, 10),
             Ok(true)
         );
         world.resource_mut::<Dialogue>().text = Some("Talking");
@@ -676,7 +691,7 @@ mod tests {
         assert!(bag.add(Shortsword, 2));
         assert!(bag.add(FieldSpear, 1));
         let mut equipment = Equipment::default();
-        assert_eq!(equipment.equip(&mut bag, FieldSpear), Ok(true));
+        assert_eq!(equipment.equip(&mut bag, FieldSpear, 10), Ok(true));
         app.insert_resource(equipment.clone());
         for _ in 0..3 {
             app.update();
@@ -685,7 +700,10 @@ mod tests {
         assert!(!player_attack(&app, player).active());
 
         assert_eq!(equipment.unequip(&mut bag, MainHand), Ok(true));
-        assert_eq!(equipment.equip_in(&mut bag, OffHand, Shortsword), Ok(true));
+        assert_eq!(
+            equipment.equip_in(&mut bag, OffHand, Shortsword, 10),
+            Ok(true)
+        );
         app.insert_resource(equipment.clone());
         click(&mut app, &[Left]);
         assert!(!player_attack(&app, player).active());
@@ -696,7 +714,10 @@ mod tests {
         }
         assert_eq!(health(&app), 53);
 
-        assert_eq!(equipment.equip_in(&mut bag, MainHand, Shortsword), Ok(true));
+        assert_eq!(
+            equipment.equip_in(&mut bag, MainHand, Shortsword, 10),
+            Ok(true)
+        );
         app.insert_resource(equipment);
         click(&mut app, &[Right, Left]);
         let attack = player_attack(&app, player);
@@ -769,6 +790,76 @@ mod tests {
     }
 
     #[test]
+    fn strength_scales_both_hands_before_target_defense() {
+        use crate::{
+            attributes::{AttributeId, AttributeRanks, CharacterProgress, SavedProgress},
+            combat::{Defense, Health},
+        };
+
+        let mut app = test_app();
+        let world = app.world_mut();
+        world.spawn((
+            PrimaryWindow,
+            Window {
+                focused: true,
+                ..default()
+            },
+        ));
+        let mut controller = Player::default();
+        controller.grounded = true;
+        let ranks = AttributeRanks::default().with_rank(AttributeId::Strength, 100);
+        let profile = SavedProgress::capture(&ranks, CharacterProgress::default());
+        world.spawn((
+            controller,
+            Transform::default(),
+            profile.player_components(),
+        ));
+        let target = world
+            .spawn((
+                Health::new(60),
+                Defense(3),
+                RigidBody::Static,
+                Collider::cuboid(0.7, 1.5, 0.3),
+                Transform::from_xyz(0.0, 0.0, 1.1),
+            ))
+            .id();
+        world.resource_mut::<Orbit>().yaw = std::f32::consts::PI;
+        world
+            .resource_mut::<NextState<GameState>>()
+            .set(GameState::Playing);
+        let mut bag = Inventory::default();
+        assert!(bag.add(ItemKind::Shortsword, 2));
+        let mut equipment = Equipment::default();
+        for _ in 0..2 {
+            assert_eq!(
+                equipment.equip(&mut bag, ItemKind::Shortsword, 100),
+                Ok(true)
+            );
+        }
+        app.insert_resource(equipment);
+        for _ in 0..3 {
+            app.update();
+        }
+        let mut buttons = app.world_mut().resource_mut::<ButtonInput<MouseButton>>();
+        buttons.press(MouseButton::Left);
+        buttons.press(MouseButton::Right);
+        app.update();
+        app.world_mut()
+            .resource_mut::<ButtonInput<MouseButton>>()
+            .reset_all();
+        for _ in 0..30 {
+            app.update();
+        }
+        assert_eq!(
+            app.world()
+                .get::<Health>(target)
+                .expect("target has health")
+                .current(),
+            38
+        );
+    }
+
+    #[test]
     fn holster_uses_the_current_binding_and_blocks_attacks_until_drawn() {
         use crate::controls::Binding;
         use KeyCode::{KeyH, KeyX};
@@ -825,7 +916,8 @@ mod tests {
             app.world_mut().resource_mut::<Equipment>().equip_in(
                 &mut bag,
                 EquipmentSlot::OffHand,
-                ItemKind::Shortsword
+                ItemKind::Shortsword,
+                5,
             ),
             Ok(true)
         );

@@ -4,6 +4,7 @@
 #![deny(clippy::perf)]
 #![deny(clippy::too_many_lines)]
 #![deny(clippy::unwrap_used)]
+mod attributes;
 mod camera;
 mod combat;
 mod combat_audio;
@@ -120,6 +121,7 @@ fn main() {
             combat_audio::CombatAudioPlugin,
             settings::SettingsPlugin,
             enemy::EnemyPlugin,
+            attributes::AttributesPlugin,
             nemi::NemiPlugin,
             loot_ui::LootUiPlugin,
         ));

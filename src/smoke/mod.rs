@@ -15,10 +15,11 @@ use self::{
 };
 use crate::{
     GameState,
+    attributes::CarryLimits,
     camera::Orbit,
     equipment::Equipment,
     interaction::{InteractionTarget, Nearby, Target},
-    inventory::{CARRY_CAPACITY, DropRequest, IMMOBILE_WEIGHT, Inventory, ItemKind},
+    inventory::{DropRequest, Inventory, ItemKind},
     inventory_ui::{InventoryAction, InventoryRow, InventoryUiState},
     loading::LoadStatus,
     menu_ui::{MenuTab, PlayerMenu},
@@ -297,7 +298,7 @@ fn drive(
         Query<(Entity, &QuestRow)>,
         Query<(Entity, &MenuTab)>,
     ),
-    mut player: Query<(&mut Transform, &Player, &Dodge)>,
+    mut player: Query<(&mut Transform, &Player, &Dodge, &CarryLimits)>,
     targets: Query<(&Target, &Transform), Without<Player>>,
     beacon: Query<&PointLight, With<Beacon>>,
     layout: Res<WorldLayout>,
@@ -310,7 +311,7 @@ fn drive(
     if !armor.done() {
         return;
     }
-    let (transform, controller, dodge) =
+    let (transform, controller, dodge, limits) =
         player.single_mut().expect("the arena must have one player");
     keys.reset_all();
     let click_action = |commands: &mut Commands, action| {
@@ -379,7 +380,7 @@ fn drive(
         | ArenaStep::DropBoulder(..)
         | ArenaStep::ResumeAfterDrop(..) => check_carrying_limits(
             run, inventory, step, fixed, state, nearby, equipment, menu, orbit, keys, commands,
-            exit, transform, controller, dodge,
+            exit, transform, controller, dodge, limits,
         ),
     }
 }
@@ -681,6 +682,7 @@ fn check_carrying_limits(
     transform: Mut<Transform>,
     controller: &Player,
     dodge: &Dodge,
+    limits: &CarryLimits,
 ) {
     match *step {
         ArenaStep::CollectBoulder(count) => {
@@ -722,7 +724,7 @@ fn check_carrying_limits(
                 match count {
                     2 => {
                         assert!(
-                            weight > IMMOBILE_WEIGHT && travel.length() < 0.02,
+                            weight > limits.movement_limit_kg && travel.length() < 0.02,
                             "the severe load must prevent movement, load {weight}, travel {travel:?}"
                         );
                         keys.press(KeyCode::KeyI);
@@ -730,7 +732,7 @@ fn check_carrying_limits(
                     }
                     1 => {
                         assert!(
-                            (CARRY_CAPACITY + 1..=IMMOBILE_WEIGHT).contains(&weight)
+                            (limits.capacity_kg + 1..=limits.movement_limit_kg).contains(&weight)
                                 && travel.z < -0.2,
                             "the moderate load must allow walking, load {weight}, travel {travel:?}"
                         );

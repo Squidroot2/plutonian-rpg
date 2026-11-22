@@ -1,14 +1,14 @@
 use std::collections::BTreeMap;
 
 use crate::{
+    attributes::{AttributeId, AttributeRanks, AttributeUpdates, CarryLimits, DEFAULT_RANK},
     controls::{Control, Keybinds},
     equipment::{EquipRequest, Equipment, EquipmentSlot, Handedness, UnequipRequest},
-    inventory::{
-        CARRY_CAPACITY, DropRequest, IMMOBILE_WEIGHT, Inventory, InventoryNotice, ItemKind,
-    },
+    inventory::{DropRequest, Inventory, InventoryNotice, ItemKind},
     menu_ui::{
         self, BUTTON, DISABLED, MenuTab, PlayerMenu, SELECTED, column, scroll_pane, set_display,
     },
+    player::Player,
     ui::text_style as font,
 };
 use bevy::{
@@ -207,7 +207,8 @@ impl Plugin for InventoryUiPlugin {
                         .chain()
                         .run_if(inventory_panel_changed),
                 )
-                    .chain(),
+                    .chain()
+                    .after(AttributeUpdates),
             )
             .add_systems(Last, dismiss_prompt.after(menu_ui::close));
     }
@@ -530,7 +531,13 @@ pub(crate) fn spawn_equipment(page: &mut ChildSpawnerCommands) {
                                     action_button(
                                         picker,
                                         InventoryAction::EquipFromSlot(slot, item),
-                                        Text::new(item.name()),
+                                        Text::new(format!(
+                                            "{} / Strength {}",
+                                            item.name(),
+                                            item.gear()
+                                                .expect("picker items are gear")
+                                                .minimum_strength
+                                        )),
                                     );
                                 }
                                 action_button(
@@ -565,6 +572,7 @@ fn dismiss_prompt(
 fn action(
     click: On<PointerClick>,
     actions: Query<&InventoryAction>,
+    ranks: Query<&AttributeRanks, With<Player>>,
     menu: Res<PlayerMenu>,
     inventory: Res<Inventory>,
     equipment: Res<Equipment>,
@@ -578,6 +586,9 @@ fn action(
     if !menu.accepts(action.tab()) || click.button != PointerButton::Primary {
         return;
     }
+    let strength = ranks
+        .single()
+        .map_or(DEFAULT_RANK, |ranks| ranks.rank(AttributeId::Strength));
     match action {
         InventoryAction::Select(row) => {
             let item = row.item();
@@ -592,6 +603,7 @@ fn action(
             ui.cancel_drop();
             notice.0.clear();
             if click.count == 2
+                && item.meets_strength(strength)
                 && matches!(row, InventoryRow::BagGear(..))
                 && (equipment.count(item) == 0 || item.fits_slot(EquipmentSlot::OffHand))
             {
@@ -607,7 +619,8 @@ fn action(
             }
         }
         InventoryAction::EquipFromSlot(slot, item)
-            if can_equip_from_bag(item, slot, &inventory, &equipment) =>
+            if can_equip_from_bag(item, slot, &inventory, &equipment)
+                && item.meets_strength(strength) =>
         {
             commands.trigger(EquipRequest::InSlot(slot, item));
             ui.equip_slot = None;
@@ -769,6 +782,13 @@ fn edit_quantity(
 
 /// Refresh the views when their shared inputs change or the menu is opened.
 fn inventory_panel_changed(
+    attributes: Query<
+        (),
+        (
+            With<Player>,
+            Or<(Changed<AttributeRanks>, Changed<CarryLimits>)>,
+        ),
+    >,
     inventory: Res<Inventory>,
     equipment: Res<Equipment>,
     ui: Res<InventoryUiState>,
@@ -778,6 +798,7 @@ fn inventory_panel_changed(
 ) -> bool {
     menu.is_open()
         && (menu.is_changed()
+            || !attributes.is_empty()
             || inventory.is_changed()
             || equipment.is_changed()
             || ui.is_changed()
@@ -823,6 +844,7 @@ fn selection_is_droppable(ui: &InventoryUiState, inventory: &Inventory) -> bool 
 }
 
 fn refresh_controls(
+    ranks: Query<&AttributeRanks, With<Player>>,
     inventory: Res<Inventory>,
     equipment: Res<Equipment>,
     ui: Res<InventoryUiState>,
@@ -833,6 +855,9 @@ fn refresh_controls(
         Query<(&SlotPicker, &mut Node)>,
     )>,
 ) {
+    let strength = ranks
+        .single()
+        .map_or(DEFAULT_RANK, |ranks| ranks.rank(AttributeId::Strength));
     let droppable = selection_is_droppable(&ui, &inventory);
     for mut node in &mut nodes.p0() {
         set_display(&mut node, ui.drop_is_open());
@@ -848,7 +873,7 @@ fn refresh_controls(
             InventoryAction::EquipFromSlot(slot, item) => (
                 can_equip_from_bag(item, slot, &inventory, &equipment),
                 false,
-                false,
+                !item.meets_strength(strength),
             ),
             InventoryAction::Drop => (true, false, !droppable),
             InventoryAction::ConfirmDrop => (true, false, ui.amount(&inventory).is_none()),
@@ -876,6 +901,7 @@ fn refresh_controls(
 }
 
 fn refresh_labels(
+    limits: Query<&CarryLimits, With<Player>>,
     inventory: Res<Inventory>,
     equipment: Res<Equipment>,
     ui: Res<InventoryUiState>,
@@ -884,10 +910,12 @@ fn refresh_labels(
     menu: Res<PlayerMenu>,
     mut texts: Query<(&PanelText, &mut Text)>,
 ) {
+    let limits = limits.single().copied().unwrap_or_default();
+    let capacity = limits.capacity_kg;
     let weight = inventory.carried_weight(&equipment);
-    let load_status = if weight > IMMOBILE_WEIGHT {
+    let load_status = if weight > limits.movement_limit_kg {
         " / Cannot move"
-    } else if weight > CARRY_CAPACITY {
+    } else if weight > capacity {
         " / Walking only"
     } else {
         ""
@@ -910,7 +938,7 @@ fn refresh_labels(
                 }
             }
             PanelText::Defense => format!("Defense {}", equipment.total_defense()),
-            PanelText::Load => format!("Load {weight}/{CARRY_CAPACITY} kg{load_status}"),
+            PanelText::Load => format!("Load {weight}/{capacity} kg{load_status}"),
             PanelText::Detail => ui.selected_item().map_or_else(String::new, item_detail),
             PanelText::Amount => format!("{}{}", ui.quantity, if ui.editing { "_" } else { "" }),
             PanelText::DropLabel => format!("Drop [{}]", bindings.get(Control::Drop).label()),
@@ -940,19 +968,23 @@ fn item_detail(item: ItemKind) -> String {
     let weight = item.weight();
     let description = item.description();
     if let Some(weapon) = item.weapon() {
+        let minimum = item
+            .gear()
+            .expect("weapons have an equipment definition")
+            .minimum_strength;
         let hands = match weapon.handedness() {
             Handedness::OneHanded => "One-handed",
             Handedness::TwoHanded => "Two-handed",
         };
         return format!(
-            "{weight} kg each / {hands} / Reach {:.1} m / {description}",
+            "{weight} kg each / {hands} / Reach {:.1} m / Strength {minimum} / {description}",
             weapon.reach()
         );
     }
     match item.gear() {
         Some(gear) => format!(
-            "{weight} kg each / Defense {} / {description}",
-            gear.defense
+            "{weight} kg each / Defense {} / Strength {} / {description}",
+            gear.defense, gear.minimum_strength
         ),
         None => format!("{weight} kg each / {description}"),
     }
@@ -990,6 +1022,10 @@ mod tests {
             .init_resource::<InventoryNotice>()
             .init_resource::<InventoryUiState>();
         let world = app.world_mut();
+        world.spawn((
+            Player::default(),
+            AttributeRanks::default().with_rank(AttributeId::Strength, 10),
+        ));
         let mut menu = PlayerMenu::default();
         menu.show(MenuTab::Inventory);
         world.insert_resource(menu);
@@ -1000,7 +1036,7 @@ mod tests {
         assert_eq!(
             world
                 .resource_mut::<Equipment>()
-                .equip(&mut bag, ItemKind::FieldArmor),
+                .equip(&mut bag, ItemKind::FieldArmor, 10),
             Ok(true)
         );
         world.insert_resource(bag);
@@ -1078,6 +1114,7 @@ mod tests {
         let mut menu = PlayerMenu::default();
         menu.show(MenuTab::Inventory);
         let world = app.world_mut();
+        world.spawn(Player::default());
         world.insert_resource(bag);
         world.insert_resource(menu);
         let window = world.spawn_empty().id();
@@ -1184,6 +1221,10 @@ mod tests {
             .init_resource::<InventoryNotice>()
             .init_resource::<InventoryUiState>();
         let world = app.world_mut();
+        world.spawn((
+            Player::default(),
+            AttributeRanks::default().with_rank(AttributeId::Strength, 10),
+        ));
         let mut menu = PlayerMenu::default();
         menu.show(MenuTab::Equipment);
         world.insert_resource(menu);
