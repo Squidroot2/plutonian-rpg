@@ -367,6 +367,9 @@ enum CharacterText {
 #[derive(Component)]
 struct SpendButton(AttributeId);
 
+#[derive(Component)]
+struct AttributeDetails(AttributeId);
+
 pub(crate) fn spawn_character(page: &mut ChildSpawnerCommands) {
     use crate::{ui::menu_ui, ui::text_style};
 
@@ -389,6 +392,15 @@ pub(crate) fn spawn_character(page: &mut ChildSpawnerCommands) {
                                 min_width: px(0),
                                 ..default()
                             },
+                        ))
+                        .observe(show_attribute_details)
+                        .observe(hide_attribute_details);
+                        row.spawn((
+                            AttributeDetails(id),
+                            Text::new(""),
+                            text_style(13.0),
+                            Visibility::Hidden,
+                            Pickable::IGNORE,
                         ));
                         row.spawn((SpendButton(id), menu_ui::button()))
                             .with_child((Text::new("+"), text_style(20.0), Pickable::IGNORE))
@@ -396,6 +408,38 @@ pub(crate) fn spawn_character(page: &mut ChildSpawnerCommands) {
                     });
             }
         });
+}
+
+fn show_attribute_details(
+    over: On<PointerOver>,
+    labels: Query<&CharacterText>,
+    ranks: Single<&AttributeRanks, With<Player>>,
+    mut details: Query<(&AttributeDetails, &mut Text, &mut Visibility)>,
+) {
+    let Ok(CharacterText::Attribute(id)) = labels.get(over.entity) else {
+        return;
+    };
+    for (detail, mut text, mut visibility) in &mut details {
+        if detail.0 == *id {
+            text.0 = ranks.effects().describe(*id);
+            *visibility = Visibility::Visible;
+        }
+    }
+}
+
+fn hide_attribute_details(
+    out: On<PointerOut>,
+    labels: Query<&CharacterText>,
+    mut details: Query<(&AttributeDetails, &mut Visibility)>,
+) {
+    let Ok(CharacterText::Attribute(id)) = labels.get(out.entity) else {
+        return;
+    };
+    for (detail, mut visibility) in &mut details {
+        if detail.0 == *id {
+            *visibility = Visibility::Hidden;
+        }
+    }
 }
 
 fn spend_click(
@@ -434,7 +478,6 @@ fn refresh_character(
     {
         return;
     }
-    let current = ranks.effects();
     for (label, mut text) in &mut texts {
         let value = match *label {
             CharacterText::Progress => {
@@ -447,21 +490,7 @@ fn refresh_character(
                     progress.level, progress.unspent
                 )
             }
-            CharacterText::Attribute(id) => {
-                let rank = ranks.rank(id);
-                let description = current.describe(id);
-                if rank < MAX_RANK {
-                    let mut next = (*ranks).clone();
-                    next.0[id as usize] = rank + 1;
-                    format!(
-                        "{} {rank}\n{description}\nNext rank - {}",
-                        id.name(),
-                        next.effects().describe(id)
-                    )
-                } else {
-                    format!("{} {rank} (max)\n{description}", id.name())
-                }
-            }
+            CharacterText::Attribute(id) => format!("{} {}", id.name(), ranks.rank(id)),
         };
         text.set_if_neq(Text::new(value));
     }
