@@ -88,6 +88,9 @@ struct ActionLabel(Action);
 #[derive(Component)]
 struct CapturePrompt;
 
+#[derive(Component)]
+struct CaptureNotice;
+
 #[derive(Component, Clone, Copy)]
 enum Action {
     ToggleDisplay,
@@ -196,6 +199,21 @@ fn setup(mut commands: Commands) {
                 .spawn((Section::Capture, section_layout()))
                 .with_children(|menu| {
                     menu.spawn((CapturePrompt, Text::default(), ui::text_style(18.0)));
+                    menu.spawn((
+                        CaptureNotice,
+                        Text::default(),
+                        TextFont {
+                            font_size: 22.0.into(),
+                            ..default()
+                        },
+                        TextColor(Color::srgb(1.0, 0.22, 0.22)),
+                        TextLayout::new(Justify::Center, LineBreak::WordBoundary),
+                        Node {
+                            width: percent(100),
+                            ..default()
+                        },
+                        Pickable::IGNORE,
+                    ));
                     menu.spawn((Text::new("Esc to cancel"), ui::text_style(16.0)));
                 });
         });
@@ -376,6 +394,14 @@ fn refresh(
     windows: Query<Ref<Window>, With<PrimaryWindow>>,
     mut labels: Query<(&ActionLabel, &mut Text)>,
     mut prompt: Query<&mut Text, (With<CapturePrompt>, Without<ActionLabel>)>,
+    mut notice: Query<
+        &mut Text,
+        (
+            With<CaptureNotice>,
+            Without<ActionLabel>,
+            Without<CapturePrompt>,
+        ),
+    >,
     mut buttons: Query<
         (&PickingInteraction, &mut BackgroundColor),
         (With<Action>, Changed<PickingInteraction>),
@@ -411,11 +437,10 @@ fn refresh(
             } else {
                 "a key"
             };
-            **text = format!(
-                "Press {input} for {}.\n{}",
-                control.label(),
-                settings.notice
-            );
+            **text = format!("Press {input} for {}.", control.label());
+        }
+        if let Ok(mut text) = notice.single_mut() {
+            text.set_if_neq(Text::new(&settings.notice));
         }
     }
     let window = windows.single().ok();
