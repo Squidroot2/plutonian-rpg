@@ -7,10 +7,13 @@ use crate::{
     quest::{QuestCatalog, QuestJournal},
     roach,
     save::{self, RunSave, SaveSlot},
-    world::WorldLayout,
+    world::{SessionEntity, WorldLayout},
     worm,
 };
-use avian3d::prelude::{Collider, SpatialQuery, SpatialQueryFilter};
+use avian3d::prelude::{
+    Collider, ColliderConstructor, ColliderConstructorHierarchy, RigidBody, SpatialQuery,
+    SpatialQueryFilter,
+};
 use bevy::{
     asset::{LoadState, RecursiveDependencyLoadState},
     gltf::Gltf,
@@ -51,6 +54,7 @@ pub struct GameAssets {
     pub character: Handle<Gltf>,
     pub outpost: Option<(Handle<Gltf>, Handle<Gltf>)>,
     pub relay: Option<(Handle<Gltf>, Handle<Gltf>)>,
+    pub south_basin: Option<(Handle<Gltf>, Handle<Gltf>)>,
     pub core: Handle<Gltf>,
     pub dummy: Handle<Gltf>,
     enemies: BTreeMap<&'static str, Handle<Gltf>>,
@@ -65,6 +69,7 @@ impl GameAssets {
                 self.outpost
                     .iter()
                     .chain(self.relay.iter())
+                    .chain(self.south_basin.iter())
                     .flat_map(|(visuals, collision)| [visuals, collision]),
             )
             .chain(self.enemies.values())
@@ -81,12 +86,54 @@ pub(crate) fn scene_ready(event: On<WorldInstanceReady>, mut commands: Commands)
     commands.entity(event.entity).remove::<PendingScene>();
 }
 
+/// Instantiate aligned terrain scenes and return the collision root for its readiness observer.
+pub(crate) fn spawn_static_scenes(
+    commands: &mut Commands,
+    models: &Assets<Gltf>,
+    handles: &(Handle<Gltf>, Handle<Gltf>),
+    names: (&'static str, &'static str),
+    origin: Vec3,
+) -> Entity {
+    let scene = |handle| {
+        WorldAssetRoot(
+            models
+                .get(handle)
+                .expect("validated terrain models must remain loaded")
+                .scenes[0]
+                .clone(),
+        )
+    };
+    commands
+        .spawn((
+            SessionEntity,
+            Name::new(names.0),
+            PendingScene,
+            scene(&handles.0),
+            Transform::from_translation(origin),
+        ))
+        .observe(scene_ready);
+    commands
+        .spawn((
+            SessionEntity,
+            Name::new(names.1),
+            PendingScene,
+            scene(&handles.1),
+            Transform::from_translation(origin),
+            RigidBody::Static,
+            Visibility::Hidden,
+            ColliderConstructorHierarchy::new(ColliderConstructor::TrimeshFromMesh),
+        ))
+        .observe(scene_ready)
+        .id()
+}
+
 #[derive(Resource, Default)]
 pub struct LoadStatus {
     pub error: Option<String>,
     pub spawning: bool,
     pub collision_ready: bool,
     pub relay_collision_ready: bool,
+    pub south_basin_collision_ready: bool,
     pub started: Option<Instant>,
 }
 fn load(
@@ -109,6 +156,12 @@ fn load(
             (
                 server.load("models/old_relay.glb"),
                 server.load("models/old_relay_collision.glb"),
+            )
+        }),
+        south_basin: (*layout == WorldLayout::Outpost).then(|| {
+            (
+                server.load("models/south_basin.glb"),
+                server.load("models/south_basin_collision.glb"),
             )
         }),
         core: server.load("models/core.glb"),
@@ -177,6 +230,7 @@ fn check(
         if pending.is_empty()
             && (status.collision_ready || arena_floor_ready(&spatial, arena_floor.single().ok()))
             && (assets.relay.is_none() || status.relay_collision_ready)
+            && (assets.south_basin.is_none() || status.south_basin_collision_ready)
             && colliders.iter().nth(MIN_NON_PLAYER_COLLIDERS - 1).is_some()
         {
             next.set(GameState::Playing);

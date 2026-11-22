@@ -2,7 +2,7 @@ use crate::{
     GameState,
     camera::Orbit,
     hushcap,
-    loading::{EnemyVisuals, GameAssets, LoadStatus, PendingScene, scene_ready},
+    loading::{EnemyVisuals, GameAssets, LoadStatus, spawn_static_scenes},
     player::{Dodge, MovementInput, PLAYER_GROUND_OFFSET, Player},
     quest::{Dialogue, QuestAction, QuestJournal},
     roach,
@@ -16,6 +16,7 @@ use bevy::{gltf::Gltf, prelude::*};
 
 pub(crate) const HATCH: Vec3 = Vec3::new(-3.0, 0.0, 1.0);
 pub(crate) const ORIGIN: Vec3 = Vec3::new(0.0, -10.0, -8.0);
+pub(crate) const ARCHIVE_HUSHCAP_HOME: Vec3 = Vec3::new(ORIGIN.x + 3.2, ORIGIN.y, ORIGIN.z - 26.0);
 pub(crate) const GATE_LOCAL: Vec3 = Vec3::new(0.0, 1.85, -17.4);
 pub(crate) const SWITCH_LOCAL: Vec3 = Vec3::new(9.9, 0.0, -10.75);
 pub(crate) const LOG_LOCAL: Vec3 = Vec3::new(0.0, 0.0, -27.3);
@@ -137,56 +138,24 @@ fn spawn_relay(
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut commands: Commands,
 ) {
-    let Some((visual, collision)) = &assets.relay else {
+    let Some(relay) = &assets.relay else {
         return;
     };
-    spawn_relay_scenes(&mut commands, &models, visual, collision);
+    let collision = spawn_static_scenes(
+        &mut commands,
+        &models,
+        relay,
+        ("Old Relay visuals", "Old Relay collision"),
+        ORIGIN,
+    );
+    commands.entity(collision).observe(
+        |_: On<ColliderConstructorHierarchyReady>, mut status: ResMut<LoadStatus>| {
+            status.relay_collision_ready = true;
+        },
+    );
     spawn_relay_fixtures(&mut commands, &mut meshes, &mut materials);
     spawn_relay_lights(&mut commands);
     spawn_relay_encounters(&mut commands, &enemies);
-}
-
-fn spawn_relay_scenes(
-    commands: &mut Commands,
-    models: &Assets<Gltf>,
-    visual: &Handle<Gltf>,
-    collision: &Handle<Gltf>,
-) {
-    let scene = |handle| {
-        WorldAssetRoot(
-            models
-                .get(handle)
-                .expect("the validated relay model must remain loaded")
-                .scenes[0]
-                .clone(),
-        )
-    };
-    commands
-        .spawn((
-            SessionEntity,
-            Name::new("Old Relay visuals"),
-            PendingScene,
-            scene(visual),
-            Transform::from_translation(ORIGIN),
-        ))
-        .observe(scene_ready);
-    commands
-        .spawn((
-            SessionEntity,
-            Name::new("Old Relay collision"),
-            PendingScene,
-            scene(collision),
-            Transform::from_translation(ORIGIN),
-            RigidBody::Static,
-            Visibility::Hidden,
-            ColliderConstructorHierarchy::new(ColliderConstructor::TrimeshFromMesh),
-        ))
-        .observe(scene_ready)
-        .observe(
-            |_: On<ColliderConstructorHierarchyReady>, mut status: ResMut<LoadStatus>| {
-                status.relay_collision_ready = true;
-            },
-        );
 }
 
 fn spawn_relay_fixtures(
@@ -331,7 +300,7 @@ fn spawn_relay_encounters(commands: &mut Commands, enemies: &EnemyVisuals) {
         Area::OldRelay,
     );
     commands.entity(worm).insert(EncounterId::RelayJunctionWorm);
-    let hushcap = hushcap::spawn(commands, enemies);
+    let hushcap = hushcap::spawn(commands, enemies, ARCHIVE_HUSHCAP_HOME, Area::OldRelay);
     commands
         .entity(hushcap)
         .insert(EncounterId::RelayArchiveHushcap);

@@ -9,8 +9,8 @@ use crate::{
     camera::{FollowCamera, Orbit},
     combat::{Dead, Health, Hit},
     dungeon::{
-        ArchiveGate, Area, DungeonProgress, DungeonTarget, GATE_LOCAL, HATCH, LOG_LOCAL, ORIGIN,
-        SWITCH_LOCAL,
+        ARCHIVE_HUSHCAP_HOME, ArchiveGate, Area, DungeonProgress, DungeonTarget, GATE_LOCAL, HATCH,
+        LOG_LOCAL, ORIGIN, SWITCH_LOCAL,
     },
     enemy::{MeleePhase, MeleePursuit, ranged::SpitProjectile},
     equipment::Equipment,
@@ -21,7 +21,7 @@ use crate::{
     player::{Dodge, Player},
     quest::{Dialogue, LAST_LIGHT, OLD_RELAY, QuestAction, QuestJournal, QuestStatus},
     roach::Roach,
-    save::RunSave,
+    save::{EncounterId, RunSave},
     storage::{ChestId, ChestStorage},
     ui::loot_ui::LootAction,
     ui::menu_ui::{MenuTab, PlayerMenu},
@@ -32,7 +32,12 @@ use crate::{
     worm::{GROUND_OFFSET, Worm},
 };
 use avian3d::prelude::*;
-use bevy::{app::AppExit, prelude::*, render::view::screenshot::Screenshot};
+use bevy::{
+    app::AppExit,
+    ecs::query::{QueryFilter, QueryItem, ReadOnlyQueryData},
+    prelude::*,
+    render::view::screenshot::Screenshot,
+};
 
 const BEACON_PROGRESS: CharacterProgress = CharacterProgress {
     level: 2,
@@ -44,19 +49,29 @@ const RELAY_PROGRESS: CharacterProgress = CharacterProgress {
 };
 const LOOTED_RELAY_XP: Experience = Experience(25 + hushcap::EXPERIENCE as u64);
 
-type HushcapQuery<'w, 's> = Query<
-    'w,
-    's,
-    (
-        Entity,
-        &'static Transform,
-        &'static Health,
-        &'static CorpseLoot,
-        Has<Dead>,
-        Has<Collider>,
-    ),
-    (With<Hushcap>, Without<Player>),
->;
+type HushcapData = (
+    Entity,
+    &'static Transform,
+    &'static Health,
+    &'static CorpseLoot,
+    Has<Dead>,
+    Has<Collider>,
+);
+type HushcapQuery<'w, 's> =
+    Query<'w, 's, (HushcapData, &'static EncounterId), (With<Hushcap>, Without<Player>)>;
+type RoachData = (Entity, &'static Transform, Has<Dead>);
+type RoachQuery<'w, 's> =
+    Query<'w, 's, (RoachData, &'static EncounterId), (With<Roach>, Without<Player>)>;
+
+fn relay_encounter<'a, 's, D: ReadOnlyQueryData, F: QueryFilter>(
+    encounters: &'a Query<'_, 's, (D, &'static EncounterId), F>,
+    id: EncounterId,
+) -> QueryItem<'a, 's, D> {
+    encounters
+        .iter()
+        .find_map(|(data, encounter)| (*encounter == id).then_some(data))
+        .expect("the shipped relay encounter must be present")
+}
 
 #[derive(Resource, Debug, Default)]
 pub(super) enum WorldCheck {
@@ -171,7 +186,7 @@ pub(super) fn drive(
     captures: Query<(), With<Screenshot>>,
     (state, roaches, hushcaps, spit, actions, window, camera, storage, storage_actions): (
         Res<State<GameState>>,
-        Query<(Entity, &'static Transform, Has<Dead>), (With<Roach>, Without<Player>)>,
+        RoachQuery,
         HushcapQuery,
         Query<(), With<SpitProjectile>>,
         Query<(Entity, &'static LootAction)>,
@@ -371,7 +386,7 @@ struct WorldFrame<'w, 's, 'a> {
     xp_notice: Res<'w, ExperienceNotice>,
     gate: Query<'w, 's, Entity, With<ArchiveGate>>,
     capsule: &'a Collider,
-    roaches: Query<'w, 's, (Entity, &'static Transform, Has<Dead>), (With<Roach>, Without<Player>)>,
+    roaches: RoachQuery<'w, 's>,
     hushcaps: HushcapQuery<'w, 's>,
     spit: Query<'w, 's, (), With<SpitProjectile>>,
     actions: Query<'w, 's, (Entity, &'static LootAction)>,
@@ -968,7 +983,7 @@ fn check_relay_encounters(frame: WorldFrame) {
         }
         WorldCheck::Junction => {
             if walk_to(&mut keys, &mut orbit, position, junction) {
-                let (roach, _, _) = roaches.single().expect("Old Relay roach");
+                let (roach, _, _) = relay_encounter(&roaches, EncounterId::RelayRoach);
                 hits.write(Hit {
                     source: entity,
                     target: roach,
@@ -979,7 +994,7 @@ fn check_relay_encounters(frame: WorldFrame) {
             }
         }
         WorldCheck::ApproachRoach => {
-            let (roach, corpse, dead) = roaches.single().expect("persistent Old Relay roach");
+            let (roach, corpse, dead) = relay_encounter(&roaches, EncounterId::RelayRoach);
             assert!(dead);
             assert_eq!(*xp, Experience(25));
             if nearby.0 == Some((roach, InteractionTarget::Corpse)) {
@@ -1057,8 +1072,8 @@ fn enter_archive(frame: WorldFrame) {
     if matches!(*phase, WorldCheck::CrossGate) {
         assert!(position.z < ORIGIN.z + GATE_LOCAL.z);
         let (hushcap, root, health, _, dead, _) =
-            hushcaps.single().expect("one rooted enemy in the archive");
-        assert_eq!(root.translation, hushcap::HOME);
+            relay_encounter(&hushcaps, EncounterId::RelayArchiveHushcap);
+        assert_eq!(root.translation, ARCHIVE_HUSHCAP_HOME);
         assert_eq!(health.current(), hushcap::HEALTH);
         assert!(!dead);
         check_archive_cover(
@@ -1111,7 +1126,7 @@ fn finish_relay_quest(frame: WorldFrame) {
         }
         WorldCheck::ReadNotice => {
             assert!(quest.is_complete(OLD_RELAY));
-            assert!(!hushcaps.single().expect("the archive Hushcap").4);
+            assert!(!relay_encounter(&hushcaps, EncounterId::RelayArchiveHushcap).4);
             assert_eq!((*attributes, *xp), (RELAY_PROGRESS, Experience(25)));
             assert_eq!(
                 xp_notice.text.as_deref(),
@@ -1193,7 +1208,7 @@ fn check_archive_cover(
     hushcap: Entity,
     position: Vec3,
 ) {
-    let muzzle = hushcap::HOME + Vec3::Y * hushcap::SPIT.muzzle.y;
+    let muzzle = ARCHIVE_HUSHCAP_HOME + Vec3::Y * hushcap::SPIT.muzzle.y;
     let delta = position - muzzle;
     let filter = SpatialQueryFilter::from_excluded_entities([player, hushcap]);
     let cover = spatial
@@ -1250,15 +1265,15 @@ fn fight_hushcap(frame: WorldFrame) {
         camera,
         ..
     } = frame;
-    let (entity, root, _, loot, dead, solid) = hushcaps.single().expect("the archive Hushcap");
+    let (entity, root, _, loot, dead, solid) =
+        relay_encounter(&hushcaps, EncounterId::RelayArchiveHushcap);
     assert_eq!(
-        root.translation,
-        hushcap::HOME,
+        root.translation, ARCHIVE_HUSHCAP_HOME,
         "the Hushcap must stay rooted"
     );
     match *phase {
         WorldCheck::ApproachHushcap => {
-            let spear_range = hushcap::HOME - Vec3::X * 1.8;
+            let spear_range = ARCHIVE_HUSHCAP_HOME - Vec3::X * 1.8;
             if walk_to(&mut keys, &mut orbit, position, spear_range) {
                 orbit.yaw = -0.94;
                 capture(&mut commands, "relay-hushcap");
@@ -1277,7 +1292,7 @@ fn fight_hushcap(frame: WorldFrame) {
                 keys.press(KeyCode::KeyE);
                 *phase = WorldCheck::TakeMycelium;
             } else {
-                walk_to(&mut keys, &mut orbit, position, hushcap::HOME);
+                walk_to(&mut keys, &mut orbit, position, ARCHIVE_HUSHCAP_HOME);
             }
         }
         WorldCheck::FightHushcap { saw_spit } => {
@@ -1352,13 +1367,12 @@ fn check_relay_revisit(frame: WorldFrame) {
             assert_eq!(controller.area, Area::OldRelay);
             assert!(quest.is_complete(OLD_RELAY) && progress.gate_open());
             assert!(
-                roaches
-                    .single()
-                    .expect("the roach corpse persists across area changes")
-                    .2
+                relay_encounter(&roaches, EncounterId::RelayRoach).2,
+                "the roach corpse persists across area changes"
             );
             assert_eq!(inventory.count(ItemKind::RoachMeat), 1);
-            let (_, _, _, loot, dead, solid) = hushcaps.single().expect("looted Hushcap");
+            let (_, _, _, loot, dead, solid) =
+                relay_encounter(&hushcaps, EncounterId::RelayArchiveHushcap);
             assert!(dead && !solid && loot.stack.is_none());
             assert_eq!(inventory.count(ItemKind::Mycelium), 1);
             assert_eq!(
@@ -1486,8 +1500,9 @@ fn check_bed_rollback(frame: WorldFrame) {
             assert_eq!(inventory.count(ItemKind::Mycelium), 1);
             assert_eq!(storage.get(ChestId::Lamp).count(ItemKind::Battery), 1);
             assert!(quest.is_complete(OLD_RELAY) && progress.gate_open());
-            assert!(roaches.single().expect("saved roach").2);
-            let (_, _, health, loot, dead, solid) = hushcaps.single().expect("saved Hushcap");
+            assert!(relay_encounter(&roaches, EncounterId::RelayRoach).2);
+            let (_, _, health, loot, dead, solid) =
+                relay_encounter(&hushcaps, EncounterId::RelayArchiveHushcap);
             assert_eq!(health.current(), 0);
             assert!(dead && !solid && loot.stack.is_none());
             assert_eq!(

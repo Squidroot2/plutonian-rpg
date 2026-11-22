@@ -14,6 +14,7 @@ use crate::{
     inventory::{Inventory, ItemKind},
     loading::EnemyVisuals,
     player::{DODGE_KEY, Player},
+    save::EncounterId,
     ui::loot_ui::LootAction,
     ui::{HealthBar, HealthBarFill},
     weapon::{GRIP_SIDE, WeaponAttack},
@@ -44,18 +45,21 @@ pub(super) enum Encounter {
 }
 
 pub(super) fn check_outpost_sites(
-    worms: Query<(Entity, &Transform, &Collider), With<Worm>>,
+    worms: Query<(Entity, &Transform, &Collider, &EncounterId), With<Worm>>,
     spatial: SpatialQuery,
 ) {
-    let surface_worms = worms
-        .iter()
-        .filter(|(_, transform, _)| transform.translation.y > -4.0);
+    let surface_worms = worms.iter().filter(|(_, _, _, id)| {
+        matches!(
+            id,
+            EncounterId::NearTrailWorm | EncounterId::FarTrailWorm | EncounterId::CavernWorm
+        )
+    });
     assert_eq!(
         surface_worms.clone().count(),
         3,
         "the shipped map must spawn all three worms"
     );
-    for (entity, transform, body) in surface_worms {
+    for (entity, transform, body, _) in surface_worms {
         let origin = transform.translation + Vec3::Y;
         let support = spatial
             .cast_ray(

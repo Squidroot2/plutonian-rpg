@@ -6,6 +6,7 @@
 #![deny(clippy::unwrap_used)]
 mod attributes;
 mod camera;
+mod cave;
 mod combat;
 mod combat_audio;
 mod combat_feedback;
@@ -51,8 +52,9 @@ fn main() {
     let arena = args.iter().any(|arg| arg == "--smoke-test");
     let world = args.iter().any(|arg| arg == "--smoke-world");
     let nemi = args.iter().any(|arg| arg == "--smoke-nemi");
+    let cave = args.iter().any(|arg| arg == "--smoke-cave");
     assert!(
-        [arena, world, nemi]
+        [arena, world, nemi, cave]
             .into_iter()
             .filter(|mode| *mode)
             .count()
@@ -107,7 +109,7 @@ fn main() {
             storage::StoragePlugin,
             ui::storage_ui::StorageUiPlugin,
             save::SavePlugin {
-                smoke: arena || world || nemi,
+                smoke: arena || world || nemi || cave,
             },
         ))
         .add_plugins((
@@ -120,9 +122,10 @@ fn main() {
             experience::ExperiencePlugin,
             nemi::NemiPlugin,
             ui::loot_ui::LootUiPlugin,
+            cave::CavePlugin,
         ));
-    if arena || world || nemi {
-        app.add_plugins(smoke::SmokePlugin { arena, nemi });
+    if arena || world || nemi || cave {
+        app.add_plugins(smoke::SmokePlugin { arena, nemi, cave });
     }
     app.run();
 }

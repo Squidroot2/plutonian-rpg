@@ -68,12 +68,20 @@ Combat defeat returns you to the tent at full health and restores the last save 
 
 ## World and implementation
 
-The playable route connects the outpost, an inclined ice shelf, and a shallow cavern.
+The core route connects the outpost, an inclined ice shelf, and a shallow cavern.
   Follow the luminous waystones toward the cavern.
   The quest log records directions and completed steps for each quest.
   The power core appears in inventory as a protected quest item and disappears from its plinth when collected.
   Returning it to Nemi consumes the core, lights the beacon, and completes the quest.
   You can continue exploring afterward.
+
+South of the outpost courtyard, the ice shelf opens into South Basin.
+  Two paths around the ice fins lead behind a ridge,
+  where a descending tunnel enters Hushcap Caverns.
+  The cave is open from the start and has three chambers,
+  with two passages through the middle chamber.
+  Eight Hushcaps, two ice worms, and two relay roaches inhabit the cave.
+  Rock formations offer cover from Hushcap spit.
 
 `src/` separates loading, world assembly, player movement/animation, camera, shared interactions, inventory, equipment, quests, and UI into plugins.
   Avian's kinematic move-and-slide controller runs at a fixed timestep with capsule ground detection and tuned low gravity.
@@ -257,6 +265,8 @@ Pass `-- --worm` to the asset command to regenerate the ice worm source and its 
   Pass `-- --roach` to regenerate the relay roach source and animations.
   Pass `-- --hushcap` to regenerate the Hushcap and Mycelium sources and exports.
   Use `-- --export --hushcap` or `-- --export --relay` after editing those Blender sources by hand.
+  Pass `-- --south-basin` to regenerate the basin and cave sources and exports.
+  Use `-- --export --south-basin` to re-export their edited Blender sources.
 
 The title screen uses a render of the outpost.
   To refresh it after editing the scenery, run `blender --background -noaudio art/outpost.blend --python scripts/render_title.py`.
@@ -273,8 +283,9 @@ Blender 5.3 was used for the included editable sources in `art/`.
 | `battery`, `scrap`, `methane_pouch` | Ground-based material pickups |
 | `large_boulder`, `practice_dummy` | Carrying-limit test pickup and weapon practice target |
 | `ice_worm`, `relay_roach` | Animated enemies with idle, crawl, bite, and death clips |
-| `hushcap` | Rooted archive enemy with idle, spit, and collapse clips |
+| `hushcap` | Rooted enemy with idle, spit, and collapse clips |
 | `old_relay`, `old_relay_collision` | Old Relay scenery and its hidden collision geometry |
+| `south_basin`, `south_basin_collision` | South Basin and Hushcap Caverns scenery and collision geometry |
 | `worm_meat`, `roach_meat`, `mycelium` | Corpse loot pickup models |
 | `field_armor`, `reinforced_armor`, `field_helmet`, `reinforced_helmet` | Equipment sources, each exporting pickup and `_worn` GLBs |
 | `field_spear`, `trident` | Weapons sharing the spear animations, each exporting pickup and `_worn` GLBs |
@@ -362,6 +373,7 @@ cargo test --locked
 cargo run --locked -- --smoke-test
 cargo run --locked -- --smoke-world
 cargo run --locked -- --smoke-nemi
+cargo run --locked -- --smoke-cave
 python3 scripts/check_assets.py
 ```
 
@@ -387,6 +399,10 @@ Run one smoke scenario at a time on an idle graphical desktop without supplying 
   It prints `WORLD SMOKE PASS` on success.
 - `--smoke-nemi` checks spear damage, fleeing and returning, the failed quest entry, Nemi’s collapse and XP reward, and XP for opening the relay by completing Relight the Beacon.
   It prints `NEMI SMOKE PASS` on success.
+- `--smoke-cave` walks from the starting tent to Hushcap Caverns and back to the outpost.
+  It probes the hidden entrance, both middle-chamber passages, encounter grounding, and projectile cover.
+  It also observes Hushcap spit and collects Mycelium through the corpse loot panel.
+  It prints `CAVE SMOKE PASS` on success.
 
 The checks save screenshots in `/tmp/plutonian-*.png`, including the arena, outpost, inventory, beacon, and weapon and armor poses.
 

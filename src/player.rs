@@ -166,7 +166,6 @@ const GROUND_STICK_SPEED: f32 = 0.6;
 const WALK_STAMINA_RECOVERY_FACTOR: f32 = 0.5;
 const WORLD_MIN_Y: f32 = -15.0;
 const WORLD_MAX_ABS_X: f32 = 55.0;
-const WORLD_MAX_Z: f32 = 35.0;
 const WORLD_MIN_Z: f32 = -140.0;
 const DODGE_ANIMATION_BLEND: Duration = Duration::from_millis(50);
 const LOCOMOTION_ANIMATION_BLEND: Duration = Duration::from_millis(160);
@@ -688,7 +687,7 @@ pub(crate) fn movement(
         dodge.advance(delta);
         if transform.translation.y < WORLD_MIN_Y
             || transform.translation.x.abs() > WORLD_MAX_ABS_X
-            || transform.translation.z > WORLD_MAX_Z
+            || transform.translation.z > layout.recovery_max_z()
             || transform.translation.z < WORLD_MIN_Z
         {
             player.respawn(&mut dodge, &mut transform, layout.start());

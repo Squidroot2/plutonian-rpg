@@ -31,16 +31,20 @@ Enemy attacks enter the same shared resolver as player attacks.
 
 ## Enemy ranged attacks
 
-The Hushcap takes root beside a cracked archive conduit and turns in place to aim.
-  It has 42 health and deals 24 base damage per spit.
+Hushcaps take root and turn in place to aim.
+  One grows beside a cracked archive conduit in Old Relay.
+  Hushcap Caverns groups several across three chambers,
+  with rock cover between firing positions.
+  Each has 42 health and deals 24 base damage per spit.
   A target within 8 m and visible from the vent starts a 0.85 s windup,
   with a contracting cap and a brightening glow.
-  Aim locks at the start of the windup so a sidestep or the archive console can break the shot's path.
+  Aim locks at the start of the windup so a sidestep or solid cover can break the shot's path.
 The projectile sweeps its radius against colliders at 9 m/s for up to 10 m.
   It stops at first contact and submits damage through the shared resolver only when it hits the player.
   The Hushcap recovers for 1.25 s between releasing a shot and lining up the next one.
   Dialogue and paused gameplay suspend attacks and flight.
-  Defeating the Hushcap or leaving Old Relay clears its projectiles.
+  Defeating a Hushcap clears its projectiles.
+  Crossing between Old Relay and the surface clears projectiles in the area the player left.
   The corpse yields one Mycelium through the shared loot panel.
 
 ## Damage resolution

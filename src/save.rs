@@ -2,8 +2,9 @@ use crate::{
     GameState,
     attributes::{AttributeId, AttributeRanks, CharacterProgress, SavedProgress},
     camera::Orbit,
+    cave::{self, CaveEncounter},
     combat::{ActorDefeated, CombatSystems, ConfirmedHit, Dead, Health, Hit},
-    dungeon::{Area, DungeonProgress},
+    dungeon::{ARCHIVE_HUSHCAP_HOME, Area, DungeonProgress},
     equipment::{Equipment, EquipmentSlot},
     experience::{Experience, ExperienceNotice, ExperienceReward, ExperienceUpdates},
     hushcap,
@@ -32,7 +33,8 @@ use std::{
 };
 
 // Four magic bytes followed by the little-endian save schema version.
-const HEADER: &[u8; 6] = b"PLUT\x05\x00";
+const HEADER: &[u8; 6] = b"PLUT\x06\x00";
+const V5_HEADER: &[u8; 6] = b"PLUT\x05\x00";
 const V4_HEADER: &[u8; 6] = b"PLUT\x04\x00";
 const V3_HEADER: &[u8; 6] = b"PLUT\x03\x00";
 const V2_HEADER: &[u8; 6] = b"PLUT\x02\x00";
@@ -46,7 +48,7 @@ pub(crate) struct Bed;
 pub(crate) struct SaveAtBed(pub(crate) Entity);
 
 #[derive(
-    Component, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, bitcode::Encode, bitcode::Decode,
+    Component, Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, bitcode::Encode, bitcode::Decode,
 )]
 pub(crate) enum EncounterId {
     NearTrailWorm,
@@ -56,14 +58,53 @@ pub(crate) enum EncounterId {
     // Versions 1–4 used this discriminant for the archive worm.
     RelayArchiveHushcap,
     RelayRoach,
+    Cave(CaveEncounter),
 }
 
 impl EncounterId {
-    fn max_health(self, archive_health: u16) -> u16 {
-        match self {
-            Self::RelayRoach => roach::CONFIG.body.health,
-            Self::RelayArchiveHushcap => archive_health,
-            _ => worm::CONFIG.body.health,
+    const BASE: [Self; 6] = [
+        Self::NearTrailWorm,
+        Self::FarTrailWorm,
+        Self::CavernWorm,
+        Self::RelayJunctionWorm,
+        Self::RelayArchiveHushcap,
+        Self::RelayRoach,
+    ];
+
+    fn base(archive_health: u16) -> impl ExactSizeIterator<Item = (Self, u16)> {
+        Self::BASE.into_iter().map(move |id| {
+            let health = match id {
+                Self::RelayRoach => roach::CONFIG.body.health,
+                Self::RelayArchiveHushcap => archive_health,
+                _ => worm::CONFIG.body.health,
+            };
+            (id, health)
+        })
+    }
+}
+
+// Bitcode derives its enum encoding from the variant count. Keep the original
+// six-variant type for both encounter poses and contribution credit in v1–v5.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, bitcode::Decode)]
+#[cfg_attr(test, derive(bitcode::Encode))]
+enum LegacyEncounterId {
+    NearTrailWorm,
+    FarTrailWorm,
+    CavernWorm,
+    RelayJunctionWorm,
+    RelayArchiveHushcap,
+    RelayRoach,
+}
+
+impl From<LegacyEncounterId> for EncounterId {
+    fn from(id: LegacyEncounterId) -> Self {
+        match id {
+            LegacyEncounterId::NearTrailWorm => Self::NearTrailWorm,
+            LegacyEncounterId::FarTrailWorm => Self::FarTrailWorm,
+            LegacyEncounterId::CavernWorm => Self::CavernWorm,
+            LegacyEncounterId::RelayJunctionWorm => Self::RelayJunctionWorm,
+            LegacyEncounterId::RelayArchiveHushcap => Self::RelayArchiveHushcap,
+            LegacyEncounterId::RelayRoach => Self::RelayRoach,
         }
     }
 }
@@ -112,8 +153,30 @@ struct SavedEncounter {
     has_loot: bool,
 }
 
+impl SavedEncounter {
+    fn fresh(home: Vec3, health: u16) -> Self {
+        Self {
+            actor: SavedActor {
+                position: home.to_array(),
+                rotation: Quat::IDENTITY.to_array(),
+                health,
+            },
+            has_loot: true,
+        }
+    }
+
+    fn is_valid(&self, max_health: u16) -> bool {
+        self.actor.is_valid(max_health) && (self.actor.health == 0 || self.has_loot)
+    }
+}
+
 #[derive(bitcode::Encode, bitcode::Decode)]
-pub(crate) struct Snapshot<E = Equipment, P = SavedProgress, X = SavedExperience> {
+pub(crate) struct Snapshot<
+    E = Equipment,
+    P = SavedProgress,
+    X = SavedExperience,
+    I: Ord = EncounterId,
+> {
     pub(crate) journal: SavedJournal,
     inventory: Inventory,
     equipment: E,
@@ -122,19 +185,46 @@ pub(crate) struct Snapshot<E = Equipment, P = SavedProgress, X = SavedExperience
     pub(crate) pickups: Vec<SavedPickup>,
     nemi: SavedActor,
     nemi_state: NemiState,
-    encounters: BTreeMap<EncounterId, SavedEncounter>,
+    encounters: BTreeMap<I, SavedEncounter>,
     pub(crate) progression: P,
     experience: X,
     #[bitcode(skip)]
     pub(crate) add_shortswords_on_spawn: bool,
 }
 
-#[derive(Default, bitcode::Encode, bitcode::Decode)]
-pub(crate) struct SavedExperience {
+type LegacySnapshot<E = Equipment, P = SavedProgress, X = SavedExperience<LegacyEncounterId>> =
+    Snapshot<E, P, X, LegacyEncounterId>;
+
+#[derive(bitcode::Encode, bitcode::Decode)]
+pub(crate) struct SavedExperience<I: Ord = EncounterId> {
     player: Experience,
     nemi_contributed: bool,
     // Use stable encounter IDs because checkpoint loading recreates the actors.
-    encounter_contributions: BTreeSet<EncounterId>,
+    encounter_contributions: BTreeSet<I>,
+}
+
+impl<I: Ord> Default for SavedExperience<I> {
+    fn default() -> Self {
+        Self {
+            player: Experience::default(),
+            nemi_contributed: false,
+            encounter_contributions: BTreeSet::new(),
+        }
+    }
+}
+
+impl From<SavedExperience<LegacyEncounterId>> for SavedExperience {
+    fn from(old: SavedExperience<LegacyEncounterId>) -> Self {
+        Self {
+            player: old.player,
+            nemi_contributed: old.nemi_contributed,
+            encounter_contributions: old
+                .encounter_contributions
+                .into_iter()
+                .map(EncounterId::from)
+                .collect(),
+        }
+    }
 }
 
 // Bitcode packs three slot variants differently from four. ItemKind stays within
@@ -148,7 +238,7 @@ enum LegacyEquipmentSlot {
 }
 
 fn migrate<E>(
-    old: Snapshot<E, (), ()>,
+    old: LegacySnapshot<E, (), ()>,
     equipment: Equipment,
     add_shortswords_on_spawn: bool,
 ) -> io::Result<Snapshot> {
@@ -156,6 +246,7 @@ fn migrate<E>(
         old,
         equipment,
         SavedProgress::default(),
+        SavedExperience::default(),
         add_shortswords_on_spawn,
     );
     if !snapshot.equipment.valid_slots() {
@@ -179,10 +270,11 @@ fn migrate<E>(
 }
 
 // Unit fields consume no bitcode bytes in schemas that predate the corresponding data.
-fn upgrade_snapshot<E, P>(
-    old: Snapshot<E, P, ()>,
+fn upgrade_snapshot<E, P, X>(
+    old: LegacySnapshot<E, P, X>,
     equipment: Equipment,
     progression: SavedProgress,
+    experience: SavedExperience,
     add_shortswords_on_spawn: bool,
 ) -> Snapshot {
     Snapshot {
@@ -194,9 +286,13 @@ fn upgrade_snapshot<E, P>(
         pickups: old.pickups,
         nemi: old.nemi,
         nemi_state: old.nemi_state,
-        encounters: old.encounters,
+        encounters: old
+            .encounters
+            .into_iter()
+            .map(|(id, encounter)| (id.into(), encounter))
+            .collect(),
         progression,
-        experience: SavedExperience::default(),
+        experience,
         add_shortswords_on_spawn,
     }
 }
@@ -207,10 +303,10 @@ impl Snapshot {
     }
 
     fn is_valid(&self) -> bool {
-        self.is_valid_with_archive_health(hushcap::HEALTH)
+        self.is_valid_with_encounters(hushcap::HEALTH, true)
     }
 
-    fn is_valid_with_archive_health(&self, archive_health: u16) -> bool {
+    fn is_valid_with_encounters(&self, archive_health: u16, include_cave: bool) -> bool {
         self.inventory.valid_stacks()
             && self.progression.is_valid()
             && self.experience.player.is_valid(self.progression.level())
@@ -228,11 +324,7 @@ impl Snapshot {
             && self.dungeon.is_valid()
             && self.nemi.is_valid(Nemi::MAX_HEALTH)
             && self.nemi_state.is_valid()
-            && self.encounters.len() == 6
-            && self.encounters.iter().all(|(&id, encounter)| {
-                encounter.actor.is_valid(id.max_health(archive_health))
-                    && (encounter.actor.health == 0 || encounter.has_loot)
-            })
+            && self.has_expected_encounters(archive_health, include_cave)
             && self.pickups.iter().all(|pickup| {
                 pickup.stack.quantity > 0
                     && pickup.stack.item != ItemKind::BeaconCore
@@ -240,20 +332,33 @@ impl Snapshot {
             })
     }
 
+    fn has_expected_encounters(&self, archive_health: u16, include_cave: bool) -> bool {
+        let valid = |(id, health)| {
+            self.encounters
+                .get(&id)
+                .is_some_and(|encounter| encounter.is_valid(health))
+        };
+        let mut base = EncounterId::base(archive_health);
+        let mut cave =
+            cave::encounter_homes().map(|(id, _, health)| (EncounterId::Cave(id), health));
+        let count = base.len() + if include_cave { cave.len() } else { 0 };
+        self.encounters.len() == count && base.all(valid) && (!include_cave || cave.all(valid))
+    }
+
     fn replace_archive_worm(&mut self) {
         let archive = EncounterId::RelayArchiveHushcap;
         self.experience.encounter_contributions.remove(&archive);
         self.encounters.insert(
             archive,
-            SavedEncounter {
-                actor: SavedActor {
-                    position: hushcap::HOME.to_array(),
-                    rotation: Quat::IDENTITY.to_array(),
-                    health: hushcap::HEALTH,
-                },
-                has_loot: true,
-            },
+            SavedEncounter::fresh(ARCHIVE_HUSHCAP_HOME, hushcap::HEALTH),
         );
+    }
+
+    fn seed_cave(&mut self) {
+        self.encounters
+            .extend(cave::encounter_homes().map(|(id, home, health)| {
+                (EncounterId::Cave(id), SavedEncounter::fresh(home, health))
+            }));
     }
 }
 
@@ -361,25 +466,55 @@ fn read_save(path: &Path) -> io::Result<Snapshot> {
         ));
     }
     let invalid_data = |error| io::Error::new(io::ErrorKind::InvalidData, error);
-    let current = data.starts_with(HEADER);
-    let mut snapshot: Snapshot = if let Some(payload) = data
-        .strip_prefix(HEADER)
+    if let Some(payload) = data.strip_prefix(HEADER) {
+        let snapshot: Snapshot = bitcode::decode(payload).map_err(invalid_data)?;
+        return validate_contents(snapshot, hushcap::HEALTH, true);
+    }
+    let v5 = data.starts_with(V5_HEADER);
+    let snapshot = decode_legacy(&data)?;
+    let archive_health = if v5 {
+        hushcap::HEALTH
+    } else {
+        worm::CONFIG.body.health
+    };
+    let mut snapshot = validate_contents(snapshot, archive_health, false)?;
+    if !v5 {
+        snapshot.replace_archive_worm();
+    }
+    snapshot.seed_cave();
+    Ok(snapshot)
+}
+
+fn decode_legacy(data: &[u8]) -> io::Result<Snapshot> {
+    let invalid_data = |error| io::Error::new(io::ErrorKind::InvalidData, error);
+    let snapshot = if let Some(payload) = data
+        .strip_prefix(V5_HEADER)
         .or_else(|| data.strip_prefix(V4_HEADER))
     {
-        bitcode::decode(payload).map_err(invalid_data)?
+        let mut old: LegacySnapshot = bitcode::decode(payload).map_err(invalid_data)?;
+        let equipment = std::mem::take(&mut old.equipment);
+        let progression = std::mem::take(&mut old.progression);
+        let experience = std::mem::take(&mut old.experience).into();
+        upgrade_snapshot(old, equipment, progression, experience, false)
     } else if let Some(payload) = data.strip_prefix(V3_HEADER) {
-        let mut old: Snapshot<Equipment, SavedProgress, ()> =
+        let mut old: LegacySnapshot<Equipment, SavedProgress, ()> =
             bitcode::decode(payload).map_err(invalid_data)?;
         let equipment = std::mem::take(&mut old.equipment);
         let progression = std::mem::take(&mut old.progression);
-        upgrade_snapshot(old, equipment, progression, false)
+        upgrade_snapshot(
+            old,
+            equipment,
+            progression,
+            SavedExperience::default(),
+            false,
+        )
     } else if let Some(payload) = data.strip_prefix(V2_HEADER) {
-        let mut old: Snapshot<Equipment, (), ()> =
+        let mut old: LegacySnapshot<Equipment, (), ()> =
             bitcode::decode(payload).map_err(invalid_data)?;
         let equipment = std::mem::take(&mut old.equipment);
         migrate(old, equipment, false)?
     } else if let Some(payload) = data.strip_prefix(LEGACY_HEADER) {
-        let old: Snapshot<BTreeMap<LegacyEquipmentSlot, ItemKind>, (), ()> =
+        let old: LegacySnapshot<BTreeMap<LegacyEquipmentSlot, ItemKind>, (), ()> =
             bitcode::decode(payload).map_err(invalid_data)?;
         let equipment = Equipment(
             old.equipment
@@ -401,19 +536,19 @@ fn read_save(path: &Path) -> io::Result<Snapshot> {
             "Invalid or unsupported save header",
         ));
     };
-    let archive_health = if current {
-        hushcap::HEALTH
-    } else {
-        worm::CONFIG.body.health
-    };
-    if !snapshot.is_valid_with_archive_health(archive_health) {
+    Ok(snapshot)
+}
+
+fn validate_contents(
+    snapshot: Snapshot,
+    archive_health: u16,
+    include_cave: bool,
+) -> io::Result<Snapshot> {
+    if !snapshot.is_valid_with_encounters(archive_health, include_cave) {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
             "Invalid save contents",
         ));
-    }
-    if !current {
-        snapshot.replace_archive_worm();
     }
     Ok(snapshot)
 }
@@ -760,23 +895,30 @@ mod tests {
         world.spawn((Nemi::default(), Transform::default(), Collider::sphere(0.5)));
         let mut corpse = Entity::PLACEHOLDER;
         use EncounterId::*;
-        for id in [
-            NearTrailWorm,
-            FarTrailWorm,
-            CavernWorm,
-            RelayJunctionWorm,
-            RelayArchiveHushcap,
-            RelayRoach,
-        ] {
+        let base = EncounterId::base(hushcap::HEALTH).map(|(id, health)| (id, Vec3::ZERO, health));
+        let cave = cave::encounter_homes().map(|(id, home, health)| (Cave(id), home, health));
+        for (id, home, health) in base.chain(cave) {
             let item = match id {
-                RelayRoach => ItemKind::RoachMeat,
-                RelayArchiveHushcap => ItemKind::Mycelium,
+                RelayRoach | Cave(CaveEncounter::SplitRoach | CaveEncounter::GalleryRoach) => {
+                    ItemKind::RoachMeat
+                }
+                RelayArchiveHushcap
+                | Cave(
+                    CaveEncounter::FirstWestHushcap
+                    | CaveEncounter::FirstEastHushcap
+                    | CaveEncounter::SplitWestHushcap
+                    | CaveEncounter::SplitEastHushcap
+                    | CaveEncounter::SplitFarHushcap
+                    | CaveEncounter::GalleryWestHushcap
+                    | CaveEncounter::GalleryEastHushcap
+                    | CaveEncounter::GalleryFarHushcap,
+                ) => ItemKind::Mycelium,
                 _ => ItemKind::WormMeat,
             };
             let mut entity = world.spawn((
                 id,
-                Transform::default(),
-                Health::new(id.max_health(hushcap::HEALTH)),
+                Transform::from_translation(home),
+                Health::new(health),
                 CorpseLoot::new(item, Area::Surface),
                 ExperienceReward::new(10),
                 Collider::sphere(0.5),
@@ -799,15 +941,68 @@ mod tests {
         world.run_system_once(save_at_bed).expect("bed save system");
     }
 
+    fn legacy_id(id: EncounterId) -> Option<LegacyEncounterId> {
+        Some(match id {
+            EncounterId::NearTrailWorm => LegacyEncounterId::NearTrailWorm,
+            EncounterId::FarTrailWorm => LegacyEncounterId::FarTrailWorm,
+            EncounterId::CavernWorm => LegacyEncounterId::CavernWorm,
+            EncounterId::RelayJunctionWorm => LegacyEncounterId::RelayJunctionWorm,
+            EncounterId::RelayArchiveHushcap => LegacyEncounterId::RelayArchiveHushcap,
+            EncounterId::RelayRoach => LegacyEncounterId::RelayRoach,
+            EncounterId::Cave(_) => return None,
+        })
+    }
+
+    fn base_encounters(
+        encounters: BTreeMap<EncounterId, SavedEncounter>,
+    ) -> BTreeMap<LegacyEncounterId, SavedEncounter> {
+        encounters
+            .into_iter()
+            .filter_map(|(id, encounter)| Some((legacy_id(id)?, encounter)))
+            .collect()
+    }
+
     fn legacy_encounters(
-        mut encounters: BTreeMap<EncounterId, SavedEncounter>,
-    ) -> BTreeMap<EncounterId, SavedEncounter> {
+        encounters: BTreeMap<EncounterId, SavedEncounter>,
+    ) -> BTreeMap<LegacyEncounterId, SavedEncounter> {
+        let mut encounters = base_encounters(encounters);
         let archive = encounters
-            .get_mut(&EncounterId::RelayArchiveHushcap)
+            .get_mut(&LegacyEncounterId::RelayArchiveHushcap)
             .expect("the archive worm occupied the same save slot");
         archive.actor.health = worm::CONFIG.body.health;
         archive.actor.position = [3.65, -9.44, -32.0];
         encounters
+    }
+
+    fn legacy_snapshot(base: Snapshot, archive_worm: bool) -> LegacySnapshot {
+        let encounters = if archive_worm {
+            legacy_encounters(base.encounters)
+        } else {
+            base_encounters(base.encounters)
+        };
+        Snapshot {
+            journal: base.journal,
+            inventory: base.inventory,
+            equipment: base.equipment,
+            chests: base.chests,
+            dungeon: base.dungeon,
+            pickups: base.pickups,
+            nemi: base.nemi,
+            nemi_state: base.nemi_state,
+            encounters,
+            progression: base.progression,
+            experience: SavedExperience {
+                player: base.experience.player,
+                nemi_contributed: base.experience.nemi_contributed,
+                encounter_contributions: base
+                    .experience
+                    .encounter_contributions
+                    .into_iter()
+                    .filter_map(legacy_id)
+                    .collect(),
+            },
+            add_shortswords_on_spawn: false,
+        }
     }
 
     #[test]
@@ -1229,15 +1424,15 @@ mod tests {
         let (mut world, bed, _, _) = bed_world(path.clone());
         assert!(world.resource_mut::<Inventory>().add(ItemKind::WormMeat, 2));
         interact_with(&mut world, bed);
-        let mut legacy = read_save(&path).expect("read the fixture save");
-        legacy.encounters = legacy_encounters(legacy.encounters);
+        let base = read_save(&path).expect("read the fixture save");
+        let mut legacy = legacy_snapshot(base, true);
         let archive = EncounterId::RelayArchiveHushcap;
         let junction = EncounterId::RelayJunctionWorm;
         legacy.experience.player = Experience(21);
-        legacy
-            .experience
-            .encounter_contributions
-            .extend([archive, junction]);
+        legacy.experience.encounter_contributions.extend([
+            LegacyEncounterId::RelayArchiveHushcap,
+            LegacyEncounterId::RelayJunctionWorm,
+        ]);
         let mut bytes = V4_HEADER.to_vec();
         bytes.extend(bitcode::encode(&legacy));
         fs::write(&path, &bytes).expect("write v4 save");
@@ -1247,15 +1442,21 @@ mod tests {
         assert_eq!(fresh.inventory.count(ItemKind::WormMeat), 2);
         assert!(fresh.experience.encounter_contributions == BTreeSet::from([junction]));
         let hushcap = &fresh.encounters[&archive];
-        assert_eq!(hushcap.actor.position, crate::hushcap::HOME.to_array());
+        assert_eq!(hushcap.actor.position, ARCHIVE_HUSHCAP_HOME.to_array());
         assert_eq!(hushcap.actor.health, crate::hushcap::HEALTH);
         assert!(hushcap.has_loot);
         assert_eq!(fs::read(&path).expect("unaltered v4 save"), bytes);
 
-        let expired = legacy.encounters.get_mut(&archive).expect("the saved worm");
+        let expired = legacy
+            .encounters
+            .get_mut(&LegacyEncounterId::RelayArchiveHushcap)
+            .expect("the saved worm");
         expired.actor.health = 0;
         expired.has_loot = false;
-        legacy.experience.encounter_contributions.remove(&archive);
+        legacy
+            .experience
+            .encounter_contributions
+            .remove(&LegacyEncounterId::RelayArchiveHushcap);
         let mut bytes = V4_HEADER.to_vec();
         bytes.extend(bitcode::encode(&legacy));
         fs::write(&path, bytes).expect("write v4 save with a looted worm");
@@ -1265,6 +1466,148 @@ mod tests {
             fresh.encounters[&archive].actor.health,
             crate::hushcap::HEALTH
         );
+    }
+
+    #[test]
+    fn v5_migration_seeds_the_cave_and_preserves_the_existing_archive_hushcap() {
+        let dir = TestDirectory::new();
+        let path = dir.path();
+        let (mut world, bed, _, _) = bed_world(path.clone());
+        interact_with(&mut world, bed);
+        let mut legacy = legacy_snapshot(read_save(&path).expect("fixture save"), false);
+        let archive = LegacyEncounterId::RelayArchiveHushcap;
+        let saved = legacy
+            .encounters
+            .get_mut(&archive)
+            .expect("v5 archive encounter");
+        saved.actor.health = hushcap::HEALTH - 1;
+        saved.actor.position = ARCHIVE_HUSHCAP_HOME.to_array();
+        legacy.experience.encounter_contributions.insert(archive);
+        let mut bytes = V5_HEADER.to_vec();
+        bytes.extend(bitcode::encode(&legacy));
+        fs::write(&path, &bytes).expect("write the v5 fixture");
+
+        let migrated = read_save(&path).expect("read v5 with the cave expansion installed");
+        let archive = EncounterId::RelayArchiveHushcap;
+        assert_eq!(
+            migrated.encounters[&archive].actor.health,
+            hushcap::HEALTH - 1
+        );
+        assert!(
+            migrated
+                .experience
+                .encounter_contributions
+                .contains(&archive)
+        );
+        assert_eq!(migrated.encounters.len(), 18);
+        for (id, home, health) in cave::encounter_homes() {
+            let encounter = &migrated.encounters[&EncounterId::Cave(id)];
+            assert_eq!(encounter.actor.position, home.to_array());
+            assert_eq!(encounter.actor.health, health);
+            assert!(encounter.has_loot);
+        }
+        assert_eq!(fs::read(path).expect("v5 file remains on disk"), bytes);
+    }
+
+    fn encounter_entity(world: &mut World, id: CaveEncounter) -> Entity {
+        world
+            .query::<(Entity, &EncounterId)>()
+            .iter(world)
+            .find_map(|(entity, found)| (*found == EncounterId::Cave(id)).then_some(entity))
+            .expect("the cave encounter is in the checkpoint fixture")
+    }
+
+    #[test]
+    fn bed_checkpoint_restores_damaged_defeated_and_looted_cave_encounters() {
+        let path = TestDirectory::new();
+        let (mut world, bed, _, _) = bed_world(path.path());
+        let damaged = encountered_cave_actors(&mut world);
+        let [hushcap, worm, roach] = damaged;
+        let moved = world
+            .get::<Transform>(hushcap)
+            .expect("Hushcap pose")
+            .translation
+            + Vec3::X;
+        world
+            .get_mut::<Transform>(hushcap)
+            .expect("Hushcap pose")
+            .translation = moved;
+        world
+            .get_mut::<Health>(hushcap)
+            .expect("Hushcap health")
+            .set_current(23);
+        world
+            .get_mut::<ExperienceReward>(hushcap)
+            .expect("Hushcap award")
+            .player_contributed = true;
+        for defeated in [worm, roach] {
+            world
+                .get_mut::<Health>(defeated)
+                .expect("encounter health")
+                .set_current(0);
+        }
+        world
+            .get_mut::<CorpseLoot>(roach)
+            .expect("roach corpse loot")
+            .stack = None;
+        interact_with(&mut world, bed);
+
+        let (mut rebuilt, _, _, _) = bed_world(path.path());
+        let [hushcap, worm, roach] = encountered_cave_actors(&mut rebuilt);
+        rebuilt.insert_resource(RunSave(Some(Arc::new(
+            read_save(&path.path()).expect("load the v6 cave checkpoint"),
+        ))));
+        rebuilt
+            .run_system_once(restore_actors)
+            .expect("restore cave encounters");
+        assert_eq!(
+            rebuilt
+                .get::<Transform>(hushcap)
+                .expect("restored Hushcap")
+                .translation,
+            moved
+        );
+        assert_eq!(
+            rebuilt
+                .get::<Health>(hushcap)
+                .expect("restored health")
+                .current(),
+            23
+        );
+        assert!(
+            rebuilt
+                .get::<ExperienceReward>(hushcap)
+                .expect("restored XP credit")
+                .player_contributed
+        );
+        for defeated in [worm, roach] {
+            assert!(rebuilt.get::<Dead>(defeated).is_some());
+            assert!(rebuilt.get::<Collider>(defeated).is_none());
+        }
+        assert!(
+            rebuilt
+                .get::<CorpseLoot>(worm)
+                .expect("worm corpse")
+                .stack
+                .is_some()
+        );
+        assert!(
+            rebuilt
+                .get::<CorpseLoot>(roach)
+                .expect("roach corpse")
+                .stack
+                .is_none()
+        );
+        assert_eq!(rebuilt.get::<Visibility>(roach), Some(&Visibility::Hidden));
+    }
+
+    fn encountered_cave_actors(world: &mut World) -> [Entity; 3] {
+        [
+            CaveEncounter::FirstWestHushcap,
+            CaveEncounter::SplitWorm,
+            CaveEncounter::GalleryRoach,
+        ]
+        .map(|id| encounter_entity(world, id))
     }
 
     #[test]

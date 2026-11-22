@@ -1,4 +1,5 @@
 //! Opt-in desktop checks for live gameplay and shipped-map collisions.
+mod cave;
 mod dungeon;
 mod equipment;
 mod inventory;
@@ -102,6 +103,7 @@ pub fn spawn_arena(
 pub struct SmokePlugin {
     pub arena: bool,
     pub nemi: bool,
+    pub cave: bool,
 }
 
 #[derive(Resource)]
@@ -184,6 +186,22 @@ impl Plugin for SmokePlugin {
                     .before(crate::ui::pause)
                     .run_if(in_state(GameState::Playing)),
             );
+        } else if self.cave {
+            app.init_resource::<cave::CaveCheck>()
+                .add_systems(
+                    OnEnter(GameState::Playing),
+                    cave::check_geometry.run_if(run_once),
+                )
+                .add_systems(
+                    PreUpdate,
+                    cave::drive
+                        .after(InputSystems)
+                        .before(crate::player::input)
+                        .before(crate::ui::pause)
+                        .run_if(|state: Res<State<GameState>>| {
+                            matches!(state.get(), GameState::Playing | GameState::Looting)
+                        }),
+                );
         } else {
             app.add_systems(
                 OnEnter(GameState::Playing),
@@ -249,6 +267,7 @@ fn watchdog(
     arena: Option<Res<ArenaStep>>,
     world: Option<Res<dungeon::WorldCheck>>,
     nemi: Option<Res<nemi::Check>>,
+    cave: Option<Res<cave::CaveCheck>>,
 ) {
     assert_ne!(
         *state.get(),
@@ -256,9 +275,14 @@ fn watchdog(
         "smoke test asset loading failed: {:?}",
         status.error
     );
+    let timeout = if cave.is_some() {
+        Duration::from_secs(125)
+    } else {
+        TIMEOUT
+    };
     assert!(
-        run.0.elapsed() < TIMEOUT,
-        "smoke test timed out in {:?}; inventory {:?}, spears {:?}, shortswords {:?}, armor {:?}, arena {:?}, world {:?}, Nemi {:?}",
+        run.0.elapsed() < timeout,
+        "smoke test timed out in {:?}; inventory {:?}, spears {:?}, shortswords {:?}, armor {:?}, arena {:?}, world {:?}, Nemi {:?}, cave {:?}",
         state.get(),
         inventory.as_deref().map(InventorySmoke::phase),
         weapons.as_deref(),
@@ -267,6 +291,7 @@ fn watchdog(
         arena.as_deref(),
         world.as_deref(),
         nemi.as_deref(),
+        cave.as_deref(),
     );
 }
 

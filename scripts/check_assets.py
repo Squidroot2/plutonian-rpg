@@ -11,7 +11,7 @@ gear_names = ['field_armor', 'reinforced_armor', 'field_helmet', 'reinforced_hel
 small_loot_names = ['worm_meat', 'roach_meat', 'mycelium']
 directional_walks = {'WalkBack', 'StrafeLeft', 'StrafeRight', 'WalkForwardLeft',
                      'WalkForwardRight', 'WalkBackLeft', 'WalkBackRight'}
-for name in ['plutonian', 'outpost', 'collision', 'core', 'battery', 'scrap', 'methane_pouch', 'large_boulder', 'practice_dummy', 'ice_worm', 'relay_roach', 'hushcap', 'old_relay', 'old_relay_collision', *small_loot_names, *gear_names, *[name+'_worn' for name in gear_names]]:
+for name in ['plutonian', 'outpost', 'collision', 'core', 'battery', 'scrap', 'methane_pouch', 'large_boulder', 'practice_dummy', 'ice_worm', 'relay_roach', 'hushcap', 'old_relay', 'old_relay_collision', 'south_basin', 'south_basin_collision', *small_loot_names, *gear_names, *[name+'_worn' for name in gear_names]]:
     source_name = name.removesuffix('_worn')
     source = root / 'art' / f'{source_name}.blend'
     path = root / 'assets' / 'models' / f'{name}.glb'
@@ -118,28 +118,37 @@ def mesh_bounds(document):
         visit(index, [[int(row==col) for col in range(4)] for row in range(4)])
     return [min(p[axis] for p in points) for axis in range(3)], [max(p[axis] for p in points) for axis in range(3)]
 
-relay = documents['old_relay']
-relay_collision = documents['old_relay_collision']
-relay_visuals = {node['name']: node for node in relay['nodes'] if 'mesh' in node}
-relay_solids = {node['name']: node for node in relay_collision['nodes'] if 'mesh' in node}
-assert 'Archive service console' in relay_solids, 'The archive service console must block spit'
-for room in ['Vestibule', 'Junction', 'Maintenance', 'Gate passage', 'Archive']:
-    for surface in ['floor', 'ceiling']:
-        assert f'{room} {surface}' in relay_solids, f'{room}: missing {surface} collider'
-
-
 def position_bounds(document, node):
     return [(document['accessors'][part['attributes']['POSITION']]['min'],
              document['accessors'][part['attributes']['POSITION']]['max'])
             for part in document['meshes'][node['mesh']]['primitives']]
 
 
-for name, collider in relay_solids.items():
-    assert name in relay_visuals, f'{name}: no matching relay visual'
-    visual = relay_visuals[name]
-    assert local_matrix(visual) == local_matrix(collider), f'{name}: relay collider misaligned'
-    assert position_bounds(relay, visual) == position_bounds(relay_collision, collider), f'{name}: relay collider bounds differ'
-print(f'Old Relay static collision matches visuals: {len(relay_solids)} bodies')
+def check_static_pair(asset, required):
+    scene = documents[asset]
+    collision = documents[asset + '_collision']
+    visuals = {node['name']: node for node in scene['nodes'] if 'mesh' in node}
+    solids = {node['name']: node for node in collision['nodes'] if 'mesh' in node}
+    assert required <= solids.keys(), f'{asset}: missing colliders {required - solids.keys()}'
+    for name, collider in solids.items():
+        assert name in visuals, f'{name}: no matching visual'
+        visual = visuals[name]
+        assert local_matrix(visual) == local_matrix(collider), f'{name}: collider misaligned'
+        assert position_bounds(scene, visual) == position_bounds(collision, collider), f'{name}: collider bounds differ'
+    print(f'{asset}: static collision matches visuals for {len(solids)} bodies')
+
+
+check_static_pair('old_relay', {'Archive service console'} | {
+    f'{room} {surface}'
+    for room in ['Vestibule', 'Junction', 'Maintenance', 'Gate passage', 'Archive']
+    for surface in ['floor', 'ceiling']
+})
+check_static_pair('south_basin', {
+    'South Basin shelf', 'South Basin blind ridge', 'Hushcap Caverns shell',
+    'Entrance cover', 'First chamber buttress', 'Split chamber column',
+    'West passage cover', 'Gallery screen', 'Gallery low cover', 'Gallery vault pillar',
+    'South Basin ice fin', *(f'South Basin ice fin.{index:03}' for index in range(1, 8)),
+})
 
 
 limits = {'field_armor': [.86,.76,.8], 'reinforced_armor': [1.02,.8,.84],

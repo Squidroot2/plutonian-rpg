@@ -23,9 +23,10 @@ in the [quest catalog](quests.md).
 The next level costs `70 + 50 × (current level − 1)` XP.
   Two worms on the
 early route are enough to unlock the first attribute upgrades.
-  The five worms and one roach across the shipped map total 200 XP, reaching level 3 with 10 XP toward level 4.
-  This pacing lets players reach level 3 through hostile encounters alone.
-  Later levels take more encounters as the player builds up their attributes.
+  The trail and Old Relay encounters total 210 XP,
+  reaching level 3 with 20 XP toward level 4.
+  The optional Hushcap Caverns encounters add 480 XP,
+  bringing the total from hostile encounters to 690 XP.
 
 The two beacon routes pay the same XP.
   Completing one route and Old Relay
@@ -80,10 +81,9 @@ the resulting level and points gained.
   quest actions.
   Saved quest outcomes do not queue rewards on load.
 - The cot snapshots XP after combat and level changes resolve.
-  Bitcode v4
-  stores XP toward the next level and contribution credit for living actors,
+  Save schema v4 and later store XP toward the next level and contribution credit for living actors,
   keyed by encounter ID and Nemi's saved identity.
-  Legacy saves start with
+  Earlier saves start with
   zero XP toward their restored level and no contributions.
   V3 saves keep
   their levels, attribute ranks, and unspent points.

@@ -1521,6 +1521,149 @@ def old_relay():
     save_export('old_relay_collision')
 
 
+SOUTH_BASIN_MODELS = ['south_basin', 'south_basin_collision']
+
+
+def south_basin_mesh(name, sections, materials, cap_start=True, cap_end=True):
+    """Join cross sections ordered around the perimeter in Bevy X/Y/Z coordinates."""
+    count = len(sections[0])
+    vertices = [(x, -z, y) for section in sections for x, y, z in section]
+    faces = []
+    for index in range(len(sections)-1):
+        start = index * count
+        for side in range(count):
+            a, b = start + side, start + (side+1) % count
+            faces.extend([(a, a+count, b+count), (a, b+count, b)])
+    if cap_start:
+        faces.append(tuple(range(count)))
+    if cap_end:
+        faces.append(tuple(range(len(vertices)-1, len(vertices)-count-1, -1)))
+    mesh = bpy.data.meshes.new(name)
+    mesh.from_pydata(vertices, [], faces)
+    obj = bpy.data.objects.new(name, mesh)
+    bpy.context.collection.objects.link(obj)
+    for mat in materials:
+        mesh.materials.append(mat)
+    return obj
+
+
+def south_basin_exterior(ice, frost, rock, rng):
+    sections = []
+    # The inlet slips just under the existing shelf where its southern edge meets the basin.
+    for z, y, left, right in [(27.3, -1.43, -20, 20), (30, -1.44, -21, 21),
+                              (41, -1.75, -26, 27), (51, -2.35, -29, 31),
+                              (62, -2.05, -27, 31), (74, -1.82, -24, 30),
+                              (84.05, -1.86, -16, 28)]:
+        sections.append([(left, y-.2, z), (left*.53, y, z), (0, y-.19, z),
+                         (right*.53, y, z), (right, y-.18, z), (right, y-3, z),
+                         (left, y-3, z)])
+    shelf = south_basin_mesh('South Basin shelf', sections, [ice, frost])
+    for face in shelf.data.polygons:
+        if face.index % 14 < 8 and rng.random() < .34:
+            face.material_index = 1
+
+    # The crest spans every ray from the settlement to the cave mouth.
+    ridge_profiles = [
+        (58, -6, 27, 6.0), (62, -9, 31, 11.0), (68, -10, 31, 12.5),
+        (73, -8, 30, 10.5), (76, -2, 27, 5.5),
+    ]
+    ridge = south_basin_mesh('South Basin blind ridge', [
+        [(left, -3, z), (left+1.5, height*.7, z), (left+6, height, z),
+         ((left+right)/2+3, height+.8, z), (right-3, height*.79, z),
+         (right, -3, z)] for z, left, right, height in ridge_profiles
+    ], [rock, ice, frost])
+    for face in ridge.data.polygons:
+        face.material_index = [0, 1, 0, 2, 1, 0][face.index % 6]
+
+    solids = {shelf.name, ridge.name}
+    for x, z, width, depth, height in [
+        (-6, 43, 2.4, 3.1, 3.9), (-2, 48, 2.3, 4.7, 4.0), (2, 51.3, 2.0, 3.1, 2.7),
+        (-23, 50, 4.1, 9.0, 4.9), (25, 45, 5.4, 8.2, 4.5),
+        (-21, 66, 3.7, 7.0, 4.2), (4, 83, 8.0, 4.0, 5.9),
+        (25, 83, 7.1, 4.4, 6.6),
+    ]:
+        rock_fin = ico('South Basin ice fin', (x, -1.3, -z), (width, depth, height), frost, 2)
+        rock_fin.rotation_euler.y = rng.uniform(-.4, .4)
+        solids.add(rock_fin.name)
+    return solids
+
+
+def south_basin_tunnel(rock, ice, frost, rng):
+    # (depth, center, half width, floor height, vault height), all in meters.
+    profiles = [
+        (83.95, 14, 3.5, -1.83, 4.7), (89, 14, 3.3, -2.48, 4.6),
+        (94, 11, 3.6, -3.75, 5.1), (100, 13, 7, -5.50, 7.1),
+        (104, 14, 12, -5.50, 8.2), (113, 14, 12, -5.50, 8.7),
+        (117, 13, 4.5, -5.50, 5.8), (121, 12, 12, -5.50, 9.5),
+        (132, 12, 12, -5.50, 9.4), (138, 14, 4.6, -5.50, 6.0),
+        (142, 15, 12, -5.50, 10.6), (151, 14, 14, -5.50, 13.4),
+        (158, 14, 11, -5.50, 11.2), (161, 14, 7, -5.50, 6.7),
+    ]
+    tunnel = south_basin_mesh('Hushcap Caverns shell', [
+        [(x+dx*w, floor+height*h, z) for dx, height in [
+            (-1, 0), (-.37, 0), (.29, 0), (1, 0), (1.04, .38), (.81, .82),
+            (.18, 1), (-.46, .94), (-.91, .69), (-1.03, .31),
+        ]] for z, x, w, floor, h in profiles
+    ], [rock, ice, frost], cap_start=False)
+    for face in tunnel.data.polygons:
+        face.material_index = rng.choices([0, 1, 2], [6, 4, 1])[0]
+
+    solids = {tunnel.name}
+    for label, x, z, width, depth, height in [
+        ('Entrance cover', 12.6, 103.2, 1.65, 1.18, 1.6),
+        ('First chamber buttress', 17.6, 109.0, 1.8, 2.4, 3.7),
+        ('Split chamber column', 12, 126.1, 4.2, 5.5, 7.3),
+        ('West passage cover', 4.3, 129.4, 1.15, 1.65, 2.0),
+        ('Gallery screen', 16.2, 143.0, 2.7, 2.4, 4.6),
+        ('Gallery low cover', 10.8, 149.4, 1.65, 1.9, 1.8),
+        ('Gallery vault pillar', 22.2, 153.4, 3.05, 4.0, 8.0),
+    ]:
+        formation = ico(label, (x, -z, -5.7+height*.53), (width, depth, height*.67), rock, 2)
+        formation.rotation_euler.y = rng.uniform(-.23, .23)
+        solids.add(formation.name)
+    return solids
+
+
+def south_basin_growth(ice, chalk, glow, rng):
+    for x, z in [(7, 102), (23, 105), (4.3, 110), (20, 114), (2, 122), (22, 129),
+                 (8.5, 134), (5, 144), (24, 147), (4.5, 152), (20, 156), (12, 159)]:
+        for _ in range(5):
+            px, pz = x+rng.uniform(-.9, .9), -z+rng.uniform(-1.1, 1.1)
+            height = rng.uniform(.15, .65)
+            radius = rng.uniform(.12, .36)
+            cone('Pale fungal stalk', (px, pz, -5.5+height/2), radius*.24, height, chalk)
+            ico('Phosphorescent cup', (px, pz, -5.5+height),
+                (radius, radius*.83, radius*.27), glow, 2)
+            side = rng.choice((-1, 1))
+            fungal_thread('Mycelium on the floor',
+                          [(px, pz, -5.47), (px+side*.24, pz+.08, -5.47),
+                           (px+side*.42, pz+.31, -5.47), (px+side*.69, pz+.41, -5.47)],
+                          .028, chalk)
+        for _ in range(3):
+            px, pz = x+rng.uniform(-1.2, 1.2), -z+rng.uniform(-1.3, 1.3)
+            shard = cone('Ice needles', (px, pz, -5.31), rng.uniform(.07, .17), .44, ice)
+            shard.rotation_euler.y = rng.uniform(-.45, .45)
+
+
+def south_basin():
+    reset()
+    rng = random.Random(47)
+    ice = material('Blue graphite ice', (.075, .13, .19), metal=.25)
+    frost = material('Layered silvery frost', (.15, .24, .31), metal=.22)
+    rock = material('Violet basalt', (.071, .068, .105), metal=.08)
+    chalk = material('Pale mycelium', (.52, .62, .51), .12)
+    glow = material('Fungal phosphor', (.24, .86, .61), 2.4)
+    solids = south_basin_exterior(ice, frost, rock, rng)
+    solids.update(south_basin_tunnel(rock, ice, frost, rng))
+    south_basin_growth(frost, chalk, glow, rng)
+    visual_name, collision_name = SOUTH_BASIN_MODELS
+    save_export(visual_name)
+    for obj in list(bpy.context.scene.objects):
+        if obj.name not in solids:
+            bpy.data.objects.remove(obj, do_unlink=True)
+    save_export(collision_name)
+
+
 def spear_assets():
     bpy.context.preferences.filepaths.save_version = 0
     bpy.context.preferences.filepaths.file_preview_type = 'NONE'
@@ -1534,7 +1677,9 @@ def spear_assets():
     practice_dummy()
 
 
-if '--relay' in sys.argv and '--export' not in sys.argv:
+if '--south-basin' in sys.argv and '--export' not in sys.argv:
+    south_basin()
+elif '--relay' in sys.argv and '--export' not in sys.argv:
     old_relay()
 elif '--hushcap' in sys.argv and '--export' not in sys.argv:
     hushcap()
@@ -1598,7 +1743,7 @@ elif '--export' in sys.argv:
     names = ['outpost', 'collision'] if '--outpost' in sys.argv else [
         'plutonian', 'outpost', 'collision', 'core', 'battery', 'scrap', 'methane_pouch',
         'large_boulder', 'practice_dummy', 'ice_worm', 'relay_roach', 'hushcap', 'mycelium', 'old_relay',
-        'old_relay_collision', *MEAT_NAMES, *GEAR_NAMES,
+        'old_relay_collision', *SOUTH_BASIN_MODELS, *MEAT_NAMES, *GEAR_NAMES,
     ]
     if '--shortsword' in sys.argv:
         names = ['plutonian', SHORTSWORD_NAME]
@@ -1606,6 +1751,8 @@ elif '--export' in sys.argv:
         names = ['hushcap', 'mycelium']
     elif '--relay' in sys.argv:
         names = ['old_relay', 'old_relay_collision']
+    elif '--south-basin' in sys.argv:
+        names = SOUTH_BASIN_MODELS
     for name in names:
         bpy.ops.wm.open_mainfile(filepath=str(ROOT/'art'/f'{name}.blend'))
         if name in GEAR_NAMES:
@@ -1627,4 +1774,5 @@ else:
     hushcap()
     mycelium()
     old_relay()
+    south_basin()
 print('Exported Plutonian RPG assets')

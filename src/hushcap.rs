@@ -1,5 +1,5 @@
 use crate::{
-    dungeon::{Area, ORIGIN},
+    dungeon::Area,
     enemy::{
         self, EnemyBody, EnemyModel,
         ranged::{ChargeLight, RangedAttack, Spit},
@@ -17,7 +17,6 @@ pub(crate) const MODEL: EnemyModel = EnemyModel {
 };
 pub(crate) const HEALTH: u16 = 42;
 pub(crate) const EXPERIENCE: u16 = 45;
-pub(crate) const HOME: Vec3 = Vec3::new(ORIGIN.x + 3.2, ORIGIN.y, ORIGIN.z - 26.0);
 pub(crate) const SPIT: Spit = Spit {
     sight_m: 8.0,
     windup_seconds: 0.85,
@@ -34,8 +33,12 @@ const CHARGE_RANGE_M: f32 = 2.4;
 #[derive(Component)]
 pub(crate) struct Hushcap;
 
-pub(crate) fn spawn(commands: &mut Commands, visuals: &EnemyVisuals) -> Entity {
-    let area = Area::OldRelay;
+pub(crate) fn spawn(
+    commands: &mut Commands,
+    visuals: &EnemyVisuals,
+    home: Vec3,
+    area: Area,
+) -> Entity {
     let stalk = (
         Vec3::Y * 0.53,
         Quat::IDENTITY,
@@ -50,7 +53,7 @@ pub(crate) fn spawn(commands: &mut Commands, visuals: &EnemyVisuals) -> Entity {
         commands,
         Hushcap,
         visuals.get(&MODEL),
-        Transform::from_translation(HOME),
+        Transform::from_translation(home),
         area,
         EnemyBody {
             name: "Hushcap",

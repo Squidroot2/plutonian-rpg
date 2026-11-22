@@ -50,8 +50,8 @@ systems.
 
 The file begins with the six-byte `PLUT` header and a little-endian schema
 version, followed by a bitcode-encoded snapshot.
-The current schema is version 5.
-Readers also recognize versions 1 through 4 and upgrade their snapshots in
+The current schema is version 6.
+Readers also recognize versions 1 through 5 and upgrade their snapshots in
 memory before validating them.
 Legacy saves that predate progression or experience retain the fields they
 already had and receive defaults for fields introduced later.
@@ -63,6 +63,11 @@ Versions 1 through 4 used the archive encounter slot for an ice worm.
   and clears pending XP contribution for the worm.
   The remaining encounters, previously earned XP, and quest progress carry forward.
 Version 5 saves track Hushcap health, defeat, and loot availability like other authored encounters.
+Version 6 adds stable IDs for the Hushcap Caverns encounters.
+  Versions 1 through 5 decode encounter poses and XP contributions with the original six-variant ID enum,
+  then add the new cave encounters at their authored positions, with full health and loot.
+  Version 5 archive Hushcap progress carries forward.
+  The file is converted on disk the next time the player saves at the bed.
 
 Reads are limited to 1 MiB plus one byte so oversized files can be rejected.
 Unknown headers, malformed bitcode, unsupported versions and invalid decoded

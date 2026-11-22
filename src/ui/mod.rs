@@ -9,6 +9,7 @@ pub(crate) mod title;
 use crate::{
     GameState,
     camera::Orbit,
+    cave,
     combat::Health,
     controls::{Control, Keybinds},
     dungeon::{Area, DungeonProgress, DungeonTarget},
@@ -371,17 +372,20 @@ fn buttons(
 fn refresh_hud(
     state: Res<State<GameState>>,
     layout: Res<WorldLayout>,
-    player: Query<&Player>,
+    player: Query<(&Player, &Transform)>,
     mut hud: Query<&mut Text, With<LocationText>>,
 ) {
     let Ok(mut text) = hud.single_mut() else {
         return;
     };
-    let area = player.single().map_or(Area::Surface, |player| player.area);
+    let player = player.single().ok();
+    let area = player.map_or(Area::Surface, |(player, _)| player.area);
     let location = match (state.get(), *layout, area) {
         (GameState::Title | GameState::Loading, _, _) => "",
         (_, _, Area::OldRelay) => "THE OLD RELAY",
-        (_, WorldLayout::Outpost, Area::Surface) => "OUTPOST / NIVALIS",
+        (_, WorldLayout::Outpost, Area::Surface) => player
+            .and_then(|(_, pose)| cave::surface_location(pose.translation))
+            .unwrap_or("OUTPOST / NIVALIS"),
         (_, WorldLayout::SmokeArena, Area::Surface) => "SMOKE ARENA",
     };
     if text.as_str() != location {

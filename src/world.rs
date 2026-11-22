@@ -5,7 +5,7 @@ use crate::{
     equipment::bind_equipment_attachments,
     experience::Experience,
     interaction::Target,
-    loading::{GameAssets, LoadStatus, PendingScene, scene_ready},
+    loading::{GameAssets, LoadStatus, PendingScene, scene_ready, spawn_static_scenes},
     nemi::{self, Nemi},
     player::{
         ActorVisual, PLAYER_COLLIDER_LENGTH, PLAYER_COLLIDER_RADIUS, PLAYER_GROUND_OFFSET, Player,
@@ -25,6 +25,14 @@ pub enum WorldLayout {
 }
 
 impl WorldLayout {
+    pub(crate) fn recovery_max_z(self) -> f32 {
+        const EDGE_MARGIN_M: f32 = 7.0;
+        match self {
+            Self::Outpost => crate::cave::FAR_WALL_Z + EDGE_MARGIN_M,
+            Self::SmokeArena => 35.0,
+        }
+    }
+
     pub fn start(self) -> Vec3 {
         match self {
             Self::Outpost => Vec3::new(4.0, 0.5, 8.0),
@@ -88,9 +96,9 @@ fn spawn_world(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    if let Some((outpost, collision)) = &assets.outpost {
+    if let Some(outpost) = &assets.outpost {
         orbit.yaw = std::f32::consts::FRAC_PI_2;
-        spawn_outpost(&mut commands, &gltfs, outpost, collision);
+        spawn_outpost(&mut commands, &gltfs, outpost);
     } else {
         crate::smoke::spawn_arena(&mut commands, &mut meshes, &mut materials);
     }
@@ -123,48 +131,21 @@ fn spawn_world(
 fn spawn_outpost(
     commands: &mut Commands,
     gltfs: &Assets<Gltf>,
-    outpost: &Handle<Gltf>,
-    collision: &Handle<Gltf>,
+    outpost: &(Handle<Gltf>, Handle<Gltf>),
 ) {
-    commands
-        .spawn((
-            SessionEntity,
-            Name::new("Outpost visuals"),
-            PendingScene,
-            WorldAssetRoot(
-                gltfs
-                    .get(outpost)
-                    .expect("the validated outpost glTF must remain loaded when spawning the world")
-                    .scenes[0]
-                    .clone(),
-            ),
-        ))
-        .observe(scene_ready);
-    commands
-        .spawn((
-            SessionEntity,
-            Name::new("Outpost collision"),
-            PendingScene,
-            WorldAssetRoot(
-                gltfs
-                    .get(collision)
-                    .expect(
-                        "the validated collision glTF must remain loaded when spawning the world",
-                    )
-                    .scenes[0]
-                    .clone(),
-            ),
-            RigidBody::Static,
-            Visibility::Hidden,
-            ColliderConstructorHierarchy::new(ColliderConstructor::TrimeshFromMesh),
-        ))
-        .observe(scene_ready)
-        .observe(
-            |_: On<ColliderConstructorHierarchyReady>, mut status: ResMut<LoadStatus>| {
-                status.collision_ready = true;
-                info!("Collision hierarchy ready");
-            },
-        );
+    let collision = spawn_static_scenes(
+        commands,
+        gltfs,
+        outpost,
+        ("Outpost visuals", "Outpost collision"),
+        Vec3::ZERO,
+    );
+    commands.entity(collision).observe(
+        |_: On<ColliderConstructorHierarchyReady>, mut status: ResMut<LoadStatus>| {
+            status.collision_ready = true;
+            info!("Collision hierarchy ready");
+        },
+    );
     commands.spawn((
         SessionEntity,
         Name::new("Starting tent lantern"),
