@@ -851,6 +851,10 @@ def build_crossing():
     crossing.vellik(material, box, ico)
     save_export('vellik')
 
+    build_wagon()
+
+
+def build_wagon():
     reset()
     crossing.wagon(material, box, ico)
     save_export('crossing_wagon')
@@ -1791,6 +1795,8 @@ elif '--meat' in sys.argv:
     meat_pickups()
 elif '--items' in sys.argv:
     items()
+elif '--build-wagon' in sys.argv:
+    build_wagon()
 elif '--build-crossing' in sys.argv:
     rebuild_perimeter()
     build_crossing()
@@ -1837,6 +1843,8 @@ elif '--export' in sys.argv:
         names = SOUTH_BASIN_MODELS
     elif '--crossing' in sys.argv:
         names = crossing.MODELS
+    elif '--wagon' in sys.argv:
+        names = ['crossing_wagon']
     for name in names:
         bpy.ops.wm.open_mainfile(filepath=str(ROOT/'art'/f'{name}.blend'))
         if name in GEAR_NAMES:

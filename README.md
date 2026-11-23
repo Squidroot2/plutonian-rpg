@@ -297,6 +297,8 @@ Pass `-- --worm` to the asset command to regenerate the ice worm source and its 
   Use `-- --export --south-basin` to re-export their edited Blender sources.
   Use `-- --build-crossing` to generate the Listening Flats, the moving gate, the vellik, and the crossing wagon.
   Use `-- --export --crossing` to re-export their edited Blender sources.
+  Use `-- --build-wagon` to regenerate just the crossing wagon.
+  Use `-- --export --wagon` to re-export its edited Blender source.
 
 The title screen uses a render of the outpost.
   To refresh it after editing the scenery, run `blender --background -noaudio art/outpost.blend --python scripts/render_title.py`.

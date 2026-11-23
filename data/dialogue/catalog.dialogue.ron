@@ -113,7 +113,7 @@
             name: "Tovan",
             topics: [
                 (id: "show_mycelium", label: "I brought Mycelium samples.", reply: Quest),
-                (id: "craft", label: "What do you make?", reply: Text("Hinges, runners, anything the cold wants to keep. You learn to hear what a thing sounds like just before it breaks.")),
+                (id: "craft", label: "What do you make?", reply: Text("I fit fired stone over old Relay alloy. The panels ring when I tap them. I know by ear which ones will hold through the long dark.")),
             ],
             replies: [
                 (id: "samples_needed", text: "I need five together. Bring them in your pack and I can read which way the threads have grown."),
@@ -131,7 +131,7 @@
             id: "orla",
             name: "Orla",
             topics: [
-                (id: "home", label: "What did you miss about home?", reply: Text("Canvas in the wind. A cup set down on wood. Out on the crossing, every sound tried to be a voice.")),
+                (id: "home", label: "What did you miss about home?", reply: Text("Cloth in the wind. The click of a cup on fired stone. Out on the crossing, every sound tried to be a voice.")),
             ],
         ),
     ],

@@ -6,7 +6,10 @@ Restoring the beacon gives the families a light to follow.
 
 The first wagon brings Isera and Vey.
   Tovan and Orla follow with the second.
-  Velliks haul the wagons by draught poles.
+  Velliks haul the wagons by alloy draught rails.
+  The wagon frames and cleated disc wheels use salvaged Relay alloy.
+  Fired basalt ceramic shields the cargo,
+  and woven basalt fibre stretches over the canopy ribs.
   Their alternating tripods keep three crescent feet on the ice as they pull.
   A forked crown senses the ice and turns in the wind at rest.
 

@@ -170,42 +170,114 @@ def vellik(material, box, ico):
 
 
 def wagon(material, box, ico):
-    wood = material('Grey crossing timber', (.20, .16, .13))
-    metal = material('Ice-cleated iron', (.115, .147, .172), metal=.35)
-    canvas = material('Weathered ochre canvas', (.33, .194, .114))
-    pale = material('Canvas seam', (.46, .294, .168))
-    amber = material('Wagon lantern', (1.0, .49, .15), emission=3.4)
-    box('Wagon deck', (0, 0, 1.10), (2.55, 3.85, .25), wood)
-    for x in (-1.15, 1.15):
-        box('Wagon side board', (x, 0, 1.56), (.2, 3.75, .73), wood)
-    for y in (-1.80, 1.80):
-        box('Wagon end board', (0, y, 1.48), (2.22, .20, .56), wood)
+    alloy = material('Salvaged Relay alloy', (.105, .183, .222), metal=.55)
+    tread = material('Cleated graphite alloy', (.062, .09, .119), metal=.34)
+    shell = material('Fired basalt ceramic', (.182, .262, .309), metal=.10)
+    enamel = material('Frost-glazed ceramic', (.255, .374, .405), metal=.12)
+    cloth = material('Woven basalt shelter cloth', (.115, .148, .214))
+    seams = material('Woven basalt binding', (.181, .235, .30))
+    marker = material('Crossing marker glass', (.12, .68, .72), emission=1.25)
+    amber = material('Wagon lantern glass', (1.0, .49, .15), emission=3.4)
 
-    canopy = []
-    for y in (-1.68, -.55, .55, 1.68):
-        canopy.append([(-1.23, 1.89, -y), (-1.21, 2.56, -y), (-.69, 3.07, -y),
-                       (.69, 3.07, -y), (1.21, 2.56, -y), (1.23, 1.89, -y)])
-        box('Canopy seam', (0, y, 3.08), (1.39, .045, .042), pale)
-    vertices = [vertex for ring in canopy for vertex in ring]
-    faces = [(i+j, i+j+1, i+j+7, i+j+6) for i in (0,6,12) for j in range(5)]
-    perimeter.mesh('Stretched wagon canopy', vertices, faces, [canvas])
+    wagon_chassis(box, alloy, shell, enamel, marker, amber)
+    wagon_canopy(box, alloy, cloth, seams)
     for i, y in enumerate((-1.19, 1.19)):
-        box('Wagon axle', (0, y, .61), (3.05, .14, .14), metal)
+        box('Reinforced wagon axle', (0, y, .63), (2.94, .20, .19), alloy)
         for side, label in [(-1, 'L'), (1, 'R')]:
             wheel = local_parent(f'Wagon Wheel {label}{i}', (side*1.47, y, .63))
-            bpy.ops.mesh.primitive_torus_add(major_segments=12, minor_segments=6,
-                                            major_radius=.50, minor_radius=.13)
-            rim = bpy.context.object
-            rim.name = 'Cleated wheel rim'
-            rim.rotation_euler.y = math.pi/2
-            rim.parent = wheel
-            rim.data.materials.append(metal)
-            for angle in range(4):
-                spoke = box('Wheel crosspiece', (0, 0, 0), (.17, 1.02, .075), wood)
-                spoke.rotation_euler.x = angle*math.pi/4
-                spoke.parent = wheel
+            wagon_wheel(box, wheel, side, alloy, tread, enamel)
+
     for x in (-.52, .52):
-        box('Draught pole', (x, -2.61, 1.09), (.10, 2.26, .10), wood)
-        box('Wagon lantern frame', (x*1.75, 1.92, 2.07), (.26, .22, .42), metal)
-        box('Wagon lantern glass', (x*1.75, 2.05, 2.07), (.17, .12, .30), amber)
-    ico('Canvas bedroll', (.47, 1.37, 1.60), (.34, .42, .29), pale, 1)
+        box('Alloy draught rail', (x, -2.61, 1.09), (.14, 2.26, .115), alloy)
+        box('Draught rail coupling', (x, -3.69, 1.09), (.19, .24, .16), enamel)
+    box('Harness crossbar', (0, -3.57, 1.09), (1.18, .10, .085), alloy)
+    pack = ico('Basalt-cloth bedroll', (.47, 1.25, 1.40), (.34, .44, .27), cloth, 1)
+    pack.rotation_euler.z = -.18
+
+
+def wagon_chassis(box, alloy, shell, enamel, marker, amber):
+    box('Pressed alloy underframe', (0, 0, 1.01), (2.20, 3.63, .24), alloy)
+    box('Fired ceramic cargo deck', (0, 0, 1.16), (2.25, 3.63, .105), shell)
+
+    # The sheared shoulders and exposed seams give the ceramic panels their shape.
+    profile = ((1.09, 1.08), (1.26, 1.37), (1.24, 1.77), (1.10, 1.91))
+    for side in (-1, 1):
+        for start, end in ((-1.77, -.62), (-.58, .58), (.62, 1.77)):
+            corners = [(side*x, height, -y) for y in (start, end) for x, height in profile]
+            faces = [(i, i+1, i+5, i+4) for i in range(3)]
+            if side > 0:
+                faces = [face[::-1] for face in faces]
+            perimeter.mesh('Bevelled ceramic cargo panel', corners, faces,
+                           (shell, enamel), [0, 0, 1])
+        box('Alloy sill strip', (side*1.11, 0, 1.14), (.12, 3.62, .12), alloy)
+        box('Ceramic cap rail', (side*1.09, 0, 1.89), (.19, 3.62, .078), enamel)
+        for y in (-1.67, 1.67):
+            box('Alloy corner stanchion', (side*1.11, y, 1.52), (.28, .22, .81), alloy)
+
+    for y, outward in [(-1.80, -1), (1.80, 1)]:
+        box('Pressed alloy end frame', (0, y, 1.44), (2.23, .16, .63), alloy)
+        for x in (-.33, .33):
+            box('Fired ceramic end plate', (x, y+outward*.093, 1.43),
+                (.61, .058, .46), shell)
+        box('Cast pull handle', (0, y+outward*.14, 1.55), (.23, .10, .07), enamel)
+        for x in (-.85, .85):
+            box('Recessed lantern bracket', (x, y+outward*.098, 1.86),
+                (.29, .21, .42), alloy)
+            box('Lantern slit', (x, y+outward*.21, 1.86),
+                (.15, .035, .22), amber if outward > 0 else marker)
+
+
+def wagon_canopy(box, alloy, cloth, seam):
+    # Tension the same basalt fibre as the Plutonian cloaks over a folded alloy frame.
+    profile = [(-1.17, 1.88), (-1.13, 2.45), (-.66, 2.87),
+               (.66, 2.87), (1.13, 2.45), (1.17, 1.88)]
+    stations = (-1.65, -.53, .53, 1.65)
+    vertices = [(x, height, -y) for y in stations for x, height in profile]
+    count = len(profile)
+    faces = [(i+j, i+j+count, i+j+count+1, i+j+1)
+             for i in range(0, len(vertices)-count, count) for j in range(count-1)]
+    perimeter.mesh('Basalt fibre canopy', vertices, [face[::-1] for face in faces], [cloth])
+
+    for y in stations:
+        for a, b in zip(profile, profile[1:]):
+            start, end = Vector((a[0], y, a[1])), Vector((b[0], y, b[1]))
+            delta = end-start
+            rib = box('Folded canopy rib', (start+end)*.5, (.048, .060, delta.length+.022),
+                      alloy if abs(y) > 1 else seam)
+            rib.rotation_euler = delta.to_track_quat('Z', 'Y').to_euler()
+
+
+def wagon_wheel(box, wheel, side, alloy, tread, enamel):
+    # Wheel geometry stays local to its original pivot so Bevy can still roll it.
+    for name, x, radius, depth, sides, mat in [
+        ('Forged wheel disc', 0, .53, .16, 12, alloy),
+        ('Frost-glazed hub collar', side*.096, .32, .035, 8, enamel),
+        ('Hex axle cap', side*.121, .13, .038, 6, alloy),
+    ]:
+        bpy.ops.mesh.primitive_cylinder_add(vertices=sides, radius=radius, depth=depth,
+                                            location=(x, 0, 0), rotation=(0, math.pi/2, 0))
+        part = bpy.context.object
+        part.name = name
+        part.parent = wheel
+        part.data.materials.append(mat)
+
+    # The darker tread wraps the wheel edge and leaves the inset disc exposed.
+    stations = 12
+    cross_section = [(-.099, .505), (-.099, .56), (.099, .56), (.099, .505)]
+    vertices = [(x, radius*math.cos(angle), radius*math.sin(angle))
+                for angle in (math.tau*i/stations for i in range(stations))
+                for x, radius in cross_section]
+    faces = []
+    for i in range(stations):
+        a, b = i*4, ((i+1) % stations)*4
+        for j in range(4):
+            k = (j+1) % 4
+            faces.append((a+j, b+j, b+k, a+k))
+    perimeter.mesh('Faceted tread band', vertices, faces, [tread]).parent = wheel
+
+    for i in range(12):
+        angle = math.tau*i/12
+        cleat = box('Cast ice cleat', (0, -.586*math.sin(angle), .586*math.cos(angle)),
+                    (.234, .162, .075), alloy)
+        cleat.rotation_euler.x = angle
+        cleat.parent = wheel
