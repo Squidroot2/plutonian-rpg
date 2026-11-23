@@ -13,6 +13,7 @@ use bevy::prelude::*;
 pub(crate) const MODEL: EnemyModel = EnemyModel {
     path: "models/hushcap.glb",
     clips: ["HushcapIdle", "HushcapSpit", "HushcapDeath"],
+    visual_offset: Vec3::ZERO,
     locomotion: None,
 };
 pub(crate) const HEALTH: u16 = 42;

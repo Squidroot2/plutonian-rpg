@@ -8,6 +8,7 @@ use crate::{
     dungeon::{ARCHIVE_HUSHCAP_HOME, Area, DungeonProgress},
     equipment::{Equipment, EquipmentSlot},
     experience::{Experience, ExperienceNotice, ExperienceReward, ExperienceUpdates},
+    guard::{self, GuardPost, OutpostSecurity},
     hushcap,
     interaction::{ActiveChest, CorpseLoot, InteractionSystems, LootTarget, Nearby, Target},
     inventory::{Inventory, InventoryNotice, ItemKind, Pickup},
@@ -34,7 +35,8 @@ use std::{
 };
 
 // Four magic bytes followed by the little-endian save schema version.
-const HEADER: &[u8; 6] = b"PLUT\x07\x00";
+const HEADER: &[u8; 6] = b"PLUT\x08\x00";
+const V7_HEADER: &[u8; 6] = b"PLUT\x07\x00";
 const V6_HEADER: &[u8; 6] = b"PLUT\x06\x00";
 const V5_HEADER: &[u8; 6] = b"PLUT\x05\x00";
 const V4_HEADER: &[u8; 6] = b"PLUT\x04\x00";
@@ -61,6 +63,7 @@ pub(crate) enum EncounterId {
     RelayArchiveHushcap,
     RelayRoach,
     Cave(CaveEncounter),
+    Guard(GuardPost),
 }
 
 impl EncounterId {
@@ -107,6 +110,33 @@ impl From<LegacyEncounterId> for EncounterId {
             LegacyEncounterId::RelayJunctionWorm => Self::RelayJunctionWorm,
             LegacyEncounterId::RelayArchiveHushcap => Self::RelayArchiveHushcap,
             LegacyEncounterId::RelayRoach => Self::RelayRoach,
+        }
+    }
+}
+
+// Versions 6 and 7 used the seven-variant encounter encoding.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, bitcode::Decode)]
+#[cfg_attr(test, derive(bitcode::Encode))]
+enum PreGuardEncounterId {
+    NearTrailWorm,
+    FarTrailWorm,
+    CavernWorm,
+    RelayJunctionWorm,
+    RelayArchiveHushcap,
+    RelayRoach,
+    Cave(CaveEncounter),
+}
+
+impl From<PreGuardEncounterId> for EncounterId {
+    fn from(id: PreGuardEncounterId) -> Self {
+        match id {
+            PreGuardEncounterId::NearTrailWorm => Self::NearTrailWorm,
+            PreGuardEncounterId::FarTrailWorm => Self::FarTrailWorm,
+            PreGuardEncounterId::CavernWorm => Self::CavernWorm,
+            PreGuardEncounterId::RelayJunctionWorm => Self::RelayJunctionWorm,
+            PreGuardEncounterId::RelayArchiveHushcap => Self::RelayArchiveHushcap,
+            PreGuardEncounterId::RelayRoach => Self::RelayRoach,
+            PreGuardEncounterId::Cave(id) => Self::Cave(id),
         }
     }
 }
@@ -178,6 +208,7 @@ pub(crate) struct Snapshot<
     P = SavedProgress,
     X = SavedExperience,
     I: Ord = EncounterId,
+    G = bool,
 > {
     pub(crate) journal: SavedJournal,
     inventory: Inventory,
@@ -190,12 +221,21 @@ pub(crate) struct Snapshot<
     encounters: BTreeMap<I, SavedEncounter>,
     pub(crate) progression: P,
     experience: X,
+    guards_hostile: G,
     #[bitcode(skip)]
     pub(crate) add_shortswords_on_spawn: bool,
 }
 
 type LegacySnapshot<E = Equipment, P = SavedProgress, X = SavedExperience<LegacyEncounterId>> =
-    Snapshot<E, P, X, LegacyEncounterId>;
+    Snapshot<E, P, X, LegacyEncounterId, ()>;
+
+type PreGuardSnapshot = Snapshot<
+    Equipment,
+    SavedProgress,
+    SavedExperience<PreGuardEncounterId>,
+    PreGuardEncounterId,
+    (),
+>;
 
 #[derive(bitcode::Encode, bitcode::Decode)]
 pub(crate) struct SavedExperience<I: Ord = EncounterId> {
@@ -215,15 +255,15 @@ impl<I: Ord> Default for SavedExperience<I> {
     }
 }
 
-impl From<SavedExperience<LegacyEncounterId>> for SavedExperience {
-    fn from(old: SavedExperience<LegacyEncounterId>) -> Self {
-        Self {
-            player: old.player,
-            nemi_contributed: old.nemi_contributed,
-            encounter_contributions: old
+impl<I: Ord + Into<EncounterId>> SavedExperience<I> {
+    fn upgrade(self) -> SavedExperience {
+        SavedExperience {
+            player: self.player,
+            nemi_contributed: self.nemi_contributed,
+            encounter_contributions: self
                 .encounter_contributions
                 .into_iter()
-                .map(EncounterId::from)
+                .map(Into::into)
                 .collect(),
         }
     }
@@ -272,8 +312,8 @@ fn migrate<E>(
 }
 
 // Unit fields consume no bitcode bytes in schemas that predate the corresponding data.
-fn upgrade_snapshot<E, P, X>(
-    old: LegacySnapshot<E, P, X>,
+fn upgrade_snapshot<E, P, X, I: Ord + Into<EncounterId>>(
+    old: Snapshot<E, P, X, I, ()>,
     equipment: Equipment,
     progression: SavedProgress,
     experience: SavedExperience,
@@ -295,6 +335,7 @@ fn upgrade_snapshot<E, P, X>(
             .collect(),
         progression,
         experience,
+        guards_hostile: false,
         add_shortswords_on_spawn,
     }
 }
@@ -305,10 +346,15 @@ impl Snapshot {
     }
 
     fn is_valid(&self) -> bool {
-        self.is_valid_with_encounters(hushcap::HEALTH, true)
+        self.is_valid_with_encounters(hushcap::HEALTH, true, true)
     }
 
-    fn is_valid_with_encounters(&self, archive_health: u16, include_cave: bool) -> bool {
+    fn is_valid_with_encounters(
+        &self,
+        archive_health: u16,
+        include_cave: bool,
+        include_guards: bool,
+    ) -> bool {
         self.inventory.valid_stacks()
             && self.progression.is_valid()
             && self.experience.player.is_valid(self.progression.level())
@@ -326,7 +372,7 @@ impl Snapshot {
             && self.dungeon.is_valid()
             && self.nemi.is_valid(Nemi::MAX_HEALTH)
             && self.nemi_state.is_valid()
-            && self.has_expected_encounters(archive_health, include_cave)
+            && self.has_expected_encounters(archive_health, include_cave, include_guards)
             && self.pickups.iter().all(|pickup| {
                 pickup.stack.quantity > 0
                     && pickup.stack.item != ItemKind::BeaconCore
@@ -334,7 +380,12 @@ impl Snapshot {
             })
     }
 
-    fn has_expected_encounters(&self, archive_health: u16, include_cave: bool) -> bool {
+    fn has_expected_encounters(
+        &self,
+        archive_health: u16,
+        include_cave: bool,
+        include_guards: bool,
+    ) -> bool {
         let valid = |(id, health)| {
             self.encounters
                 .get(&id)
@@ -343,8 +394,26 @@ impl Snapshot {
         let mut base = EncounterId::base(archive_health);
         let mut cave =
             cave::encounter_homes().map(|(id, _, health)| (EncounterId::Cave(id), health));
-        let count = base.len() + if include_cave { cave.len() } else { 0 };
-        self.encounters.len() == count && base.all(valid) && (!include_cave || cave.all(valid))
+        let mut guards = GuardPost::ALL
+            .into_iter()
+            .map(|post| (EncounterId::Guard(post), guard::HEALTH));
+        let count = base.len()
+            + if include_cave { cave.len() } else { 0 }
+            + if include_guards { guards.len() } else { 0 };
+        self.encounters.len() == count
+            && base.all(valid)
+            && (!include_cave || cave.all(valid))
+            && (!include_guards || guards.all(valid))
+    }
+
+    fn seed_guards(&mut self) {
+        self.encounters
+            .extend(GuardPost::ALL.into_iter().map(|post| {
+                (
+                    EncounterId::Guard(post),
+                    SavedEncounter::fresh(post.home(), guard::HEALTH),
+                )
+            }));
     }
 
     fn replace_archive_worm(&mut self) {
@@ -468,15 +537,28 @@ fn read_save(path: &Path) -> io::Result<Snapshot> {
         ));
     }
     let invalid_data = |error| io::Error::new(io::ErrorKind::InvalidData, error);
+    if let Some(payload) = data.strip_prefix(HEADER) {
+        let snapshot: Snapshot = bitcode::decode(payload).map_err(invalid_data)?;
+        return validate_contents(snapshot, hushcap::HEALTH, true, true);
+    }
     if let Some(payload) = data
-        .strip_prefix(HEADER)
+        .strip_prefix(V7_HEADER)
         .or_else(|| data.strip_prefix(V6_HEADER))
     {
-        let snapshot: Snapshot = bitcode::decode(payload).map_err(invalid_data)?;
-        let mut snapshot = validate_contents(snapshot, hushcap::HEALTH, true)?;
+        let mut old: PreGuardSnapshot = bitcode::decode(payload).map_err(invalid_data)?;
+        let equipment = std::mem::take(&mut old.equipment);
+        let progression = std::mem::take(&mut old.progression);
+        let experience = std::mem::take(&mut old.experience).upgrade();
+        let mut snapshot = validate_contents(
+            upgrade_snapshot(old, equipment, progression, experience, false),
+            hushcap::HEALTH,
+            true,
+            false,
+        )?;
         if data.starts_with(V6_HEADER) {
             snapshot.journal.credit_legacy_relay_return();
         }
+        snapshot.seed_guards();
         return Ok(snapshot);
     }
     let v5 = data.starts_with(V5_HEADER);
@@ -486,11 +568,12 @@ fn read_save(path: &Path) -> io::Result<Snapshot> {
     } else {
         worm::CONFIG.body.health
     };
-    let mut snapshot = validate_contents(snapshot, archive_health, false)?;
+    let mut snapshot = validate_contents(snapshot, archive_health, false, false)?;
     if !v5 {
         snapshot.replace_archive_worm();
     }
     snapshot.seed_cave();
+    snapshot.seed_guards();
     snapshot.journal.credit_legacy_relay_return();
     Ok(snapshot)
 }
@@ -504,7 +587,7 @@ fn decode_legacy(data: &[u8]) -> io::Result<Snapshot> {
         let mut old: LegacySnapshot = bitcode::decode(payload).map_err(invalid_data)?;
         let equipment = std::mem::take(&mut old.equipment);
         let progression = std::mem::take(&mut old.progression);
-        let experience = std::mem::take(&mut old.experience).into();
+        let experience = std::mem::take(&mut old.experience).upgrade();
         upgrade_snapshot(old, equipment, progression, experience, false)
     } else if let Some(payload) = data.strip_prefix(V3_HEADER) {
         let mut old: LegacySnapshot<Equipment, SavedProgress, ()> =
@@ -553,8 +636,9 @@ fn validate_contents(
     snapshot: Snapshot,
     archive_health: u16,
     include_cave: bool,
+    include_guards: bool,
 ) -> io::Result<Snapshot> {
-    if !snapshot.is_valid_with_encounters(archive_health, include_cave) {
+    if !snapshot.is_valid_with_encounters(archive_health, include_cave, include_guards) {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
             "Invalid save contents",
@@ -647,6 +731,7 @@ impl Plugin for SavePlugin {
                     .after(CombatSystems::Resolve)
                     .after(ExperienceUpdates)
                     .after(nemi::react_to_player_hit)
+                    .after(guard::react_to_player_hit)
                     .run_if(in_state(GameState::Playing)),
             );
     }
@@ -689,6 +774,7 @@ pub(crate) fn save_at_bed(
     equipment: Res<Equipment>,
     chests: Res<ChestStorage>,
     dungeon: Res<DungeonProgress>,
+    security: Res<OutpostSecurity>,
     mut slot: ResMut<SaveSlot>,
     mut run: ResMut<RunSave>,
     mut notice: ResMut<SaveNotice>,
@@ -746,6 +832,7 @@ pub(crate) fn save_at_bed(
                 .map(|(&id, ..)| id)
                 .collect(),
         },
+        guards_hostile: security.hostile,
         add_shortswords_on_spawn: false,
     };
     let text = match slot.save(snapshot, &mut run) {
@@ -782,6 +869,7 @@ pub(crate) fn reset_session(world: &mut World) {
         world.insert_resource(ChestStorage::default());
         world.insert_resource(DungeonProgress::default());
     }
+    world.insert_resource(OutpostSecurity::default());
     world.insert_resource(Dialogue::default());
     world.insert_resource(DialogueClick::default());
     world.insert_resource(Nearby::default());
@@ -803,6 +891,7 @@ pub(crate) fn reset_session(world: &mut World) {
 fn restore_actors(
     run: Res<RunSave>,
     journal: Res<QuestJournal>,
+    mut security: ResMut<OutpostSecurity>,
     mut nemi: Query<
         (
             Entity,
@@ -830,6 +919,7 @@ fn restore_actors(
     let Some(save) = run.checkpoint() else {
         return;
     };
+    security.hostile = save.guards_hostile;
     if let Ok((entity, mut transform, mut health, mut nemi, mut reward)) = nemi.single_mut() {
         save.nemi
             .restore(&mut transform, &mut health, &mut commands.entity(entity));
@@ -838,9 +928,14 @@ fn restore_actors(
     }
     for (entity, id, mut transform, mut health, mut loot, mut reward) in &mut encounters {
         if let Some(encounter) = save.encounters.get(id) {
-            encounter
-                .actor
-                .restore(&mut transform, &mut health, &mut commands.entity(entity));
+            // Living guards regroup at their posts so the player can leave the cot.
+            if matches!(id, EncounterId::Guard(_)) && encounter.actor.health > 0 {
+                health.set_current(encounter.actor.health);
+            } else {
+                encounter
+                    .actor
+                    .restore(&mut transform, &mut health, &mut commands.entity(entity));
+            }
             reward.player_contributed = save.experience.encounter_contributions.contains(id);
             if !encounter.has_loot {
                 loot.stack = None;
@@ -893,6 +988,7 @@ mod tests {
         world.insert_resource(SaveSlot::open(Some(path)));
         world.insert_resource(test_journal());
         world.init_resource::<RunSave>();
+        world.init_resource::<OutpostSecurity>();
         world.init_resource::<SaveNotice>();
         world.init_resource::<NextState<GameState>>();
         world.init_resource::<Messages<SaveAtBed>>();
@@ -912,8 +1008,12 @@ mod tests {
         use EncounterId::*;
         let base = EncounterId::base(hushcap::HEALTH).map(|(id, health)| (id, Vec3::ZERO, health));
         let cave = cave::encounter_homes().map(|(id, home, health)| (Cave(id), home, health));
-        for (id, home, health) in base.chain(cave) {
+        let guards = GuardPost::ALL
+            .into_iter()
+            .map(|post| (Guard(post), post.home(), guard::HEALTH));
+        for (id, home, health) in base.chain(cave).chain(guards) {
             let item = match id {
+                Guard(_) => ItemKind::Scrap,
                 RelayRoach | Cave(CaveEncounter::SplitRoach | CaveEncounter::GalleryRoach) => {
                     ItemKind::RoachMeat
                 }
@@ -964,7 +1064,7 @@ mod tests {
             EncounterId::RelayJunctionWorm => LegacyEncounterId::RelayJunctionWorm,
             EncounterId::RelayArchiveHushcap => LegacyEncounterId::RelayArchiveHushcap,
             EncounterId::RelayRoach => LegacyEncounterId::RelayRoach,
-            EncounterId::Cave(_) => return None,
+            EncounterId::Cave(_) | EncounterId::Guard(_) => return None,
         })
     }
 
@@ -1016,6 +1116,7 @@ mod tests {
                     .filter_map(legacy_id)
                     .collect(),
             },
+            guards_hostile: (),
             add_shortswords_on_spawn: false,
         }
     }
@@ -1223,6 +1324,7 @@ mod tests {
             encounters: legacy_encounters(base.encounters),
             progression: (),
             experience: (),
+            guards_hostile: (),
             add_shortswords_on_spawn: false,
         };
         let mut bytes = LEGACY_HEADER.to_vec();
@@ -1286,6 +1388,7 @@ mod tests {
             encounters: legacy_encounters(base.encounters),
             progression: (),
             experience: (),
+            guards_hostile: (),
             add_shortswords_on_spawn: false,
         };
         let mut bytes = V2_HEADER.to_vec();
@@ -1417,6 +1520,7 @@ mod tests {
             encounters: legacy_encounters(base.encounters),
             progression: base.progression,
             experience: (),
+            guards_hostile: (),
             add_shortswords_on_spawn: false,
         };
         let mut bytes = V3_HEADER.to_vec();
@@ -1514,7 +1618,7 @@ mod tests {
                 .encounter_contributions
                 .contains(&archive)
         );
-        assert_eq!(migrated.encounters.len(), 18);
+        assert_eq!(migrated.encounters.len(), 20);
         for (id, home, health) in cave::encounter_homes() {
             let encounter = &migrated.encounters[&EncounterId::Cave(id)];
             assert_eq!(encounter.actor.position, home.to_array());
@@ -1522,6 +1626,163 @@ mod tests {
             assert!(encounter.has_loot);
         }
         assert_eq!(fs::read(path).expect("v5 file remains on disk"), bytes);
+    }
+
+    fn pre_guard_snapshot(base: Snapshot) -> PreGuardSnapshot {
+        let old_id = |id: EncounterId| {
+            Some(match id {
+                EncounterId::NearTrailWorm => PreGuardEncounterId::NearTrailWorm,
+                EncounterId::FarTrailWorm => PreGuardEncounterId::FarTrailWorm,
+                EncounterId::CavernWorm => PreGuardEncounterId::CavernWorm,
+                EncounterId::RelayJunctionWorm => PreGuardEncounterId::RelayJunctionWorm,
+                EncounterId::RelayArchiveHushcap => PreGuardEncounterId::RelayArchiveHushcap,
+                EncounterId::RelayRoach => PreGuardEncounterId::RelayRoach,
+                EncounterId::Cave(id) => PreGuardEncounterId::Cave(id),
+                EncounterId::Guard(_) => return None,
+            })
+        };
+        Snapshot {
+            journal: base.journal,
+            inventory: base.inventory,
+            equipment: base.equipment,
+            chests: base.chests,
+            dungeon: base.dungeon,
+            pickups: base.pickups,
+            nemi: base.nemi,
+            nemi_state: base.nemi_state,
+            encounters: base
+                .encounters
+                .into_iter()
+                .filter_map(|(id, saved)| Some((old_id(id)?, saved)))
+                .collect(),
+            progression: base.progression,
+            experience: SavedExperience {
+                player: base.experience.player,
+                nemi_contributed: base.experience.nemi_contributed,
+                encounter_contributions: base
+                    .experience
+                    .encounter_contributions
+                    .into_iter()
+                    .filter_map(old_id)
+                    .collect(),
+            },
+            guards_hostile: (),
+            add_shortswords_on_spawn: false,
+        }
+    }
+
+    #[test]
+    fn guard_checkpoint_restores_hostility_damage_and_looted_defeat() {
+        let dir = TestDirectory::new();
+        let path = dir.path();
+        let (mut world, bed, _, _) = bed_world(path.clone());
+        let west = guard_entity(&mut world, GuardPost::West);
+        let east = guard_entity(&mut world, GuardPost::East);
+        world.resource_mut::<OutpostSecurity>().hostile = true;
+        let fight_site = Vec3::new(3.0, 0.0, 1.0);
+        world
+            .get_mut::<Transform>(west)
+            .expect("west pose")
+            .translation = fight_site;
+        world
+            .get_mut::<Transform>(east)
+            .expect("east pose")
+            .translation = fight_site;
+        world
+            .get_mut::<Health>(west)
+            .expect("west health")
+            .set_current(90);
+        world
+            .get_mut::<Health>(east)
+            .expect("east health")
+            .set_current(0);
+        world.get_mut::<CorpseLoot>(east).expect("east loot").stack = None;
+        world
+            .get_mut::<ExperienceReward>(west)
+            .expect("west XP")
+            .player_contributed = true;
+        interact_with(&mut world, bed);
+
+        let saved = read_save(&path).expect("guard checkpoint");
+        let (mut rebuilt, _, _, _) = bed_world(path);
+        let west = guard_entity(&mut rebuilt, GuardPost::West);
+        let east = guard_entity(&mut rebuilt, GuardPost::East);
+        rebuilt.insert_resource(RunSave(Some(Arc::new(saved))));
+        rebuilt
+            .run_system_once(restore_actors)
+            .expect("restore guards");
+        assert!(rebuilt.resource::<OutpostSecurity>().hostile);
+        assert_eq!(
+            rebuilt.get::<Health>(west).expect("west health").current(),
+            90
+        );
+        assert_eq!(
+            rebuilt
+                .get::<Transform>(west)
+                .expect("west pose")
+                .translation,
+            GuardPost::West.home()
+        );
+        assert!(
+            rebuilt
+                .get::<ExperienceReward>(west)
+                .expect("west XP")
+                .player_contributed
+        );
+        assert_eq!(
+            rebuilt
+                .get::<Transform>(east)
+                .expect("east pose")
+                .translation,
+            fight_site
+        );
+        assert!(rebuilt.get::<Dead>(east).is_some());
+        assert!(rebuilt.get::<Collider>(east).is_none());
+        assert!(
+            rebuilt
+                .get::<CorpseLoot>(east)
+                .expect("east loot")
+                .stack
+                .is_none()
+        );
+        assert_eq!(rebuilt.get::<Visibility>(east), Some(&Visibility::Hidden));
+    }
+
+    fn guard_entity(world: &mut World, post: GuardPost) -> Entity {
+        world
+            .query::<(Entity, &EncounterId)>()
+            .iter(world)
+            .find_map(|(entity, id)| (*id == EncounterId::Guard(post)).then_some(entity))
+            .expect("guard fixture")
+    }
+
+    #[test]
+    fn v7_keeps_existing_progress_and_adds_neutral_guards() {
+        let dir = TestDirectory::new();
+        let path = dir.path();
+        let (mut world, bed, _, _) = bed_world(path.clone());
+        world
+            .resource_mut::<QuestJournal>()
+            .record(QuestAction::AttackedNemi);
+        interact_with(&mut world, bed);
+        let current = read_save(&path).expect("fixture checkpoint");
+        let mut bytes = V7_HEADER.to_vec();
+        bytes.extend(bitcode::encode(&pre_guard_snapshot(current)));
+        fs::write(&path, &bytes).expect("write v7 fixture");
+
+        let migrated = read_save(&path).expect("load v7");
+        assert!(!migrated.guards_hostile);
+        assert!(restore_test_journal(&migrated.journal).has_occurred(QuestAction::AttackedNemi));
+        assert_eq!(
+            migrated.encounters[&EncounterId::RelayRoach].actor.health,
+            0
+        );
+        for post in GuardPost::ALL {
+            let guard = &migrated.encounters[&EncounterId::Guard(post)];
+            assert_eq!(guard.actor.health, guard::HEALTH);
+            assert!(guard.has_loot);
+        }
+        assert_eq!(fs::read(path).expect("v7 file stays on disk"), bytes);
     }
 
     #[test]
@@ -1536,14 +1797,14 @@ mod tests {
             }
             world.insert_resource(journal);
             interact_with(&mut world, bed);
-            let current = read_save(&path).expect("read v7 with no hatch return");
+            let current = read_save(&path).expect("read current save with no hatch return");
             assert_eq!(
                 restore_test_journal(&current.journal).status(CONTAIN_THE_HUSHCAPS),
                 None
             );
 
             let mut bytes = V6_HEADER.to_vec();
-            bytes.extend(bitcode::encode(&current));
+            bytes.extend(bitcode::encode(&pre_guard_snapshot(current)));
             fs::write(&path, &bytes).expect("write the v6 fixture");
             let migrated = read_save(&path).expect("read v6 without exit history");
             let mut journal = restore_test_journal(&migrated.journal);

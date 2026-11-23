@@ -44,6 +44,16 @@ pub(super) enum Check {
     Done,
 }
 
+// The world smoke exercises retaliation. This scene isolates Nemi's solo quest route.
+pub(super) fn isolate_keeper(
+    guards: Query<Entity, With<crate::guard::GuardPost>>,
+    mut commands: Commands,
+) {
+    for guard in &guards {
+        commands.entity(guard).despawn();
+    }
+}
+
 pub(super) fn drive(
     stage: ResMut<Check>,
     home: Local<Vec3>,

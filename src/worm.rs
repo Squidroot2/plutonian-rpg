@@ -12,6 +12,7 @@ use bevy::prelude::*;
 pub(crate) const MODEL: EnemyModel = EnemyModel {
     path: "models/ice_worm.glb",
     clips: ["WormIdle", "WormBite", "WormDeath"],
+    visual_offset: Vec3::ZERO,
     locomotion: Some("WormCrawl"),
 };
 pub(crate) const GROUND_OFFSET: f32 = 0.56;
@@ -28,6 +29,7 @@ pub(crate) const CONFIG: GroundMelee = GroundMelee {
         loot: ItemKind::WormMeat,
     },
     movement: GroundMovement::new(2.4, GROUND_OFFSET),
+    engagement: enemy::Engagement::OnSight,
     bite: Bite {
         range: 1.5,
         windup: 0.55,

@@ -372,10 +372,7 @@ pub(crate) fn bind_equipment_attachments(
     names: Query<&Name>,
     mut commands: Commands,
 ) {
-    let bones: BTreeMap<_, _> = children
-        .iter_descendants(event.entity)
-        .filter_map(|entity| names.get(entity).ok().map(|name| (name.as_str(), entity)))
-        .collect();
+    let bones = equipment_bones(event.entity, &children, &names);
     let (Some(&spine), Some(&root)) = (bones.get("spine"), bones.get(HOLSTER_ROOT_BONE)) else {
         return;
     };
@@ -391,6 +388,49 @@ pub(crate) fn bind_equipment_attachments(
             holster,
             worn: None,
         });
+    }
+}
+
+fn equipment_bones<'a>(
+    scene: Entity,
+    children: &Query<&Children>,
+    names: &'a Query<&Name>,
+) -> BTreeMap<&'a str, Entity> {
+    children
+        .iter_descendants(scene)
+        .filter_map(|entity| names.get(entity).ok().map(|name| (name.as_str(), entity)))
+        .collect()
+}
+
+/// Gear mounted once on the owning actor's rig as its scene becomes ready.
+#[derive(Component)]
+pub(crate) struct FixedOutfit(pub(crate) &'static [(EquipmentSlot, ItemKind)]);
+
+pub(crate) fn bind_fixed_outfit(
+    event: On<WorldInstanceReady>,
+    parents: Query<&ChildOf>,
+    outfits: Query<&FixedOutfit>,
+    children: Query<&Children>,
+    names: Query<&Name>,
+    assets: Res<GameAssets>,
+    gltfs: Res<Assets<Gltf>>,
+    mut commands: Commands,
+) {
+    let Some(outfit) = parents
+        .get(event.entity)
+        .ok()
+        .and_then(|parent| outfits.get(parent.parent()).ok())
+    else {
+        return;
+    };
+    let bones = equipment_bones(event.entity, &children, &names);
+    for (name, slot, handedness) in EQUIPMENT_SOCKETS {
+        if let Some(&(_, item)) = outfit.0.iter().find(|&&(equipped_slot, item)| {
+            equipped_slot == slot && item.weapon().map(WeaponKind::handedness) == handedness
+        }) && let Some(&bone) = bones.get(name)
+        {
+            spawn_worn(&mut commands, &assets, &gltfs, slot, item, bone);
+        }
     }
 }
 
@@ -464,25 +504,35 @@ fn sync_worn(
             }
             commands.entity(entity).despawn();
         }
-        attachment.worn = desired.map(|item| {
-            let scene = gltfs
-                .get(&assets.worn[&item])
-                .expect("worn equipment models must remain loaded after asset validation")
-                .scenes[0]
-                .clone();
-            commands
-                .spawn((
-                    Name::new(format!("Worn {}", item.name())),
-                    WornEquipment { slot, item },
-                    PendingScene,
-                    WorldAssetRoot(scene),
-                    Transform::default(),
-                    ChildOf(mount),
-                ))
-                .observe(scene_ready)
-                .id()
-        });
+        attachment.worn =
+            desired.map(|item| spawn_worn(&mut commands, &assets, &gltfs, slot, item, mount));
     }
+}
+
+fn spawn_worn(
+    commands: &mut Commands,
+    assets: &GameAssets,
+    gltfs: &Assets<Gltf>,
+    slot: EquipmentSlot,
+    item: ItemKind,
+    mount: Entity,
+) -> Entity {
+    let scene = gltfs
+        .get(&assets.worn[&item])
+        .expect("worn equipment models must remain loaded after asset validation")
+        .scenes[0]
+        .clone();
+    commands
+        .spawn((
+            Name::new(format!("Worn {}", item.name())),
+            WornEquipment { slot, item },
+            PendingScene,
+            WorldAssetRoot(scene),
+            Transform::default(),
+            ChildOf(mount),
+        ))
+        .observe(scene_ready)
+        .id()
 }
 
 #[cfg(test)]

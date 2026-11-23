@@ -38,7 +38,7 @@ impl WeaponKind {
         }
     }
 
-    fn timing(self) -> (f32, f32) {
+    pub(crate) const fn timing(self) -> (f32, f32) {
         let (impact, recovery) = match self {
             Self::Spear => (SPEAR_IMPACT_FRAME, SPEAR_RECOVERY_FRAME),
             Self::Shortsword => (SWORD_IMPACT_FRAME, SWORD_RECOVERY_FRAME),
@@ -248,7 +248,13 @@ fn attack(
     }
 }
 
-fn weapon_contact(
+/// Aim the offset spear grip's forward ray at the target's horizontal position.
+pub(crate) fn spear_heading(delta: Vec3) -> Quat {
+    let radius = delta.xz().length().max(GRIP_SIDE.abs());
+    crate::terrain::ground_heading(delta) * Quat::from_rotation_y((-GRIP_SIDE / radius).asin())
+}
+
+pub(crate) fn weapon_contact(
     weapon: WeaponKind,
     hand: Hand,
     spatial: &SpatialQuery,

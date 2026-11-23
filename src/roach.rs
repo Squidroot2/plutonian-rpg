@@ -10,6 +10,7 @@ use bevy::prelude::*;
 pub(crate) const MODEL: EnemyModel = EnemyModel {
     path: "models/relay_roach.glb",
     clips: ["RoachIdle", "RoachBite", "RoachDeath"],
+    visual_offset: Vec3::ZERO,
     locomotion: Some("RoachCrawl"),
 };
 pub(crate) const GROUND_OFFSET: f32 = 0.32;
@@ -21,6 +22,7 @@ pub(crate) const CONFIG: GroundMelee = GroundMelee {
         loot: ItemKind::RoachMeat,
     },
     movement: GroundMovement::new(3.5, GROUND_OFFSET),
+    engagement: enemy::Engagement::OnSight,
     bite: Bite {
         range: 1.5,
         windup: 0.4,

@@ -29,6 +29,24 @@ A bite is emitted once when its windup expires.
 For example, the roach bite deals 12 damage and the worm bite deals 20. 
 Enemy attacks enter the same shared resolver as player attacks.
 
+## Outpost guards
+
+Two Plutonian guards flank Keeper Nemi in the courtyard.
+  A confirmed hit from the player on Nemi or either guard makes both surviving guards hostile.
+  Hostility is shared across the outpost and follows the checkpoint.
+  A guard pursues within 12 m of Nemi's original position on the surface.
+  Leaving that area cancels an active thrust and sends the guards back to their posts.
+  Returning to the courtyard exposes the player to another attack.
+
+The guards use the shared grounded melee phase machine and the Plutonian spear clips.
+  Reinforced armor and helmet mount to the rig as it loads, along with a trident.
+  Each guard has 140 health and subtracts 8 damage from incoming hits before the minimum damage rule.
+  A thrust strikes after a 0.25 s windup and deals 58 base damage.
+  The thrust uses the same shape cast as the player's spear, so obstacles and sidesteps can break contact.
+  A 0.6 s recovery gives the player's damage protection time to expire between attacks from one guard.
+  Each defeated guard awards 100 XP and leaves one Scrap.
+  Guard-inflicted player death uses the normal checkpoint reload.
+
 ## Enemy ranged attacks
 
 Hushcaps take root and turn in place to aim.

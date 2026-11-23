@@ -31,6 +31,7 @@ saves at a bed.
 - Loose pickup stacks and their world positions.
 - Nemi's position, rotation, health and quest-related state.
 - Each authored encounter's position, rotation, health and loot availability.
+- The outpost guards' shared hostility.
 - XP contribution credit for living enemies and Nemi, keyed by stable encounter
   identifiers because world loading recreates those actors.
 
@@ -38,6 +39,8 @@ The player is spawned at the configured starting point with the saved
 progression, inventory, equipment and experience restored as session state.
 Nemi and encounter poses, health, contribution credit and loot are applied
 after the Loading-to-Playing transition.
+  Living guards regroup at their original posts so the restored player has room to leave the tent.
+  Defeated guards retain their saved poses.
 Quest journal reconstruction applies durable quest effects, and actor restore
 removes the core pickup when the journal says it was already recovered.
 
@@ -50,8 +53,8 @@ systems.
 
 The file begins with the six-byte `PLUT` header and a little-endian schema
 version, followed by a bitcode-encoded snapshot.
-The current schema is version 7.
-Readers also recognize versions 1 through 6 and upgrade their snapshots in
+The current schema is version 8.
+Readers also recognize versions 1 through 7 and upgrade their snapshots in
 memory before validating them.
 Legacy saves that predate progression or experience retain the fields they
 already had and receive defaults for fields introduced later.
@@ -71,6 +74,8 @@ Version 7 records the completed relay hatch exit and Contain the Hushcaps journa
   For older bed saves with Old Relay complete and Nemi friendly,
   the loaded journal offers the report at Nemi.
   Existing cavern defeats carry forward through the saved encounter health.
+Version 8 adds stable guard IDs and outpost hostility.
+  Older saves seed two full-health, neutral guards.
   The file is converted on disk the next time the player saves at the bed.
 
 Reads are limited to 1 MiB plus one byte so oversized files can be rejected.
@@ -96,8 +101,8 @@ Interaction selects the bed through the shared nearby and line-of-sight
 interaction rules and emits `SaveAtBed`.
 The save system accepts the request only while playing, on the surface, with a
 living player, a unique Nemi actor and no pending state transition.
-It runs after interaction, combat resolution, Nemi's reaction and experience
-updates so the checkpoint includes those frame's consequences.
+It runs after interaction, combat resolution, the outpost and Nemi's reactions, and experience updates
+so the checkpoint includes that frame's consequences.
 
 The system captures a snapshot and validates it before touching the file.
 It creates the parent directory, writes the header and bitcode payload to a

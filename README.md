@@ -127,6 +127,12 @@ Select a quest to read its details.
   Inspecting the sealed Old Relay hatch adds that quest alongside The Last Light.
   Restoring power also adds it if you missed the hatch.
 
+Two heavily armored Plutonian guards stand beside Nemi.
+  Landing a hit on Nemi or either guard provokes both surviving guards.
+  They defend the outpost and stay hostile if you escape and return.
+  Two clean trident thrusts can defeat a starting character.
+  If they kill you, the game reloads your last bed save or starts a fresh run if you have never saved.
+
 A landed attack makes Nemi flee and fails The Last Light if it is active.
   A surviving Nemi returns after the player backs off, then refuses to help.
   Follow **Relight the Beacon** to use the charged core at the tower base.
@@ -410,8 +416,9 @@ Run one smoke scenario at a time on an idle graphical desktop without supplying 
   In the archive it checks projectile cover, reads the log with the Hushcap alive, and uses a spear to defeat and loot it.
   It verifies journal reward text, completion XP for The Last Light and Old Relay, and restoration of saved XP after combat defeat.
   After leaving Old Relay it also reports the archive Hushcap to Nemi and checks the new quest's journal counters.
+  It saves at the cot, provokes the guards with a spear hit on Nemi, and verifies that defeat restores the checkpoint.
   It prints `WORLD SMOKE PASS` on success.
-- `--smoke-nemi` checks spear damage, fleeing and returning, the failed quest entry, Nemi’s collapse and XP reward, and XP for opening the relay by completing Relight the Beacon.
+- `--smoke-nemi` isolates Nemi from the guards and checks spear damage, fleeing and returning, the failed quest entry, Nemi’s collapse and XP reward, and XP for opening the relay by completing Relight the Beacon.
   It prints `NEMI SMOKE PASS` on success.
 - `--smoke-cave` walks from the starting tent to Hushcap Caverns and back to the outpost.
   It probes the hidden entrance, both middle-chamber passages, encounter grounding, and projectile cover.

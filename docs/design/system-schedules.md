@@ -49,6 +49,7 @@ attribute spending -> capability sync -------------------> detection
                                 defense sync -----------------> Resolve
 Resolve -> reactions / animation / audio / feedback
 Resolve + interaction + Nemi reaction -> experience -> save -> HUD
+Resolve -> guard reaction -> save
 ```
 
 `InteractionSystems` processes dialogue input, then selects a nearby target and handles world interaction.
@@ -63,7 +64,8 @@ Resolve + interaction + Nemi reaction -> experience -> save -> HUD
 
 Resolve chains hit resolution, recovery delay, death marking, dead collider removal, hit reactions and corpse fading.
   Damage validation produces `ConfirmedHit`, and death handling produces `ActorDefeated`; downstream systems use those results instead of predicting whether an attack succeeded.
-  Nemi's reaction and animation are chained after Resolve; enemies, dummy, player animation, combat audio and visual feedback also react after Resolve.
+  Nemi's reaction and animation are chained after Resolve.
+  Guard provocation, enemies, dummy, player animation, combat audio and visual feedback also react after Resolve.
   This allows the same frame's confirmed damage and deaths to drive feedback.
   Fixed-step protection, recovery and corpse expiry are separate from this frame sequence.
 

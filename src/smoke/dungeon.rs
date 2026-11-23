@@ -7,21 +7,23 @@ use crate::{
     GameState,
     attributes::{AttributeId, AttributeRanks, CharacterProgress},
     camera::{FollowCamera, Orbit},
-    combat::{Dead, Health, Hit},
+    combat::{ConfirmedHit, Dead, Health, Hit},
     dialogue::{Dialogue, DialogueCatalog, Profile},
     dungeon::{
         ARCHIVE_HUSHCAP_HOME, ARCHIVE_LOG, ArchiveGate, Area, DungeonProgress, DungeonTarget,
         GATE_LOCAL, HATCH, LOG_LOCAL, ORIGIN, SEALED_HATCH, SWITCH_LOCAL,
     },
     enemy::{MeleePhase, MeleePursuit, ranged::SpitProjectile},
-    equipment::Equipment,
+    equipment::{Equipment, WornEquipment},
     experience::{Experience, ExperienceNotice},
+    guard::{self, GuardPost, OutpostSecurity},
     hushcap::{self, Hushcap},
     interaction::{
         CORE_RECOVERED_BEFORE_MEETING, CorpseLoot, INTERACT_HEIGHT, INTERACT_RANGE,
         InteractionTarget, Nearby, Target,
     },
     inventory::{Inventory, ItemKind},
+    nemi::Nemi,
     nemi::dialogue::{
         CAVERN_BRIEFING, EARLY_CORE_RETURNED, PROFILE, RELAY_HATCH, REPORT_ARCHIVE_HUSHCAP,
         RETURN_BEACON_CORE,
@@ -42,7 +44,10 @@ use crate::{
 use avian3d::prelude::*;
 use bevy::{
     app::AppExit,
-    ecs::query::{QueryFilter, QueryItem, ReadOnlyQueryData},
+    ecs::{
+        query::{QueryFilter, QueryItem, ReadOnlyQueryData},
+        system::SystemParam,
+    },
     prelude::*,
     render::view::screenshot::Screenshot,
 };
@@ -70,6 +75,47 @@ type HushcapQuery<'w, 's> =
 type RoachData = (Entity, &'static Transform, Has<Dead>);
 type RoachQuery<'w, 's> =
     Query<'w, 's, (RoachData, &'static EncounterId), (With<Roach>, Without<Player>)>;
+
+#[derive(SystemParam)]
+pub(super) struct GuardSmoke<'w, 's> {
+    guards: Query<
+        'w,
+        's,
+        (
+            Entity,
+            &'static GuardPost,
+            &'static Transform,
+            &'static Health,
+        ),
+        Without<Player>,
+    >,
+    keeper: Query<'w, 's, &'static Transform, (With<Nemi>, Without<Player>)>,
+    children: Query<'w, 's, &'static Children>,
+    worn: Query<'w, 's, &'static WornEquipment>,
+    security: Res<'w, OutpostSecurity>,
+    hits: MessageReader<'w, 's, ConfirmedHit>,
+}
+
+impl GuardSmoke<'_, '_> {
+    fn check_posts(&self) {
+        assert_eq!(self.guards.iter().count(), 2);
+        assert!(!self.security.hostile);
+        for (entity, post, at, health) in &self.guards {
+            assert_eq!(health.current(), guard::HEALTH);
+            assert!(at.translation.xz().distance(post.home().xz()) < 0.05);
+            assert!((at.translation.y + 0.06).abs() < 0.05);
+            let items: Vec<_> = self
+                .children
+                .iter_descendants(entity)
+                .filter_map(|child| self.worn.get(child).ok().map(|piece| piece.item))
+                .collect();
+            assert_eq!(items.len(), 3);
+            assert!(items.contains(&ItemKind::ReinforcedArmor));
+            assert!(items.contains(&ItemKind::ReinforcedHelmet));
+            assert!(items.contains(&ItemKind::Trident));
+        }
+    }
+}
 
 fn relay_encounter<'a, 's, D: ReadOnlyQueryData, F: QueryFilter>(
     encounters: &'a Query<'_, 's, (D, &'static EncounterId), F>,
@@ -159,6 +205,10 @@ pub(super) enum WorldCheck {
     Recover,
     SaveAtBed,
     ChangeAfterSave,
+    ProvokeGuards,
+    GuardFight {
+        hits: usize,
+    },
     SavedRespawn(Entity),
 }
 
@@ -219,7 +269,7 @@ pub(super) fn drive(
         Res<ChestStorage>,
         Query<(Entity, &'static StorageAction)>,
     ),
-    hits: MessageWriter<Hit>,
+    (hits, guard_smoke): (MessageWriter<Hit>, GuardSmoke),
     spatial: SpatialQuery,
     orbit: ResMut<Orbit>,
     (mut keys, mut mouse): (
@@ -262,6 +312,7 @@ pub(super) fn drive(
         worms,
         captures,
         hits,
+        guard_smoke,
         spatial,
         orbit,
         commands,
@@ -375,6 +426,7 @@ pub(super) fn drive(
         | WorldCheck::SaveAtBed
         | WorldCheck::ChangeAfterSave
         | WorldCheck::SavedRespawn(..) => check_bed_rollback(frame),
+        WorldCheck::ProvokeGuards | WorldCheck::GuardFight { .. } => check_guard_retaliation(frame),
     }
 }
 
@@ -393,6 +445,7 @@ struct WorldFrame<'w, 's, 'a> {
     >,
     captures: Query<'w, 's, (), With<Screenshot>>,
     hits: MessageWriter<'w, Hit>,
+    guard_smoke: GuardSmoke<'w, 's>,
     spatial: SpatialQuery<'w, 's>,
     orbit: ResMut<'w, Orbit>,
     commands: Commands<'w, 's>,
@@ -1635,7 +1688,7 @@ fn check_bed_rollback(frame: WorldFrame) {
         roaches,
         hushcaps,
         storage,
-        mut hits,
+        guard_smoke,
         mut keys,
         mut commands,
         mut exit,
@@ -1716,16 +1769,25 @@ fn check_bed_rollback(frame: WorldFrame) {
                         .add(ItemKind::Battery, 1)
                 );
             });
-            hits.write(Hit {
-                source: entity,
-                target: entity,
-                damage: u16::MAX,
-                contact: None,
-            });
-            *phase = WorldCheck::SavedRespawn(entity);
+            guard_smoke.check_posts();
+            let keeper = guard_smoke
+                .keeper
+                .single()
+                .expect("keeper in the courtyard");
+            fixture(
+                &spatial,
+                entity,
+                &mut controller,
+                &mut dodge,
+                &mut transform,
+                keeper.translation + Vec3::Z * 1.65,
+            );
+            *phase = WorldCheck::ProvokeGuards;
         }
         WorldCheck::SavedRespawn(old) if entity != old && controller.grounded => {
             assert!(position.distance(WorldLayout::Outpost.initial_spawn()) < 0.04);
+            guard_smoke.check_posts();
+            assert!(!quest.has_occurred(QuestAction::AttackedNemi));
             assert_eq!(ranks.rank(AttributeId::Vitality), SAVED_VITALITY);
             assert_eq!((*attributes, *xp), (RELAY_PROGRESS, LOOTED_RELAY_XP));
             assert!(
@@ -1756,10 +1818,68 @@ fn check_bed_rollback(frame: WorldFrame) {
                 "restored gate must be clear"
             );
             info!(
-                "WORLD SMOKE PASS: tent storage, Old Relay, Nemi's cavern briefing, and bed save rollback verified in {:.2}s",
+                "WORLD SMOKE PASS: tent storage, Old Relay, Nemi's cavern briefing, and guard defeat rollback verified in {:.2}s",
                 run.0.elapsed().as_secs_f64()
             );
             exit.write(AppExit::Success);
+        }
+        _ => {}
+    }
+}
+
+fn check_guard_retaliation(frame: WorldFrame) {
+    let WorldFrame {
+        mut phase,
+        mut guard_smoke,
+        controller,
+        entity,
+        position,
+        mut orbit,
+        mut mouse,
+        mut commands,
+        thrust,
+        quest,
+        player_health,
+        ..
+    } = frame;
+    match *phase {
+        WorldCheck::ProvokeGuards if controller.grounded => {
+            let keeper = guard_smoke
+                .keeper
+                .single()
+                .expect("keeper in the courtyard");
+            let delta = keeper.translation - position;
+            let yaw = delta.x.atan2(delta.z) + (-GRIP_SIDE / delta.xz().length()).asin();
+            orbit.yaw = yaw - std::f32::consts::PI;
+            guard_smoke.hits.clear();
+            mouse.press(MouseButton::Left);
+            *phase = WorldCheck::GuardFight { hits: 0 };
+        }
+        WorldCheck::GuardFight { hits } => {
+            let landed = guard_smoke
+                .hits
+                .read()
+                .filter(|hit| hit.target == entity && guard_smoke.guards.contains(hit.source))
+                .count();
+            if landed > 0 {
+                assert!(guard_smoke.security.hostile);
+                assert!(quest.has_occurred(QuestAction::AttackedNemi));
+            }
+            if landed > 0 && hits == 0 {
+                capture(&mut commands, "outpost-guards");
+            }
+            if player_health.current() == 0 {
+                assert!((2..=3).contains(&(hits + landed)));
+                *phase = WorldCheck::SavedRespawn(entity);
+            } else {
+                assert!(
+                    thrust.active() || guard_smoke.security.hostile,
+                    "the player spear should provoke the guards"
+                );
+                *phase = WorldCheck::GuardFight {
+                    hits: hits + landed,
+                };
+            }
         }
         _ => {}
     }

@@ -16,6 +16,7 @@ mod dungeon;
 mod enemy;
 mod equipment;
 mod experience;
+mod guard;
 mod hushcap;
 mod interaction;
 mod inventory;
@@ -123,6 +124,7 @@ fn main() {
             attributes::AttributesPlugin,
             experience::ExperiencePlugin,
             nemi::NemiPlugin,
+            guard::GuardPlugin,
             ui::loot_ui::LootUiPlugin,
             cave::CavePlugin,
         ));

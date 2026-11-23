@@ -4,11 +4,14 @@ use crate::{
     combat_feedback::DeathAnimation,
     dialogue::Dialogue,
     dungeon::Area,
+    equipment::bind_fixed_outfit,
+    guard::OutpostSecurity,
     interaction::CorpseLoot,
     inventory::ItemKind,
     loading::{PendingScene, scene_ready},
     player::Player,
     terrain::{MAX_GROUND_STEP, ground_heading, walkable_height},
+    weapon::{self, Hand},
     world::SessionEntity,
 };
 use avian3d::prelude::*;
@@ -37,11 +40,13 @@ pub(crate) struct EnemyModel {
     /// Idle, attack, and death, in that order.
     pub(crate) clips: [&'static str; 3],
     pub(crate) locomotion: Option<&'static str>,
+    pub(crate) visual_offset: Vec3,
 }
 
 pub(crate) struct EnemyVisual {
     pub(crate) scene: Handle<WorldAsset>,
     pub(crate) animations: EnemyAnimations,
+    pub(crate) offset: Vec3,
 }
 
 #[derive(Component, Clone)]
@@ -67,6 +72,7 @@ pub(crate) struct MeleePursuit {
     pub(crate) phase: MeleePhase,
     home: Vec3,
     bite: Bite,
+    engagement: Engagement,
 }
 
 impl MeleePursuit {
@@ -75,8 +81,17 @@ impl MeleePursuit {
             phase: MeleePhase::Waiting,
             home,
             bite,
+            engagement: Engagement::OnSight,
         }
     }
+}
+
+/// Encounter rules for acquiring a target and choosing the attack contact.
+#[derive(Component, Default, Clone, Copy)]
+pub(crate) enum Engagement {
+    #[default]
+    OnSight,
+    DefendOutpost,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -180,6 +195,7 @@ pub(crate) struct GroundMelee {
     pub(crate) body: EnemyBody,
     pub(crate) movement: GroundMovement,
     pub(crate) bite: Bite,
+    pub(crate) engagement: Engagement,
 }
 
 pub(crate) struct EnemyBody {
@@ -206,7 +222,10 @@ pub(crate) fn spawn_ground_melee(
         area,
         config.body,
         (
-            MeleePursuit::new(home, config.bite),
+            MeleePursuit {
+                engagement: config.engagement,
+                ..MeleePursuit::new(home, config.bite)
+            },
             config.movement,
             RigidBody::Kinematic,
             CustomPositionIntegration,
@@ -247,10 +266,11 @@ pub(crate) fn spawn_enemy(
             root.spawn((
                 PendingScene,
                 WorldAssetRoot(visual.scene.clone()),
-                Transform::default(),
+                Transform::from_translation(visual.offset),
             ))
             .observe(scene_ready)
-            .observe(bind_animation);
+            .observe(bind_animation)
+            .observe(bind_fixed_outfit);
             root.spawn((
                 HitGlow,
                 PointLight {
@@ -267,7 +287,7 @@ pub(crate) fn spawn_enemy(
 
 fn ground_encounters(
     spatial: SpatialQuery,
-    actors: Query<Entity, Or<(With<Player>, With<Enemy>)>>,
+    actors: Query<Entity, Or<(With<Player>, With<Enemy>, With<crate::nemi::Nemi>)>>,
     mut enemies: Query<(&GroundMovement, &mut Transform, Option<&mut MeleePursuit>)>,
 ) {
     let filter = SpatialQueryFilter::from_excluded_entities(actors.iter());
@@ -291,7 +311,8 @@ fn ground_encounters(
 fn plan_actions(
     time: Res<Time<Fixed>>,
     spatial: SpatialQuery,
-    player: Query<(Entity, &Transform), With<Player>>,
+    player: Query<(Entity, &Player, &Transform), Without<Dead>>,
+    security: Option<Res<OutpostSecurity>>,
     mut enemies: Query<
         (
             Entity,
@@ -303,7 +324,7 @@ fn plan_actions(
     >,
     mut hits: MessageWriter<Hit>,
 ) {
-    let Ok((player_entity, player_transform)) = player.single() else {
+    let Ok((player_entity, controller, player_transform)) = player.single() else {
         return;
     };
     let delta = time.delta_secs();
@@ -314,39 +335,75 @@ fn plan_actions(
         let to_target = target - position;
         let sight = SpatialQueryFilter::from_excluded_entities([entity, player_entity]);
         let bite = pursuit.bite;
-        if matches!(
-            pursuit.phase,
-            MeleePhase::Windup(_) | MeleePhase::Recovery(_)
-        ) {
-            if pursuit.phase.tick_attack(delta, bite.recovery)
-                && bite_contact(&spatial, &sight, &transform, target, bite.range)
-            {
-                hits.write(Hit {
-                    source: entity,
-                    target: player_entity,
-                    damage: bite.damage,
-                    contact: None,
-                });
+        let defends_outpost = matches!(pursuit.engagement, Engagement::DefendOutpost);
+        let guard_pursuit_active = defends_outpost
+            && security
+                .as_ref()
+                .is_some_and(|security| security.defends(controller.area, target));
+        if (!defends_outpost || guard_pursuit_active)
+            && matches!(
+                pursuit.phase,
+                MeleePhase::Windup(_) | MeleePhase::Recovery(_)
+            )
+        {
+            if pursuit.phase.tick_attack(delta, bite.recovery) {
+                let hit = if defends_outpost {
+                    weapon::weapon_contact(
+                        crate::equipment::WeaponKind::Spear,
+                        Hand::Main,
+                        &spatial,
+                        entity,
+                        position,
+                        transform.rotation,
+                    )
+                    .filter(|hit| hit.target == player_entity)
+                    .map(|hit| Hit {
+                        damage: bite.damage,
+                        ..hit
+                    })
+                } else {
+                    bite_contact(&spatial, &sight, &transform, target, bite.range).then_some(Hit {
+                        source: entity,
+                        target: player_entity,
+                        damage: bite.damage,
+                        contact: None,
+                    })
+                };
+                if let Some(hit) = hit {
+                    hits.write(hit);
+                }
             }
             continue;
         }
 
-        let within_leash = position.xz().distance(pursuit.home.xz()) < LEASH
-            && target.xz().distance(pursuit.home.xz()) < LEASH;
-        let sees_player = within_leash
-            && to_target.length_squared() < SIGHT_RANGE * SIGHT_RANGE
-            && clear_path(
+        let visible = || {
+            clear_path(
                 &spatial,
                 &sight,
                 position + Vec3::Y * SIGHT_ORIGIN_HEIGHT,
                 target,
-            );
+            )
+        };
+        let within_leash = position.xz().distance(pursuit.home.xz()) < LEASH
+            && target.xz().distance(pursuit.home.xz()) < LEASH;
+        let sees_player =
+            within_leash && to_target.length_squared() < SIGHT_RANGE * SIGHT_RANGE && visible();
         let near_home = position.xz().distance(pursuit.home.xz()) < HOME_ARRIVAL_RADIUS;
 
-        let destination = if sees_player && (pursuit.phase != MeleePhase::Returning || near_home) {
+        let destination = if guard_pursuit_active
+            || (!defends_outpost
+                && sees_player
+                && (pursuit.phase != MeleePhase::Returning || near_home))
+        {
             pursuit.phase = MeleePhase::Pursuing;
-            if to_target.length_squared() <= bite.range * bite.range {
-                transform.rotation = ground_heading(to_target);
+            if to_target.length_squared() <= bite.range * bite.range
+                && (!defends_outpost || visible())
+            {
+                transform.rotation = if defends_outpost {
+                    weapon::spear_heading(to_target)
+                } else {
+                    ground_heading(to_target)
+                };
                 pursuit.phase = MeleePhase::Windup(bite.windup);
                 continue;
             }
@@ -367,7 +424,7 @@ fn move_ground_enemies(
     time: Res<Time<Fixed>>,
     spatial: SpatialQuery,
     mover: MoveAndSlide,
-    actors: Query<Entity, Or<(With<Player>, With<Enemy>)>>,
+    actors: Query<Entity, Or<(With<Player>, With<Enemy>, With<crate::nemi::Nemi>)>>,
     mut enemies: Query<(Entity, &mut Transform, &Collider, &mut GroundMovement), Without<Dead>>,
 ) {
     let delta = time.delta_secs();
@@ -387,11 +444,13 @@ fn move_ground_enemies(
             .slerp(ground_heading(toward), (TURN_SPEED * delta).min(1.0));
         let velocity = toward.clamp_length_max(motion.speed * delta) / delta;
         let proposed = position + velocity * delta;
+        let ground_probe_range =
+            GROUND_PROBE_RANGE.max(motion.ground_offset + 2.0 * MAX_GROUND_STEP);
         if walkable_height(
             &spatial,
             &support,
             proposed + Vec3::Y * MAX_GROUND_STEP,
-            GROUND_PROBE_RANGE,
+            ground_probe_range,
             motion.ground_offset,
         )
         .is_none_or(|y| (y - position.y).abs() > MAX_GROUND_STEP)
@@ -413,7 +472,7 @@ fn move_ground_enemies(
             &spatial,
             &support,
             output.position + Vec3::Y * MAX_GROUND_STEP,
-            GROUND_PROBE_RANGE,
+            ground_probe_range,
             motion.ground_offset,
         ) {
             transform.translation = output.position.with_y(y);

@@ -2,7 +2,7 @@ use crate::{
     GameState,
     dialogue::{DialogueCatalog, DialogueRegistry},
     enemy::{EnemyAnimations, EnemyModel, EnemyVisual},
-    hushcap,
+    guard, hushcap,
     inventory::ItemKind,
     player::{AnimationLibrary, CLIPS, add_sword_animation_masks},
     quest::{QuestCatalog, QuestJournal},
@@ -28,7 +28,7 @@ const ARENA_FLOOR_PROBE_ORIGIN: Vec3 = Vec3::new(0.0, 5.0, -12.0);
 const ARENA_FLOOR_PROBE_RANGE: f32 = 6.0;
 const MIN_NON_PLAYER_COLLIDERS: usize = 2;
 
-const ENEMY_MODELS: &[EnemyModel] = &[worm::MODEL, roach::MODEL, hushcap::MODEL];
+const ENEMY_MODELS: &[EnemyModel] = &[worm::MODEL, roach::MODEL, hushcap::MODEL, guard::MODEL];
 
 #[derive(Resource)]
 pub(crate) struct EnemyVisuals(BTreeMap<&'static str, EnemyVisual>);
@@ -359,7 +359,13 @@ fn prepare_animations(
                 .transpose()?;
             Ok((
                 definition.path,
-                (model.scenes[0].clone(), graph, nodes, locomotion),
+                (
+                    model.scenes[0].clone(),
+                    graph,
+                    nodes,
+                    locomotion,
+                    definition.visual_offset,
+                ),
             ))
         })
         .collect::<Result<BTreeMap<_, _>, String>>()?;
@@ -372,13 +378,20 @@ fn prepare_animations(
     let enemies = EnemyVisuals(
         enemies
             .into_iter()
-            .map(|(path, (scene, graph, nodes, locomotion))| {
+            .map(|(path, (scene, graph, nodes, locomotion, offset))| {
                 let animations = EnemyAnimations {
                     graph: graphs.add(graph),
                     nodes,
                     locomotion,
                 };
-                (path, EnemyVisual { scene, animations })
+                (
+                    path,
+                    EnemyVisual {
+                        scene,
+                        animations,
+                        offset,
+                    },
+                )
             })
             .collect(),
     );

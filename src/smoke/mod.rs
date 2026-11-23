@@ -180,13 +180,18 @@ impl Plugin for SmokePlugin {
                 )
                 .add_plugins((InventorySmokePlugin, EquipmentSmokePlugin, SpearSmokePlugin));
         } else if self.nemi {
-            app.init_resource::<nemi::Check>().add_systems(
-                PreUpdate,
-                nemi::drive
-                    .after(InputSystems)
-                    .before(crate::ui::pause)
-                    .run_if(in_state(GameState::Playing)),
-            );
+            app.init_resource::<nemi::Check>()
+                .add_systems(
+                    OnEnter(GameState::Playing),
+                    nemi::isolate_keeper.run_if(run_once),
+                )
+                .add_systems(
+                    PreUpdate,
+                    nemi::drive
+                        .after(InputSystems)
+                        .before(crate::ui::pause)
+                        .run_if(in_state(GameState::Playing)),
+                );
         } else if self.cave {
             app.init_resource::<cave::CaveCheck>()
                 .add_systems(
