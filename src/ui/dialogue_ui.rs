@@ -19,6 +19,7 @@ pub(crate) struct DialogueUiPlugin;
 struct Panel;
 
 #[derive(Component)]
+/// Marks the dialogue content area so mouse-wheel input scrolls it only while hovered.
 struct ScrollPane;
 
 #[derive(Component)]
