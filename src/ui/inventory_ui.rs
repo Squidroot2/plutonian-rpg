@@ -231,7 +231,9 @@ fn action_button(parent: &mut ChildSpawnerCommands, kind: InventoryAction, label
 }
 
 fn table_cells(row: &mut ChildSpawnerCommands, cells: [(Text, Option<PanelText>); 4]) {
-    for ((cell, kind), width) in cells.into_iter().zip([43.0, 15.0, 21.0, 21.0]) {
+    for (index, ((cell, kind), width)) in
+        cells.into_iter().zip([43.0, 15.0, 21.0, 21.0]).enumerate()
+    {
         let mut entity = row.spawn((
             cell,
             font(16.0),
@@ -242,6 +244,9 @@ fn table_cells(row: &mut ChildSpawnerCommands, cells: [(Text, Option<PanelText>)
                 ..default()
             },
         ));
+        if index == 3 {
+            entity.insert(TextLayout::new(Justify::Left, LineBreak::NoWrap));
+        }
         if let Some(kind) = kind {
             entity.insert(kind);
         }
@@ -351,6 +356,8 @@ fn spawn_item_row(commands: &mut Commands, row: InventoryRow) -> Entity {
     let item = row.item();
     let status = match row {
         InventoryRow::Stack(ItemKind::BeaconCore) => "Quest item".into(),
+        InventoryRow::Equipped(_, EquipmentSlot::MainHand) => "Main Hand".into(),
+        InventoryRow::Equipped(_, EquipmentSlot::OffHand) => "Off Hand".into(),
         InventoryRow::Equipped(_, slot) => format!("Equipped ({})", slot.name()),
         _ => String::new(),
     };
