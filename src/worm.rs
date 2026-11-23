@@ -17,8 +17,10 @@ pub(crate) const MODEL: EnemyModel = EnemyModel {
 };
 pub(crate) const GROUND_OFFSET: f32 = 0.56;
 const HOMES: [(EncounterId, Vec3); 3] = [
-    (EncounterId::NearTrailWorm, Vec3::new(6.0, 2.0, -27.0)),
-    (EncounterId::FarTrailWorm, Vec3::new(-7.0, 2.0, -71.0)),
+    // Keep the trail between the paired waystones clear; these worms shelter
+    // out toward the ice escarpments instead of occupying the marked route.
+    (EncounterId::NearTrailWorm, Vec3::new(14.0, 2.0, -27.0)),
+    (EncounterId::FarTrailWorm, Vec3::new(-14.0, 2.0, -71.0)),
     (EncounterId::CavernWorm, Vec3::new(3.4, 2.0, -110.0)),
 ];
 pub(crate) const CONFIG: GroundMelee = GroundMelee {
