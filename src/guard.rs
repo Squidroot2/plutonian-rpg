@@ -2,6 +2,7 @@
 use crate::{
     GameState,
     combat::{CombatSystems, ConfirmedHit, Defense},
+    dialogue::Speaker,
     dungeon::{Area, HATCH},
     enemy::{self, Bite, EnemyBody, EnemyModel, Engagement, GroundMelee, GroundMovement},
     equipment::{EquipmentSlot, FixedOutfit, WeaponKind},
@@ -75,6 +76,17 @@ impl GuardPost {
         }
     }
 
+    const fn dialogue_profile(self) -> &'static str {
+        match self {
+            Self::West => "sella",
+            Self::East => "orren",
+        }
+    }
+
+    const fn interaction_height(self) -> f32 {
+        0.35
+    }
+
     pub(crate) fn facing(self) -> Quat {
         let heading = match self {
             Self::West => HATCH - self.home(),
@@ -137,6 +149,7 @@ fn spawn_guards(
             EncounterId::Guard(post),
             Defense(ARMOR_DEFENSE),
             FixedOutfit(OUTFIT),
+            Speaker::new(post.dialogue_profile(), Area::Surface, post.interaction_height()),
         ));
     }
 }

@@ -1,6 +1,26 @@
 (
     profiles: [
         (
+            id: "sella",
+            name: "Sella",
+            refusal: Some("I have a post to keep. Make it quick."),
+            topics: [
+                (id: "the_relay", label: "What are you guarding?", reply: Text("The hatch leads to the Old Relay. It was here before Nivalis had a name. I keep watch in case anything comes up from below.")),
+                (id: "the_long_dark", label: "How is the watch?", reply: Text("Quiet, mostly. The ice carries sounds a long way at night. Sometimes I hear footsteps before I see anyone on the trail.")),
+            ],
+            replies: [],
+        ),
+        (
+            id: "orren",
+            name: "Orren",
+            refusal: Some("I'm on watch. Keep moving."),
+            topics: [
+                (id: "the_trail", label: "What lies along the trail?", reply: Text("The blue waystones mark the safe route north. Stay between them. The shelf beyond is full of old cracks hidden under fresh snow.")),
+                (id: "the_beacon", label: "Why guard Nivalis?", reply: Text("The beacon is how people find the outpost through the dark. While it is out, we keep the trail watched and the doors ready.")),
+            ],
+            replies: [],
+        ),
+        (
             // Match the speaker's Rust profile ID (PROFILE in src/nemi/dialogue.rs).
             id: "nemi",
             name: "Nemi",
