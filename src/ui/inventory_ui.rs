@@ -665,13 +665,23 @@ fn action(
             ui.selected = Some(row);
             ui.cancel_drop();
             notice.0.clear();
-            if click.count == 2 && matches!(row, InventoryRow::BagGear(..)) {
-                if !item.meets_strength(strength) {
-                    if let Ok(mut visibility) = warnings.single_mut() {
-                        visibility.set_if_neq(Visibility::Inherited);
+            if click.count == 2 {
+                match row {
+                    InventoryRow::BagGear(..) => {
+                        if !item.meets_strength(strength) {
+                            if let Ok(mut visibility) = warnings.single_mut() {
+                                visibility.set_if_neq(Visibility::Inherited);
+                            }
+                        } else if equipment.count(item) == 0
+                            || item.fits_slot(EquipmentSlot::OffHand)
+                        {
+                            commands.trigger(EquipRequest::Quick(item));
+                        }
                     }
-                } else if equipment.count(item) == 0 || item.fits_slot(EquipmentSlot::OffHand) {
-                    commands.trigger(EquipRequest::Quick(item));
+                    InventoryRow::Equipped(_, slot) => {
+                        commands.trigger(UnequipRequest(slot));
+                    }
+                    InventoryRow::Stack(_) => (),
                 }
             }
         }
@@ -1210,7 +1220,7 @@ mod tests {
     }
 
     #[test]
-    fn each_shortsword_row_can_be_selected_and_equipped_separately() {
+    fn each_shortsword_row_can_be_selected_equipped_and_unequipped_separately() {
         use crate::{GameState, equipment::EquipmentPlugin, smoke::pointer_click};
         use bevy::state::app::StatesPlugin;
 
@@ -1292,16 +1302,6 @@ mod tests {
             world.resource::<InventoryUiState>().selected,
             Some(first_key)
         );
-        let equipped = rows[0].1;
-        world.trigger(PointerClick {
-            count: 2,
-            ..pointer_click(equipped, window, camera)
-        });
-        world.flush();
-        assert_eq!(
-            world.resource::<Equipment>().get(EquipmentSlot::OffHand),
-            None
-        );
         world.trigger(PointerClick {
             count: 2,
             ..pointer_click(first, window, camera)
@@ -1326,6 +1326,31 @@ mod tests {
                     InventoryRow::Equipped(sword, EquipmentSlot::OffHand),
                 ])
         );
+
+        let main_hand = lists
+            .single(world)
+            .expect("inventory list")
+            .rows
+            .iter()
+            .find_map(|&(row, entity)| {
+                (row == InventoryRow::Equipped(sword, EquipmentSlot::MainHand)).then_some(entity)
+            })
+            .expect("main-hand row");
+        let world = app.world_mut();
+        world.trigger(PointerClick {
+            count: 2,
+            ..pointer_click(main_hand, window, camera)
+        });
+        world.flush();
+        assert_eq!(
+            world.resource::<Equipment>().get(EquipmentSlot::MainHand),
+            None
+        );
+        assert_eq!(
+            world.resource::<Equipment>().get(EquipmentSlot::OffHand),
+            Some(sword)
+        );
+        assert_eq!(world.resource::<Inventory>().count(sword), 1);
     }
 
     #[test]

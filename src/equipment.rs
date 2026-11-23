@@ -315,7 +315,9 @@ fn unequip(
     assets: Option<Res<AssetServer>>,
     mut commands: Commands,
 ) {
-    if *state.get() != GameState::Playing || !menu.accepts(MenuTab::Equipment) {
+    if *state.get() != GameState::Playing
+        || (!menu.accepts(MenuTab::Equipment) && !menu.accepts(MenuTab::Inventory))
+    {
         return;
     }
     notice.0 = match equipment.unequip(&mut bag, request.0) {
@@ -708,7 +710,7 @@ mod tests {
     }
 
     #[test]
-    fn equipment_requests_require_the_corresponding_menu_tab() {
+    fn equipment_requests_require_an_inventory_or_equipment_menu_tab() {
         use bevy::state::app::StatesPlugin;
         let mut app = App::new();
         app.add_plugins((MinimalPlugins, StatesPlugin))
@@ -756,17 +758,26 @@ mod tests {
         app.world_mut().trigger(UnequipRequest(EquipmentSlot::Body));
         assert_eq!(
             app.world().resource::<Equipment>().get(EquipmentSlot::Body),
-            Some(ItemKind::FieldArmor)
+            None
         );
         assert_eq!(
             app.world()
                 .resource::<Inventory>()
                 .count(ItemKind::FieldArmor),
-            0
+            1
         );
         app.world_mut()
             .resource_mut::<PlayerMenu>()
             .show(MenuTab::Equipment);
+        app.world_mut()
+            .trigger(EquipRequest::Quick(ItemKind::FieldArmor));
+        assert_eq!(
+            app.world().resource::<Equipment>().get(EquipmentSlot::Body),
+            Some(ItemKind::FieldArmor)
+        );
+        app.world_mut()
+            .resource_mut::<PlayerMenu>()
+            .show(MenuTab::Inventory);
         app.world_mut().trigger(UnequipRequest(EquipmentSlot::Body));
         assert_eq!(
             app.world().resource::<Equipment>().get(EquipmentSlot::Body),

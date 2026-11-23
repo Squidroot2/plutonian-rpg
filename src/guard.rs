@@ -149,7 +149,11 @@ fn spawn_guards(
             EncounterId::Guard(post),
             Defense(ARMOR_DEFENSE),
             FixedOutfit(OUTFIT),
-            Speaker::new(post.dialogue_profile(), Area::Surface, post.interaction_height()),
+            Speaker::new(
+                post.dialogue_profile(),
+                Area::Surface,
+                post.interaction_height(),
+            ),
         ));
     }
 }

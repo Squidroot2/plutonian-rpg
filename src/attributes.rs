@@ -1,8 +1,6 @@
 //! Player progression and the gameplay capabilities derived from attribute ranks.
 use std::collections::BTreeMap;
 
-use bevy::prelude::*;
-use strum::VariantArray;
 use crate::{
     GameState,
     combat::{CombatSystems, Dead, Health, HealthRecovery},
@@ -10,6 +8,8 @@ use crate::{
     player::{Player, Stamina},
     ui::menu_ui::{MenuTab, PlayerMenu},
 };
+use bevy::prelude::*;
+use strum::VariantArray;
 
 pub(crate) const DEFAULT_RANK: u8 = 5;
 pub(crate) const MAX_RANK: u8 = 100;
@@ -125,12 +125,12 @@ impl SavedProgress {
     pub(crate) fn ranks(&self) -> AttributeRanks {
         let mut rank_array = [0; AttributeId::VARIANTS.len()];
         for (i, rank) in rank_array.iter_mut().enumerate() {
-            let attr = AttributeId::VARIANTS.get(i).expect("Index is always within variant bounds");
+            let attr = AttributeId::VARIANTS
+                .get(i)
+                .expect("Index is always within variant bounds");
             *rank = self.ranks.get(attr.key()).copied().unwrap_or(DEFAULT_RANK);
         }
-        AttributeRanks(
-            rank_array
-        )
+        AttributeRanks(rank_array)
     }
 
     pub(crate) fn is_valid(&self) -> bool {
