@@ -31,6 +31,7 @@ impl AttributeId {
         Self::Strength,
     ];
 
+    /// Return the stable lowercase key used to save and restore this rank.
     fn key(self) -> &'static str {
         match self {
             Self::Vitality => "vitality",
