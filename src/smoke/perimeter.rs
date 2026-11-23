@@ -129,7 +129,7 @@ pub(super) fn check_geometry(
     info!("PERIMETER COLLISION PASS: cliffs, gate, and cave headwall seal the shelf");
 }
 
-fn assert_blocked(
+pub(super) fn assert_blocked(
     spatial: &SpatialQuery,
     capsule: &Collider,
     filter: &SpatialQueryFilter,

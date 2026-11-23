@@ -1,5 +1,6 @@
 //! Opt-in desktop checks for live gameplay and shipped-map collisions.
 mod cave;
+mod crossing;
 mod dungeon;
 mod equipment;
 mod inventory;
@@ -106,6 +107,7 @@ pub struct SmokePlugin {
     pub arena: bool,
     pub nemi: bool,
     pub cave: bool,
+    pub crossing: bool,
 }
 
 #[derive(Resource)]
@@ -190,6 +192,21 @@ impl Plugin for SmokePlugin {
                     PreUpdate,
                     nemi::drive
                         .after(InputSystems)
+                        .before(crate::ui::pause)
+                        .run_if(in_state(GameState::Playing)),
+                );
+        } else if self.crossing {
+            app.init_resource::<crossing::Check>()
+                .add_systems(Update, crossing::log_progress)
+                .add_systems(
+                    OnEnter(GameState::Playing),
+                    crossing::check_rim.run_if(run_once),
+                )
+                .add_systems(
+                    PreUpdate,
+                    crossing::drive
+                        .after(InputSystems)
+                        .before(crate::player::input)
                         .before(crate::ui::pause)
                         .run_if(in_state(GameState::Playing)),
                 );
@@ -280,6 +297,7 @@ fn watchdog(
     world: Option<Res<dungeon::WorldCheck>>,
     nemi: Option<Res<nemi::Check>>,
     cave: Option<Res<cave::CaveCheck>>,
+    crossing: Option<Res<crossing::Check>>,
 ) {
     assert_ne!(
         *state.get(),
@@ -287,14 +305,14 @@ fn watchdog(
         "smoke test asset loading failed: {:?}",
         status.error
     );
-    let timeout = if cave.is_some() {
+    let timeout = if cave.is_some() || crossing.is_some() {
         Duration::from_secs(125)
     } else {
         TIMEOUT
     };
     assert!(
         run.0.elapsed() < timeout,
-        "smoke test timed out in {:?}; inventory {:?}, spears {:?}, shortswords {:?}, armor {:?}, arena {:?}, world {:?}, Nemi {:?}, cave {:?}",
+        "smoke test timed out in {:?}; inventory {:?}, spears {:?}, shortswords {:?}, armor {:?}, arena {:?}, world {:?}, Nemi {:?}, cave {:?}, crossing {:?}",
         state.get(),
         inventory.as_deref().map(InventorySmoke::phase),
         weapons.as_deref(),
@@ -304,6 +322,7 @@ fn watchdog(
         world.as_deref(),
         nemi.as_deref(),
         cave.as_deref(),
+        crossing.as_deref(),
     );
 }
 

@@ -11,7 +11,7 @@ gear_names = ['field_armor', 'reinforced_armor', 'field_helmet', 'reinforced_hel
 small_loot_names = ['worm_meat', 'roach_meat', 'mycelium']
 directional_walks = {'WalkBack', 'StrafeLeft', 'StrafeRight', 'WalkForwardLeft',
                      'WalkForwardRight', 'WalkBackLeft', 'WalkBackRight'}
-for name in ['plutonian', 'outpost', 'collision', 'core', 'battery', 'scrap', 'methane_pouch', 'large_boulder', 'practice_dummy', 'ice_worm', 'relay_roach', 'hushcap', 'old_relay', 'old_relay_collision', 'south_basin', 'south_basin_collision', *small_loot_names, *gear_names, *[name+'_worn' for name in gear_names]]:
+for name in ['plutonian', 'outpost', 'collision', 'core', 'battery', 'scrap', 'methane_pouch', 'large_boulder', 'practice_dummy', 'ice_worm', 'relay_roach', 'hushcap', 'old_relay', 'old_relay_collision', 'south_basin', 'south_basin_collision', 'listening_flats', 'listening_flats_collision', 'nivalis_gate', 'vellik', 'crossing_wagon', *small_loot_names, *gear_names, *[name+'_worn' for name in gear_names]]:
     source_name = name.removesuffix('_worn')
     source = root / 'art' / f'{source_name}.blend'
     path = root / 'assets' / 'models' / f'{name}.glb'
@@ -144,10 +144,24 @@ def check_static_pair(asset, required, collision_asset=None, prefix=''):
 
 perimeter_prefix = 'Perimeter solid '
 check_static_pair('outpost', {perimeter_prefix + name for name in (
-    'Shelf cliffs', 'Basin west cliffs', 'Cavern headwall', 'Gate leaf', 'Gate header',
+    'Shelf cliffs', 'Basin west cliffs', 'Cavern headwall', 'Gate lift housing', 'Gate header',
     'Gate east buttress', 'Gate west buttress', 'Gate east infill', 'Gate west infill',
     'Gate east jamb', 'Gate west jamb',
 )}, 'collision', perimeter_prefix)
+
+check_static_pair('listening_flats', {'Flats solid Floor', 'Flats solid Charon overlook',
+                                       'Perimeter solid Listening Flats cliffs'})
+for name in ('outpost', 'collision'):
+    assert all(node.get('name') != perimeter_prefix + 'Gate leaf' for node in documents[name]['nodes'])
+gate = documents['nivalis_gate']
+leaf = next(node for node in gate['nodes'] if node['name'] == 'Nivalis gate leaf')
+assert len(leaf['children']) == 7, 'The gate panels and bands must move with the leaf'
+low, high = mesh_bounds(gate)
+assert max(abs(a-b) for a,b in zip(high, (5.025, 4.35, .55))) < .001
+assert max(abs(a-b) for a,b in zip(low, (-5.025, -4.35, -.74))) < .001
+for model, prefix, count in [('vellik', 'Vellik Leg ', 6), ('crossing_wagon', 'Wagon Wheel ', 4)]:
+    moving = [node for node in documents[model]['nodes'] if node.get('name', '').startswith(prefix)]
+    assert len(moving) == count and all(node.get('children') for node in moving), model
 
 check_static_pair('old_relay', {'Archive service console'} | {
     f'{room} {surface}'

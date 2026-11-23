@@ -25,6 +25,14 @@ pub enum WorldLayout {
 }
 
 impl WorldLayout {
+    pub(crate) fn recovery_x(self) -> std::ops::RangeInclusive<f32> {
+        const EAST_RECOVERY_X: f32 = 55.0;
+        match self {
+            Self::Outpost => crate::crossing::WEST_RECOVERY_X..=EAST_RECOVERY_X,
+            Self::SmokeArena => -EAST_RECOVERY_X..=EAST_RECOVERY_X,
+        }
+    }
+
     pub(crate) fn recovery_max_z(self) -> f32 {
         const EDGE_MARGIN_M: f32 = 7.0;
         match self {
@@ -82,7 +90,7 @@ impl Plugin for WorldPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<WorldLayout>()
             .add_observer(spawn_world)
-            .add_systems(Update, disable_star_field_shadows)
+            .add_systems(Update, configure_sky_meshes)
             .add_systems(OnExit(GameState::Loading), ground_spawned_models);
     }
 }
@@ -378,14 +386,33 @@ fn spawn_lights(commands: &mut Commands, layout: WorldLayout) {
     }
 }
 
-/// Keep emissive sky geometry from projecting tiny shadows onto the terrain.
-fn disable_star_field_shadows(
+/// Charon stays visible beyond the terrain fog, including from the Flats overlook.
+fn configure_sky_meshes(
     mut commands: Commands,
-    meshes: Query<(Entity, &Name), (With<Mesh3d>, Added<Mesh3d>)>,
+    meshes: Query<
+        (
+            Entity,
+            &Name,
+            &MeshMaterial3d<StandardMaterial>,
+            Option<&ChildOf>,
+        ),
+        Added<Mesh3d>,
+    >,
+    names: Query<&Name>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    for (entity, name) in &meshes {
-        if name.as_str().starts_with("Distant star field.") {
+    for (entity, name, material, parent) in &meshes {
+        let charon = parent
+            .and_then(|parent| names.get(parent.parent()).ok())
+            .is_some_and(|name| name.as_str() == "Charon");
+        if charon || name.as_str().starts_with("Distant star field.") {
             commands.entity(entity).insert(bevy::light::NotShadowCaster);
+        }
+        if charon
+            && let Some(mut material) = materials.get_mut(material)
+            && material.fog_enabled
+        {
+            material.fog_enabled = false;
         }
     }
 }

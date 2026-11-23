@@ -350,13 +350,11 @@ mod tests {
         nemi::{
             self,
             dialogue::{
-                CAVERN_BRIEFING, EARLY_CORE_RETURNED, EARLY_CORE_STORED, PROFILE,
-                REPORT_AND_SAMPLES_SHOWN, REPORT_ARCHIVE_HUSHCAP, REPORT_NEEDS_SAMPLES,
-                RETURN_BEACON_CORE, SAMPLES_NEEDED, SHOW_MYCELIUM, register_topics,
-                speak_about_beacon, speak_about_cavern,
+                EARLY_CORE_RETURNED, EARLY_CORE_STORED, PROFILE, RETURN_BEACON_CORE,
+                register_topics, speak_about_beacon,
             },
         },
-        quest::{CONTAIN_THE_HUSHCAPS, LAST_LIGHT},
+        quest::LAST_LIGHT,
         storage::{ChestStorage, StoragePlugin},
         ui::storage_ui::{StorageAction, StorageSide, StorageUiPlugin, TransferAmount},
     };
@@ -423,117 +421,6 @@ mod tests {
         assert!(inventory.add(ItemKind::BeaconCore, 1));
         install_core(&mut journal, &mut inventory);
         assert_eq!(inventory.count(ItemKind::BeaconCore), 1);
-    }
-
-    #[test]
-    fn nemi_checks_the_backpack_and_leaves_the_mycelium_with_the_player() {
-        let mut app = test_app();
-        let mut journal = crate::quest::test_relay_journal();
-        journal.offer_cavern_report();
-        let world = app.world_mut();
-        world.insert_resource(journal);
-        world.spawn((nemi::speaker(), Transform::from_xyz(0.0, 0.0, -2.0)));
-        assert!(world.resource_mut::<Inventory>().add(ItemKind::Mycelium, 4));
-        assert!(
-            world
-                .resource_mut::<ChestStorage>()
-                .get_mut(ChestId::Supply)
-                .add(ItemKind::Mycelium, 1)
-        );
-
-        press_interact(&mut app);
-        assert!(shows_topic(&mut app, REPORT_ARCHIVE_HUSHCAP));
-        press_key(&mut app, KeyCode::Enter);
-        assert_nemi_reply(app.world(), CAVERN_BRIEFING);
-        let mut journal = app.world_mut().resource_mut::<QuestJournal>();
-        journal.record(QuestAction::DefeatedFiveCavernHushcaps);
-        assert!(journal.expects(QuestAction::ShowedNemiMycelium));
-        press_interact(&mut app);
-        assert!(shows_topic(&mut app, CONTAIN_THE_HUSHCAPS));
-        assert!(!shows_topic(&mut app, SHOW_MYCELIUM));
-        press_key(&mut app, KeyCode::Enter);
-        assert!(
-            !app.world()
-                .resource::<QuestJournal>()
-                .is_complete(CONTAIN_THE_HUSHCAPS)
-        );
-        assert_nemi_reply(app.world(), SAMPLES_NEEDED);
-
-        app.world_mut()
-            .resource_scope(|world, mut storage: Mut<ChestStorage>| {
-                assert!(storage.get_mut(ChestId::Supply).transfer_to(
-                    &mut world.resource_mut::<Inventory>(),
-                    ItemKind::Mycelium,
-                    1
-                ));
-            });
-        press_interact(&mut app);
-        assert!(shows_topic(&mut app, SHOW_MYCELIUM));
-        press_key(&mut app, KeyCode::Enter);
-        assert!(
-            app.world()
-                .resource::<QuestJournal>()
-                .is_complete(CONTAIN_THE_HUSHCAPS)
-        );
-        assert_eq!(
-            app.world()
-                .resource::<Inventory>()
-                .count(ItemKind::Mycelium),
-            5
-        );
-        assert_eq!(
-            app.world_mut()
-                .resource_mut::<QuestJournal>()
-                .take_completion_xp(),
-            150
-        );
-        press_interact(&mut app);
-        assert!(!shows_topic(&mut app, SHOW_MYCELIUM));
-        assert!(!shows_topic(&mut app, CONTAIN_THE_HUSHCAPS));
-        assert!(shows_topic(&mut app, "about_nivalis"));
-        press_key(&mut app, KeyCode::Enter);
-        assert_eq!(
-            app.world()
-                .resource::<Inventory>()
-                .count(ItemKind::Mycelium),
-            5
-        );
-        assert_eq!(
-            app.world_mut()
-                .resource_mut::<QuestJournal>()
-                .take_completion_xp(),
-            0
-        );
-    }
-
-    #[test]
-    fn early_cavern_progress_waits_for_the_hatch_exit_and_report() {
-        let mut journal = crate::quest::test_relay_journal();
-        let mut inventory = Inventory::default();
-        assert!(inventory.add(ItemKind::Mycelium, 6));
-        journal.record(QuestAction::DefeatedFiveCavernHushcaps);
-        assert_eq!(journal.status(CONTAIN_THE_HUSHCAPS), None);
-        journal.offer_cavern_report();
-        assert!(journal.expects(QuestAction::ReportedArchiveHushcap));
-        assert!(!journal.expects(QuestAction::ShowedNemiMycelium));
-        let response = speak_about_cavern(&mut journal, &mut inventory);
-        assert_eq!(response, REPORT_AND_SAMPLES_SHOWN);
-        assert!(journal.is_complete(CONTAIN_THE_HUSHCAPS));
-        assert_eq!(inventory.count(ItemKind::Mycelium), 6);
-        assert_eq!(journal.take_completion_xp(), 150);
-    }
-
-    #[test]
-    fn the_briefing_recognizes_early_defeats_when_samples_are_still_missing() {
-        let mut journal = crate::quest::test_relay_journal();
-        let mut inventory = Inventory::default();
-        journal.record(QuestAction::DefeatedFiveCavernHushcaps);
-        journal.offer_cavern_report();
-
-        let response = speak_about_cavern(&mut journal, &mut inventory);
-        assert_eq!(response, REPORT_NEEDS_SAMPLES);
-        assert!(journal.expects(QuestAction::ShowedNemiMycelium));
-        assert_eq!(journal.take_completion_xp(), 0);
     }
 
     fn test_app() -> App {

@@ -1,5 +1,6 @@
 use crate::{
     GameState,
+    cave::CaveEncounter,
     world::{SessionEntity, WorldLayout},
 };
 use bevy::{
@@ -44,7 +45,9 @@ pub(crate) enum QuestAction {
     ReturnedThroughRelayHatch,
     ReportedArchiveHushcap,
     DefeatedFiveCavernHushcaps,
-    ShowedNemiMycelium,
+    LegacyNemiSamples,
+    CaravanArrived,
+    ShowedTovanMycelium,
 }
 
 #[derive(Clone, Deserialize, PartialEq, Eq)]
@@ -113,6 +116,8 @@ pub(crate) struct QuestDefinition {
     pub(crate) completion_xp: u32,
     #[serde(default)]
     outpost_only: bool,
+    #[serde(default)]
+    requires_beacon: bool,
     starts_when: Vec<Condition>,
     first_objective: String,
     #[serde(default)]
@@ -349,10 +354,13 @@ pub(crate) struct QuestJournal {
     progress: BTreeMap<String, QuestProgress>,
     occurred: BTreeSet<QuestAction>,
     pending_completion_xp: u64,
+    cavern_defeats: BTreeSet<CaveEncounter>,
 }
 
 #[derive(bitcode::Encode, bitcode::Decode)]
 pub(crate) struct SavedJournal {
+    #[bitcode(skip)]
+    pub(crate) cavern_defeats: BTreeSet<CaveEncounter>,
     progress: BTreeMap<String, SavedQuest>,
     occurred: BTreeSet<QuestAction>,
 }
@@ -397,6 +405,7 @@ impl QuestJournal {
 
     pub(crate) fn snapshot(&self) -> SavedJournal {
         SavedJournal {
+            cavern_defeats: self.cavern_defeats.clone(),
             progress: self
                 .entries()
                 .map(|(quest, progress)| {
@@ -449,6 +458,7 @@ impl QuestJournal {
             progress,
             occurred: snapshot.occurred.clone(),
             pending_completion_xp: 0,
+            cavern_defeats: snapshot.cavern_defeats.clone(),
         };
         if journal.has_occurred(QuestAction::ReturnedThroughRelayHatch) {
             journal.offer_cavern_report();
@@ -477,12 +487,27 @@ impl QuestJournal {
     }
 
     pub(crate) fn offer_cavern_report(&mut self) {
-        if self.is_complete(OLD_RELAY)
-            && !self.has_occurred(QuestAction::AttackedNemi)
+        if self.beacon_powered()
+            && self.is_complete(OLD_RELAY)
             && self.status(CONTAIN_THE_HUSHCAPS).is_none()
         {
             self.record(QuestAction::ReturnedThroughRelayHatch);
         }
+    }
+
+    pub(crate) fn credit_cavern_defeat(&mut self, id: CaveEncounter) {
+        if self.status(CONTAIN_THE_HUSHCAPS) == Some(QuestStatus::Active)
+            && self.cavern_defeats.len() < CAVERN_HUSHCAP_GOAL
+            && id.is_hushcap()
+            && self.cavern_defeats.insert(id)
+            && self.cavern_defeats.len() == CAVERN_HUSHCAP_GOAL
+        {
+            self.record(QuestAction::DefeatedFiveCavernHushcaps);
+        }
+    }
+
+    pub(crate) fn cavern_defeat_count(&self) -> usize {
+        self.cavern_defeats.len()
     }
 
     pub(crate) fn expects(&self, action: QuestAction) -> bool {
@@ -549,10 +574,10 @@ impl QuestJournal {
                     continue;
                 }
                 match self.progress.get(&quest.id) {
-                    None if quest
-                        .starts_when
-                        .iter()
-                        .any(|rule| Some(rule) == trigger.as_ref() || self.persistent(rule)) =>
+                    None if (!quest.requires_beacon || self.beacon_powered())
+                        && quest.starts_when.iter().any(|rule| {
+                            Some(rule) == trigger.as_ref() || self.persistent(rule)
+                        }) =>
                     {
                         starts.push(quest)
                     }
@@ -766,6 +791,8 @@ mod tests {
     #[test]
     fn a_completed_relay_exit_opens_the_cave_quest_once_for_friendly_players() {
         let mut journal = test_journal();
+        journal.record(QuestAction::ReturnedThroughRelayHatch);
+        assert_eq!(journal.status(CONTAIN_THE_HUSHCAPS), None);
         for action in [
             QuestAction::TalkedToNemi,
             QuestAction::RecoveredCore,
@@ -792,23 +819,44 @@ mod tests {
     }
 
     #[test]
-    fn attacking_nemi_prevents_or_fails_the_cave_quest() {
-        let mut journal = test_relay_journal();
-        journal.record(QuestAction::AttackedNemi);
-        journal.offer_cavern_report();
-        assert_eq!(journal.status(CONTAIN_THE_HUSHCAPS), None);
+    fn the_relay_warning_replaces_nemis_briefing_on_the_solo_route() {
+        for attacked_before_return in [true, false] {
+            let mut journal = test_relay_journal();
+            if attacked_before_return {
+                journal.record(QuestAction::AttackedNemi);
+            }
+            journal.offer_cavern_report();
+            if !attacked_before_return {
+                journal.record(QuestAction::AttackedNemi);
+            }
+            assert_eq!(
+                journal.status(CONTAIN_THE_HUSHCAPS),
+                Some(QuestStatus::Active)
+            );
+            assert!(!journal.expects(QuestAction::ReportedArchiveHushcap));
+            assert_eq!(journal.progress[CONTAIN_THE_HUSHCAPS].completed, [0]);
+        }
+    }
 
+    #[test]
+    fn qualifying_defeats_can_open_the_gate_before_the_report_is_delivered() {
+        use CaveEncounter::*;
         let mut journal = test_relay_journal();
         journal.offer_cavern_report();
-        journal.record(QuestAction::AttackedNemi);
-        journal.record(QuestAction::DefeatedFiveCavernHushcaps);
-        journal.record(QuestAction::ShowedNemiMycelium);
-        journal.offer_cavern_report();
-        assert_eq!(
-            journal.status(CONTAIN_THE_HUSHCAPS),
-            Some(QuestStatus::Failed)
-        );
-        assert_eq!(journal.take_completion_xp(), 0);
+        for id in [
+            FirstWestHushcap,
+            FirstEastHushcap,
+            SplitWestHushcap,
+            SplitEastHushcap,
+            SplitFarHushcap,
+        ] {
+            journal.credit_cavern_defeat(id);
+        }
+        assert!(journal.has_occurred(QuestAction::DefeatedFiveCavernHushcaps));
+        assert!(journal.expects(QuestAction::ReportedArchiveHushcap));
+        assert!(!journal.expects(QuestAction::ShowedTovanMycelium));
+        journal.record(QuestAction::ReportedArchiveHushcap);
+        assert!(journal.expects(QuestAction::ShowedTovanMycelium));
     }
 
     #[test]

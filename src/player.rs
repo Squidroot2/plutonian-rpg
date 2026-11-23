@@ -165,7 +165,6 @@ const GROUNDING_MAX_UPWARD_SPEED: f32 = 0.1;
 const GROUND_STICK_SPEED: f32 = 0.6;
 const WALK_STAMINA_RECOVERY_FACTOR: f32 = 0.5;
 const WORLD_MIN_Y: f32 = -15.0;
-const WORLD_MAX_ABS_X: f32 = 55.0;
 const WORLD_MIN_Z: f32 = -140.0;
 const DODGE_ANIMATION_BLEND: Duration = Duration::from_millis(50);
 const LOCOMOTION_ANIMATION_BLEND: Duration = Duration::from_millis(160);
@@ -444,6 +443,12 @@ pub struct AnimationLibrary {
     pub sword_guards: [AnimationNodeIndex; 2],
 }
 
+impl AnimationLibrary {
+    pub(crate) fn walking_node(&self, walking: bool) -> AnimationNodeIndex {
+        self.nodes[if walking { Gait::Walk } else { Gait::Idle } as usize]
+    }
+}
+
 pub(crate) fn add_sword_animation_masks(
     graph: &mut AnimationGraph,
     nodes: &[AnimationNodeIndex; CLIPS.len()],
@@ -686,7 +691,7 @@ pub(crate) fn movement(
         player.velocity.y = output.projected_velocity.y.min(velocity.y.max(0.0));
         dodge.advance(delta);
         if transform.translation.y < WORLD_MIN_Y
-            || transform.translation.x.abs() > WORLD_MAX_ABS_X
+            || !layout.recovery_x().contains(&transform.translation.x)
             || transform.translation.z > layout.recovery_max_z()
             || transform.translation.z < WORLD_MIN_Z
         {

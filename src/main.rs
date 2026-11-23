@@ -11,6 +11,7 @@ mod combat;
 mod combat_audio;
 mod combat_feedback;
 mod controls;
+mod crossing;
 mod dialogue;
 mod dungeon;
 mod enemy;
@@ -55,8 +56,9 @@ fn main() {
     let world = args.iter().any(|arg| arg == "--smoke-world");
     let nemi = args.iter().any(|arg| arg == "--smoke-nemi");
     let cave = args.iter().any(|arg| arg == "--smoke-cave");
+    let crossing = args.iter().any(|arg| arg == "--smoke-crossing");
     assert!(
-        [arena, world, nemi, cave]
+        [arena, world, nemi, cave, crossing]
             .into_iter()
             .filter(|mode| *mode)
             .count()
@@ -112,7 +114,7 @@ fn main() {
             storage::StoragePlugin,
             ui::storage_ui::StorageUiPlugin,
             save::SavePlugin {
-                smoke: arena || world || nemi || cave,
+                smoke: arena || world || nemi || cave || crossing,
             },
         ))
         .add_plugins((
@@ -127,9 +129,15 @@ fn main() {
             guard::GuardPlugin,
             ui::loot_ui::LootUiPlugin,
             cave::CavePlugin,
+            crossing::CrossingPlugin,
         ));
-    if arena || world || nemi || cave {
-        app.add_plugins(smoke::SmokePlugin { arena, nemi, cave });
+    if arena || world || nemi || cave || crossing {
+        app.add_plugins(smoke::SmokePlugin {
+            arena,
+            nemi,
+            cave,
+            crossing,
+        });
     }
     app.run();
 }

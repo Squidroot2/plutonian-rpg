@@ -1,5 +1,4 @@
 use crate::{
-    cave::{DefeatedHushcaps, defeated_hushcap_count},
     experience::ExperienceUpdates,
     inventory::{Inventory, ItemKind},
     quest::{
@@ -179,14 +178,14 @@ fn sync(
 
 fn refresh_cavern_counts(
     mut text: Query<&mut Text, With<CavernQuestCounts>>,
-    hushcaps: DefeatedHushcaps,
+    journal: Res<QuestJournal>,
     inventory: Res<Inventory>,
     mut previous: Local<Option<(usize, u32)>>,
 ) {
     let Ok(mut text) = text.single_mut() else {
         return;
     };
-    let defeated = defeated_hushcap_count(&hushcaps).min(CAVERN_HUSHCAP_GOAL);
+    let defeated = journal.cavern_defeat_count();
     let carried = inventory.count(ItemKind::Mycelium).min(MYCELIUM_GOAL);
     let counts = Some((defeated, carried));
     if *previous != counts || text.is_added() {

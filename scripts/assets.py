@@ -12,6 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 from grounding import ground_outpost
 import perimeter
+import crossing
 random.seed(19)
 
 
@@ -827,6 +828,32 @@ def rebuild_perimeter():
         bpy.context.scene.collection.objects.link(obj)
     bpy.context.view_layer.update()
     save_export('collision')
+
+
+def build_crossing():
+    reset()
+    crossing.flats(material, box, ico)
+    save_export('listening_flats')
+    for obj in list(bpy.context.scene.objects):
+        if not obj.name.startswith(('Flats solid ', perimeter.SOLID_PREFIX)):
+            bpy.data.objects.remove(obj, do_unlink=True)
+    save_export('listening_flats_collision')
+
+    reset()
+    perimeter.gate_leaf(box, (
+        material('Rim ceramic', (.096, .122, .153), metal=.25),
+        material('Rim aged alloy', (.169, .237, .268), metal=.46),
+        material('Rim graphite panels', (.092, .139, .170), metal=.32),
+    ))
+    save_export('nivalis_gate')
+
+    reset()
+    crossing.vellik(material, box, ico)
+    save_export('vellik')
+
+    reset()
+    crossing.wagon(material, box, ico)
+    save_export('crossing_wagon')
 
 
 def add_pillar_collision():
@@ -1764,6 +1791,9 @@ elif '--meat' in sys.argv:
     meat_pickups()
 elif '--items' in sys.argv:
     items()
+elif '--build-crossing' in sys.argv:
+    rebuild_perimeter()
+    build_crossing()
 elif '--build-perimeter' in sys.argv:
     rebuild_perimeter()
 elif '--build-outpost' in sys.argv:
@@ -1795,7 +1825,7 @@ elif '--export' in sys.argv:
     names = ['outpost', 'collision'] if '--outpost' in sys.argv else [
         'plutonian', 'outpost', 'collision', 'core', 'battery', 'scrap', 'methane_pouch',
         'large_boulder', 'practice_dummy', 'ice_worm', 'relay_roach', 'hushcap', 'mycelium', 'old_relay',
-        'old_relay_collision', *SOUTH_BASIN_MODELS, *MEAT_NAMES, *GEAR_NAMES,
+        'old_relay_collision', *SOUTH_BASIN_MODELS, *crossing.MODELS, *MEAT_NAMES, *GEAR_NAMES,
     ]
     if '--shortsword' in sys.argv:
         names = ['plutonian', SHORTSWORD_NAME]
@@ -1805,6 +1835,8 @@ elif '--export' in sys.argv:
         names = ['old_relay', 'old_relay_collision']
     elif '--south-basin' in sys.argv:
         names = SOUTH_BASIN_MODELS
+    elif '--crossing' in sys.argv:
+        names = crossing.MODELS
     for name in names:
         bpy.ops.wm.open_mainfile(filepath=str(ROOT/'art'/f'{name}.blend'))
         if name in GEAR_NAMES:
@@ -1827,4 +1859,5 @@ else:
     mycelium()
     old_relay()
     south_basin()
+    build_crossing()
 print('Exported Plutonian RPG assets')

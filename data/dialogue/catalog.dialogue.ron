@@ -33,7 +33,6 @@
                 (id: "old_relay", label: "Tell me about the Old Relay", reply: Quest),
                 (id: "report_archive_hushcap", label: "I saw a mushroom creature in the archive", reply: Quest),
                 (id: "contain_the_hushcaps", label: "What should I do about the Hushcaps?", reply: Quest),
-                (id: "show_mycelium", label: "I brought the Mycelium samples.", reply: Quest),
                 (
                     id: "about_nemi",
                     label: "Tell me about yourself",
@@ -70,7 +69,7 @@
                 ),
                 (
                     id: "core_returned",
-                    text: "There it is. I thought we had lost that light for good. The crossing is safe again.\n\nThe beacon also powers the Old Relay. Look for the round hatch west and a little south of here. Its archive may still hold the first survey log.\n\nQUEST COMPLETE / THE LAST LIGHT",
+                    text: "There it is. I thought we had lost that light for good. The crossing has a light again.\n\nThe beacon also powers the Old Relay. Look for the round hatch west and a little south of here. Its archive may still hold the first survey log.\n\nQUEST COMPLETE / THE LAST LIGHT",
                 ),
                 (
                     id: "early_core_stored",
@@ -89,29 +88,50 @@
                     text: "Follow the blue waystones north from the outpost. The core is inside the cavern at the end of the trail.",
                 ),
                 (
-                    id: "report_and_samples_shown",
-                    text: "Hushcaps. Their colony in Hushcap Caverns has started to spread. You've already thinned it, and these samples tell me you reached the growth below. Keep them. I'll watch the old passages.\n\nQUEST COMPLETE / CONTAIN THE HUSHCAPS",
-                ),
-                (
-                    id: "samples_shown",
-                    text: "Five samples. You've thinned the colony enough to slow the spread. Keep the Mycelium. I'll watch the old passages for more.\n\nQUEST COMPLETE / CONTAIN THE HUSHCAPS",
-                ),
-                (
-                    id: "report_needs_samples",
-                    text: "Hushcaps. Their colony in Hushcap Caverns has started to spread. You've already thinned it. Bring five Mycelium in your backpack so I can examine the growth.",
-                ),
-                (
                     id: "cavern_briefing",
-                    text: "A Hushcap. Their colony is spreading beyond Hushcap Caverns. Go south from the courtyard into South Basin. Round the ice fins and follow the bend behind the ridge. Defeat five Hushcaps in the caverns and bring five Mycelium back for me to examine.",
+                    text: "A Hushcap. Spores from South Basin have reached the gate approaches. The families can see our light, but the velliks won’t pull through a spore drift. Go south into the basin and follow the bend behind the ridge. Defeat five Hushcaps in the caverns. The gate will open when the drift thins. Bring five Mycelium samples for Tovan, the caravan’s craftsman.",
                 ),
                 (
-                    id: "samples_needed",
-                    text: "Bring me five Mycelium in your backpack so I can examine the growth. You can keep the samples afterward.",
+                    id: "caravan_directions",
+                    text: "The lamp over the southwest gate has changed. The families can come in. Look for Tovan beside the rear wagon when they park.",
                 ),
                 (
                     id: "cavern_directions",
-                    text: "The caverns lie south, behind the ridge in South Basin. Defeat five Hushcaps inside before you come back.",
+                    text: "The caverns lie south, behind the ridge in South Basin. Defeat five Hushcaps inside. The southwest gate will open for the families.",
                 ),
+            ],
+        ),
+        (
+            id: "isera",
+            name: "Isera",
+            topics: [
+                (id: "crossing", label: "How did you find Nivalis?", reply: Text("We kept the beacon to our left. Halfway across, a second light kept pace on our right. Nobody looked at it twice.")),
+            ],
+        ),
+        (
+            id: "tovan",
+            name: "Tovan",
+            topics: [
+                (id: "show_mycelium", label: "I brought Mycelium samples.", reply: Quest),
+                (id: "craft", label: "What do you make?", reply: Text("Hinges, runners, anything the cold wants to keep. You learn to hear what a thing sounds like just before it breaks.")),
+            ],
+            replies: [
+                (id: "samples_needed", text: "I need five together. Bring them in your pack and I can read which way the threads have grown."),
+                (id: "samples_examined", text: "See where the pale threads turn inward? They were growing toward the warm gate channels. I know which seams to watch now. Keep the samples. They’ve told me what I needed.\n\nQUEST COMPLETE / CONTAIN THE HUSHCAPS"),
+            ],
+        ),
+        (
+            id: "vey",
+            name: "Vey",
+            topics: [
+                (id: "velliks", label: "How do velliks find their footing?", reply: Text("Watch the forks above their heads. They lean toward sound ice. If they lean back toward you, hold still.")),
+            ],
+        ),
+        (
+            id: "orla",
+            name: "Orla",
+            topics: [
+                (id: "home", label: "What did you miss about home?", reply: Text("Canvas in the wind. A cup set down on wood. Out on the crossing, every sound tried to be a voice.")),
             ],
         ),
     ],
@@ -140,7 +160,7 @@
         ),
         (
             id: "old_relay.survey_log",
-            text: "SURVEY LOG / THE FIRST WATCH\n\nBefore there was a Nivalis, there was this room. We put the first lamps on the ice so the survey crews could find their way back in the long dark.\n\nThe beacon above us still sends the same signal. Its first meaning was simple. There is shelter here, and someone is waiting.",
+            text: "SURVEY LOG / THE FIRST WATCH\n\nBefore there was a Nivalis, there was this room. We put the first lamps on the ice so the survey crews could find their way back in the long dark.\n\nThe beacon above us still sends the same signal. Its first meaning was simple. There is shelter here, and someone is waiting.\n\nMARGIN NOTE / If Hushcap spores foul the gate channels, keep the crossing closed. The colony grows in South Basin, behind the ridge beyond the ice fins. Thin five Hushcaps and the draft animals can cross. Keep five Mycelium samples for the caravan craftsman.",
         ),
         (
             id: "old_relay.sealed_hatch",

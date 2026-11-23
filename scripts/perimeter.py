@@ -51,7 +51,7 @@ def outward_edge(a, b):
     return Vector((direction.y, -direction.x))
 
 
-def cliff(name, path, materials, rng):
+def cliff(name, path, materials, rng, depth_scale=None, crest_limit=None):
     """Use one welded, steep inside face and an irregular mountain profile behind it."""
     vertices, faces, indices = [], [], []
     points = sample_path(path)
@@ -64,14 +64,17 @@ def cliff(name, path, materials, rng):
             # Offset in the bisector so the profiles meet without a wedge at bends.
             outward = (incoming+outgoing) / (1+incoming.dot(outgoing))
         peak = rng.uniform(18, 31)
+        if crest_limit is not None:
+            peak = min(peak, crest_limit(point))
         profile = [
             (0, -8), (0, rng.uniform(4, 9)), (1.1, peak*.69),
             (rng.uniform(2.2, 4.4), peak),
             (rng.uniform(7, 11), peak*rng.uniform(.72, .96)),
             (rng.uniform(14, 19), rng.uniform(1, 6)), (17, -8),
         ]
+        scale = depth_scale(point) if depth_scale is not None else 1.0
         for setback, height in profile:
-            x, z = point + outward*setback
+            x, z = point + outward*setback*scale
             vertices.append((x, height, z))
 
     width = len(profile)
@@ -126,7 +129,7 @@ def cave_collar(materials):
 
 
 def gate(box, materials):
-    ceramic, alloy, enamel, amber = materials
+    ceramic, alloy, amber = materials
 
     def part(name, at, size, material, solid=True):
         x, y, z = at
@@ -149,16 +152,20 @@ def gate(box, materials):
     for offset in (-1.0, 0, 1.0):
         part('Gate lintel lamp', (center+offset, 8.85, 24.95), (.24, .34, .12), amber, False)
 
-    leaf = part('Gate leaf', (center, 2.30, 27.2), (10.05, 8.7, 1.10), alloy)
+    part('Gate lift housing', (center, 12.9, 27.0), (11.5, 5.0, 3.4), ceramic)
+    for side in (-1, 1):
+        part('Gate lift rail', (center+side*4.85, 12.7, 25.22), (.26, 4.6, .2), alloy, False)
+
+
+def gate_leaf(box, materials):
+    ceramic, alloy, enamel = materials
+    leaf = box('Nivalis gate leaf', (0, 0, 0), (10.05, 1.10, 8.7), alloy)
     for offset in (-4.0, -2.0, 0, 2.0, 4.0):
-        panel = part('Gate leaf panel', (center+offset, 2.35, 26.61),
-                     (1.68, 7.35, .12), enamel, False)
+        panel = box('Gate leaf panel', (offset, .59, .05), (1.68, .12, 7.35), enamel)
         panel.parent = leaf
-        panel.matrix_parent_inverse = leaf.matrix_world.inverted()
-    for height in (1.0, 4.3):
-        band = part('Gate leaf band', (center, height, 26.53), (9.7, .20, .14), ceramic, False)
+    for height in (-1.3, 2.0):
+        band = box('Gate leaf band', (0, .67, height), (9.7, .14, .20), ceramic)
         band.parent = leaf
-        band.matrix_parent_inverse = leaf.matrix_world.inverted()
 
 
 def clear():
@@ -198,11 +205,12 @@ def build(material, box):
     ]
     materials = (rock, ice, frost)
     cliff('Shelf cliffs', shelf+east[1:], materials, rng)
-    cliff('Basin west cliffs', west, materials, rng)
+    # Leave a clear crossing road behind the basin rim, before the road bends west.
+    cliff('Basin west cliffs', west, materials, rng,
+          depth_scale=lambda point: .18+.82*max(0, min(1, (point.y-50)/19)))
     cave_collar(materials)
     gate(box, (
         material('Rim ceramic', (.096, .122, .153), metal=.25),
         material('Rim aged alloy', (.169, .237, .268), metal=.46),
-        material('Rim graphite panels', (.092, .139, .170), metal=.32),
         material('Rim amber signal', (.95, .36, .10), emission=3.0),
     ))

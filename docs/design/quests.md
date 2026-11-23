@@ -103,16 +103,13 @@ finding the survey log, which brings either route to level 3.
 
 ## Contain the Hushcaps
 
-Leaving through the relay hatch after completing Old Relay makes the report to Nemi available.
-  The report introduces Hushcap Caverns and sends the player through South Basin.
-  The objective counts five distinct defeated cavern Hushcaps using their saved encounter identities.
-  Reaching five before the briefing earns early credit while the report remains the current objective.
-  When choosing Contain the Hushcaps after the report and five defeats,
-  the backpack must hold at least five Mycelium.
-  The archive specimen can contribute a sample.
-  Nemi leaves the samples with the player and completion awards 150 XP.
-  If the requirements were met early, Nemi can give the briefing and complete the quest in one conversation.
-  Prior hostility prevents the report, and attacking Nemi fails an active quest.
+Restoring the beacon and leaving through the Relay hatch after reading the survey log makes the Hushcap quest available.
+  Nemi gives the briefing, and a warning in the log supplies it on the solo route.
+  The journal credits combat defeat messages for distinct cavern Hushcaps after the quest activates.
+  Defeats credited during the report step stay recorded while the report remains current.
+  The fifth credited defeat opens the southwest gate for the caravan.
+  Tovan can examine the samples when the caravan parks and the player carries five Mycelium.
+  Tovan leaves the samples with the player and completion awards 150 XP.
 
 ## Reward lifecycle
 

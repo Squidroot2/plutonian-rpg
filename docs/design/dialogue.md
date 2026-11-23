@@ -9,7 +9,9 @@ A conversation starts with the speaker's topic list.
 Nemi offers two repeatable lore topics and conversational choices for the beacon, the Old Relay, and the Hushcaps.
   Quest choices reflect the current objective and the contents of the backpack.
   The offer to help gives way to an offer to hand over the core when it is carried.
-  The Hushcap report gives way to directions or an offer to show the samples.
+  The Hushcap report gives way to directions to the caverns or the caravan.
+  Tovan examines five samples after both wagons park.
+  Isera, Vey, and Orla have repeatable topics about the crossing, velliks, and home.
   Each quest's choices disappear when that quest is complete.
   Opening the conversation and reading lore leave the journal and backpack as they were.
   Telling Nemi you found the core on a first visit records the meeting and hands over the core in the same exchange.

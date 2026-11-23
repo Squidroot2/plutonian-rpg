@@ -673,6 +673,7 @@ mod tests {
     fn shipped_registry() -> DialogueRegistry {
         let mut registry = DialogueRegistry::default();
         crate::nemi::dialogue::register_topics(&mut registry);
+        crate::crossing::register_topics(&mut registry);
         registry.require_notices(crate::interaction::BEACON_NOTICES);
         registry.require_notices(crate::dungeon::RELAY_NOTICES);
         registry

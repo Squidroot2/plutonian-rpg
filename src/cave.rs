@@ -1,11 +1,11 @@
 use crate::{
     GameState,
-    combat::{CombatSystems, Dead},
+    combat::{ActorDefeated, CombatSystems},
     dungeon::Area,
     experience::ExperienceUpdates,
     hushcap,
     loading::{EnemyVisuals, GameAssets, LoadStatus, spawn_static_scenes},
-    quest::{CAVERN_HUSHCAP_GOAL, QuestAction, QuestJournal},
+    quest::QuestJournal,
     roach,
     save::EncounterId,
     world::{SessionEntity, SpawnWorld},
@@ -13,7 +13,6 @@ use crate::{
 };
 use avian3d::prelude::ColliderConstructorHierarchyReady;
 use bevy::{gltf::Gltf, prelude::*};
-use std::collections::BTreeSet;
 
 const BASIN_EDGE_Z: f32 = 28.0;
 const MOUTH_Z: f32 = 84.0;
@@ -126,25 +125,23 @@ impl Plugin for CavePlugin {
     }
 }
 
-pub(crate) type DefeatedHushcaps<'w, 's> =
-    Query<'w, 's, &'static EncounterId, (With<Dead>, With<hushcap::Hushcap>)>;
-
-pub(crate) fn defeated_hushcap_count(hushcaps: &DefeatedHushcaps) -> usize {
-    hushcaps
-        .iter()
-        .filter_map(|encounter| match encounter {
-            EncounterId::Cave(id) => Some(*id),
-            _ => None,
-        })
-        .collect::<BTreeSet<_>>()
-        .len()
+impl CaveEncounter {
+    pub(crate) fn is_hushcap(self) -> bool {
+        ENCOUNTERS
+            .iter()
+            .any(|&(id, species, ..)| id == self && matches!(species, Hushcap))
+    }
 }
 
-fn record_cavern_defeats(hushcaps: DefeatedHushcaps, mut journal: ResMut<QuestJournal>) {
-    let milestone = QuestAction::DefeatedFiveCavernHushcaps;
-    if !journal.has_occurred(milestone) && defeated_hushcap_count(&hushcaps) >= CAVERN_HUSHCAP_GOAL
-    {
-        journal.record(milestone);
+fn record_cavern_defeats(
+    mut defeats: MessageReader<ActorDefeated>,
+    hushcaps: Query<&EncounterId, With<hushcap::Hushcap>>,
+    mut journal: ResMut<QuestJournal>,
+) {
+    for ActorDefeated(entity) in defeats.read() {
+        if let Ok(EncounterId::Cave(id)) = hushcaps.get(*entity) {
+            journal.credit_cavern_defeat(*id);
+        }
     }
 }
 
@@ -210,16 +207,34 @@ fn spawn_lights(commands: &mut Commands) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::quest::test_relay_journal;
+    use crate::{
+        combat::Dead,
+        quest::{QuestAction, test_relay_journal},
+    };
     use bevy::ecs::system::RunSystemOnce;
 
     #[test]
-    fn the_archive_enemy_and_duplicate_ids_do_not_count_toward_five_cavern_defeats() {
+    fn only_new_distinct_cavern_defeats_during_the_active_quest_count() {
         let mut world = World::new();
-        let mut journal = test_relay_journal();
-        journal.offer_cavern_report();
-        journal.record(QuestAction::ReportedArchiveHushcap);
-        world.insert_resource(journal);
+        world.init_resource::<Messages<ActorDefeated>>();
+        world.insert_resource(test_relay_journal());
+        let early = world
+            .spawn((EncounterId::Cave(GalleryFarHushcap), hushcap::Hushcap, Dead))
+            .id();
+        world.write_message(ActorDefeated(early));
+        world
+            .run_system_once(record_cavern_defeats)
+            .expect("read early defeat");
+        world.resource_mut::<Messages<ActorDefeated>>().clear();
+        world.resource_mut::<QuestJournal>().offer_cavern_report();
+        world
+            .resource_mut::<QuestJournal>()
+            .record(QuestAction::ReportedArchiveHushcap);
+
+        let archive = world
+            .spawn((EncounterId::RelayArchiveHushcap, hushcap::Hushcap))
+            .id();
+        world.write_message(ActorDefeated(archive));
         for id in [
             FirstWestHushcap,
             FirstEastHushcap,
@@ -227,30 +242,30 @@ mod tests {
             SplitEastHushcap,
             FirstWestHushcap,
         ] {
-            world.spawn((EncounterId::Cave(id), hushcap::Hushcap, Dead));
+            let entity = world.spawn((EncounterId::Cave(id), hushcap::Hushcap)).id();
+            world.write_message(ActorDefeated(entity));
         }
-        world.spawn((EncounterId::RelayArchiveHushcap, hushcap::Hushcap, Dead));
-        world.spawn((EncounterId::Cave(FirstWorm), worm::Worm, Dead));
-        let fifth = world
-            .spawn((EncounterId::Cave(SplitFarHushcap), hushcap::Hushcap))
-            .id();
         world
             .run_system_once(record_cavern_defeats)
-            .expect("check cavern defeats");
+            .expect("count four eligible Hushcaps");
+        assert_eq!(world.resource::<QuestJournal>().cavern_defeat_count(), 4);
         assert!(
             !world
                 .resource::<QuestJournal>()
                 .has_occurred(QuestAction::DefeatedFiveCavernHushcaps)
         );
 
-        world.entity_mut(fifth).insert(Dead);
+        let fifth = world
+            .spawn((EncounterId::Cave(SplitFarHushcap), hushcap::Hushcap))
+            .id();
+        world.write_message(ActorDefeated(fifth));
         world
             .run_system_once(record_cavern_defeats)
             .expect("settle the fifth defeat");
         assert!(
             world
                 .resource::<QuestJournal>()
-                .expects(QuestAction::ShowedNemiMycelium)
+                .expects(QuestAction::ShowedTovanMycelium)
         );
     }
 }

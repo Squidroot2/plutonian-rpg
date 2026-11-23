@@ -1,5 +1,6 @@
 use crate::{
     GameState,
+    crossing::CrossingAssets,
     dialogue::{DialogueCatalog, DialogueRegistry},
     enemy::{EnemyAnimations, EnemyModel, EnemyVisual},
     guard, hushcap,
@@ -57,6 +58,7 @@ pub struct GameAssets {
     pub outpost: Option<(Handle<Gltf>, Handle<Gltf>)>,
     pub relay: Option<(Handle<Gltf>, Handle<Gltf>)>,
     pub south_basin: Option<(Handle<Gltf>, Handle<Gltf>)>,
+    pub(crate) crossing: Option<CrossingAssets>,
     pub core: Handle<Gltf>,
     pub dummy: Handle<Gltf>,
     enemies: BTreeMap<&'static str, Handle<Gltf>>,
@@ -74,6 +76,7 @@ impl GameAssets {
                     .chain(self.south_basin.iter())
                     .flat_map(|(visuals, collision)| [visuals, collision]),
             )
+            .chain(self.crossing.iter().flat_map(CrossingAssets::handles))
             .chain(self.enemies.values())
             .chain(self.pickups.values())
             .chain(self.worn.values())
@@ -136,6 +139,7 @@ pub struct LoadStatus {
     pub collision_ready: bool,
     pub relay_collision_ready: bool,
     pub south_basin_collision_ready: bool,
+    pub(crate) crossing_collision_ready: bool,
     pub started: Option<Instant>,
 }
 fn load(
@@ -167,6 +171,7 @@ fn load(
                 server.load("models/south_basin_collision.glb"),
             )
         }),
+        crossing: (*layout == WorldLayout::Outpost).then(|| CrossingAssets::load(&server)),
         core: server.load("models/core.glb"),
         dummy: server.load("models/practice_dummy.glb"),
         enemies: ENEMY_MODELS
@@ -241,6 +246,7 @@ fn check(
             && (status.collision_ready || arena_floor_ready(&spatial, arena_floor.single().ok()))
             && (assets.relay.is_none() || status.relay_collision_ready)
             && (assets.south_basin.is_none() || status.south_basin_collision_ready)
+            && (assets.crossing.is_none() || status.crossing_collision_ready)
             && colliders.iter().nth(MIN_NON_PLAYER_COLLIDERS - 1).is_some()
         {
             next.set(GameState::Playing);

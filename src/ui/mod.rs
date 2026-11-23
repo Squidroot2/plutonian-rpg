@@ -369,7 +369,10 @@ fn refresh_hud(
         (GameState::Title | GameState::Loading, _, _) => "",
         (_, _, Area::OldRelay) => "THE OLD RELAY",
         (_, WorldLayout::Outpost, Area::Surface) => player
-            .and_then(|(_, pose)| cave::surface_location(pose.translation))
+            .and_then(|(_, pose)| {
+                crate::crossing::surface_location(pose.translation)
+                    .or_else(|| cave::surface_location(pose.translation))
+            })
             .unwrap_or("OUTPOST / NIVALIS"),
         (_, WorldLayout::SmokeArena, Area::Surface) => "SMOKE ARENA",
     };

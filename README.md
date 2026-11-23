@@ -79,7 +79,7 @@ The core route connects the outpost, an inclined ice shelf, and a shallow cavern
   You can continue exploring afterward.
 
 Blue-ice cliffs and ceramic walls surround Nivalis and the South Basin shelf.
-  The large gate southwest of the outpost is sealed.
+  The southwest gate opens during Contain the Hushcaps, revealing the Listening Flats.
 
 South of the outpost courtyard, the ice shelf opens into South Basin.
   Two paths around the ice fins lead behind a ridge,
@@ -95,7 +95,7 @@ South of the outpost courtyard, the ice shelf opens into South Basin.
   Interaction requires a nearby target with a clear line of sight.
   Save files use a versioned bitcode format.
 
-The main quest line continues from The Last Light through Old Relay and Contain the Hushcaps.
+The main quest line continues from The Last Light through Old Relay to the crossing caravan in Contain the Hushcaps.
   Survival, crafting, and controller support are deferred.
   This is a fictional Pluto with terrain, illumination, and gravity tuned for play.
   The included Blender scripts generate the original models and title backdrop.
@@ -271,13 +271,18 @@ Ask Nemi about the Old Relay after inspecting the sealed hatch or restoring the 
 
 ## Contain the Hushcaps
 
-After reading the survey log and returning through the relay hatch,
-  tell Nemi **I saw a mushroom creature in the archive**.
-  They send you south through South Basin to Hushcap Caverns.
-  Defeat five Hushcaps in the caverns and return with at least five Mycelium in your backpack.
-  The archive specimen can supply one of the samples.
-  Tell Nemi **I brought the Mycelium samples.** so he can examine them. You get to keep them.
-  The Quest Log shows how many cavern Hushcaps you have defeated and how many samples you carry.
+Restore the beacon, read the survey log, and return to the surface through the Relay hatch.
+  Ask Nemi about the creature in the archive, or use the warning in the survey log if Nemi is unavailable.
+  Head south into South Basin and follow the ridge to Hushcap Caverns.
+  Defeat five distinct cavern Hushcaps after the quest starts.
+  Each Hushcap yields one Mycelium.
+  The archive specimen can supply a sample.
+
+The fifth credited defeat raises the southwest gate.
+  Approach the gate to see the crossing families file in with two vellik-drawn wagons.
+  When the wagons park, speak to Tovan beside the rear wagon with five Mycelium in your backpack.
+  Tovan examines the samples and returns them.
+  The road beyond the gate loops through the Listening Flats, past the bell cairn and an ice overlook.
 
 ## Blender workflow
 
@@ -290,6 +295,8 @@ Pass `-- --worm` to the asset command to regenerate the ice worm source and its 
   Use `-- --export --hushcap` or `-- --export --relay` after editing those Blender sources by hand.
   Pass `-- --south-basin` to regenerate the basin and cave sources and exports.
   Use `-- --export --south-basin` to re-export their edited Blender sources.
+  Use `-- --build-crossing` to generate the Listening Flats, the moving gate, the vellik, and the crossing wagon.
+  Use `-- --export --crossing` to re-export their edited Blender sources.
 
 The title screen uses a render of the outpost.
   To refresh it after editing the scenery, run `blender --background -noaudio art/outpost.blend --python scripts/render_title.py`.
@@ -309,6 +316,8 @@ Blender 5.3 was used for the included editable sources in `art/`.
 | `hushcap` | Rooted enemy with idle, spit, and collapse clips |
 | `old_relay`, `old_relay_collision` | Old Relay scenery and its hidden collision geometry |
 | `south_basin`, `south_basin_collision` | South Basin and Hushcap Caverns scenery and collision geometry |
+| `listening_flats`, `listening_flats_collision` | Crossing road, valley, and perimeter collision |
+| `nivalis_gate`, `vellik`, `crossing_wagon` | Moving gate leaf and caravan models |
 | `worm_meat`, `roach_meat`, `mycelium` | Corpse loot pickup models |
 | `field_armor`, `reinforced_armor`, `field_helmet`, `reinforced_helmet` | Equipment sources, each exporting pickup and `_worn` GLBs |
 | `field_spear`, `trident` | Weapons sharing the spear animations, each exporting pickup and `_worn` GLBs |
@@ -323,7 +332,7 @@ blender --background -noaudio --factory-startup --python-exit-code 1 --python sc
 Append `--outpost` to export just the outpost and its collision scene.
 Append `--shortsword` to export just the player rig and the two shortsword models.
 
-Use `-- --build-perimeter` to regenerate the cliffs, walls, and sealed gate in the existing outpost and collision sources and exports.
+Use `-- --build-perimeter` to regenerate the cliffs, walls, and gate frame in the existing outpost and collision sources and exports.
   After hand-editing the perimeter, use `-- --export --outpost` to export both sources.
   See [Nivalis perimeter](docs/design/nivalis-perimeter.md) for the design and collision details.
 
@@ -407,6 +416,7 @@ cargo run --locked -- --smoke-test
 cargo run --locked -- --smoke-world
 cargo run --locked -- --smoke-nemi
 cargo run --locked -- --smoke-cave
+cargo run --locked -- --smoke-crossing
 python3 scripts/check_assets.py
 ```
 
@@ -440,6 +450,8 @@ Run one smoke scenario at a time on an idle graphical desktop without supplying 
   It probes the hidden entrance, both middle-chamber passages, encounter grounding, and projectile cover.
   It also observes Hushcap spit and collects Mycelium through the corpse loot panel.
   It prints `CAVE SMOKE PASS` on success.
+- `--smoke-crossing` checks the Listening Flats perimeter, fifth-kill gate trigger, caravan arrival, Tovan’s dialogue, the outer trail loop, and bed-save rollback.
+  It prints `CROSSING SMOKE PASS` on success.
 
 The checks save screenshots in `/tmp/plutonian-*.png`, including the arena, outpost, inventory, beacon, and weapon and armor poses.
 

@@ -211,7 +211,7 @@ fn check_cover(
     );
 }
 
-fn check_route(
+pub(super) fn check_route(
     spatial: &SpatialQuery,
     filter: &SpatialQueryFilter,
     capsule: &Collider,

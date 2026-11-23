@@ -35,7 +35,7 @@ use std::{
 };
 
 // Four magic bytes followed by the little-endian save schema version.
-const HEADER: &[u8; 6] = b"PLUT\x08\x00";
+const HEADER: &[u8; 6] = b"PLUT\x09\x00";
 const V7_HEADER: &[u8; 6] = b"PLUT\x07\x00";
 const V6_HEADER: &[u8; 6] = b"PLUT\x06\x00";
 const V5_HEADER: &[u8; 6] = b"PLUT\x05\x00";
@@ -538,7 +538,18 @@ fn read_save(path: &Path) -> io::Result<Snapshot> {
     }
     let invalid_data = |error| io::Error::new(io::ErrorKind::InvalidData, error);
     if let Some(payload) = data.strip_prefix(HEADER) {
-        let snapshot: Snapshot = bitcode::decode(payload).map_err(invalid_data)?;
+        let (base, cavern_defeats): (Vec<u8>, BTreeSet<CaveEncounter>) =
+            bitcode::decode(payload).map_err(invalid_data)?;
+        let mut snapshot: Snapshot = bitcode::decode(&base).map_err(invalid_data)?;
+        if cavern_defeats.len() > crate::quest::CAVERN_HUSHCAP_GOAL
+            || cavern_defeats.iter().any(|id| !id.is_hushcap())
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "Invalid credited cavern defeats",
+            ));
+        }
+        snapshot.journal.cavern_defeats = cavern_defeats;
         return validate_contents(snapshot, hushcap::HEALTH, true, true);
     }
     if let Some(payload) = data
@@ -654,7 +665,11 @@ fn write_save(path: &Path, snapshot: &Snapshot) -> io::Result<()> {
             "Invalid save contents",
         ));
     }
-    let bytes = bitcode::encode(snapshot);
+    // Keep the shared checkpoint codec separate from the current schema’s defeat ledger.
+    let bytes = bitcode::encode(&(
+        bitcode::encode(snapshot),
+        snapshot.journal.cavern_defeats.clone(),
+    ));
     if HEADER.len() + bytes.len() > MAX_SAVE_BYTES {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
@@ -1828,15 +1843,28 @@ mod tests {
         let mut journal = test_relay_journal();
         journal.offer_cavern_report();
         journal.record(QuestAction::ReportedArchiveHushcap);
-        journal.record(QuestAction::DefeatedFiveCavernHushcaps);
+        for id in [
+            CaveEncounter::FirstWestHushcap,
+            CaveEncounter::FirstEastHushcap,
+            CaveEncounter::SplitWestHushcap,
+            CaveEncounter::SplitEastHushcap,
+        ] {
+            journal.credit_cavern_defeat(id);
+        }
         world.insert_resource(journal);
         interact_with(&mut world, bed);
 
         let checkpoint = read_save(&path).expect("read the cave quest checkpoint");
         let mut restored = restore_test_journal(&checkpoint.journal);
-        assert!(restored.expects(QuestAction::ShowedNemiMycelium));
+        assert_eq!(restored.cavern_defeat_count(), 4);
+        restored.credit_cavern_defeat(CaveEncounter::FirstWestHushcap);
+        assert!(!restored.has_occurred(QuestAction::DefeatedFiveCavernHushcaps));
+        restored.credit_cavern_defeat(CaveEncounter::SplitFarHushcap);
+        assert_eq!(restored.cavern_defeat_count(), 5);
+        assert!(restored.expects(QuestAction::ShowedTovanMycelium));
         assert_eq!(restored.take_completion_xp(), 0);
-        restored.record(QuestAction::ShowedNemiMycelium);
+        restored.record(QuestAction::CaravanArrived);
+        restored.record(QuestAction::ShowedTovanMycelium);
         assert!(restored.is_complete(CONTAIN_THE_HUSHCAPS));
         assert_eq!(restored.take_completion_xp(), 150);
         world.insert_resource(restored);
@@ -1845,6 +1873,8 @@ mod tests {
         let checkpoint = read_save(&path).expect("read the completed cave quest checkpoint");
         let mut restored = restore_test_journal(&checkpoint.journal);
         assert!(restored.is_complete(CONTAIN_THE_HUSHCAPS));
+        assert!(restored.has_occurred(QuestAction::CaravanArrived));
+        assert_eq!(restored.cavern_defeat_count(), 5);
         assert_eq!(restored.take_completion_xp(), 0);
     }
 

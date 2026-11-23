@@ -53,9 +53,11 @@ systems.
 
 The file begins with the six-byte `PLUT` header and a little-endian schema
 version, followed by a bitcode-encoded snapshot.
-The current schema is version 8.
-Readers also recognize versions 1 through 7 and upgrade their snapshots in
-memory before validating them.
+The current schema is version 9.
+  It includes credited cavern encounter IDs and journal actions for caravan arrival and Tovan’s examination.
+  Loading reconstructs the raised gate from the kill milestone and parks the caravan if it had arrived at the checkpoint.
+  During early production, only current-version checkpoints are supported.
+The earlier version 1 through 7 decoders predate the crossing expansion.
 Legacy saves that predate progression or experience retain the fields they
 already had and receive defaults for fields introduced later.
 Version 1 equipment slots are decoded using their original three-variant enum
@@ -71,8 +73,7 @@ Version 6 adds stable IDs for the Hushcap Caverns encounters.
   then add the new cave encounters at their authored positions, with full health and loot.
   Version 5 archive Hushcap progress carries forward.
 Version 7 records the completed relay hatch exit and Contain the Hushcaps journal actions.
-  For older bed saves with Old Relay complete and Nemi friendly,
-  the loaded journal offers the report at Nemi.
+  The original migration infers the Relay return for a friendly Nemi.
   Existing cavern defeats carry forward through the saved encounter health.
 Version 8 adds stable guard IDs and outpost hostility.
   Older saves seed two full-health, neutral guards.

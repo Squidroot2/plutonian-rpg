@@ -105,17 +105,18 @@
         completion_xp: 150,
         summary: "A mushroom creature has reached the Old Relay archive. Nemi may know where it came from.",
         outpost_only: true,
+        requires_beacon: true,
         starts_when: [Action(ReturnedThroughRelayHatch)],
         first_objective: "report_hushcap",
-        interrupts: [
-            (on: AttackedNemi, reason: "You attacked Nemi. They will no longer hear your report or examine the Mycelium."),
-        ],
         objectives: [
             (
                 id: "report_hushcap",
-                title: "Report the mushroom creature to Nemi",
-                directions: "Find Nemi in the outpost courtyard, northeast of the beacon tower. Tell Nemi you saw a mushroom creature in the archive.",
-                transitions: [(when: Action(ReportedArchiveHushcap), to: Objective("defeat_hushcaps"))],
+                title: "Find the source of the Hushcaps",
+                directions: "Tell Nemi about the mushroom creature in the archive. If Nemi is unavailable, follow the survey log’s warning about the colony in South Basin.",
+                transitions: [
+                    (when: Action(ReportedArchiveHushcap), to: Objective("defeat_hushcaps")),
+                    (when: Occurred(AttackedNemi), to: Objective("defeat_hushcaps")),
+                ],
             ),
             (
                 id: "defeat_hushcaps",
@@ -125,11 +126,11 @@
             ),
             (
                 id: "show_mycelium",
-                title: "Show Nemi five Mycelium",
-                directions: "Return to Nemi in the outpost courtyard with at least five Mycelium in your backpack. Tell Nemi you brought the Mycelium samples. Nemi will examine them and let you keep them.",
-                transitions: [(when: Action(ShowedNemiMycelium), to: Complete)],
+                title: "Show Tovan five Mycelium",
+                directions: "The southwest gate has opened for the crossing caravan. Let the wagons park, then bring five Mycelium in your backpack to Tovan, the craftsman beside the rear wagon.",
+                transitions: [(when: Action(ShowedTovanMycelium), to: Complete)],
             ),
         ],
-        completion: "You thinned the colony in Hushcap Caverns and showed Nemi that you had reached the growth below. Nemi will watch the old passages for more signs of spread.",
+        completion: "The crossing families have come home to Nivalis. Tovan examined the threads you brought from the caverns and found where the colony had begun to spread.",
     ),
 ]
