@@ -1,7 +1,9 @@
 use crate::{
     GameState,
     combat::{ActorDefeated, CombatSystems},
+    content::{Enemies, EnemyArchetype, Placements},
     dungeon::Area,
+    enemy,
     experience::ExperienceUpdates,
     hushcap,
     loading::{EnemyVisuals, GameAssets, LoadStatus, spawn_static_scenes},
@@ -23,51 +25,60 @@ const CAVE_LIGHT_LUMENS: f32 = 40_000.0;
 // All three chambers share the same floor elevation in the Blender terrain.
 pub(crate) const CHAMBER_FLOOR_Y: f32 = -5.5;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, bitcode::Encode, bitcode::Decode)]
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    bitcode::Encode,
+    bitcode::Decode,
+    strum::IntoStaticStr,
+)]
 pub(crate) enum CaveEncounter {
+    #[strum(serialize = "cave_first_west_hushcap")]
     FirstWestHushcap,
+    #[strum(serialize = "cave_first_east_hushcap")]
     FirstEastHushcap,
+    #[strum(serialize = "cave_first_worm")]
     FirstWorm,
+    #[strum(serialize = "cave_split_west_hushcap")]
     SplitWestHushcap,
+    #[strum(serialize = "cave_split_east_hushcap")]
     SplitEastHushcap,
+    #[strum(serialize = "cave_split_far_hushcap")]
     SplitFarHushcap,
+    #[strum(serialize = "cave_split_worm")]
     SplitWorm,
+    #[strum(serialize = "cave_split_roach")]
     SplitRoach,
+    #[strum(serialize = "cave_gallery_west_hushcap")]
     GalleryWestHushcap,
+    #[strum(serialize = "cave_gallery_east_hushcap")]
     GalleryEastHushcap,
+    #[strum(serialize = "cave_gallery_far_hushcap")]
     GalleryFarHushcap,
+    #[strum(serialize = "cave_gallery_roach")]
     GalleryRoach,
 }
 
-#[derive(Clone, Copy)]
-enum Species {
-    Hushcap,
-    Worm,
-    Roach,
-}
-
-impl Species {
+impl EnemyArchetype {
     fn ground_offset(self) -> f32 {
         match self {
             Self::Hushcap => 0.0,
             Self::Worm => worm::GROUND_OFFSET,
             Self::Roach => roach::GROUND_OFFSET,
-        }
-    }
-
-    fn max_health(self) -> u16 {
-        match self {
-            Self::Hushcap => hushcap::HEALTH,
-            Self::Worm => worm::CONFIG.body.health,
-            Self::Roach => roach::CONFIG.body.health,
+            Self::Guard => crate::player::PLAYER_GROUND_OFFSET,
         }
     }
 }
 
 use CaveEncounter::*;
-use Species::*;
+use EnemyArchetype::{Hushcap, Roach, Worm};
 
-const ENCOUNTERS: [(CaveEncounter, Species, f32, f32); 12] = [
+const ENCOUNTERS: [(CaveEncounter, EnemyArchetype, f32, f32); 12] = [
     (FirstWestHushcap, Hushcap, 8.8, 104.3),
     (FirstEastHushcap, Hushcap, 22.3, 109.6),
     (FirstWorm, Worm, 12.8, 111.2),
@@ -82,7 +93,7 @@ const ENCOUNTERS: [(CaveEncounter, Species, f32, f32); 12] = [
     (GalleryRoach, Roach, 8.8, 153.0),
 ];
 
-fn encounters() -> impl ExactSizeIterator<Item = (CaveEncounter, Species, Vec3)> {
+fn encounters() -> impl ExactSizeIterator<Item = (CaveEncounter, EnemyArchetype, Vec3)> {
     ENCOUNTERS.into_iter().map(|(id, species, x, z)| {
         (
             id,
@@ -92,8 +103,9 @@ fn encounters() -> impl ExactSizeIterator<Item = (CaveEncounter, Species, Vec3)>
     })
 }
 
-pub(crate) fn encounter_homes() -> impl ExactSizeIterator<Item = (CaveEncounter, Vec3, u16)> {
-    encounters().map(|(id, species, home)| (id, home, species.max_health()))
+pub(crate) fn encounter_homes()
+-> impl ExactSizeIterator<Item = (CaveEncounter, Vec3, EnemyArchetype)> {
+    encounters().map(|(id, species, home)| (id, home, species))
 }
 
 pub(crate) fn surface_location(position: Vec3) -> Option<&'static str> {
@@ -126,10 +138,15 @@ impl Plugin for CavePlugin {
 }
 
 impl CaveEncounter {
-    pub(crate) fn is_hushcap(self) -> bool {
+    pub(crate) fn archetype(self) -> EnemyArchetype {
         ENCOUNTERS
             .iter()
-            .any(|&(id, species, ..)| id == self && matches!(species, Hushcap))
+            .find_map(|&(id, species, ..)| (id == self).then_some(species))
+            .expect("each cavern encounter has a shipped archetype")
+    }
+
+    pub(crate) fn is_hushcap(self) -> bool {
+        self.archetype() == Hushcap
     }
 }
 
@@ -150,6 +167,8 @@ fn spawn_basin(
     assets: Res<GameAssets>,
     models: Res<Assets<Gltf>>,
     visuals: Res<EnemyVisuals>,
+    placements: Res<Placements>,
+    enemies: Res<Enemies>,
     mut commands: Commands,
 ) {
     let Some(scenes) = &assets.south_basin else {
@@ -168,14 +187,16 @@ fn spawn_basin(
         },
     );
     spawn_lights(&mut commands);
-    for (id, species, home) in encounters() {
-        let area = Area::Surface;
-        let entity = match species {
-            Hushcap => hushcap::spawn(&mut commands, &visuals, home, area),
-            Worm => worm::spawn(&mut commands, &visuals, home, area),
-            Roach => roach::spawn(&mut commands, &visuals, home, area),
-        };
-        commands.entity(entity).insert(EncounterId::Cave(id));
+    for (id, _, home) in encounters() {
+        let id = EncounterId::Cave(id);
+        enemy::spawn_variant(
+            &mut commands,
+            &visuals,
+            placements.enemy(&enemies, id),
+            Transform::from_translation(home),
+            Area::Surface,
+            id,
+        );
     }
 }
 

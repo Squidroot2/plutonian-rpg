@@ -11,7 +11,8 @@ use crate::{
 use avian3d::prelude::*;
 use bevy::prelude::*;
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct Spit {
     pub(crate) sight_m: f32,
     pub(crate) windup_seconds: f32,
@@ -20,7 +21,29 @@ pub(crate) struct Spit {
     pub(crate) travel_m: f32,
     pub(crate) radius_m: f32,
     pub(crate) damage: u16,
+    #[serde(deserialize_with = "deserialize_muzzle")]
     pub(crate) muzzle: Vec3,
+}
+
+fn deserialize_muzzle<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<Vec3, D::Error> {
+    <[f32; 3] as serde::Deserialize>::deserialize(deserializer).map(Vec3::from)
+}
+
+impl Spit {
+    pub(crate) fn is_valid(self) -> bool {
+        self.damage != 0
+            && self.muzzle.is_finite()
+            && [
+                self.sight_m,
+                self.windup_seconds,
+                self.recovery_seconds,
+                self.speed_mps,
+                self.travel_m,
+                self.radius_m,
+            ]
+            .into_iter()
+            .all(crate::content::positive)
+    }
 }
 
 #[derive(Component)]
@@ -324,7 +347,19 @@ fn light_charge(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{combat::Health, dialogue::Dialogue, enemy::tests::test_app, hushcap::SPIT};
+    use crate::{
+        combat::Health,
+        content::{EnemyArchetype, test_enemies},
+        dialogue::Dialogue,
+        enemy::tests::test_app,
+    };
+
+    fn spit() -> Spit {
+        test_enemies()
+            .get(EnemyArchetype::Hushcap.id())
+            .expect("shipped Hushcap definition")
+            .spit()
+    }
 
     fn encounter() -> (App, Entity, Entity) {
         let mut app = test_app();
@@ -344,7 +379,7 @@ mod tests {
             .id();
         let enemy = world
             .spawn((
-                RangedAttack::new(Area::OldRelay, SPIT),
+                RangedAttack::new(Area::OldRelay, spit()),
                 EnemyPose::Idle,
                 Transform::IDENTITY,
                 Health::new(42),
@@ -394,7 +429,7 @@ mod tests {
         assert_eq!(tick(&mut app, 38), 0);
         assert_eq!(health(&app, player), initial_health);
         assert_eq!(tick(&mut app, 58), 1);
-        assert_eq!(health(&app, player), initial_health - SPIT.damage);
+        assert_eq!(health(&app, player), initial_health - spit().damage);
         assert_eq!(
             app.world()
                 .get::<Transform>(enemy)

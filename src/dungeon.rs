@@ -1,16 +1,15 @@
 use crate::{
     GameState,
     camera::Orbit,
+    content::{Enemies, Placements},
     dialogue::{Dialogue, DialogueCatalog, DialogueRegistry, NoticeId},
-    hushcap,
+    enemy,
     loading::{EnemyVisuals, GameAssets, LoadStatus, spawn_static_scenes},
     player::{Dodge, MovementInput, PLAYER_GROUND_OFFSET, Player},
     quest::{QuestAction, QuestJournal},
-    roach,
     save::EncounterId,
     weapon::WeaponAttack,
     world::{SessionEntity, SpawnWorld},
-    worm,
 };
 use avian3d::prelude::*;
 use bevy::{gltf::Gltf, prelude::*};
@@ -42,7 +41,7 @@ pub(crate) const RELAY_NOTICES: &[NoticeId] = &[
     ARCHIVE_LOG,
 ];
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Deserialize)]
 pub(crate) enum Area {
     #[default]
     Surface,
@@ -149,7 +148,9 @@ fn spawn_relay(
     _: On<SpawnWorld>,
     assets: Res<GameAssets>,
     models: Res<Assets<Gltf>>,
-    enemies: Res<EnemyVisuals>,
+    visuals: Res<EnemyVisuals>,
+    enemies: Res<Enemies>,
+    placements: Res<Placements>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut commands: Commands,
@@ -171,7 +172,7 @@ fn spawn_relay(
     );
     spawn_relay_fixtures(&mut commands, &mut meshes, &mut materials);
     spawn_relay_lights(&mut commands);
-    spawn_relay_encounters(&mut commands, &enemies);
+    spawn_relay_encounters(&mut commands, &visuals, &enemies, &placements);
 }
 
 fn spawn_relay_fixtures(
@@ -301,25 +302,29 @@ fn spawn_relay_lights(commands: &mut Commands) {
     }
 }
 
-fn spawn_relay_encounters(commands: &mut Commands, enemies: &EnemyVisuals) {
-    let roach = roach::spawn(
-        commands,
-        enemies,
-        ORIGIN + Vec3::new(7.0, 1.2, -12.5),
-        Area::OldRelay,
-    );
-    commands.entity(roach).insert(EncounterId::RelayRoach);
-    let worm = worm::spawn(
-        commands,
-        enemies,
-        ORIGIN + Vec3::new(-3.5, 1.2, -10.5),
-        Area::OldRelay,
-    );
-    commands.entity(worm).insert(EncounterId::RelayJunctionWorm);
-    let hushcap = hushcap::spawn(commands, enemies, ARCHIVE_HUSHCAP_HOME, Area::OldRelay);
-    commands
-        .entity(hushcap)
-        .insert(EncounterId::RelayArchiveHushcap);
+fn spawn_relay_encounters(
+    commands: &mut Commands,
+    visuals: &EnemyVisuals,
+    enemies: &Enemies,
+    placements: &Placements,
+) {
+    for (id, home) in [
+        (EncounterId::RelayRoach, ORIGIN + Vec3::new(7.0, 1.2, -12.5)),
+        (
+            EncounterId::RelayJunctionWorm,
+            ORIGIN + Vec3::new(-3.5, 1.2, -10.5),
+        ),
+        (EncounterId::RelayArchiveHushcap, ARCHIVE_HUSHCAP_HOME),
+    ] {
+        enemy::spawn_variant(
+            commands,
+            visuals,
+            placements.enemy(enemies, id),
+            Transform::from_translation(home),
+            Area::OldRelay,
+            id,
+        );
+    }
 }
 
 fn ground_surface_hatch(

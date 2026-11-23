@@ -1,10 +1,10 @@
 use crate::{
+    content::EnemyDefinition,
     dungeon::Area,
     enemy::{
-        self, EnemyBody, EnemyModel,
-        ranged::{ChargeLight, RangedAttack, Spit},
+        self, EnemyModel,
+        ranged::{ChargeLight, RangedAttack},
     },
-    inventory::ItemKind,
     loading::EnemyVisuals,
 };
 use avian3d::prelude::*;
@@ -16,18 +16,6 @@ pub(crate) const MODEL: EnemyModel = EnemyModel {
     visual_offset: Vec3::ZERO,
     locomotion: None,
 };
-pub(crate) const HEALTH: u16 = 42;
-pub(crate) const EXPERIENCE: u16 = 45;
-pub(crate) const SPIT: Spit = Spit {
-    sight_m: 8.0,
-    windup_seconds: 0.85,
-    recovery_seconds: 1.25,
-    speed_mps: 9.0,
-    travel_m: 10.0,
-    radius_m: 0.14,
-    damage: 24,
-    muzzle: Vec3::new(0.0, 1.01, 0.56),
-};
 const CHARGE_LUMENS: f32 = 2_600.0;
 const CHARGE_RANGE_M: f32 = 2.4;
 
@@ -37,7 +25,8 @@ pub(crate) struct Hushcap;
 pub(crate) fn spawn(
     commands: &mut Commands,
     visuals: &EnemyVisuals,
-    home: Vec3,
+    definition: &EnemyDefinition,
+    home: Transform,
     area: Area,
 ) -> Entity {
     let stalk = (
@@ -50,20 +39,16 @@ pub(crate) fn spawn(
         Quat::IDENTITY,
         Collider::cylinder(0.75, 0.48),
     );
+    let spit = definition.spit();
     let enemy = enemy::spawn_enemy(
         commands,
         Hushcap,
         visuals.get(&MODEL),
-        Transform::from_translation(home),
+        home,
         area,
-        EnemyBody {
-            name: "Hushcap",
-            health: HEALTH,
-            experience: EXPERIENCE,
-            loot: ItemKind::Mycelium,
-        },
+        definition.body(),
         (
-            RangedAttack::new(area, SPIT),
+            RangedAttack::new(area, spit),
             RigidBody::Kinematic,
             CustomPositionIntegration,
             Collider::compound(vec![stalk, cap]),
@@ -80,7 +65,7 @@ pub(crate) fn spawn(
                 range: CHARGE_RANGE_M,
                 ..default()
             },
-            Transform::from_translation(SPIT.muzzle),
+            Transform::from_translation(spit.muzzle),
         ));
     });
     enemy

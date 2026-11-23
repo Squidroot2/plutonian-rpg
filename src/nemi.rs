@@ -55,7 +55,7 @@ enum Behavior {
     Refuses,
 }
 
-#[derive(bitcode::Encode, bitcode::Decode)]
+#[derive(Clone, bitcode::Encode, bitcode::Decode)]
 pub(crate) struct NemiState {
     home: Option<[f32; 3]>,
     behavior: Behavior,

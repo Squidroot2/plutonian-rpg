@@ -1,5 +1,6 @@
 use crate::{
     GameState,
+    content::Items,
     crossing::CrossingAssets,
     dialogue::{DialogueCatalog, DialogueRegistry},
     enemy::{EnemyAnimations, EnemyModel, EnemyVisual},
@@ -39,6 +40,22 @@ impl EnemyVisuals {
         self.0
             .get(model.path)
             .expect("enemy visuals must be prepared during loading")
+    }
+    #[cfg(test)]
+    pub(crate) fn test_stub(model: &EnemyModel) -> Self {
+        let graph = AnimationGraph::new();
+        Self(BTreeMap::from([(
+            model.path,
+            EnemyVisual {
+                scene: Handle::default(),
+                animations: EnemyAnimations {
+                    graph: Handle::default(),
+                    nodes: [graph.root; 3],
+                    locomotion: None,
+                },
+                offset: model.visual_offset,
+            },
+        )]))
     }
 }
 
@@ -143,6 +160,7 @@ pub struct LoadStatus {
     pub started: Option<Instant>,
 }
 fn load(
+    items: Res<Items>,
     mut commands: Commands,
     server: Res<AssetServer>,
     layout: Res<WorldLayout>,
@@ -172,23 +190,28 @@ fn load(
             )
         }),
         crossing: (*layout == WorldLayout::Outpost).then(|| CrossingAssets::load(&server)),
-        core: server.load("models/core.glb"),
+        core: server.load(items[ItemKind::BeaconCore].pickup_model.clone()),
         dummy: server.load("models/practice_dummy.glb"),
         enemies: ENEMY_MODELS
             .iter()
             .map(|model| (model.path, server.load(model.path)))
             .collect(),
-        pickups: ItemKind::ALL
-            .into_iter()
+        pickups: items
+            .ids()
             .filter(|&item| item != ItemKind::BeaconCore)
-            .map(|item| (item, server.load(format!("models/{}.glb", item.asset()))))
+            .map(|item| (item, server.load(items[item].pickup_model.clone())))
             .collect(),
-        worn: ItemKind::GEAR
-            .into_iter()
+        worn: items
+            .gear_ids()
             .map(|item| {
                 (
                     item,
-                    server.load(format!("models/{}_worn.glb", item.asset())),
+                    server.load(
+                        items[item]
+                            .worn_model()
+                            .expect("gear must have a worn model")
+                            .to_owned(),
+                    ),
                 )
             })
             .collect(),

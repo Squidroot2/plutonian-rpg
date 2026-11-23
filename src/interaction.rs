@@ -1,6 +1,7 @@
 use crate::{
     GameState,
     combat::Dead,
+    content::{CollectedPickups, PlacedPickup},
     controls::{Control, Keybinds},
     dialogue::{
         self, Dialogue, DialogueCatalog, DialogueClick, DialogueRegistry, NoticeId, Speaker,
@@ -38,6 +39,7 @@ pub(crate) struct CorpseLoot {
 }
 
 impl CorpseLoot {
+    #[cfg(test)]
     pub(crate) fn new(item: ItemKind, area: Area) -> Self {
         Self {
             stack: Some(Pickup { item, quantity: 1 }),
@@ -85,7 +87,8 @@ impl Plugin for InteractionPlugin {
             .world_mut()
             .resource_mut::<DialogueRegistry>()
             .require_notices(BEACON_NOTICES);
-        app.init_resource::<Nearby>()
+        app.init_resource::<CollectedPickups>()
+            .init_resource::<Nearby>()
             .init_resource::<Dialogue>()
             .init_resource::<DialogueCatalog>()
             .init_resource::<DialogueClick>()
@@ -109,6 +112,7 @@ struct Candidate {
     transform: &'static Transform,
     quest: Option<&'static Target>,
     pickup: Option<&'static Pickup>,
+    placement: Option<&'static PlacedPickup>,
     dungeon: Option<&'static DungeonTarget>,
     corpse: Option<&'static CorpseLoot>,
     dead: Has<Dead>,
@@ -144,6 +148,12 @@ impl CandidateItem<'_, '_> {
             };
             (InteractionTarget::Quest(target), height)
         } else if let Some(&pickup) = self.pickup {
+            if self
+                .placement
+                .is_some_and(|placement| placement.area != area)
+            {
+                return None;
+            }
             (InteractionTarget::Pickup(pickup), PICKUP_INTERACTION_OFFSET)
         } else if let Some(&dungeon) = self.dungeon {
             if area != dungeon.area() {
@@ -248,9 +258,9 @@ fn interact(
     nearby: Res<Nearby>,
     mut dialogue: ResMut<Dialogue>,
     mut quest: ResMut<QuestJournal>,
-    mut inventory: ResMut<Inventory>,
+    (mut inventory, mut collected): (ResMut<Inventory>, ResMut<CollectedPickups>),
     mut commands: Commands,
-    pickups: Query<&Pickup>,
+    pickups: Query<(&Pickup, Option<&PlacedPickup>)>,
     speakers: Query<&Speaker, Without<Dead>>,
     (catalog, handlers): (Res<DialogueCatalog>, Res<DialogueRegistry>),
     mut loot: ResMut<LootTarget>,
@@ -302,10 +312,13 @@ fn interact(
             }
             InteractionTarget::Pickup(_) if interact_pressed => {
                 // Re-read the live component before transferring the stack.
-                if let Ok(pickup) = pickups.get(entity) {
-                    if inventory.add(pickup.item, pickup.quantity) {
-                        finish_pickup(&mut commands, entity);
+                if let Ok((pickup, placement)) = pickups.get(entity)
+                    && inventory.add(pickup.item, pickup.quantity)
+                {
+                    if let Some(placement) = placement {
+                        collected.0.insert(placement.id);
                     }
+                    finish_pickup(&mut commands, entity);
                 }
             }
             InteractionTarget::Dungeon(target) => commands.trigger(UseDungeonTarget(target)),
@@ -425,6 +438,8 @@ mod tests {
 
     fn test_app() -> App {
         let mut app = App::new();
+        app.insert_resource(crate::content::test_items().clone());
+        app.insert_resource(crate::content::test_placements().stock());
         app.add_plugins((
             MinimalPlugins,
             StatesPlugin,
@@ -914,7 +929,7 @@ mod tests {
                 .world_mut()
                 .spawn((
                     Dead,
-                    Name::new(item.name()),
+                    Name::new(crate::content::test_items()[item].name().to_owned()),
                     Transform::from_xyz(0.0, 0.0, -2.0),
                     CorpseLoot::new(item, Area::Surface),
                 ))
@@ -965,6 +980,60 @@ mod tests {
             assert!(app.world().resource::<Nearby>().0.is_none());
             assert_eq!(app.world().resource::<Inventory>().count(item), 1);
         }
+    }
+
+    #[test]
+    fn authored_pickup_records_its_id_only_after_collection_in_the_right_area() {
+        use crate::content::tests::{variant_enemies, variant_items, variant_placements};
+
+        let mut app = test_app();
+        let items = variant_items();
+        let enemies = variant_enemies(&items);
+        let placements = variant_placements(&items, &enemies);
+        let placement = placements.pickups().next().expect("authored pickup");
+        let mut marker = PlacedPickup {
+            id: placement.id,
+            area: Area::OldRelay,
+        };
+        let entity = app
+            .world_mut()
+            .spawn((placement.stack, marker, Transform::from_xyz(0.0, 0.0, -1.0)))
+            .id();
+
+        press_interact(&mut app);
+        assert!(app.world().resource::<CollectedPickups>().0.is_empty());
+        assert!(app.world().get_entity(entity).is_ok());
+
+        marker.area = Area::Surface;
+        app.world_mut().entity_mut(entity).insert(marker);
+        assert!(
+            app.world_mut()
+                .resource_mut::<Inventory>()
+                .add(placement.stack.item, u32::MAX)
+        );
+        press_interact(&mut app);
+        assert!(app.world().resource::<CollectedPickups>().0.is_empty());
+        assert!(app.world().get_entity(entity).is_ok());
+
+        assert!(
+            app.world_mut()
+                .resource_mut::<Inventory>()
+                .remove(placement.stack.item, u32::MAX)
+        );
+        press_interact(&mut app);
+        assert!(
+            app.world()
+                .resource::<CollectedPickups>()
+                .0
+                .contains(&marker.id)
+        );
+        assert_eq!(
+            app.world()
+                .resource::<Inventory>()
+                .count(placement.stack.item),
+            1
+        );
+        assert!(app.world().get_entity(entity).is_err());
     }
 
     #[test]
@@ -1118,6 +1187,7 @@ mod tests {
         let transform = Transform::from_xyz(0.0, 0.905, 0.0);
         let check = move |spatial: SpatialQuery| {
             crate::inventory::find_drop_position(
+                crate::content::test_items(),
                 &spatial,
                 player,
                 &transform,

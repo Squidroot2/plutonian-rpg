@@ -19,12 +19,16 @@ Player weapon damage is scaled by the Strength derived multiplier before a `Hit`
 
 ## Melee types
 
-- Spear: 2.5m reach
-- Shortsword: 1.4 m reach
+Field spear and trident ship with a 2.5 m reach and the two-handed spear animation profile.
+The shortsword ships with a 1.4 m reach and the independent sword animations.
+The item catalog supplies damage, reach, and contact radius per item.
+An active swing holds the equipped item ID and attack stats for that hand.
+See [Gameplay Data](gameplay-data.md) for authoring details.
 
 ## Enemy melee
 
-Enemies use shared pursuit and melee behavior configured with species-specific bite range, windup, recovery, and damage. 
+Enemies use shared pursuit and melee behavior.
+The enemy catalog supplies each variant’s movement speed, bite range, windup, recovery, and damage.
 A bite is emitted once when its windup expires. 
 For example, the roach bite deals 12 damage and the worm bite deals 20. 
 Enemy attacks enter the same shared resolver as player attacks.
@@ -41,6 +45,7 @@ Two Plutonian guards stand watch at separate posts in Nivalis.
   Returning to the courtyard exposes the player to another attack.
 
 The guards use the shared grounded melee phase machine and the Plutonian spear clips.
+The enemy catalog supplies the guards’ thrust damage and contact tuning independently of player weapons.
   Reinforced armor and helmet mount to the rig as it loads, along with a trident.
   Each guard has 140 health and subtracts 8 damage from incoming hits before the minimum damage rule.
   A thrust strikes after a 0.25 s windup and deals 58 base damage.
@@ -52,6 +57,7 @@ The guards use the shared grounded melee phase machine and the Plutonian spear c
 ## Enemy ranged attacks
 
 Hushcaps take root and turn in place to aim.
+The enemy catalog supplies their spit and projectile tuning.
   One grows beside a cracked archive conduit in Old Relay.
   Hushcap Caverns groups several across three chambers,
   with rock cover between firing positions.

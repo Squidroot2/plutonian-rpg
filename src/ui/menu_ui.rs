@@ -1,5 +1,6 @@
 use crate::{
     GameState,
+    content::Items,
     ui::{inventory_ui, quest_ui, text_style},
 };
 use bevy::{
@@ -124,8 +125,15 @@ pub(crate) const DISABLED: Color = Color::srgb(0.065, 0.075, 0.08);
 impl Plugin for PlayerMenuPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<PlayerMenu>()
-            .add_systems(Startup, setup)
-            .add_systems(Update, (visibility, scroll).chain())
+            .add_systems(
+                Update,
+                (
+                    setup.run_if(resource_exists::<Items>.and_then(run_once)),
+                    visibility,
+                    scroll,
+                )
+                    .chain(),
+            )
             .add_systems(Last, close)
             .add_systems(
                 OnExit(GameState::Playing),
@@ -214,7 +222,7 @@ pub(crate) fn wide_panel() -> impl Bundle {
     )
 }
 
-fn setup(mut commands: Commands) {
+fn setup(items: Res<Items>, mut commands: Commands) {
     commands
         .spawn((
             PlayerMenuScreen,
@@ -279,7 +287,7 @@ fn setup(mut commands: Commands) {
                             .with_children(|page| match tab {
                                 MenuTab::Quest => quest_ui::spawn(page),
                                 MenuTab::Inventory => inventory_ui::spawn(page),
-                                MenuTab::Equipment => inventory_ui::spawn_equipment(page),
+                                MenuTab::Equipment => inventory_ui::spawn_equipment(&items, page),
                                 MenuTab::Character => crate::attributes::spawn_character(page),
                             });
                         }
@@ -376,6 +384,37 @@ pub(crate) fn scroll_hovered(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_menu_builds_once_when_the_item_catalog_becomes_available() {
+        let mut app = App::new();
+        app.add_plugins((
+            MinimalPlugins,
+            bevy::state::app::StatesPlugin,
+            PlayerMenuPlugin,
+        ))
+        .init_state::<GameState>()
+        .init_resource::<ButtonInput<KeyCode>>()
+        .init_resource::<bevy::input::mouse::AccumulatedMouseScroll>();
+        app.update();
+        assert_eq!(
+            app.world_mut()
+                .query::<&PlayerMenuScreen>()
+                .iter(app.world())
+                .count(),
+            0
+        );
+        app.insert_resource(crate::content::test_items().clone());
+        app.update();
+        app.update();
+        assert_eq!(
+            app.world_mut()
+                .query::<&PlayerMenuScreen>()
+                .iter(app.world())
+                .count(),
+            1
+        );
+    }
 
     #[test]
     fn tab_reopens_the_last_page_and_inventory_toggles_its_own_page() {

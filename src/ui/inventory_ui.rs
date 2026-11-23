@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 
 use crate::{
     attributes::{AttributeId, AttributeRanks, AttributeUpdates, CarryLimits, DEFAULT_RANK},
+    content::Items,
     controls::{Control, Keybinds},
     equipment::{EquipRequest, Equipment, EquipmentSlot, Handedness, UnequipRequest},
     inventory::{DropRequest, Inventory, InventoryNotice, ItemKind},
@@ -133,19 +134,25 @@ impl InventoryRow {
 }
 
 fn can_equip_from_bag(
+    items: &Items,
     item: ItemKind,
     slot: EquipmentSlot,
     inventory: &Inventory,
     equipment: &Equipment,
 ) -> bool {
-    let reserved = slot == EquipmentSlot::OffHand && equipment.off_hand_reserved();
-    !reserved && item.fits_slot(slot) && inventory.count(item) > 0
+    let reserved = slot == EquipmentSlot::OffHand && equipment.off_hand_reserved(items);
+    !reserved && items[item].fits_slot(slot) && inventory.count(item) > 0
 }
 
-fn has_gear_for_slot(slot: EquipmentSlot, inventory: &Inventory, equipment: &Equipment) -> bool {
-    ItemKind::GEAR
-        .into_iter()
-        .any(|item| can_equip_from_bag(item, slot, inventory, equipment))
+fn has_gear_for_slot(
+    items: &Items,
+    slot: EquipmentSlot,
+    inventory: &Inventory,
+    equipment: &Equipment,
+) -> bool {
+    items
+        .gear_ids()
+        .any(|item| can_equip_from_bag(items, item, slot, inventory, equipment))
 }
 
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
@@ -214,7 +221,8 @@ impl Plugin for InventoryUiPlugin {
                         .run_if(inventory_panel_changed),
                 )
                     .chain()
-                    .after(AttributeUpdates),
+                    .after(AttributeUpdates)
+                    .run_if(resource_exists::<Items>),
             )
             .add_systems(
                 Last,
@@ -256,15 +264,16 @@ fn table_cells(row: &mut ChildSpawnerCommands, cells: [(Text, Option<PanelText>)
 impl ItemList {
     fn desired_rows(
         &self,
+        items: &Items,
         inventory: &Inventory,
         equipment: &Equipment,
         selected: Option<InventoryRow>,
         next_copy: &mut u64,
     ) -> Vec<InventoryRow> {
         let mut desired = Vec::new();
-        for item in ItemKind::ALL {
+        for item in items.ids() {
             let count = inventory.count(item);
-            if item.gear().is_none() {
+            if items[item].gear().is_none() {
                 if count > 0 {
                     desired.push(InventoryRow::Stack(item));
                 }
@@ -302,6 +311,7 @@ impl ItemList {
 }
 
 fn sync_inventory_rows(
+    items: Res<Items>,
     menu: Res<PlayerMenu>,
     inventory: Res<Inventory>,
     equipment: Res<Equipment>,
@@ -322,7 +332,7 @@ fn sync_inventory_rows(
         return;
     }
     let mut next_copy = list.next_copy;
-    let desired = list.desired_rows(&inventory, &equipment, ui.selected, &mut next_copy);
+    let desired = list.desired_rows(&items, &inventory, &equipment, ui.selected, &mut next_copy);
     if list
         .rows
         .iter()
@@ -338,7 +348,7 @@ fn sync_inventory_rows(
         .map(|row| {
             let entity = old
                 .remove(&row)
-                .unwrap_or_else(|| spawn_item_row(&mut commands, row));
+                .unwrap_or_else(|| spawn_item_row(&items, &mut commands, row));
             (row, entity)
         })
         .collect();
@@ -352,7 +362,7 @@ fn sync_inventory_rows(
     }
 }
 
-fn spawn_item_row(commands: &mut Commands, row: InventoryRow) -> Entity {
+fn spawn_item_row(items: &Items, commands: &mut Commands, row: InventoryRow) -> Entity {
     let item = row.item();
     let status = match row {
         InventoryRow::Stack(ItemKind::BeaconCore) => "Quest item".into(),
@@ -368,7 +378,7 @@ fn spawn_item_row(commands: &mut Commands, row: InventoryRow) -> Entity {
             table_cells(
                 cells,
                 [
-                    (Text::new(item.name()), None),
+                    (Text::new(items[item].name()), None),
                     (Text::default(), Some(PanelText::ItemQuantity(row))),
                     (Text::default(), Some(PanelText::ItemWeight(row))),
                     (Text::new(status), None),
@@ -514,7 +524,7 @@ pub(crate) fn spawn(page: &mut ChildSpawnerCommands) {
     });
 }
 
-pub(crate) fn spawn_equipment(page: &mut ChildSpawnerCommands) {
+pub(crate) fn spawn_equipment(items: &Items, page: &mut ChildSpawnerCommands) {
     page.spawn(scroll_pane(MenuTab::Equipment, percent(100)))
         .with_children(|details| {
             details.spawn((Text::new("Equipped"), font(19.0)));
@@ -566,17 +576,17 @@ pub(crate) fn spawn_equipment(page: &mut ChildSpawnerCommands) {
                             ))
                             .with_children(|picker| {
                                 picker.spawn((Text::new("Choose equipment"), font(15.0)));
-                                for item in ItemKind::GEAR
-                                    .into_iter()
-                                    .filter(|&item| item.fits_slot(slot))
+                                for item in
+                                    items.gear_ids().filter(|&item| items[item].fits_slot(slot))
                                 {
                                     action_button(
                                         picker,
                                         InventoryAction::EquipFromSlot(slot, item),
                                         Text::new(format!(
                                             "{} / Strength {}",
-                                            item.name(),
-                                            item.gear()
+                                            items[item].name(),
+                                            items[item]
+                                                .gear()
                                                 .expect("picker items are gear")
                                                 .minimum_strength
                                         )),
@@ -640,6 +650,7 @@ fn dismiss_prompt(
 
 fn action(
     click: On<PointerClick>,
+    items: Res<Items>,
     actions: Query<&InventoryAction>,
     ranks: Query<&AttributeRanks, With<Player>>,
     menu: Res<PlayerMenu>,
@@ -675,12 +686,12 @@ fn action(
             if click.count == 2 {
                 match row {
                     InventoryRow::BagGear(..) => {
-                        if !item.meets_strength(strength) {
+                        if !items[item].meets_strength(strength) {
                             if let Ok(mut visibility) = warnings.single_mut() {
                                 visibility.set_if_neq(Visibility::Inherited);
                             }
                         } else if equipment.count(item) == 0
-                            || item.fits_slot(EquipmentSlot::OffHand)
+                            || items[item].fits_slot(EquipmentSlot::OffHand)
                         {
                             commands.trigger(EquipRequest::Quick(item));
                         }
@@ -696,13 +707,13 @@ fn action(
             commands.trigger(UnequipRequest(slot));
         }
         InventoryAction::ToggleSlot(slot) => {
-            if has_gear_for_slot(slot, &inventory, &equipment) {
+            if has_gear_for_slot(&items, slot, &inventory, &equipment) {
                 ui.equip_slot = (ui.equip_slot != Some(slot)).then_some(slot);
             }
         }
         InventoryAction::EquipFromSlot(slot, item)
-            if can_equip_from_bag(item, slot, &inventory, &equipment)
-                && item.meets_strength(strength) =>
+            if can_equip_from_bag(&items, item, slot, &inventory, &equipment)
+                && items[item].meets_strength(strength) =>
         {
             commands.trigger(EquipRequest::InSlot(slot, item));
             ui.equip_slot = None;
@@ -889,6 +900,7 @@ fn inventory_panel_changed(
 }
 
 fn reconcile_selection(
+    items: Res<Items>,
     inventory: Res<Inventory>,
     equipment: Res<Equipment>,
     lists: Query<&ItemList>,
@@ -911,7 +923,7 @@ fn reconcile_selection(
         }
     }
     if ui.equip_slot.is_some_and(|slot| {
-        equipment.get(slot).is_some() || !has_gear_for_slot(slot, &inventory, &equipment)
+        equipment.get(slot).is_some() || !has_gear_for_slot(&items, slot, &inventory, &equipment)
     }) {
         ui.equip_slot = None;
     }
@@ -926,6 +938,7 @@ fn selection_is_droppable(ui: &InventoryUiState, inventory: &Inventory) -> bool 
 }
 
 fn refresh_controls(
+    items: Res<Items>,
     ranks: Query<&AttributeRanks, With<Player>>,
     inventory: Res<Inventory>,
     equipment: Res<Equipment>,
@@ -948,14 +961,15 @@ fn refresh_controls(
         let (shown, selected, disabled) = match *action {
             InventoryAction::Select(row) => (true, Some(row) == ui.selected, false),
             InventoryAction::ToggleSlot(slot) => (
-                slot != EquipmentSlot::OffHand || !equipment.off_hand_reserved(),
+                slot != EquipmentSlot::OffHand || !equipment.off_hand_reserved(&items),
                 false,
-                equipment.get(slot).is_none() && !has_gear_for_slot(slot, &inventory, &equipment),
+                equipment.get(slot).is_none()
+                    && !has_gear_for_slot(&items, slot, &inventory, &equipment),
             ),
             InventoryAction::EquipFromSlot(slot, item) => (
-                can_equip_from_bag(item, slot, &inventory, &equipment),
+                can_equip_from_bag(&items, item, slot, &inventory, &equipment),
                 false,
-                !item.meets_strength(strength),
+                !items[item].meets_strength(strength),
             ),
             InventoryAction::Drop => (true, false, !droppable),
             InventoryAction::ConfirmDrop => (true, false, ui.amount(&inventory).is_none()),
@@ -983,6 +997,7 @@ fn refresh_controls(
 }
 
 fn refresh_labels(
+    items: Res<Items>,
     limits: Query<&CarryLimits, With<Player>>,
     inventory: Res<Inventory>,
     equipment: Res<Equipment>,
@@ -994,7 +1009,7 @@ fn refresh_labels(
 ) {
     let limits = limits.single().copied().unwrap_or_default();
     let capacity = limits.capacity_kg;
-    let weight = inventory.carried_weight(&equipment);
+    let weight = inventory.carried_weight(&equipment, &items);
     let load_status = if weight > limits.movement_limit_kg {
         " / Cannot move"
     } else if weight > capacity {
@@ -1008,10 +1023,10 @@ fn refresh_labels(
             PanelText::ItemWeight(row) => {
                 format!(
                     "{} kg",
-                    row.item().weight() * u64::from(row.quantity(&inventory))
+                    items[row.item()].weight() * u64::from(row.quantity(&inventory))
                 )
             }
-            PanelText::Slot(slot) => slot_label(slot, &equipment),
+            PanelText::Slot(slot) => slot_label(&items, slot, &equipment),
             PanelText::SlotAction(slot) => {
                 if equipment.get(slot).is_some() {
                     "Unequip".into()
@@ -1019,18 +1034,20 @@ fn refresh_labels(
                     "Equip".into()
                 }
             }
-            PanelText::Defense => format!("Defense {}", equipment.total_defense()),
+            PanelText::Defense => format!("Defense {}", equipment.total_defense(&items)),
             PanelText::Load => format!("Load {weight}/{capacity} kg{load_status}"),
-            PanelText::Detail => ui.selected_item().map_or_else(String::new, item_detail),
+            PanelText::Detail => ui
+                .selected_item()
+                .map_or_else(String::new, |item| item_detail(&items, item)),
             PanelText::Amount => format!("{}{}", ui.quantity, if ui.editing { "_" } else { "" }),
             PanelText::DropLabel => format!("Drop [{}]", bindings.get(Control::Drop).label()),
             PanelText::DropTitle => match ui.selected {
                 Some(row @ InventoryRow::Stack(item)) => format!(
                     "Quantity to drop for {} (up to {})",
-                    item.name(),
+                    items[item].name(),
                     row.available_to_drop(&inventory)
                 ),
-                Some(InventoryRow::BagGear(item, _)) => format!("Drop one {}?", item.name()),
+                Some(InventoryRow::BagGear(item, _)) => format!("Drop one {}?", items[item].name()),
                 _ => String::new(),
             },
             PanelText::Notice(tab) if menu.is_on(tab) => {
@@ -1046,11 +1063,11 @@ fn refresh_labels(
     }
 }
 
-fn item_detail(item: ItemKind) -> String {
-    let weight = item.weight();
-    let description = item.description();
-    if let Some(weapon) = item.weapon() {
-        let minimum = item
+fn item_detail(items: &Items, item: ItemKind) -> String {
+    let weight = items[item].weight();
+    let description = items[item].description();
+    if let Some((weapon, stats)) = items[item].attack() {
+        let minimum = items[item]
             .gear()
             .expect("weapons have an equipment definition")
             .minimum_strength;
@@ -1059,11 +1076,11 @@ fn item_detail(item: ItemKind) -> String {
             Handedness::TwoHanded => "Two-handed",
         };
         return format!(
-            "{weight} kg each / {hands} / Reach {:.1} m / Strength {minimum} / {description}",
-            weapon.reach()
+            "{weight} kg each / {hands} / Damage {} / Reach {:.1} m / Strength {minimum} / {description}",
+            stats.damage, stats.reach_m
         );
     }
-    match item.gear() {
+    match items[item].gear() {
         Some(gear) => format!(
             "{weight} kg each / Defense {} / Strength {} / {description}",
             gear.defense, gear.minimum_strength
@@ -1072,18 +1089,25 @@ fn item_detail(item: ItemKind) -> String {
     }
 }
 
-fn slot_label(slot: EquipmentSlot, equipment: &Equipment) -> String {
-    if slot == EquipmentSlot::OffHand && equipment.off_hand_reserved() {
+fn slot_label(items: &Items, slot: EquipmentSlot, equipment: &Equipment) -> String {
+    if slot == EquipmentSlot::OffHand && equipment.off_hand_reserved(items) {
         return "Off hand: Used by main-hand weapon".into();
     }
     equipment.get(slot).map_or_else(
         || format!("{}: Empty", slot.name()),
         |item| {
-            let gear = item.gear().expect("only gear can occupy equipment slots");
-            if item.weapon().is_some() {
-                format!("{}: {}", slot.name(), item.name())
+            let gear = items[item]
+                .gear()
+                .expect("only gear can occupy equipment slots");
+            if items[item].weapon().is_some() {
+                format!("{}: {}", slot.name(), items[item].name())
             } else {
-                format!("{}: {} (+{})", slot.name(), item.name(), gear.defense)
+                format!(
+                    "{}: {} (+{})",
+                    slot.name(),
+                    items[item].name(),
+                    gear.defense
+                )
             }
         },
     )
@@ -1092,6 +1116,7 @@ fn slot_label(slot: EquipmentSlot, equipment: &Equipment) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::content::test_items;
 
     #[test]
     fn inventory_double_click_equips_available_gear_and_swaps_the_worn_item() {
@@ -1099,6 +1124,7 @@ mod tests {
         use bevy::state::app::StatesPlugin;
 
         let mut app = App::new();
+        app.insert_resource(test_items().clone());
         app.add_plugins((MinimalPlugins, StatesPlugin, EquipmentPlugin))
             .insert_state(GameState::Playing)
             .init_resource::<InventoryNotice>()
@@ -1116,9 +1142,12 @@ mod tests {
         assert!(bag.add(ItemKind::ReinforcedArmor, 1));
         assert!(bag.add(ItemKind::Battery, 1));
         assert_eq!(
-            world
-                .resource_mut::<Equipment>()
-                .equip(&mut bag, ItemKind::FieldArmor, 10),
+            world.resource_mut::<Equipment>().equip(
+                &mut bag,
+                ItemKind::FieldArmor,
+                10,
+                test_items()
+            ),
             Ok(true)
         );
         world.insert_resource(bag);
@@ -1179,6 +1208,7 @@ mod tests {
         use bevy::state::app::StatesPlugin;
 
         let mut app = App::new();
+        app.insert_resource(test_items().clone());
         app.add_plugins((
             MinimalPlugins,
             StatesPlugin,
@@ -1232,6 +1262,7 @@ mod tests {
         use bevy::state::app::StatesPlugin;
 
         let mut app = App::new();
+        app.insert_resource(test_items().clone());
         app.add_plugins((
             MinimalPlugins,
             StatesPlugin,
@@ -1366,6 +1397,7 @@ mod tests {
         use bevy::state::app::StatesPlugin;
 
         let mut app = App::new();
+        app.insert_resource(test_items().clone());
         app.add_plugins((MinimalPlugins, StatesPlugin, EquipmentPlugin))
             .insert_state(GameState::Playing)
             .init_resource::<InventoryNotice>()

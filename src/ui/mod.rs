@@ -12,6 +12,7 @@ use crate::{
     camera::Orbit,
     cave,
     combat::Health,
+    content::Items,
     controls::{Control, Keybinds},
     dialogue::{Dialogue, DialogueCatalog, Speaker},
     dungeon::{Area, DungeonProgress, DungeonTarget},
@@ -366,7 +367,7 @@ fn refresh_hud(
     let player = player.single().ok();
     let area = player.map_or(Area::Surface, |(player, _)| player.area);
     let location = match (state.get(), *layout, area) {
-        (GameState::Title | GameState::Loading, _, _) => "",
+        (GameState::Boot | GameState::Title | GameState::Loading, _, _) => "",
         (_, _, Area::OldRelay) => "THE OLD RELAY",
         (_, WorldLayout::Outpost, Area::Surface) => player
             .and_then(|(_, pose)| {
@@ -487,6 +488,7 @@ fn refresh_experience_notice(
 }
 
 fn refresh_prompt(
+    items: Option<Res<Items>>,
     state: Res<State<GameState>>,
     status: Res<LoadStatus>,
     quest: Res<QuestJournal>,
@@ -516,6 +518,7 @@ fn refresh_prompt(
         return;
     };
     **text = match state.get() {
+        GameState::Boot => "Loading gameplay catalogs...".into(),
         GameState::Loading => "Loading the ice shelf...".into(),
         GameState::Failed => format!(
             "{}\nCheck the game files and restart the game.",
@@ -544,7 +547,14 @@ fn refresh_prompt(
                         "Install the beacon core".into()
                     }
                     InteractionTarget::Pickup(pickup) => {
-                        format!("Pick up {} x{}", pickup.item.name(), pickup.quantity)
+                        format!(
+                            "Pick up {} x{}",
+                            items.as_ref().map_or_else(
+                                || pickup.item.as_str(),
+                                |items| items[pickup.item].name()
+                            ),
+                            pickup.quantity
+                        )
                     }
                     InteractionTarget::Corpse => "Loot corpse".into(),
                     InteractionTarget::Chest(chest) => format!("Open {}", chest.name()),

@@ -6,6 +6,7 @@ use crate::{
     camera::Orbit,
     combat::HitReaction,
     combat_feedback::AttackImpact,
+    content::Items,
     equipment::{Equipment, EquipmentSlot, Handedness, WeaponKind, WornEquipment},
     interaction::{InteractionTarget, Nearby},
     inventory::{Inventory, ItemKind, Pickup},
@@ -61,6 +62,7 @@ pub(crate) struct EquipmentSmoke {
 }
 #[derive(SystemParam)]
 pub(crate) struct View<'w, 's> {
+    items: Res<'w, Items>,
     screen: Query<'w, 's, (&'static mut Node, &'static ComputedNode), With<PlayerMenuScreen>>,
     captures: Query<'w, 's, (), With<Screenshot>>,
     player: Query<
@@ -148,7 +150,8 @@ impl Plugin for EquipmentSmokePlugin {
                 .after(super::inventory::drive)
                 .after(super::spear::drive)
                 .before(crate::player::input)
-                .before(crate::ui::pause),
+                .before(crate::ui::pause)
+                .run_if(resource_exists::<Items>),
         );
     }
 }
@@ -215,7 +218,7 @@ fn check_worn(view: &View, equipment: &Equipment, player: Entity) -> bool {
                 .nodes
                 .get(parent.parent())
                 .expect("worn equipment must be parented to a named rig bone");
-            let handedness = item.weapon().map(WeaponKind::handedness);
+            let handedness = view.items[item].weapon().map(WeaponKind::handedness);
             if *stance == WeaponStance::Holstered
                 && let Some(handedness) = handedness
             {
@@ -269,8 +272,6 @@ fn drive_shortswords(
     ),
     commands: Commands,
 ) {
-    use ItemKind::Shortsword;
-
     if !spear_smoke.done() || *step == ShortswordStep::Done {
         return;
     }
@@ -284,7 +285,7 @@ fn drive_shortswords(
     let worn_swords = || {
         EquipmentSlot::HANDS.map(|slot| {
             view.worn.iter().find_map(|(entity, piece, _, _, pending)| {
-                (piece.slot == slot && piece.item == Shortsword && pending.is_none())
+                (piece.slot == slot && piece.item == ItemKind::Shortsword && pending.is_none())
                     .then_some(entity)
             })
         })
@@ -387,12 +388,11 @@ fn equip_and_holster_swords(
     check_holstered: impl Fn([Option<Entity>; 2]),
 ) {
     use EquipmentSlot::{MainHand, OffHand};
-    use ItemKind::Shortsword;
 
     match *step {
-        ShortswordStep::Collect if bag.count(Shortsword) < 2 => {
+        ShortswordStep::Collect if bag.count(ItemKind::Shortsword) < 2 => {
             approach_pickup(
-                Shortsword,
+                ItemKind::Shortsword,
                 &nearby,
                 view,
                 &mut keys,
@@ -405,7 +405,7 @@ fn equip_and_holster_swords(
             *step = ShortswordStep::EquipMain;
         }
         ShortswordStep::EquipMain if menu.accepts(MenuTab::Inventory) => {
-            let mut rows = view.bag_rows(Shortsword);
+            let mut rows = view.bag_rows(ItemKind::Shortsword);
             let (row, _) = rows.next().expect("first Shortsword has a bag row");
             let (other, _) = rows.next().expect("second Shortsword has its own bag row");
             assert!(rows.next().is_none());
@@ -416,10 +416,14 @@ fn equip_and_holster_swords(
             *step = ShortswordStep::EquipOffHand(other);
         }
         ShortswordStep::EquipOffHand(other) => {
-            assert_eq!(equipment.get(MainHand), Some(Shortsword));
+            assert_eq!(equipment.get(MainHand), Some(ItemKind::Shortsword));
             assert_eq!(equipment.get(OffHand), None);
-            assert_eq!(bag.count(Shortsword), 1);
-            assert!(view.bag_rows(Shortsword).map(|(row, _)| row).eq([other]));
+            assert_eq!(bag.count(ItemKind::Shortsword), 1);
+            assert!(
+                view.bag_rows(ItemKind::Shortsword)
+                    .map(|(row, _)| row)
+                    .eq([other])
+            );
             commands.trigger(PointerClick {
                 count: 2,
                 ..pointer_click(other, window, camera)
@@ -427,9 +431,9 @@ fn equip_and_holster_swords(
             *step = ShortswordStep::CheckWorn;
         }
         ShortswordStep::CheckWorn => {
-            assert_eq!(equipment.get(MainHand), Some(Shortsword));
-            assert_eq!(equipment.get(OffHand), Some(Shortsword));
-            assert_eq!(bag.count(Shortsword), 0);
+            assert_eq!(equipment.get(MainHand), Some(ItemKind::Shortsword));
+            assert_eq!(equipment.get(OffHand), Some(ItemKind::Shortsword));
+            assert_eq!(bag.count(ItemKind::Shortsword), 0);
             if check_worn(view, equipment, player) {
                 keys.press(KeyCode::Tab);
                 *step = ShortswordStep::Holster;
@@ -511,7 +515,6 @@ fn check_sword_combat(
     dummy_transform: &Transform,
     worn_swords: impl Fn() -> [Option<Entity>; 2],
 ) {
-    use ItemKind::Shortsword;
     match *step {
         ShortswordStep::Approach if !menu.is_open() => {
             assert_eq!(*stance, WeaponStance::Drawn);
@@ -572,7 +575,7 @@ fn check_sword_combat(
             if dummy.remaining > 0.0 {
                 assert_eq!(impacts.iter().count(), 2, "both swords must hit the dummy");
                 for (_, piece, _, worn, _) in &view.worn {
-                    assert_eq!(piece.item, Shortsword);
+                    assert_eq!(piece.item, ItemKind::Shortsword);
                     assert!(
                         worn.translation().z - transform.translation.z > 0.4,
                         "{:?} sword must extend forward during the dual strike",
@@ -603,8 +606,6 @@ fn drop_swords(
     window: Entity,
     camera: Entity,
 ) {
-    use ItemKind::Shortsword;
-
     macro_rules! click {
         ($action:expr) => {
             click(&mut commands, $action, &view.actions, window, camera)
@@ -627,7 +628,7 @@ fn drop_swords(
             {
                 click!(InventoryAction::ToggleSlot(slot));
             } else if check_worn(view, &equipment, player) {
-                assert_eq!(bag.count(Shortsword), 2);
+                assert_eq!(bag.count(ItemKind::Shortsword), 2);
                 click(
                     &mut commands,
                     MenuTab::Inventory,
@@ -640,7 +641,7 @@ fn drop_swords(
         }
         ShortswordStep::SelectDrop if menu.accepts(MenuTab::Inventory) => {
             let (_, action) = view
-                .bag_rows(Shortsword)
+                .bag_rows(ItemKind::Shortsword)
                 .next()
                 .expect("a Shortsword remains in the bag");
             click!(action);
@@ -652,11 +653,11 @@ fn drop_swords(
         }
         ShortswordStep::ConfirmDrop => {
             click!(InventoryAction::ConfirmDrop);
-            *step = ShortswordStep::CheckDrop(bag.count(Shortsword) - 1);
+            *step = ShortswordStep::CheckDrop(bag.count(ItemKind::Shortsword) - 1);
         }
         ShortswordStep::CheckDrop(remaining) => {
             assert_eq!(
-                bag.count(Shortsword),
+                bag.count(ItemKind::Shortsword),
                 remaining,
                 "drop one sword per confirmation"
             );
@@ -706,7 +707,7 @@ pub(super) fn drive(
             "EQUIPMENT SMOKE: stage {}, position {:?}, defense {}",
             smoke.stage,
             transform.translation,
-            equipment.total_defense()
+            equipment.total_defense(&view.items)
         );
         *last_log = now;
     }
@@ -842,7 +843,7 @@ fn equip_field_armor(
             smoke.stage = 6;
         }
         6 if check_worn(view, &equipment, player) => {
-            assert_eq!(equipment.total_defense(), 3);
+            assert_eq!(equipment.total_defense(&view.items), 3);
             assert_eq!(bag.count(ItemKind::FieldArmor), 0);
             let (_, cells) = view
                 .inventory_rows
@@ -1006,7 +1007,7 @@ fn check_field_armor_changes(
                 0,
                 "unequipped armor was not dropped"
             );
-            assert_eq!(equipment.total_defense(), 1);
+            assert_eq!(equipment.total_defense(&view.items), 1);
             keys.press(KeyCode::KeyI);
             smoke.stage = 10;
         }
@@ -1045,7 +1046,7 @@ fn check_field_armor_changes(
             smoke.stage = 13;
         }
         13 if check_worn(view, &equipment, player) => {
-            assert_eq!(equipment.total_defense(), 3);
+            assert_eq!(equipment.total_defense(&view.items), 3);
             keys.press(KeyCode::Tab);
             smoke.stage = 49;
         }
@@ -1129,7 +1130,7 @@ fn equip_reinforced_armor(
         }
         104 => {
             assert_eq!(bag.count(ItemKind::FieldArmor), 1);
-            assert_eq!(equipment.total_defense(), 6);
+            assert_eq!(equipment.total_defense(&view.items), 6);
             click!(InventoryAction::ToggleSlot(EquipmentSlot::Helmet));
             smoke.stage = 105;
         }
@@ -1141,7 +1142,7 @@ fn equip_reinforced_armor(
             smoke.stage = 106;
         }
         106 if check_worn(view, &equipment, player) => {
-            assert_eq!(equipment.total_defense(), 8);
+            assert_eq!(equipment.total_defense(&view.items), 8);
             assert_eq!(bag.count(ItemKind::FieldHelmet), 1);
             photo!("reinforced-equipment-inventory");
             smoke.stage = 161;
@@ -1164,7 +1165,7 @@ fn equip_reinforced_armor(
             smoke.stage = 109;
         }
         109 if check_worn(view, &equipment, player) => {
-            assert_eq!(equipment.total_defense(), 8);
+            assert_eq!(equipment.total_defense(&view.items), 8);
             click!(InventoryAction::ToggleSlot(EquipmentSlot::MainHand));
             smoke.stage = 110;
         }
@@ -1204,7 +1205,7 @@ fn check_strength_warning(
     camera: Entity,
 ) {
     let armor = ItemKind::ReinforcedArmor;
-    let minimum = armor
+    let minimum = view.items[armor]
         .gear()
         .expect("reinforced armor must have gear stats")
         .minimum_strength;

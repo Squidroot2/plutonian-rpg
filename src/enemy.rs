@@ -2,14 +2,16 @@ use crate::{
     GameState,
     combat::{CombatSystems, Dead, Health, Hit, HitReaction, RemoveColliderOnDeath},
     combat_feedback::DeathAnimation,
+    content::{EnemyArchetype, EnemyDefinition, WeaponStats},
     dialogue::Dialogue,
     dungeon::Area,
     equipment::bind_fixed_outfit,
     guard::OutpostSecurity,
     interaction::CorpseLoot,
-    inventory::ItemKind,
-    loading::{PendingScene, scene_ready},
+    inventory::Pickup,
+    loading::{EnemyVisuals, PendingScene, scene_ready},
     player::Player,
+    save::EncounterId,
     terrain::{MAX_GROUND_STEP, ground_heading, walkable_height},
     weapon::{self, Hand},
     world::SessionEntity,
@@ -59,12 +61,25 @@ pub(crate) struct EnemyAnimations {
 #[derive(Component)]
 pub(crate) struct Enemy;
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct Bite {
+    #[serde(rename = "range_m")]
     pub(crate) range: f32,
+    #[serde(rename = "windup_seconds")]
     pub(crate) windup: f32,
+    #[serde(rename = "recovery_seconds")]
     pub(crate) recovery: f32,
     pub(crate) damage: u16,
+}
+
+impl Bite {
+    pub(crate) fn is_valid(self) -> bool {
+        self.damage != 0
+            && [self.range, self.windup, self.recovery]
+                .into_iter()
+                .all(crate::content::positive)
+    }
 }
 
 #[derive(Component)]
@@ -73,6 +88,7 @@ pub(crate) struct MeleePursuit {
     home: Transform,
     bite: Bite,
     engagement: Engagement,
+    area: Area,
 }
 
 impl MeleePursuit {
@@ -82,6 +98,7 @@ impl MeleePursuit {
             home,
             bite,
             engagement: Engagement::OnSight,
+            area: Area::Surface,
         }
     }
 }
@@ -91,7 +108,7 @@ impl MeleePursuit {
 pub(crate) enum Engagement {
     #[default]
     OnSight,
-    DefendOutpost,
+    DefendOutpost(WeaponStats),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -199,10 +216,27 @@ pub(crate) struct GroundMelee {
 }
 
 pub(crate) struct EnemyBody {
-    pub(crate) name: &'static str,
+    pub(crate) name: String,
     pub(crate) health: u16,
     pub(crate) experience: u16,
-    pub(crate) loot: ItemKind,
+    pub(crate) loot: Pickup,
+}
+
+pub(crate) fn spawn_variant(
+    commands: &mut Commands,
+    visuals: &EnemyVisuals,
+    definition: &EnemyDefinition,
+    home: Transform,
+    area: Area,
+    id: EncounterId,
+) {
+    let entity = match definition.archetype() {
+        EnemyArchetype::Worm => crate::worm::spawn(commands, visuals, definition, home, area),
+        EnemyArchetype::Roach => crate::roach::spawn(commands, visuals, definition, home, area),
+        EnemyArchetype::Hushcap => crate::hushcap::spawn(commands, visuals, definition, home, area),
+        EnemyArchetype::Guard => unreachable!("guards spawn through their scripted posts"),
+    };
+    commands.entity(entity).insert(id);
 }
 
 pub(crate) fn spawn_ground_melee(
@@ -224,6 +258,7 @@ pub(crate) fn spawn_ground_melee(
         (
             MeleePursuit {
                 engagement: config.engagement,
+                area,
                 ..MeleePursuit::new(home, config.bite)
             },
             config.movement,
@@ -252,7 +287,10 @@ pub(crate) fn spawn_enemy(
             visual.animations.clone(),
             Health::new(config.health),
             HitReaction::new(HIT_REACTION_SECONDS),
-            CorpseLoot::new(config.loot, area),
+            CorpseLoot {
+                stack: Some(config.loot),
+                area,
+            },
             RemoveColliderOnDeath,
             Visibility::default(),
             transform,
@@ -335,21 +373,24 @@ fn plan_actions(
         let to_target = target - position;
         let sight = SpatialQueryFilter::from_excluded_entities([entity, player_entity]);
         let bite = pursuit.bite;
-        let defends_outpost = matches!(pursuit.engagement, Engagement::DefendOutpost);
+        let same_area = pursuit.area == controller.area;
+        let defends_outpost = matches!(pursuit.engagement, Engagement::DefendOutpost(_));
         let guard_pursuit_active = defends_outpost
             && security
                 .as_ref()
                 .is_some_and(|security| security.defends(controller.area, target));
-        if (!defends_outpost || guard_pursuit_active)
+        if same_area
+            && (!defends_outpost || guard_pursuit_active)
             && matches!(
                 pursuit.phase,
                 MeleePhase::Windup(_) | MeleePhase::Recovery(_)
             )
         {
             if pursuit.phase.tick_attack(delta, bite.recovery) {
-                let hit = if defends_outpost {
+                let hit = if let Engagement::DefendOutpost(stats) = pursuit.engagement {
                     weapon::weapon_contact(
                         crate::equipment::WeaponKind::Spear,
+                        stats,
                         Hand::Main,
                         &spatial,
                         entity,
@@ -357,10 +398,6 @@ fn plan_actions(
                         transform.rotation,
                     )
                     .filter(|hit| hit.target == player_entity)
-                    .map(|hit| Hit {
-                        damage: bite.damage,
-                        ..hit
-                    })
                 } else {
                     bite_contact(&spatial, &sight, &transform, target, bite.range).then_some(Hit {
                         source: entity,
@@ -386,8 +423,10 @@ fn plan_actions(
         };
         let within_leash = position.xz().distance(pursuit.home.translation.xz()) < LEASH
             && target.xz().distance(pursuit.home.translation.xz()) < LEASH;
-        let sees_player =
-            within_leash && to_target.length_squared() < SIGHT_RANGE * SIGHT_RANGE && visible();
+        let sees_player = same_area
+            && within_leash
+            && to_target.length_squared() < SIGHT_RANGE * SIGHT_RANGE
+            && visible();
         let near_home = position.xz().distance(pursuit.home.translation.xz()) < HOME_ARRIVAL_RADIUS;
 
         let destination = if guard_pursuit_active
@@ -622,8 +661,10 @@ fn light_hits(
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
+    use crate::content::{test_enemies, test_items};
+
     use crate::{
         combat::{CombatPlugin, ConfirmedHit, Defense},
         equipment::Equipment,
@@ -633,15 +674,23 @@ mod tests {
         roach::{self, Roach},
         save::recover_defeated,
         world::WorldLayout,
-        worm::{CONFIG, GROUND_OFFSET, Worm},
+        worm::{GROUND_OFFSET, Worm},
     };
     use bevy::{
         asset::AssetPlugin, ecs::system::RunSystemOnce, mesh::MeshPlugin, state::app::StatesPlugin,
         time::TimeUpdateStrategy, transform::TransformPlugin,
     };
 
-    pub(super) fn test_app() -> App {
+    fn melee(archetype: EnemyArchetype, offset: f32) -> GroundMelee {
+        test_enemies()
+            .get(archetype.id())
+            .expect("shipped melee test definition")
+            .melee(offset)
+    }
+
+    pub(crate) fn test_app_builder() -> App {
         let mut app = App::new();
+        app.insert_resource(test_items().clone());
         app.add_plugins((
             MinimalPlugins,
             StatesPlugin,
@@ -666,6 +715,11 @@ mod tests {
                 .after(CombatSystems::Resolve)
                 .run_if(in_state(GameState::Playing)),
         );
+        app
+    }
+
+    pub(crate) fn test_app() -> App {
+        let mut app = test_app_builder();
         app.finish();
         app.cleanup();
         app
@@ -673,13 +727,14 @@ mod tests {
 
     #[test]
     fn windup_produces_exactly_one_impact() {
-        let mut attack = MeleePhase::Windup(CONFIG.bite.windup);
-        assert!(!attack.tick_attack(0.4, CONFIG.bite.recovery));
-        assert!(attack.tick_attack(0.2, CONFIG.bite.recovery));
-        assert!(!attack.tick_attack(0.3, CONFIG.bite.recovery));
-        assert!(!attack.tick_attack(0.6, CONFIG.bite.recovery));
+        let bite = melee(EnemyArchetype::Worm, GROUND_OFFSET).bite;
+        let mut attack = MeleePhase::Windup(bite.windup);
+        assert!(!attack.tick_attack(0.4, bite.recovery));
+        assert!(attack.tick_attack(0.2, bite.recovery));
+        assert!(!attack.tick_attack(0.3, bite.recovery));
+        assert!(!attack.tick_attack(0.6, bite.recovery));
         assert_eq!(attack, MeleePhase::Pursuing);
-        assert!(!attack.tick_attack(0.6, CONFIG.bite.recovery));
+        assert!(!attack.tick_attack(0.6, bite.recovery));
     }
 
     #[test]
@@ -698,7 +753,13 @@ mod tests {
                         Vec3::new(0.0, 1.8, 0.6),
                     ]
                     .map(|target| {
-                        bite_contact(&spatial, &filter, &facing, target, CONFIG.bite.range)
+                        bite_contact(
+                            &spatial,
+                            &filter,
+                            &facing,
+                            target,
+                            melee(EnemyArchetype::Worm, GROUND_OFFSET).bite.range,
+                        )
                     })
                 })
                 .expect("bite tests require an initialized Avian spatial query")
@@ -733,10 +794,22 @@ mod tests {
             )
         };
         let worm = world
-            .spawn((Worm, bite(CONFIG, Vec3::new(-0.1, GROUND_OFFSET, 0.0))))
+            .spawn((
+                Worm,
+                bite(
+                    melee(EnemyArchetype::Worm, GROUND_OFFSET),
+                    Vec3::new(-0.1, GROUND_OFFSET, 0.0),
+                ),
+            ))
             .id();
         let roach = world
-            .spawn((Roach, bite(roach::CONFIG, Vec3::new(0.1, 0.32, 0.0))))
+            .spawn((
+                Roach,
+                bite(
+                    melee(EnemyArchetype::Roach, roach::GROUND_OFFSET),
+                    Vec3::new(0.1, 0.32, 0.0),
+                ),
+            ))
             .id();
         world
             .resource_mut::<NextState<GameState>>()
@@ -783,9 +856,12 @@ mod tests {
             .spawn((
                 MeleePursuit {
                     phase: MeleePhase::Windup(0.1),
-                    ..MeleePursuit::new(Transform::IDENTITY, CONFIG.bite)
+                    ..MeleePursuit::new(
+                        Transform::IDENTITY,
+                        melee(EnemyArchetype::Worm, GROUND_OFFSET).bite,
+                    )
                 },
-                CONFIG.movement,
+                melee(EnemyArchetype::Worm, GROUND_OFFSET).movement,
                 Transform::from_xyz(0.0, GROUND_OFFSET, 0.0),
             ))
             .id();
@@ -794,7 +870,7 @@ mod tests {
         assert!(bag.add(ItemKind::BeaconCore, 1));
         app.world_mut()
             .resource_mut::<Equipment>()
-            .equip(&mut bag, ItemKind::FieldArmor, 10)
+            .equip(&mut bag, ItemKind::FieldArmor, 10, test_items())
             .expect("the armor fixture must be equipable");
         let mut journal = test_journal();
         journal.record(QuestAction::TalkedToNemi);
@@ -880,6 +956,6 @@ mod tests {
                 .expects(QuestAction::ReturnedCore)
         );
         assert_eq!(world.resource::<Inventory>().count(ItemKind::BeaconCore), 1);
-        assert_eq!(world.resource::<Equipment>().total_defense(), 2);
+        assert_eq!(world.resource::<Equipment>().total_defense(test_items()), 2);
     }
 }

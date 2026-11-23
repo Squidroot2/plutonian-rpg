@@ -1,0 +1,212 @@
+mod enemies;
+mod items;
+mod placements;
+#[cfg(test)]
+pub(crate) mod tests;
+
+pub(crate) use enemies::{Enemies, EnemyArchetype, EnemyDefinition};
+pub(crate) use items::WeaponStats;
+pub use items::{ItemKind, Items};
+pub(crate) use placements::{CollectedPickups, PlacedPickup, Placements};
+
+use crate::{GameState, loading::LoadStatus, save::SaveSlot};
+use bevy::{
+    asset::{AssetLoader, LoadContext, LoadState, io::Reader},
+    prelude::*,
+};
+use serde::{Deserialize, Deserializer, de::Error as _};
+use std::{fmt, io, marker::PhantomData, time::Instant};
+
+const MAX_ID_BYTES: usize = 48;
+const BOOT_TIMEOUT_SECONDS: u64 = 90;
+
+/// A short authored ID. Its inline representation keeps inventory and encounter keys copyable.
+/// Checkpoint schemas encode these IDs as strings.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub(crate) struct ContentId([u8; MAX_ID_BYTES]);
+
+impl ContentId {
+    pub(crate) const fn new(id: &str) -> Self {
+        let bytes = id.as_bytes();
+        assert!(
+            bytes.len() <= MAX_ID_BYTES,
+            "built-in content ID is too long"
+        );
+        let mut value = [0; MAX_ID_BYTES];
+        let mut i = 0;
+        while i < bytes.len() {
+            value[i] = bytes[i];
+            i += 1;
+        }
+        Self(value)
+    }
+
+    pub(crate) fn parse(id: &str) -> Result<Self, String> {
+        if id.is_empty()
+            || id.len() > MAX_ID_BYTES
+            || !id.as_bytes()[0].is_ascii_lowercase()
+            || !id
+                .bytes()
+                .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_')
+        {
+            return Err(format!(
+                "Invalid content ID {id:?}. Use 1–{MAX_ID_BYTES} lowercase ASCII letters, digits or underscores, starting with a letter."
+            ));
+        }
+        Ok(Self::new(id))
+    }
+
+    pub(crate) fn as_str(&self) -> &str {
+        let end = self
+            .0
+            .iter()
+            .position(|&byte| byte == 0)
+            .unwrap_or(MAX_ID_BYTES);
+        std::str::from_utf8(&self.0[..end]).expect("content IDs contain only ASCII")
+    }
+}
+
+impl fmt::Debug for ContentId {
+    fn fmt(&self, output: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.as_str().fmt(output)
+    }
+}
+
+impl fmt::Display for ContentId {
+    fn fmt(&self, output: &mut fmt::Formatter<'_>) -> fmt::Result {
+        output.write_str(self.as_str())
+    }
+}
+
+impl<'de> Deserialize<'de> for ContentId {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        Self::parse(&String::deserialize(deserializer)?).map_err(D::Error::custom)
+    }
+}
+
+trait Catalog: Asset + for<'de> Deserialize<'de> {
+    const PATH: &'static str;
+    const EXTENSION: &'static str;
+}
+
+#[derive(TypePath)]
+struct CatalogLoader<T>(PhantomData<T>);
+
+impl<T: Catalog> AssetLoader for CatalogLoader<T> {
+    type Asset = T;
+    type Settings = ();
+    type Error = io::Error;
+
+    async fn load(
+        &self,
+        reader: &mut dyn Reader,
+        _: &(),
+        _: &mut LoadContext<'_>,
+    ) -> Result<T, io::Error> {
+        let mut bytes = Vec::new();
+        reader.read_to_end(&mut bytes).await?;
+        ron::de::from_bytes(&bytes).map_err(io::Error::other)
+    }
+
+    fn extensions(&self) -> &[&str] {
+        &[T::EXTENSION]
+    }
+}
+
+#[derive(Resource)]
+struct CatalogHandles {
+    items: Handle<Items>,
+    enemies: Handle<Enemies>,
+    placements: Handle<Placements>,
+    started: Instant,
+}
+
+pub(crate) struct ContentPlugin;
+
+impl Plugin for ContentPlugin {
+    fn build(&self, app: &mut App) {
+        register::<Items>(app);
+        register::<Enemies>(app);
+        register::<Placements>(app);
+        app.add_observer(placements::spawn_encounters)
+            .add_systems(OnEnter(GameState::Boot), request_catalogs)
+            .add_systems(Update, prepare_catalogs.run_if(in_state(GameState::Boot)));
+    }
+}
+
+fn register<T: Catalog>(app: &mut App) {
+    app.init_asset::<T>()
+        .register_asset_loader(CatalogLoader::<T>(PhantomData));
+}
+
+fn request_catalogs(mut commands: Commands, server: Res<AssetServer>) {
+    commands.insert_resource(CatalogHandles {
+        items: server.load(Items::PATH),
+        enemies: server.load(Enemies::PATH),
+        placements: server.load(Placements::PATH),
+        started: Instant::now(),
+    });
+}
+
+fn prepare_catalogs(
+    mut commands: Commands,
+    server: Res<AssetServer>,
+    handles: Res<CatalogHandles>,
+    items: Res<Assets<Items>>,
+    enemies: Res<Assets<Enemies>>,
+    placements: Res<Assets<Placements>>,
+    mut slot: ResMut<SaveSlot>,
+    mut status: ResMut<LoadStatus>,
+    mut next: ResMut<NextState<GameState>>,
+) {
+    for (id, path) in [
+        (handles.items.id().untyped(), Items::PATH),
+        (handles.enemies.id().untyped(), Enemies::PATH),
+        (handles.placements.id().untyped(), Placements::PATH),
+    ] {
+        if let Some(LoadState::Failed(error)) = server.get_load_state(id) {
+            status.error = Some(format!("Could not load {path}: {error}"));
+            next.set(GameState::Failed);
+            return;
+        }
+    }
+    if handles.started.elapsed().as_secs() > BOOT_TIMEOUT_SECONDS {
+        status.error = Some("Timed out while loading gameplay catalogs".into());
+        next.set(GameState::Failed);
+        return;
+    }
+    let (Some(items), Some(enemies), Some(placements)) = (
+        items.get(&handles.items),
+        enemies.get(&handles.enemies),
+        placements.get(&handles.placements),
+    ) else {
+        return;
+    };
+    if let Err(error) = items
+        .validate()
+        .and_then(|()| enemies.validate(items))
+        .and_then(|()| placements.validate(items, enemies))
+    {
+        status.error = Some(error);
+        next.set(GameState::Failed);
+        return;
+    }
+    slot.open_with_catalogs(items, placements);
+    commands.insert_resource(items.clone());
+    commands.insert_resource(enemies.clone());
+    commands.insert_resource(placements.clone());
+    commands.remove_resource::<CatalogHandles>();
+    next.set(GameState::Title);
+}
+
+pub(crate) fn positive(value: f32) -> bool {
+    value.is_finite() && value > 0.0
+}
+
+#[cfg(test)]
+pub(crate) use enemies::test_enemies;
+#[cfg(test)]
+pub(crate) use items::test_items;
+
+#[cfg(test)]
+pub(crate) use placements::test_placements;

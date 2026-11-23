@@ -148,6 +148,12 @@ Quest definitions live in `data/quests/catalog.quest.ron`.
   The game loads the catalog when you start or load a run.
   See [Quest System](docs/design/quests.md).
 
+## Gameplay Data
+
+Items, equipment, enemy variants, and new world placements can be authored in RON.
+The game reads these catalogs at startup.
+See [Gameplay Data](docs/design/gameplay-data.md) for examples and checkpoint behavior.
+
 ## Inventory
 
 Carried weight includes equipped gear.

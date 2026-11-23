@@ -3,6 +3,7 @@ use bevy::{input::mouse::AccumulatedMouseScroll, prelude::*, ui::RelativeCursorP
 
 use crate::{
     GameState,
+    content::Items,
     dungeon::Area,
     interaction::{ActiveChest, INTERACT_HEIGHT, INTERACT_RANGE, unobstructed},
     inventory::{Inventory, ItemKind},
@@ -66,6 +67,7 @@ impl Plugin for StorageUiPlugin {
 }
 
 fn open(
+    items: Res<Items>,
     active: Res<ActiveChest>,
     players: Query<(Entity, &Player, &Transform)>,
     chests: Query<(&ChestId, &Transform)>,
@@ -111,6 +113,7 @@ fn open(
                     })
                     .with_children(|lists| {
                         spawn_pane(
+                            &items,
                             lists,
                             StorageSide::Backpack,
                             "Backpack",
@@ -118,6 +121,7 @@ fn open(
                             "Store stack",
                         );
                         spawn_pane(
+                            &items,
                             lists,
                             StorageSide::Chest,
                             chest.name(),
@@ -136,6 +140,7 @@ fn open(
 }
 
 fn spawn_pane(
+    items: &Items,
     parent: &mut ChildSpawnerCommands,
     side: StorageSide,
     title: &'static str,
@@ -152,7 +157,7 @@ fn spawn_pane(
                 text_style(16.0),
                 Pickable::IGNORE,
             ));
-            for item in ItemKind::ALL {
+            for item in items.ids() {
                 pane.spawn((
                     StackRow(side, item),
                     Node {
@@ -254,6 +259,7 @@ fn click(
 }
 
 fn refresh(
+    items: Res<Items>,
     active: Res<ActiveChest>,
     chests: Query<&ChestId>,
     storage: Res<ChestStorage>,
@@ -280,11 +286,12 @@ fn refresh(
     for (&StackLabel(side, item), mut label) in &mut labels {
         let quantity = inventory(side).count(item);
         if quantity > 0 {
-            label.set_if_neq(Text::new(format!("{} x{quantity}", item.name())));
+            label.set_if_neq(Text::new(format!("{} x{quantity}", items[item].name())));
         }
     }
     for (&EmptyPane(side), mut node) in &mut empty {
-        let empty = ItemKind::ALL
+        let empty = items
+            .ids()
             .into_iter()
             .all(|item| inventory(side).count(item) == 0);
         set_display(&mut node, empty);

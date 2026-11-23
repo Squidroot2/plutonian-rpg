@@ -10,6 +10,7 @@ mod cave;
 mod combat;
 mod combat_audio;
 mod combat_feedback;
+mod content;
 mod controls;
 mod crossing;
 mod dialogue;
@@ -42,6 +43,7 @@ use bevy::{asset::io::AssetSourceBuilder, prelude::*};
 pub enum GameState {
     #[default]
     Title,
+    Boot,
     Loading,
     Playing,
     Paused,
@@ -88,7 +90,8 @@ fn main() {
             }),
             ..default()
         }))
-        .init_state::<GameState>()
+        .insert_state(GameState::Boot)
+        .add_plugins(content::ContentPlugin)
         .add_plugins((
             avian3d::prelude::PhysicsPlugins::default(),
             loading::LoadingPlugin,

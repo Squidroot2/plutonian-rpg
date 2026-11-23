@@ -251,7 +251,7 @@ fn check_spear_equipment(
                     assert_eq!(equipment.get(EquipmentSlot::MainHand), None);
                     info!(
                         "SPEAR SMOKE PASS: collected, equipped, hit, missed, unequipped, dropped and recollected {}",
-                        weapon.name()
+                        weapon
                     );
                     if *testing_trident {
                         *smoke = SpearSmoke::Done;

@@ -12,10 +12,16 @@ Components hold actor-specific state: health, movement, attacks, reactions, anim
   Resources hold shared session state such as the quest journal, inventory, equipment, dialogue and save slot.
   Messages connect combat and saving without making attackers responsible for their targets' behavior.
   Observers handle discrete requests and scene/world construction.
-  Species define their tuning and visuals while the shared enemy systems operate on capabilities.
+The gameplay catalogs supply item and enemy tuning.
+  The registered enemy archetypes supply visuals and colliders.
+  Shared enemy systems operate on capabilities.
 
 `Startup` creates persistent camera, UI and audio resources.
-  The title is constructed on `OnEnter(Title)`; title input runs in `PreUpdate` after Bevy input.
+  `OnEnter(Boot)` requests the gameplay catalogs.
+  The boot check validates references and prepares the save slot before entering `Title`.
+  Inventory and equipment menus construct their persistent views once the item catalog is available.
+  The title is constructed on `OnEnter(Title)`.
+  Title input runs in `PreUpdate` after Bevy input.
   Loading starts on `OnEnter(Loading)`: `save::reset_session` precedes `loading::load`, so the new session begins from the selected checkpoint rather than stale world state.
   The loading check runs in `Update`, waits for assets and instantiated scenes, and triggers world construction via `SpawnWorld` observers.
   World, dungeon, encounters and other features own their respective spawn observers.

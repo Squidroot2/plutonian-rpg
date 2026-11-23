@@ -5,6 +5,7 @@ use crate::{
     camera::{FollowCamera, Orbit},
     combat::{Dead, Health},
     combat_feedback::DeathAnimation,
+    content::Items,
     dialogue::{Dialogue, DialogueCatalog},
     dungeon::{Area, DungeonTarget, HATCH},
     equipment::Equipment,
@@ -55,6 +56,7 @@ pub(super) fn isolate_keeper(
 }
 
 pub(super) fn drive(
+    items: Res<Items>,
     stage: ResMut<Check>,
     home: Local<Vec3>,
     mut avatar: Query<
@@ -168,9 +170,9 @@ pub(super) fn drive(
         | Check::OpenLog
         | Check::SelectFailure
         | Check::CloseLog => check_nemi_reactions(
-            stage, home, nemi, quest, dialogue, &catalog, log, selection, bag, equipment, rows,
-            window, camera, keys, mouse, orbit, commands, player, dodge, transform, thrust, health,
-            position, dead, collider, fixture, aim, near,
+            &items, stage, home, nemi, quest, dialogue, &catalog, log, selection, bag, equipment,
+            rows, window, camera, keys, mouse, orbit, commands, player, dodge, transform, thrust,
+            health, position, dead, collider, fixture, aim, near,
         ),
         Check::FinishRecovering
         | Check::Collapse
@@ -188,6 +190,7 @@ pub(super) fn drive(
 }
 
 fn check_nemi_reactions(
+    items: &Items,
     mut stage: ResMut<Check>,
     mut home: Local<Vec3>,
     nemi: &Nemi,
@@ -221,7 +224,7 @@ fn check_nemi_reactions(
         Check::Start if player.grounded => {
             assert!(bag.add(ItemKind::FieldSpear, 1));
             equipment
-                .equip(&mut bag, ItemKind::FieldSpear, 10)
+                .equip(&mut bag, ItemKind::FieldSpear, 10, items)
                 .expect("equip smoke spear");
             *home = position;
             fixture(

@@ -17,7 +17,17 @@ impl Plugin for StoragePlugin {
 }
 
 #[derive(
-    Component, Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, bitcode::Encode, bitcode::Decode,
+    Component,
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    bitcode::Encode,
+    bitcode::Decode,
+    serde::Deserialize,
 )]
 pub(crate) enum ChestId {
     Lamp,
@@ -26,6 +36,8 @@ pub(crate) enum ChestId {
 }
 
 impl ChestId {
+    pub(crate) const ALL: [Self; 3] = [Self::Lamp, Self::Supply, Self::Gear];
+
     pub(crate) fn name(self) -> &'static str {
         match self {
             Self::Lamp => "Lamp chest",
@@ -36,24 +48,16 @@ impl ChestId {
 }
 
 #[derive(Resource, Clone, bitcode::Encode, bitcode::Decode)]
-pub(crate) struct ChestStorage(BTreeMap<ChestId, Inventory>);
+pub(crate) struct ChestStorage<I: Ord = ItemKind>(pub(crate) BTreeMap<ChestId, Inventory<I>>);
 
 impl Default for ChestStorage {
     fn default() -> Self {
-        use ItemKind::*;
-
-        let stocked = |stacks: &[(ItemKind, u32)]| {
-            let mut inventory = Inventory::default();
-            for &(item, quantity) in stacks {
-                assert!(inventory.add(item, quantity), "invalid starter stack");
-            }
-            inventory
-        };
-        Self(BTreeMap::from([
-            (ChestId::Lamp, stocked(&[(Battery, 2), (MethanePouch, 2)])),
-            (ChestId::Supply, stocked(&[(Scrap, 2), (FieldArmor, 1)])),
-            (ChestId::Gear, stocked(&[(FieldHelmet, 1)])),
-        ]))
+        Self(
+            ChestId::ALL
+                .into_iter()
+                .map(|id| (id, Inventory::default()))
+                .collect(),
+        )
     }
 }
 

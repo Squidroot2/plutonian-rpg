@@ -20,6 +20,7 @@ use crate::{
     GameState,
     attributes::CarryLimits,
     camera::Orbit,
+    content::Items,
     dialogue::{Dialogue, Page, Screen, Speaker},
     equipment::Equipment,
     interaction::{InteractionTarget, Nearby, Target},
@@ -41,6 +42,12 @@ use bevy::{
     render::view::screenshot::{Screenshot, save_to_disk},
 };
 use std::time::{Duration, Instant};
+
+// These smoke scenarios exercise the shipped balance and geometry.
+const SHIPPED_HUSHCAP_HEALTH: u16 = 42;
+const SHIPPED_HUSHCAP_XP: u16 = 45;
+const SHIPPED_HUSHCAP_MUZZLE_HEIGHT_M: f32 = 1.01;
+const SHIPPED_HUSHCAP_SPIT_RADIUS_M: f32 = 0.14;
 
 const BOULDER_SITES: [Vec3; 2] = [Vec3::new(2.5, 0.0, -2.0), Vec3::new(2.5, 0.0, 2.0)];
 
@@ -334,7 +341,12 @@ pub(crate) fn capture(commands: &mut Commands, name: &str) -> Entity {
 }
 
 fn drive(
-    (inventory_smoke, armor, run): (Res<InventorySmoke>, Res<EquipmentSmoke>, Res<SmokeRun>),
+    (inventory_smoke, armor, run, items): (
+        Res<InventorySmoke>,
+        Res<EquipmentSmoke>,
+        Res<SmokeRun>,
+        Option<Res<Items>>,
+    ),
     (inventory, ui, actions): (
         Res<Inventory>,
         Res<InventoryUiState>,
@@ -368,6 +380,9 @@ fn drive(
     commands: Commands,
     exit: MessageWriter<AppExit>,
 ) {
+    let Some(items) = items else {
+        return;
+    };
     if !armor.done() {
         return;
     }
@@ -440,8 +455,8 @@ fn drive(
         | ArenaStep::CheckBurden { .. }
         | ArenaStep::DropBoulder(..)
         | ArenaStep::ResumeAfterDrop(..) => check_carrying_limits(
-            run, inventory, step, fixed, state, nearby, equipment, menu, orbit, keys, commands,
-            exit, transform, controller, dodge, limits,
+            run, inventory, items, step, fixed, state, nearby, equipment, menu, orbit, keys,
+            commands, exit, transform, controller, dodge, limits,
         ),
     }
 }
@@ -752,6 +767,7 @@ fn check_beacon_quest(
 fn check_carrying_limits(
     run: Res<SmokeRun>,
     inventory: Res<Inventory>,
+    items: Res<Items>,
     mut step: ResMut<ArenaStep>,
     fixed: Res<Time<Fixed>>,
     state: Res<State<GameState>>,
@@ -802,7 +818,7 @@ fn check_carrying_limits(
                 keys.press(DODGE_KEY);
             }
             if fixed.elapsed() - started >= fixed.timestep() * 10 {
-                let weight = inventory.carried_weight(&equipment);
+                let weight = inventory.carried_weight(&equipment, &items);
                 let travel = transform.translation - position;
                 match count {
                     2 => {

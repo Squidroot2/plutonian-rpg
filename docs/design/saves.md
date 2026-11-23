@@ -28,7 +28,7 @@ saves at a bed.
 - Quest journal state, encoded through stable quest and objective identifiers.
 - Player inventory, equipment, attribute progression and experience.
 - Storage chest contents and dungeon progress, including the Old Relay gate.
-- Loose pickup stacks and their world positions.
+- Loose pickup stacks and their world positions, plus IDs of collected RON pickups.
 - Nemi's position, rotation, health and quest-related state.
 - Each authored encounter's position, rotation, health and loot availability.
 - The outpost guards' shared hostility.
@@ -53,11 +53,11 @@ systems.
 
 The file begins with the six-byte `PLUT` header and a little-endian schema
 version, followed by a bitcode-encoded snapshot.
-The current schema is version 9.
-  It includes credited cavern encounter IDs and journal actions for caravan arrival and Tovan’s examination.
-  Loading reconstructs the raised gate from the kill milestone and parks the caravan if it had arrived at the checkpoint.
-  During early production, only current-version checkpoints are supported.
-The earlier version 1 through 7 decoders predate the crossing expansion.
+The current schema is version 10.
+It encodes item IDs, encounter IDs, and collected pickup IDs as strings.
+Version 9 added credited cavern encounters and journal actions for caravan arrival and Tovan’s examination.
+Loading reconstructs the raised gate from the kill milestone and parks the caravan if it had arrived at the checkpoint.
+The version 1 through 7 decoders also remain available.
 Legacy saves that predate progression or experience retain the fields they
 already had and receive defaults for fields introduced later.
 Version 1 equipment slots are decoded using their original three-variant enum
@@ -75,18 +75,21 @@ Version 6 adds stable IDs for the Hushcap Caverns encounters.
 Version 7 records the completed relay hatch exit and Contain the Hushcaps journal actions.
   The original migration infers the Relay return for a friendly Nemi.
   Existing cavern defeats carry forward through the saved encounter health.
-Version 8 adds stable guard IDs and outpost hostility.
-  Older saves seed two full-health, neutral guards.
-  The file is converted on disk the next time the player saves at the bed.
+Versions 6 and 7 seed two full-health, neutral guards when loaded.
+The next successful bed save writes the current format.
 
 Reads are limited to 1 MiB plus one byte so oversized files can be rejected.
-Unknown headers, malformed bitcode, unsupported versions and invalid decoded
-contents are rejected.
-Validation checks inventory and chest stacks, equipment slots and strength
-requirements, progression, experience, dungeon state, actor poses and health,
-pickup positions, and the expected stable encounter set.
-An invalid save disables title-screen loading and reports a generic error;
-it is not accepted as a checkpoint.
+Unknown headers, malformed bitcode, unsupported versions, and invalid decoded contents disable title-screen loading.
+The game checks inventory and chest stacks, progression, experience, dungeon state, actor poses, pickup positions, and required encounter IDs.
+It validates saved item IDs against the current item catalog before enabling Load Game.
+If an equipped item no longer meets its slot or Strength rules, the game returns it to the bag.
+A missing item definition or a full stack that prevents returning gear produces an error and preserves the disk checkpoint.
+
+When spawning actors, the game clamps a living enemy’s saved health to its configured maximum and keeps defeated enemies defeated.
+New encounter placements start fresh, and removed placements and their pending XP credit are omitted.
+Authored pickups are reconstructed from the current placement catalog and the checkpoint’s set of collected IDs.
+A dropped item stays in the loose pickup snapshot after its original placement has been collected.
+Starter chest stock is loaded for new runs.
 
 The normal data path is
 `$XDG_DATA_HOME/plutonian-rpg/save.bin` when `XDG_DATA_HOME` is absolute.

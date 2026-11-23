@@ -8,6 +8,7 @@ use crate::{
     camera::{FollowCamera, Orbit},
     combat::{Dead, Health},
     combat_feedback::{AttackImpact, BitePulse},
+    content::{Enemies, EnemyArchetype},
     dungeon::Area,
     enemy::{MeleePhase, MeleePursuit},
     interaction::{InteractionTarget, Nearby},
@@ -104,7 +105,7 @@ pub(super) fn check_outpost_sites(
 pub(super) fn fight(
     mut phase: ResMut<Encounter>,
     smoke: ResMut<SpearSmoke>,
-    visuals: Option<Res<EnemyVisuals>>,
+    (visuals, enemies): (Option<Res<EnemyVisuals>>, Option<Res<Enemies>>),
     player: Query<(&Player, &Transform, &Health, &WeaponAttack)>,
     worms: Query<
         (
@@ -154,7 +155,12 @@ pub(super) fn fight(
         worm::spawn(
             &mut commands,
             &visuals.expect("the loaded smoke arena must provide the worm visuals"),
-            home,
+            enemies
+                .as_ref()
+                .expect("the smoke catalog must load")
+                .get(EnemyArchetype::Worm.id())
+                .expect("the shipped worm definition must exist"),
+            Transform::from_translation(home),
             Area::Surface,
         );
         *phase = Encounter::Pursuit(home);

@@ -5,6 +5,7 @@ use bevy::{gltf::Gltf, prelude::*};
 
 use crate::{
     GameState,
+    content::{CollectedPickups, Items, PlacedPickup, Placements},
     equipment::Equipment,
     loading::{GameAssets, PendingScene, scene_ready},
     player::Player,
@@ -13,138 +14,26 @@ use crate::{
     world::{SessionEntity, SpawnWorld, WorldLayout},
 };
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, bitcode::Encode, bitcode::Decode)]
-pub enum ItemKind {
-    Battery,
-    Scrap,
-    MethanePouch,
-    BeaconCore,
-    FieldArmor,
-    ReinforcedArmor,
-    FieldHelmet,
-    ReinforcedHelmet,
-    FieldSpear,
-    Trident,
-    LargeBoulder,
-    WormMeat,
-    RoachMeat,
-    Shortsword,
-    Mycelium,
-}
-impl ItemKind {
-    pub const MATERIALS: [Self; 3] = [Self::Battery, Self::Scrap, Self::MethanePouch];
-    pub const GEAR: [Self; 7] = [
-        Self::FieldArmor,
-        Self::ReinforcedArmor,
-        Self::FieldHelmet,
-        Self::ReinforcedHelmet,
-        Self::FieldSpear,
-        Self::Trident,
-        Self::Shortsword,
-    ];
-    pub const ALL: [Self; 15] = [
-        Self::Battery,
-        Self::Scrap,
-        Self::MethanePouch,
-        Self::FieldArmor,
-        Self::ReinforcedArmor,
-        Self::FieldHelmet,
-        Self::ReinforcedHelmet,
-        Self::FieldSpear,
-        Self::Trident,
-        Self::Shortsword,
-        Self::BeaconCore,
-        Self::LargeBoulder,
-        Self::WormMeat,
-        Self::RoachMeat,
-        Self::Mycelium,
-    ];
-    pub fn name(self) -> &'static str {
-        match self {
-            Self::Battery => "Battery",
-            Self::Scrap => "Scrap",
-            Self::MethanePouch => "Methane pouch",
-            Self::BeaconCore => "Beacon power core",
-            Self::FieldSpear => "Field spear",
-            Self::Trident => "Trident",
-            Self::Shortsword => "Shortsword",
-            Self::LargeBoulder => "Large Boulder",
-            Self::WormMeat => "Worm meat",
-            Self::RoachMeat => "Roach meat",
-            Self::Mycelium => "Mycelium",
-            Self::FieldArmor => "Field armor",
-            Self::ReinforcedArmor => "Reinforced armor",
-            Self::FieldHelmet => "Field helmet",
-            Self::ReinforcedHelmet => "Reinforced helmet",
-        }
-    }
-    pub fn asset(self) -> &'static str {
-        match self {
-            Self::Battery => "battery",
-            Self::Scrap => "scrap",
-            Self::MethanePouch => "methane_pouch",
-            Self::BeaconCore => "core",
-            Self::FieldSpear => "field_spear",
-            Self::Trident => "trident",
-            Self::Shortsword => "shortsword",
-            Self::LargeBoulder => "large_boulder",
-            Self::WormMeat => "worm_meat",
-            Self::RoachMeat => "roach_meat",
-            Self::Mycelium => "mycelium",
-            Self::FieldArmor => "field_armor",
-            Self::ReinforcedArmor => "reinforced_armor",
-            Self::FieldHelmet => "field_helmet",
-            Self::ReinforcedHelmet => "reinforced_helmet",
-        }
-    }
-    pub fn weight(self) -> u64 {
-        match self {
-            Self::Battery
-            | Self::MethanePouch
-            | Self::WormMeat
-            | Self::RoachMeat
-            | Self::Mycelium => 1,
-            Self::Scrap | Self::FieldHelmet | Self::Shortsword => 2,
-            Self::FieldSpear | Self::ReinforcedHelmet => 3,
-            Self::Trident => 4,
-            Self::FieldArmor => 5,
-            Self::BeaconCore => 6,
-            Self::ReinforcedArmor => 8,
-            Self::LargeBoulder => 40,
-        }
-    }
-    pub fn description(self) -> &'static str {
-        match self {
-            Self::LargeBoulder => "A dense chunk of icebound rock.",
-            Self::WormMeat => "A cut of meat from an ice worm.",
-            Self::RoachMeat => "A piece of relay roach meat with shell attached.",
-            Self::Mycelium => "Pale Hushcap threads that still catch the light.",
-            Self::Battery => "A sealed cell holding a little warmth and charge.",
-            Self::Scrap => "Salvaged metal from the outpost's machines.",
-            Self::MethanePouch => "A reinforced pouch of condensed methane.",
-            Self::BeaconCore => "Quest item. This charged core can restore the Nivalis beacon.",
-            Self::FieldSpear | Self::Trident => "Aim with the camera to thrust.",
-            Self::Shortsword => "A short field blade that can be wielded in either hand.",
-            Self::FieldArmor => "Light fitted plates used by outpost explorers.",
-            Self::ReinforcedArmor => "A reinforced cuirass for crossing the deep ice.",
-            Self::FieldHelmet => "An open-face helmet with space for sensory horns.",
-            Self::ReinforcedHelmet => "A reinforced helmet with luminous identification marks.",
-        }
+pub use crate::content::ItemKind;
+
+#[derive(Resource, Clone, Debug, bitcode::Encode, bitcode::Decode)]
+pub struct Inventory<I: Ord = ItemKind>(pub(crate) BTreeMap<I, u32>);
+impl<I: Ord> Default for Inventory<I> {
+    fn default() -> Self {
+        Self(BTreeMap::new())
     }
 }
-#[derive(Resource, Clone, Default, Debug, bitcode::Encode, bitcode::Decode)]
-pub struct Inventory(BTreeMap<ItemKind, u32>);
+
 impl Inventory {
     pub(crate) fn valid_stacks(&self) -> bool {
         self.0.values().all(|&quantity| quantity > 0) && self.count(ItemKind::BeaconCore) <= 1
     }
 
-    pub(crate) fn carried_weight(&self, equipment: &Equipment) -> u64 {
+    pub(crate) fn carried_weight(&self, equipment: &Equipment, items: &Items) -> u64 {
         self.0
             .iter()
-            .map(|(&item, &quantity)| item.weight() * u64::from(quantity))
-            .sum::<u64>()
-            + equipment.weight()
+            .map(|(&item, &quantity)| items[item].weight() * u64::from(quantity))
+            .fold(equipment.weight(items), u64::saturating_add)
     }
 
     pub fn count(&self, item: ItemKind) -> u32 {
@@ -202,9 +91,20 @@ impl Inventory {
         Some(Pickup { item, quantity })
     }
 }
-#[derive(Component, Clone, Copy, Debug, PartialEq, Eq, bitcode::Encode, bitcode::Decode)]
-pub struct Pickup {
-    pub item: ItemKind,
+#[derive(
+    Component,
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    bitcode::Encode,
+    bitcode::Decode,
+    serde::Deserialize,
+)]
+#[serde(deny_unknown_fields)]
+pub struct Pickup<I = ItemKind> {
+    pub item: I,
     pub quantity: u32,
 }
 #[derive(Event)]
@@ -229,6 +129,7 @@ impl Plugin for InventoryPlugin {
 struct NeedsPickupGrounding;
 
 fn spawn_initial_pickup(
+    items: &Items,
     commands: &mut Commands,
     assets: &GameAssets,
     gltfs: &Assets<Gltf>,
@@ -236,6 +137,7 @@ fn spawn_initial_pickup(
     position: Vec3,
 ) {
     let entity = spawn_pickup(
+        items,
         commands,
         assets,
         gltfs,
@@ -245,9 +147,15 @@ fn spawn_initial_pickup(
     commands.entity(entity).insert(NeedsPickupGrounding);
 }
 
-fn spawn_shortswords(commands: &mut Commands, assets: &GameAssets, gltfs: &Assets<Gltf>) {
+fn spawn_shortswords(
+    items: &Items,
+    commands: &mut Commands,
+    assets: &GameAssets,
+    gltfs: &Assets<Gltf>,
+) {
     for x in [3.25, 5.25] {
         spawn_initial_pickup(
+            items,
             commands,
             assets,
             gltfs,
@@ -259,15 +167,29 @@ fn spawn_shortswords(commands: &mut Commands, assets: &GameAssets, gltfs: &Asset
 
 fn spawn_loot(
     _: On<SpawnWorld>,
+    items: Res<Items>,
     mut commands: Commands,
     assets: Res<GameAssets>,
     gltfs: Res<Assets<Gltf>>,
     layout: Res<WorldLayout>,
     run: Res<RunSave>,
+    placements: Res<Placements>,
+    collected: Res<CollectedPickups>,
 ) {
+    if *layout == WorldLayout::Outpost {
+        spawn_authored_pickups(
+            &mut commands,
+            &assets,
+            &gltfs,
+            &items,
+            &placements,
+            &collected,
+        );
+    }
     if let Some(save) = run.checkpoint() {
         for pickup in &save.pickups {
             spawn_pickup(
+                &items,
                 &mut commands,
                 &assets,
                 &gltfs,
@@ -276,13 +198,20 @@ fn spawn_loot(
             );
         }
         if save.add_shortswords_on_spawn {
-            spawn_shortswords(&mut commands, &assets, &gltfs);
+            spawn_shortswords(&items, &mut commands, &assets, &gltfs);
         }
         return;
     }
     if *layout == WorldLayout::SmokeArena {
         for (item, x, z) in crate::smoke::ARENA_LOOT {
-            spawn_initial_pickup(&mut commands, &assets, &gltfs, item, Vec3::new(x, 2.0, z));
+            spawn_initial_pickup(
+                &items,
+                &mut commands,
+                &assets,
+                &gltfs,
+                item,
+                Vec3::new(x, 2.0, z),
+            );
         }
         return;
     }
@@ -295,7 +224,7 @@ fn spawn_loot(
                     2.0,
                     region_z - index as f32 * 4.0 - if side > 0.0 { 1.5 } else { 0.0 },
                 );
-                spawn_initial_pickup(&mut commands, &assets, &gltfs, item, position);
+                spawn_initial_pickup(&items, &mut commands, &assets, &gltfs, item, position);
             }
         }
     }
@@ -305,11 +234,42 @@ fn spawn_loot(
         (ItemKind::ReinforcedArmor, Vec3::new(-3.0, 2.0, -115.0)),
         (ItemKind::ReinforcedHelmet, Vec3::new(3.0, 2.0, -120.0)),
     ] {
-        spawn_initial_pickup(&mut commands, &assets, &gltfs, item, position);
+        spawn_initial_pickup(&items, &mut commands, &assets, &gltfs, item, position);
     }
-    spawn_shortswords(&mut commands, &assets, &gltfs);
+    spawn_shortswords(&items, &mut commands, &assets, &gltfs);
 }
+fn spawn_authored_pickups(
+    commands: &mut Commands,
+    assets: &GameAssets,
+    gltfs: &Assets<Gltf>,
+    items: &Items,
+    placements: &Placements,
+    collected: &CollectedPickups,
+) {
+    for placement in placements
+        .pickups()
+        .filter(|entry| !collected.0.contains(&entry.id))
+    {
+        let entity = spawn_pickup(
+            items,
+            commands,
+            assets,
+            gltfs,
+            placement.stack,
+            placement.position.into(),
+        );
+        commands.entity(entity).insert((
+            PlacedPickup {
+                id: placement.id,
+                area: placement.area,
+            },
+            NeedsPickupGrounding,
+        ));
+    }
+}
+
 pub fn spawn_pickup(
+    items: &Items,
     commands: &mut Commands,
     assets: &GameAssets,
     gltfs: &Assets<Gltf>,
@@ -319,7 +279,7 @@ pub fn spawn_pickup(
     commands
         .spawn((
             SessionEntity,
-            Name::new(pickup.item.name()),
+            Name::new(items[pickup.item].name().to_owned()),
             pickup,
             PendingScene,
             WorldAssetRoot(gltfs.get(&assets.pickups[&pickup.item]).expect("pickup glTF assets must remain loaded after validation so initial and dropped pickups can be spawned").scenes[0].clone()),
@@ -349,17 +309,13 @@ fn ground_pickups(
     }
 }
 pub fn find_drop_position(
+    items: &Items,
     spatial: &SpatialQuery,
     player: Entity,
     transform: &Transform,
     item: ItemKind,
 ) -> Option<Vec3> {
-    let size = if item == ItemKind::LargeBoulder {
-        Vec3::new(1.12, 0.85, 0.98)
-    } else {
-        item.gear()
-            .map_or(Vec3::new(0.62, 0.6, 0.62), |gear| gear.pickup_size)
-    };
+    let size = items[item].pickup_size();
     let shape = Collider::cuboid(size.x, size.y, size.z);
     let forward = transform.rotation * Vec3::Z;
     let right = transform.rotation * Vec3::X;
@@ -410,6 +366,7 @@ pub fn find_drop_position(
 }
 fn drop_items(
     request: On<DropRequest>,
+    items: Res<Items>,
     state: Res<State<GameState>>,
     menu: Res<PlayerMenu>,
     mut inventory: ResMut<Inventory>,
@@ -426,16 +383,21 @@ fn drop_items(
     let Ok((entity, transform)) = players.single() else {
         return;
     };
-    let placement = find_drop_position(&spatial, entity, transform, request.item);
+    let placement = find_drop_position(&items, &spatial, entity, transform, request.item);
     if let Some(pickup) = inventory.drop_stack(request.item, request.quantity, placement) {
         spawn_pickup(
+            &items,
             &mut commands,
             &assets,
             &gltfs,
             pickup,
             placement.expect("a successful drop_stack call requires an accepted world placement"),
         );
-        notice.0 = format!("Dropped {} x{}", request.item.name(), request.quantity);
+        notice.0 = format!(
+            "Dropped {} x{}",
+            items[request.item].name(),
+            request.quantity
+        );
     } else {
         notice.0 = if placement.is_none() {
             "No clear ground nearby. Move to an open area and try again.".into()
@@ -453,7 +415,7 @@ mod tests {
     fn storage_transfers_every_item_kind_in_both_directions() {
         let mut backpack = Inventory::default();
         let mut chest = Inventory::default();
-        for item in ItemKind::ALL {
+        for item in crate::content::test_items().ids() {
             assert!(backpack.add(item, 1));
             assert!(backpack.transfer_to(&mut chest, item, 1));
             assert_eq!(backpack.count(item), 0);

@@ -6,6 +6,7 @@ use crate::{
     camera::Orbit,
     combat::{CombatSystems, Defense, Health, HealthRecovery},
     combat_feedback::DeathAnimation,
+    content::Items,
     controls::{Control, Keybinds},
     dialogue::Dialogue,
     dungeon::Area,
@@ -46,7 +47,12 @@ impl Plugin for PlayerPlugin {
                     .before(CombatSystems::Detect)
                     .run_if(in_state(GameState::Playing)),
             )
-            .add_systems(Update, sync_defense.before(CombatSystems::Resolve))
+            .add_systems(
+                Update,
+                sync_defense
+                    .before(CombatSystems::Resolve)
+                    .run_if(resource_exists::<Items>),
+            )
             .add_systems(
                 Update,
                 animate
@@ -322,10 +328,14 @@ fn footsteps(
     }
 }
 
-fn sync_defense(equipment: Res<Equipment>, mut players: Query<&mut Defense, With<Player>>) {
+fn sync_defense(
+    items: Res<Items>,
+    equipment: Res<Equipment>,
+    mut players: Query<&mut Defense, With<Player>>,
+) {
     for mut armor in &mut players {
         if equipment.is_changed() || armor.is_added() {
-            armor.set_if_neq(Defense(equipment.total_defense()));
+            armor.set_if_neq(Defense(equipment.total_defense(&items)));
         }
     }
 }
@@ -577,6 +587,7 @@ pub(crate) fn face_camera(orbit: Res<Orbit>, mut players: Query<&mut Transform, 
 }
 
 pub(crate) fn movement(
+    items: Res<Items>,
     time: Res<Time>,
     orbit: Res<Orbit>,
     dialogue: Res<Dialogue>,
@@ -601,7 +612,7 @@ pub(crate) fn movement(
     let dodge_request = input.dodge.take();
     let jump_requested = std::mem::take(&mut input.jump);
     let delta = time.delta_secs();
-    let weight = inventory.carried_weight(&equipment);
+    let weight = inventory.carried_weight(&equipment, &items);
     for (
         entity,
         mut transform,
@@ -754,6 +765,7 @@ pub(crate) fn bind_actor_animation(
 }
 
 fn animate(
+    items: Res<Items>,
     library: Res<AnimationLibrary>,
     equipment: Res<Equipment>,
     players: Query<(&Player, &Dodge, &WeaponStance, &WeaponAttack)>,
@@ -780,8 +792,8 @@ fn animate(
             .is_some_and(|swing| swing.weapon == WeaponKind::Spear);
         let carry = if *stance == WeaponStance::Drawn {
             equipment
-                .weapon(EquipmentSlot::MainHand)
-                .or_else(|| equipment.weapon(EquipmentSlot::OffHand))
+                .weapon(EquipmentSlot::MainHand, &items)
+                .or_else(|| equipment.weapon(EquipmentSlot::OffHand, &items))
         } else {
             None
         };
@@ -868,6 +880,7 @@ fn resume(mut players: Query<&mut AnimationPlayer>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::content::test_items;
     use crate::{
         combat::{CombatPlugin, Hit},
         inventory::ItemKind,
@@ -892,6 +905,7 @@ mod tests {
 
     fn test_app() -> (App, Entity) {
         let mut app = App::new();
+        app.insert_resource(test_items().clone());
         app.add_plugins((
             MinimalPlugins,
             StatesPlugin,
@@ -1002,9 +1016,12 @@ mod tests {
         let mut bag = Inventory::default();
         assert!(bag.add(ItemKind::FieldSpear, 1));
         assert_eq!(
-            app.world_mut()
-                .resource_mut::<Equipment>()
-                .equip(&mut bag, ItemKind::FieldSpear, 10),
+            app.world_mut().resource_mut::<Equipment>().equip(
+                &mut bag,
+                ItemKind::FieldSpear,
+                10,
+                test_items()
+            ),
             Ok(true)
         );
     }

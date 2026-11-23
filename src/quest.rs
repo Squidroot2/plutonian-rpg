@@ -357,7 +357,7 @@ pub(crate) struct QuestJournal {
     cavern_defeats: BTreeSet<CaveEncounter>,
 }
 
-#[derive(bitcode::Encode, bitcode::Decode)]
+#[derive(Clone, bitcode::Encode, bitcode::Decode)]
 pub(crate) struct SavedJournal {
     #[bitcode(skip)]
     pub(crate) cavern_defeats: BTreeSet<CaveEncounter>,
@@ -379,13 +379,13 @@ impl SavedJournal {
     }
 }
 
-#[derive(bitcode::Encode, bitcode::Decode)]
+#[derive(Clone, bitcode::Encode, bitcode::Decode)]
 struct SavedQuest {
     outcome: SavedOutcome,
     completed: Vec<String>,
 }
 
-#[derive(bitcode::Encode, bitcode::Decode)]
+#[derive(Clone, bitcode::Encode, bitcode::Decode)]
 enum SavedOutcome {
     Active(String),
     Completed,

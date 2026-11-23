@@ -1,0 +1,10 @@
+(
+    starter_stock: [
+        (chest: Lamp, stacks: [(item: "battery", quantity: 2), (item: "methane_pouch", quantity: 2)]),
+        (chest: Supply, stacks: [(item: "scrap", quantity: 2), (item: "field_armor", quantity: 1)]),
+        (chest: Gear, stacks: [(item: "field_helmet", quantity: 1)]),
+    ],
+    encounter_assignments: [],
+    pickups: [],
+    encounters: [],
+)

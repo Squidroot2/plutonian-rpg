@@ -10,7 +10,7 @@ use crate::{
     combat::{ConfirmedHit, Dead, Hit},
     enemy::{Enemy, ranged::SpitProjectile},
     experience::Experience,
-    hushcap::{self, Hushcap},
+    hushcap::Hushcap,
     interaction::{CorpseLoot, InteractionTarget, Nearby},
     inventory::{Inventory, ItemKind},
     player::{PLAYER_GROUND_OFFSET, Player},
@@ -189,11 +189,11 @@ fn check_cover(
     let (_, home, _) = encounter_homes()
         .find(|(id, _, _)| EncounterId::Cave(*id) == FIRST_HUSHCAP)
         .expect("the first Hushcap has an authored home");
-    let origin = home + Vec3::Y * hushcap::SPIT.muzzle.y;
+    let origin = home + Vec3::Y * super::SHIPPED_HUSHCAP_MUZZLE_HEIGHT_M;
     let delta = Vec3::new(15.3, -4.6, 102.5) - origin;
     let cover = spatial
         .cast_shape(
-            &Collider::sphere(hushcap::SPIT.radius_m),
+            &Collider::sphere(super::SHIPPED_HUSHCAP_SPIT_RADIUS_M),
             origin,
             Quat::IDENTITY,
             Dir3::new(delta).expect("the cover is away from the Hushcap"),
@@ -332,13 +332,13 @@ pub(super) fn drive(
             hits.write(Hit {
                 source: player,
                 target: cap,
-                damage: hushcap::HEALTH,
+                damage: super::SHIPPED_HUSHCAP_HEALTH,
                 contact: None,
             });
             *phase = CaveCheck::ApproachCorpse;
         }
         CaveCheck::ApproachCorpse if dead => {
-            assert_eq!(xp.0, u64::from(hushcap::EXPERIENCE));
+            assert_eq!(xp.0, u64::from(super::SHIPPED_HUSHCAP_XP));
             assert_eq!(corpse.stack.expect("Hushcap loot").item, ItemKind::Mycelium);
             if nearby.0 == Some((cap, InteractionTarget::Corpse)) {
                 keys.press(KeyCode::KeyE);

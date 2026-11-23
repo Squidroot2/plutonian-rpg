@@ -1,7 +1,7 @@
 use crate::{
+    content::EnemyDefinition,
     dungeon::Area,
-    enemy::{self, Bite, EnemyBody, EnemyModel, GroundMelee, GroundMovement},
-    inventory::ItemKind,
+    enemy::{self, EnemyModel},
     loading::EnemyVisuals,
 };
 use avian3d::prelude::Collider;
@@ -14,39 +14,23 @@ pub(crate) const MODEL: EnemyModel = EnemyModel {
     locomotion: Some("RoachCrawl"),
 };
 pub(crate) const GROUND_OFFSET: f32 = 0.32;
-pub(crate) const CONFIG: GroundMelee = GroundMelee {
-    body: EnemyBody {
-        name: "Relay roach",
-        health: 20,
-        experience: 25,
-        loot: ItemKind::RoachMeat,
-    },
-    movement: GroundMovement::new(3.5, GROUND_OFFSET),
-    engagement: enemy::Engagement::OnSight,
-    bite: Bite {
-        range: 1.5,
-        windup: 0.4,
-        recovery: 0.8,
-        damage: 12,
-    },
-};
-
 #[derive(Component)]
 pub(crate) struct Roach;
 
 pub(crate) fn spawn(
     commands: &mut Commands,
     visuals: &EnemyVisuals,
-    home: Vec3,
+    definition: &EnemyDefinition,
+    home: Transform,
     area: Area,
 ) -> Entity {
     enemy::spawn_ground_melee(
         commands,
         Roach,
         visuals.get(&MODEL),
-        Transform::from_translation(home),
+        home,
         area,
-        CONFIG,
+        definition.melee(GROUND_OFFSET),
         collider(),
     )
 }

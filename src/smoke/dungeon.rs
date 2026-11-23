@@ -8,6 +8,7 @@ use crate::{
     attributes::{AttributeId, AttributeRanks, CharacterProgress},
     camera::{FollowCamera, Orbit},
     combat::{ConfirmedHit, Dead, Health, Hit},
+    content::Items,
     dialogue::{Dialogue, DialogueCatalog, Profile},
     dungeon::{
         ARCHIVE_HUSHCAP_HOME, ARCHIVE_LOG, ArchiveGate, Area, DungeonProgress, DungeonTarget,
@@ -16,8 +17,8 @@ use crate::{
     enemy::{MeleePhase, MeleePursuit, ranged::SpitProjectile},
     equipment::{Equipment, WornEquipment},
     experience::{Experience, ExperienceNotice},
-    guard::{self, GuardPost, OutpostSecurity},
-    hushcap::{self, Hushcap},
+    guard::{GuardPost, OutpostSecurity},
+    hushcap::Hushcap,
     interaction::{
         CORE_RECOVERED_BEFORE_MEETING, CorpseLoot, INTERACT_HEIGHT, INTERACT_RANGE,
         InteractionTarget, Nearby, Target,
@@ -60,7 +61,8 @@ const RELAY_PROGRESS: CharacterProgress = CharacterProgress {
     level: 3,
     unspent: 6,
 };
-const LOOTED_RELAY_XP: Experience = Experience(25 + hushcap::EXPERIENCE as u64);
+const SHIPPED_GUARD_HEALTH: u16 = 140;
+const LOOTED_RELAY_XP: Experience = Experience(25 + super::SHIPPED_HUSHCAP_XP as u64);
 
 type HushcapData = (
     Entity,
@@ -102,7 +104,7 @@ impl GuardSmoke<'_, '_> {
         assert_eq!(self.guards.iter().count(), 2);
         assert!(!self.security.hostile);
         for (entity, post, at, health) in &self.guards {
-            assert_eq!(health.current(), guard::HEALTH);
+            assert_eq!(health.current(), SHIPPED_GUARD_HEALTH);
             assert!(at.translation.xz().distance(post.home().xz()) < 0.05);
             assert!(
                 at.translation
@@ -1383,7 +1385,7 @@ fn enter_archive(frame: WorldFrame) {
         let (hushcap, root, health, _, dead, _) =
             relay_encounter(&hushcaps, EncounterId::RelayArchiveHushcap);
         assert_eq!(root.translation, ARCHIVE_HUSHCAP_HOME);
-        assert_eq!(health.current(), hushcap::HEALTH);
+        assert_eq!(health.current(), super::SHIPPED_HUSHCAP_HEALTH);
         assert!(!dead);
         check_archive_cover(
             &spatial, &names, &parents, capsule, entity, hushcap, position,
@@ -1461,12 +1463,18 @@ fn finish_relay_quest(frame: WorldFrame) {
             keys.press(KeyCode::Tab);
             commands.queue(|world: &mut World| {
                 world.resource_scope(|world, mut equipment: Mut<Equipment>| {
-                    let mut inventory = world.resource_mut::<Inventory>();
-                    assert!(inventory.add(ItemKind::FieldSpear, 1));
-                    assert_eq!(
-                        equipment.equip(&mut inventory, ItemKind::FieldSpear, 5),
-                        Ok(true)
-                    );
+                    world.resource_scope(|world, mut inventory: Mut<Inventory>| {
+                        assert!(inventory.add(ItemKind::FieldSpear, 1));
+                        assert_eq!(
+                            equipment.equip(
+                                &mut inventory,
+                                ItemKind::FieldSpear,
+                                5,
+                                world.resource::<Items>()
+                            ),
+                            Ok(true)
+                        );
+                    });
                 });
             });
             *phase = WorldCheck::ApproachHushcap;
@@ -1603,12 +1611,12 @@ fn check_archive_cover(
     hushcap: Entity,
     position: Vec3,
 ) {
-    let muzzle = ARCHIVE_HUSHCAP_HOME + Vec3::Y * hushcap::SPIT.muzzle.y;
+    let muzzle = ARCHIVE_HUSHCAP_HOME + Vec3::Y * super::SHIPPED_HUSHCAP_MUZZLE_HEIGHT_M;
     let delta = position - muzzle;
     let filter = SpatialQueryFilter::from_excluded_entities([player, hushcap]);
     let cover = spatial
         .cast_shape(
-            &Collider::sphere(hushcap::SPIT.radius_m),
+            &Collider::sphere(super::SHIPPED_HUSHCAP_SPIT_RADIUS_M),
             muzzle,
             Quat::IDENTITY,
             Dir3::new(delta).expect("the archive entrance must be away from the Hushcap"),

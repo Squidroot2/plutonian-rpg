@@ -1,0 +1,57 @@
+[
+    (
+        id: "ice_worm",
+        name: "Ice worm",
+        health: 30,
+        xp: 35,
+        loot: (item: "worm_meat", quantity: 1),
+        behavior: Worm(
+            speed_mps: 2.4,
+            bite: (range_m: 1.5, windup_seconds: 0.55, recovery_seconds: 0.85, damage: 20),
+        ),
+    ),
+    (
+        id: "relay_roach",
+        name: "Relay roach",
+        health: 20,
+        xp: 25,
+        loot: (item: "roach_meat", quantity: 1),
+        behavior: Roach(
+            speed_mps: 3.5,
+            bite: (range_m: 1.5, windup_seconds: 0.4, recovery_seconds: 0.8, damage: 12),
+        ),
+    ),
+    (
+        id: "hushcap",
+        name: "Hushcap",
+        health: 42,
+        xp: 45,
+        loot: (item: "mycelium", quantity: 1),
+        behavior: Hushcap(
+            spit: (
+                sight_m: 8.0,
+                windup_seconds: 0.85,
+                recovery_seconds: 1.25,
+                speed_mps: 9.0,
+                travel_m: 10.0,
+                radius_m: 0.14,
+                damage: 24,
+                muzzle: (0.0, 1.01, 0.56),
+            ),
+        ),
+    ),
+    (
+        id: "outpost_guard",
+        name: "Plutonian guard",
+        health: 140,
+        xp: 100,
+        loot: (item: "scrap", quantity: 1),
+        behavior: Guard(
+            speed_mps: 5.5,
+            defense: 8,
+            thrust: (range_m: 2.35, windup_seconds: 0.25, recovery_seconds: 0.6, damage: 58),
+            contact_reach_m: 2.5,
+            contact_radius_m: 0.12,
+        ),
+    ),
+]

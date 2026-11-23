@@ -5,11 +5,12 @@ use crate::{
     GameState,
     attributes::{CarryLimits, MeleeDamageMultiplier, MovementCosts},
     combat::{CombatSystems, Contact, Hit},
+    content::{Items, WeaponStats},
     controls::{Control, Keybinds},
     dialogue::Dialogue,
     equipment::{Equipment, EquipmentSlot, WeaponKind},
     interaction::InteractionSystems,
-    inventory::Inventory,
+    inventory::{Inventory, ItemKind},
     player::{Dodge, MovementInput, Player, Stamina},
     ui::menu_ui::PlayerMenu,
 };
@@ -21,23 +22,10 @@ const SPEAR_IMPACT_FRAME: f32 = 6.0;
 const SPEAR_RECOVERY_FRAME: f32 = 16.0;
 const SWORD_IMPACT_FRAME: f32 = 5.0;
 const SWORD_RECOVERY_FRAME: f32 = 12.0;
-const SPEAR_REACH: f32 = 2.5;
-const SWORD_REACH: f32 = 1.4;
-const SPEAR_CONTACT_RADIUS: f32 = 0.12;
-const SWORD_CONTACT_RADIUS: f32 = 0.18;
 const SWORD_GRIP_OFFSET: f32 = 0.36;
 const SWORD_INWARD_SWEEP: f32 = 0.40;
-const SPEAR_DAMAGE: u16 = 10;
-const SWORD_DAMAGE: u16 = 7;
 
 impl WeaponKind {
-    pub(crate) fn reach(self) -> f32 {
-        match self {
-            Self::Spear => SPEAR_REACH,
-            Self::Shortsword => SWORD_REACH,
-        }
-    }
-
     pub(crate) const fn timing(self) -> (f32, f32) {
         let (impact, recovery) = match self {
             Self::Spear => (SPEAR_IMPACT_FRAME, SPEAR_RECOVERY_FRAME),
@@ -74,6 +62,8 @@ impl Hand {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct Swing {
     pub(crate) weapon: WeaponKind,
+    item: ItemKind,
+    stats: WeaponStats,
     pub(crate) elapsed: f32,
 }
 
@@ -129,10 +119,10 @@ impl WeaponAttack {
         *self = Self::default();
     }
 
-    fn advance(&mut self, hand: Hand, delta: f32) -> Option<WeaponKind> {
+    fn advance(&mut self, hand: Hand, delta: f32) -> Option<(WeaponKind, WeaponStats)> {
         let slot = &mut self.swings[hand as usize];
         let swing = slot.as_mut()?;
-        let weapon = swing.weapon;
+        let (weapon, stats) = (swing.weapon, swing.stats);
         let (impact_at, recovery_at) = weapon.timing();
         let previous = swing.elapsed;
         swing.elapsed += delta;
@@ -140,11 +130,12 @@ impl WeaponAttack {
         if swing.elapsed >= recovery_at {
             *slot = None;
         }
-        impact.then_some(weapon)
+        impact.then_some((weapon, stats))
     }
 }
 
 fn attack(
+    items: Res<Items>,
     buttons: Res<ButtonInput<MouseButton>>,
     keys: Res<ButtonInput<KeyCode>>,
     bindings: Res<Keybinds>,
@@ -200,7 +191,7 @@ fn attack(
         && !swing.active()
         && EquipmentSlot::HANDS
             .into_iter()
-            .any(|hand| equipment.weapon(hand).is_some())
+            .any(|hand| equipment.weapon(hand, &items).is_some())
     {
         *stance = match *stance {
             WeaponStance::Drawn => WeaponStance::Holstered,
@@ -215,17 +206,18 @@ fn attack(
     let can_start = controller.grounded
         && !menu_open
         && !dodge.active()
-        && !(inventory.carried_weight(&equipment) <= limits.capacity_kg
+        && !(inventory.carried_weight(&equipment, &items) <= limits.capacity_kg
             && movement.dodge_pending(controller.grounded, dodge, stamina, costs.dodge));
 
     for hand in Hand::ALL {
-        let equipped = equipment.weapon(hand.slot());
+        let equipped = equipment.get(hand.slot());
         if let Some(current) = swing.current(hand) {
-            if equipped != Some(current.weapon) {
+            if equipped != Some(current.item) {
                 swing.swings[hand as usize] = None;
-            } else if let Some(weapon) = swing.advance(hand, time.delta_secs())
+            } else if let Some((weapon, stats)) = swing.advance(hand, time.delta_secs())
                 && let Some(mut hit) = weapon_contact(
                     weapon,
+                    stats,
                     hand,
                     &spatial,
                     entity,
@@ -237,11 +229,14 @@ fn attack(
                 hits.write(hit);
             }
         } else if can_start
-            && let Some(weapon) = equipped
+            && let Some(item) = equipped
+            && let Some((weapon, stats)) = items[item].attack()
             && bindings.get(hand.control()).just_pressed(&keys, &buttons)
         {
             swing.swings[hand as usize] = Some(Swing {
                 weapon,
+                item,
+                stats,
                 elapsed: 0.0,
             });
         }
@@ -256,22 +251,21 @@ pub(crate) fn spear_heading(delta: Vec3) -> Quat {
 
 pub(crate) fn weapon_contact(
     weapon: WeaponKind,
+    stats: WeaponStats,
     hand: Hand,
     spatial: &SpatialQuery,
     player: Entity,
     position: Vec3,
     facing: Quat,
 ) -> Option<Hit> {
-    let (side, local_direction, radius, damage) = match weapon {
-        WeaponKind::Spear => (GRIP_SIDE, Vec3::Z, SPEAR_CONTACT_RADIUS, SPEAR_DAMAGE),
+    let (side, local_direction) = match weapon {
+        WeaponKind::Spear => (GRIP_SIDE, Vec3::Z),
         WeaponKind::Shortsword => {
             // Sweep inward from the striking hand at close range.
             let sign = if hand == Hand::Main { -1.0 } else { 1.0 };
             (
                 SWORD_GRIP_OFFSET * sign,
                 Vec3::new(-SWORD_INWARD_SWEEP * sign, 0.0, 1.0),
-                SWORD_CONTACT_RADIUS,
-                SWORD_DAMAGE,
             )
         }
     };
@@ -279,20 +273,20 @@ pub(crate) fn weapon_contact(
     let origin = position + facing * Vec3::new(side, GRIP_HEIGHT, 0.0);
     spatial
         .cast_shape(
-            &Collider::sphere(radius),
+            &Collider::sphere(stats.contact_radius_m),
             origin,
             Quat::IDENTITY,
             direction,
             &ShapeCastConfig {
                 compute_contact_on_penetration: true,
-                ..ShapeCastConfig::from_max_distance(weapon.reach())
+                ..ShapeCastConfig::from_max_distance(stats.reach_m)
             },
             &SpatialQueryFilter::from_excluded_entities([player]),
         )
         .map(|hit| Hit {
             source: player,
             target: hit.entity,
-            damage,
+            damage: stats.damage,
             contact: Some(Contact {
                 position: hit.point1,
                 normal: hit.normal1,
@@ -304,6 +298,7 @@ pub(crate) fn weapon_contact(
 mod tests {
     use super::*;
     use crate::combat::TrainingTarget;
+    use crate::content::test_items;
     use crate::equipment::{EquipmentPlugin, UnequipRequest};
     use crate::practice_dummy::PracticeDummy;
     use crate::{
@@ -317,6 +312,13 @@ mod tests {
     };
     use std::time::Duration;
 
+    fn test_stats(item: ItemKind) -> WeaponStats {
+        test_items()[item]
+            .attack()
+            .expect("test item is a weapon")
+            .1
+    }
+
     fn thrust_contact(
         spatial: &SpatialQuery,
         player: Entity,
@@ -325,6 +327,7 @@ mod tests {
     ) -> Option<Hit> {
         weapon_contact(
             WeaponKind::Spear,
+            test_stats(ItemKind::FieldSpear),
             Hand::Main,
             spatial,
             player,
@@ -338,12 +341,14 @@ mod tests {
         let mut thrust = WeaponAttack::default();
         thrust.swings[Hand::Main as usize] = Some(Swing {
             weapon: WeaponKind::Spear,
+            item: ItemKind::FieldSpear,
+            stats: test_stats(ItemKind::FieldSpear),
             elapsed: 0.0,
         });
         assert_eq!(thrust.advance(Hand::Main, 0.2), None);
         assert_eq!(
             thrust.advance(Hand::Main, 0.06),
-            Some(WeaponKind::Spear),
+            Some((WeaponKind::Spear, test_stats(ItemKind::FieldSpear))),
             "crossing full extension must report an impact"
         );
         assert_eq!(thrust.advance(Hand::Main, 0.2), None);
@@ -359,6 +364,7 @@ mod tests {
 
     fn test_app() -> App {
         let mut app = App::new();
+        app.insert_resource(test_items().clone());
         app.add_plugins((
             MinimalPlugins,
             StatesPlugin,
@@ -515,9 +521,12 @@ mod tests {
         let mut bag = crate::inventory::Inventory::default();
         assert!(bag.add(ItemKind::FieldSpear, 1));
         assert_eq!(
-            world
-                .resource_mut::<Equipment>()
-                .equip(&mut bag, ItemKind::FieldSpear, 10),
+            world.resource_mut::<Equipment>().equip(
+                &mut bag,
+                ItemKind::FieldSpear,
+                10,
+                test_items()
+            ),
             Ok(true)
         );
         world
@@ -615,9 +624,12 @@ mod tests {
         let mut bag = crate::inventory::Inventory::default();
         assert!(bag.add(ItemKind::FieldSpear, 1));
         assert_eq!(
-            world
-                .resource_mut::<Equipment>()
-                .equip(&mut bag, ItemKind::FieldSpear, 10),
+            world.resource_mut::<Equipment>().equip(
+                &mut bag,
+                ItemKind::FieldSpear,
+                10,
+                test_items()
+            ),
             Ok(true)
         );
         world.resource_mut::<Dialogue>().show_notice_text("Talking");
@@ -650,7 +662,7 @@ mod tests {
     fn hands_hit_together_and_recover_independently() {
         use crate::combat::Health;
         use EquipmentSlot::{MainHand, OffHand};
-        use ItemKind::{FieldSpear, Shortsword};
+
         use MouseButton::{Left, Right};
 
         fn click(app: &mut App, buttons: &[MouseButton]) {
@@ -696,10 +708,13 @@ mod tests {
             .set(GameState::Playing);
 
         let mut bag = Inventory::default();
-        assert!(bag.add(Shortsword, 2));
-        assert!(bag.add(FieldSpear, 1));
+        assert!(bag.add(ItemKind::Shortsword, 2));
+        assert!(bag.add(ItemKind::FieldSpear, 1));
         let mut equipment = Equipment::default();
-        assert_eq!(equipment.equip(&mut bag, FieldSpear, 10), Ok(true));
+        assert_eq!(
+            equipment.equip(&mut bag, ItemKind::FieldSpear, 10, test_items()),
+            Ok(true)
+        );
         app.insert_resource(equipment.clone());
         for _ in 0..3 {
             app.update();
@@ -709,7 +724,7 @@ mod tests {
 
         assert_eq!(equipment.unequip(&mut bag, MainHand), Ok(true));
         assert_eq!(
-            equipment.equip_in(&mut bag, OffHand, Shortsword, 10),
+            equipment.equip_in(&mut bag, OffHand, ItemKind::Shortsword, 10, test_items()),
             Ok(true)
         );
         app.insert_resource(equipment.clone());
@@ -723,7 +738,7 @@ mod tests {
         assert_eq!(health(&app), 53);
 
         assert_eq!(
-            equipment.equip_in(&mut bag, MainHand, Shortsword, 10),
+            equipment.equip_in(&mut bag, MainHand, ItemKind::Shortsword, 10, test_items()),
             Ok(true)
         );
         app.insert_resource(equipment);
@@ -798,6 +813,68 @@ mod tests {
     }
 
     #[test]
+    fn ron_weapon_uses_its_own_damage_and_reach_with_the_spear_profile() {
+        use crate::{combat::Health, content::tests::variant_items};
+
+        let mut app = test_app();
+        let items = variant_items();
+        let pike = ItemKind::parse("relay_pike").expect("valid authored item ID");
+        let mut bag = Inventory::default();
+        assert!(bag.add(pike, 1));
+        let mut equipment = Equipment::default();
+        assert_eq!(equipment.equip(&mut bag, pike, 10, &items), Ok(true));
+        let world = app.world_mut();
+        world.insert_resource(items);
+        world.insert_resource(equipment);
+        world.spawn((
+            PrimaryWindow,
+            Window {
+                focused: true,
+                ..default()
+            },
+        ));
+        let mut player = Player::default();
+        player.grounded = true;
+        let player = world.spawn((player, Transform::default())).id();
+        let target = world
+            .spawn((
+                Health::new(60),
+                RigidBody::Static,
+                Collider::cuboid(0.3, 1.5, 0.2),
+                Transform::from_xyz(GRIP_SIDE, 0.0, 3.1),
+            ))
+            .id();
+        world.resource_mut::<Orbit>().yaw = std::f32::consts::PI;
+        world
+            .resource_mut::<NextState<GameState>>()
+            .set(GameState::Playing);
+        for _ in 0..3 {
+            app.update();
+        }
+        app.world_mut()
+            .resource_mut::<ButtonInput<MouseButton>>()
+            .press(MouseButton::Left);
+        app.update();
+        let swing = player_attack(&app, player)
+            .current(Hand::Main)
+            .expect("pike swing starts");
+        assert_eq!((swing.weapon, swing.item), (WeaponKind::Spear, pike));
+        app.world_mut()
+            .resource_mut::<ButtonInput<MouseButton>>()
+            .reset_all();
+        for _ in 0..20 {
+            app.update();
+        }
+        assert_eq!(
+            app.world()
+                .get::<Health>(target)
+                .expect("target health")
+                .current(),
+            33
+        );
+    }
+
+    #[test]
     fn strength_scales_both_hands_before_target_defense() {
         use crate::{
             attributes::{AttributeId, AttributeRanks, CharacterProgress, SavedProgress},
@@ -840,7 +917,7 @@ mod tests {
         let mut equipment = Equipment::default();
         for _ in 0..2 {
             assert_eq!(
-                equipment.equip(&mut bag, ItemKind::Shortsword, 100),
+                equipment.equip(&mut bag, ItemKind::Shortsword, 100, test_items()),
                 Ok(true)
             );
         }
@@ -926,6 +1003,7 @@ mod tests {
                 EquipmentSlot::OffHand,
                 ItemKind::Shortsword,
                 5,
+                test_items(),
             ),
             Ok(true)
         );
@@ -996,6 +1074,7 @@ mod tests {
                     Hand::ALL.map(|hand| {
                         weapon_contact(
                             WeaponKind::Shortsword,
+                            test_stats(ItemKind::Shortsword),
                             hand,
                             &spatial,
                             player,

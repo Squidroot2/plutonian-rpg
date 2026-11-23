@@ -2,10 +2,11 @@
 use crate::{
     GameState,
     combat::{CombatSystems, ConfirmedHit, Defense},
+    content::{Enemies, Placements},
     dialogue::Speaker,
     dungeon::{Area, HATCH},
-    enemy::{self, Bite, EnemyBody, EnemyModel, Engagement, GroundMelee, GroundMovement},
-    equipment::{EquipmentSlot, FixedOutfit, WeaponKind},
+    enemy::{self, EnemyModel},
+    equipment::{EquipmentSlot, FixedOutfit},
     inventory::ItemKind,
     loading::EnemyVisuals,
     nemi::Nemi,
@@ -19,13 +20,6 @@ use bevy::prelude::*;
 
 const OUTPOST_CENTER_XZ: Vec2 = Vec2::ZERO;
 const OUTPOST_RADIUS_M: f32 = 12.0;
-const PURSUIT_SPEED_MPS: f32 = 5.5;
-const ARMOR_DEFENSE: u16 = 8;
-pub(crate) const HEALTH: u16 = 140;
-const THRUST_DAMAGE: u16 = 58;
-const THRUST_START_RANGE_M: f32 = 2.35;
-const THRUST_RECOVERY_SECONDS: f32 = 0.6;
-const EXPERIENCE: u16 = 100;
 const OUTFIT: &[(EquipmentSlot, ItemKind)] = &[
     (EquipmentSlot::Body, ItemKind::ReinforcedArmor),
     (EquipmentSlot::Helmet, ItemKind::ReinforcedHelmet),
@@ -37,23 +31,6 @@ pub(crate) const MODEL: EnemyModel = EnemyModel {
     clips: ["SpearIdle", "SpearThrust", "NemiDeath"],
     locomotion: Some("SpearRun"),
     visual_offset: Vec3::new(0.0, -PLAYER_GROUND_OFFSET, 0.0),
-};
-
-const CONFIG: GroundMelee = GroundMelee {
-    body: EnemyBody {
-        name: "Plutonian guard",
-        health: HEALTH,
-        experience: EXPERIENCE,
-        loot: ItemKind::Scrap,
-    },
-    movement: GroundMovement::new(PURSUIT_SPEED_MPS, PLAYER_GROUND_OFFSET),
-    engagement: Engagement::DefendOutpost,
-    bite: Bite {
-        range: THRUST_START_RANGE_M,
-        windup: WeaponKind::Spear.timing().0,
-        recovery: THRUST_RECOVERY_SECONDS,
-        damage: THRUST_DAMAGE,
-    },
 };
 
 #[derive(
@@ -130,24 +107,28 @@ fn spawn_guards(
     mut commands: Commands,
     layout: Res<WorldLayout>,
     visuals: Res<EnemyVisuals>,
+    placements: Res<Placements>,
+    enemies: Res<Enemies>,
 ) {
     if *layout != WorldLayout::Outpost {
         return;
     }
 
     for post in GuardPost::ALL {
+        let id = EncounterId::Guard(post);
+        let definition = placements.enemy(&enemies, id);
         let guard = enemy::spawn_ground_melee(
             &mut commands,
             post,
             visuals.get(&MODEL),
             Transform::from_translation(post.home()).with_rotation(post.facing()),
             Area::Surface,
-            CONFIG,
+            definition.melee(PLAYER_GROUND_OFFSET),
             Collider::capsule(PLAYER_COLLIDER_RADIUS, PLAYER_COLLIDER_LENGTH),
         );
         commands.entity(guard).insert((
-            EncounterId::Guard(post),
-            Defense(ARMOR_DEFENSE),
+            id,
+            Defense(definition.defense()),
             FixedOutfit(OUTFIT),
             Speaker::new(
                 post.dialogue_profile(),
@@ -193,8 +174,8 @@ mod tests {
             let other_target = world.spawn(Health::new(10)).id();
             let protected = [
                 world.spawn(Nemi::default()).id(),
-                world.spawn((GuardPost::West, Health::new(HEALTH))).id(),
-                world.spawn((GuardPost::East, Health::new(HEALTH))).id(),
+                world.spawn((GuardPost::West, Health::new(140))).id(),
+                world.spawn((GuardPost::East, Health::new(140))).id(),
             ];
             let target = protected[target_index];
             for (source, target, damage) in [
@@ -215,7 +196,7 @@ mod tests {
             app.world_mut().write_message(Hit {
                 source: player,
                 target,
-                damage: HEALTH,
+                damage: 140,
                 contact: None,
             });
             app.update();

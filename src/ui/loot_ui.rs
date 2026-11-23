@@ -1,6 +1,7 @@
 use crate::{
     GameState,
     combat::{Dead, LootedCorpseFade},
+    content::Items,
     interaction::{CorpseLoot, INTERACT_HEIGHT, INTERACT_RANGE, LootTarget},
     inventory::Inventory,
     player::Player,
@@ -35,6 +36,7 @@ impl Plugin for LootUiPlugin {
 }
 
 fn open(
+    items: Res<Items>,
     target: Res<LootTarget>,
     players: Query<(&Player, &Transform)>,
     corpses: Query<(&CorpseLoot, &Name, &Transform), With<Dead>>,
@@ -73,7 +75,7 @@ fn open(
                     panel.spawn((Text::new(name.as_str()), text_style(24.0), Pickable::IGNORE));
                     panel.spawn((
                         LootContents,
-                        Text::new(format!("{} x{}", stack.item.name(), stack.quantity)),
+                        Text::new(format!("{} x{}", items[stack.item].name(), stack.quantity)),
                         text_style(18.0),
                         Pickable::IGNORE,
                     ));
