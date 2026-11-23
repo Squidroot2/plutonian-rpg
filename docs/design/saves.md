@@ -32,6 +32,7 @@ saves at a bed.
 - Nemi's position, rotation, health and quest-related state.
 - Each authored encounter's position, rotation, health and loot availability.
 - The outpost guards' shared hostility.
+- Parked caravan speakers’ poses, health, and flee state, keyed by NPC ID.
 - XP contribution credit for living enemies and Nemi, keyed by stable encounter
   identifiers because world loading recreates those actors.
 
@@ -53,7 +54,11 @@ systems.
 
 The file begins with the six-byte `PLUT` header and a little-endian schema
 version, followed by a bitcode-encoded snapshot.
-The current schema is version 10.
+The current schema is version 11.
+It adds parked caravan speaker state to the version 10 checkpoint.
+Older checkpoints recreate caravan speakers from the NPC catalog.
+Nemi’s remaining health from versions 1 through 10 is restored as a fraction of the new maximum.
+Defeat stays at zero health.
 It encodes item IDs, encounter IDs, and collected pickup IDs as strings.
 Version 9 added credited cavern encounters and journal actions for caravan arrival and Tovan’s examination.
 Loading reconstructs the raised gate from the kill milestone and parks the caravan if it had arrived at the checkpoint.

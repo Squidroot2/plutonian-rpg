@@ -4,10 +4,12 @@ use crate::{
     camera::Orbit,
     cave::CaveEncounter,
     combat::{Dead, Hit},
+    content::NpcId,
     crossing::{Caravan, CrossingGate},
     dialogue::{Dialogue, Screen, Speaker},
     hushcap::Hushcap,
     inventory::{Inventory, ItemKind},
+    player::PlayerWrite,
     player::{Dodge, PLAYER_GROUND_OFFSET, Player},
     quest::{CONTAIN_THE_HUSHCAPS, QuestAction, QuestJournal},
     save::{Bed, EncounterId, RunSave, SaveAtBed},
@@ -74,6 +76,18 @@ pub(super) struct Fixtures<'w, 's> {
     gate: Query<'w, 's, (Entity, &'static CrossingGate)>,
     caravans: Query<'w, 's, &'static Caravan>,
     speakers: Query<'w, 's, (Entity, &'static Speaker, &'static GlobalTransform)>,
+    villagers: Query<
+        'w,
+        's,
+        (
+            Entity,
+            &'static NpcId,
+            &'static crate::combat::Health,
+            Has<Dead>,
+            Has<Collider>,
+        ),
+        With<crate::nemi::FleeState>,
+    >,
     beds: Query<'w, 's, Entity, With<Bed>>,
     captures: Query<'w, 's, (), With<Screenshot>>,
     spatial: SpatialQuery<'w, 's>,
@@ -83,7 +97,7 @@ pub(super) fn drive(
     mut check: ResMut<Check>,
     mut player: Query<(Entity, &mut Player, &mut Dodge, &mut Transform, &Collider)>,
     mut journal: ResMut<QuestJournal>,
-    mut inventory: ResMut<Inventory>,
+    mut inventory: PlayerWrite<Inventory>,
     mut keys: ResMut<ButtonInput<KeyCode>>,
     mut orbit: ResMut<Orbit>,
     dialogue: Res<Dialogue>,
@@ -214,9 +228,7 @@ pub(super) fn drive(
             );
         }
         Check::Save => {
-            saves.write(SaveAtBed(
-                fixtures.beds.single().expect("the cot is available"),
-            ));
+            save_with_casualty(&fixtures, entity, &mut hits, &mut saves);
             *check = Check::Defeat;
         }
         Check::Defeat if run.checkpoint().is_some() => {
@@ -234,6 +246,30 @@ pub(super) fn drive(
         }
         _ => {}
     }
+}
+
+fn save_with_casualty(
+    fixtures: &Fixtures,
+    player: Entity,
+    hits: &mut MessageWriter<Hit>,
+    saves: &mut MessageWriter<SaveAtBed>,
+) {
+    let (villager, _, health, dead, _) = fixtures
+        .villagers
+        .iter()
+        .find(|(_, id, ..)| **id == NpcId::Isera)
+        .expect("Isera is a damageable parked speaker");
+    assert_eq!(health.current(), 100);
+    assert!(!dead);
+    hits.write(Hit {
+        source: player,
+        target: villager,
+        damage: u16::MAX,
+        contact: None,
+    });
+    saves.write(SaveAtBed(
+        fixtures.beds.single().expect("the cot is available"),
+    ));
 }
 
 fn walk_flats(
@@ -321,7 +357,14 @@ fn check_restored(
     assert!(journal.is_complete(CONTAIN_THE_HUSHCAPS));
     assert_eq!(journal.cavern_defeat_count(), 5);
     assert_eq!(inventory.count(ItemKind::Mycelium), 5);
-    info!("CROSSING SMOKE PASS: gate, caravan, Tovan, flats loop, and bed rollback");
+    let (_, _, health, dead, collider) = fixtures
+        .villagers
+        .iter()
+        .find(|(_, id, ..)| **id == NpcId::Isera)
+        .expect("the parked caravan reconstructs Isera");
+    assert_eq!(health.current(), 0);
+    assert!(dead && !collider);
+    info!("CROSSING SMOKE PASS: gate, caravan, Tovan, flats loop, and caravan casualty rollback");
 }
 
 fn prepare_arrival(

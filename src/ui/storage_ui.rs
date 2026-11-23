@@ -8,6 +8,7 @@ use crate::{
     interaction::{ActiveChest, INTERACT_HEIGHT, INTERACT_RANGE, unobstructed},
     inventory::{Inventory, ItemKind},
     player::Player,
+    player::{PlayerRead, PlayerWrite},
     storage::{ChestId, ChestStorage},
     ui::menu_ui::{
         button, interaction_modal, scroll_hovered, scrollable_pane, set_display, wide_panel,
@@ -215,7 +216,7 @@ fn click(
     active: Res<ActiveChest>,
     chests: Query<&ChestId>,
     mut storage: ResMut<ChestStorage>,
-    mut backpack: ResMut<Inventory>,
+    mut backpack: PlayerWrite<Inventory>,
     mut notice: Query<&mut Text, With<StorageNotice>>,
 ) {
     if *state.get() != GameState::Storage
@@ -238,8 +239,8 @@ fn click(
 
     let chest = storage.get_mut(chest);
     let (source, destination, destination_name) = match side {
-        StorageSide::Backpack => (&mut *backpack, chest, "chest"),
-        StorageSide::Chest => (chest, &mut *backpack, "backpack"),
+        StorageSide::Backpack => (&mut **backpack, chest, "chest"),
+        StorageSide::Chest => (chest, &mut **backpack, "backpack"),
     };
     let available = source.count(item);
     let quantity = match amount {
@@ -263,7 +264,7 @@ fn refresh(
     active: Res<ActiveChest>,
     chests: Query<&ChestId>,
     storage: Res<ChestStorage>,
-    backpack: Res<Inventory>,
+    backpack: PlayerRead<Inventory>,
     mut rows: Query<(&StackRow, &mut Node), Without<EmptyPane>>,
     mut labels: Query<(&StackLabel, &mut Text)>,
     mut empty: Query<(&EmptyPane, &mut Node)>,

@@ -26,6 +26,7 @@ use crate::{
     interaction::{InteractionTarget, Nearby, Target},
     inventory::{DropRequest, Inventory, ItemKind},
     loading::LoadStatus,
+    player::PlayerRead,
     player::{DODGE_KEY, Dodge, Pace, Player},
     quest::{Beacon, LAST_LIGHT, QuestAction, QuestJournal, QuestStatus},
     ui::inventory_ui::{InventoryAction, InventoryRow, InventoryUiState},
@@ -348,7 +349,7 @@ fn drive(
         Option<Res<Items>>,
     ),
     (inventory, ui, actions): (
-        Res<Inventory>,
+        PlayerRead<Inventory>,
         Res<InventoryUiState>,
         Query<(Entity, &InventoryAction)>,
     ),
@@ -359,7 +360,7 @@ fn drive(
         Res<Dialogue>,
         Res<Nearby>,
     ),
-    equipment: Res<Equipment>,
+    equipment: PlayerRead<Equipment>,
     (menu, selection, rows, tabs, texts): (
         Res<PlayerMenu>,
         Res<QuestSelection>,
@@ -551,7 +552,7 @@ fn check_pause_and_movement(
 
 fn check_journal(
     inventory_smoke: Res<InventorySmoke>,
-    inventory: Res<Inventory>,
+    inventory: PlayerRead<Inventory>,
     mut step: ResMut<ArenaStep>,
     state: Res<State<GameState>>,
     dialogue: Res<Dialogue>,
@@ -642,7 +643,7 @@ fn check_journal(
 }
 
 fn check_beacon_quest(
-    inventory: Res<Inventory>,
+    inventory: PlayerRead<Inventory>,
     ui: Res<InventoryUiState>,
     mut step: ResMut<ArenaStep>,
     mut core_checked: Local<bool>,
@@ -766,13 +767,13 @@ fn check_beacon_quest(
 
 fn check_carrying_limits(
     run: Res<SmokeRun>,
-    inventory: Res<Inventory>,
+    inventory: PlayerRead<Inventory>,
     items: Res<Items>,
     mut step: ResMut<ArenaStep>,
     fixed: Res<Time<Fixed>>,
     state: Res<State<GameState>>,
     nearby: Res<Nearby>,
-    equipment: Res<Equipment>,
+    equipment: PlayerRead<Equipment>,
     menu: Res<PlayerMenu>,
     mut orbit: ResMut<Orbit>,
     mut keys: ResMut<ButtonInput<KeyCode>>,

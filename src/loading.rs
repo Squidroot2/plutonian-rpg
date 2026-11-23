@@ -4,7 +4,7 @@ use crate::{
     crossing::CrossingAssets,
     dialogue::{DialogueCatalog, DialogueRegistry},
     enemy::{EnemyAnimations, EnemyModel, EnemyVisual},
-    guard, hushcap,
+    hushcap,
     inventory::ItemKind,
     player::{AnimationLibrary, CLIPS, add_sword_animation_masks},
     quest::{QuestCatalog, QuestJournal},
@@ -30,7 +30,7 @@ const ARENA_FLOOR_PROBE_ORIGIN: Vec3 = Vec3::new(0.0, 5.0, -12.0);
 const ARENA_FLOOR_PROBE_RANGE: f32 = 6.0;
 const MIN_NON_PLAYER_COLLIDERS: usize = 2;
 
-const ENEMY_MODELS: &[EnemyModel] = &[worm::MODEL, roach::MODEL, hushcap::MODEL, guard::MODEL];
+const ENEMY_MODELS: &[EnemyModel] = &[worm::MODEL, roach::MODEL, hushcap::MODEL];
 
 #[derive(Resource)]
 pub(crate) struct EnemyVisuals(BTreeMap<&'static str, EnemyVisual>);

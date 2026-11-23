@@ -5,6 +5,7 @@ use crate::{
     interaction::{CorpseLoot, INTERACT_HEIGHT, INTERACT_RANGE, LootTarget},
     inventory::Inventory,
     player::Player,
+    player::PlayerWrite,
     ui::menu_ui::{PANEL, interaction_modal},
     ui::text_style,
 };
@@ -124,7 +125,7 @@ fn click(
     mut next: ResMut<NextState<GameState>>,
     target: Res<LootTarget>,
     mut corpses: Query<(Entity, &mut CorpseLoot), With<Dead>>,
-    mut inventory: ResMut<Inventory>,
+    mut inventory: PlayerWrite<Inventory>,
     mut contents: Query<&mut Text, (With<LootContents>, Without<LootNotice>)>,
     mut notices: Query<&mut Text, With<LootNotice>>,
     mut commands: Commands,

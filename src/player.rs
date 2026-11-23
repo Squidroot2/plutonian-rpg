@@ -13,7 +13,6 @@ use crate::{
     equipment::{Equipment, EquipmentSlot, WeaponKind},
     interaction::InteractionSystems,
     inventory::Inventory,
-    nemi::NemiPlayback,
     ui::menu_ui::PlayerMenu,
     weapon::{Hand, WeaponAttack, WeaponStance},
     world::WorldLayout,
@@ -63,7 +62,7 @@ impl Plugin for PlayerPlugin {
 }
 #[derive(Component, Default)]
 #[require(Dodge, Health = Health::new(AttributeRanks::default().effects().health), Defense, crate::combat::HitProtection = crate::combat::HitProtection::new(PLAYER_HIT_PROTECTION_SECONDS))]
-#[require(HealthRecovery = HealthRecovery::player(AttributeRanks::default().effects().health_per_second))]
+#[require(HealthRecovery = HealthRecovery::character(AttributeRanks::default().effects().health_per_second))]
 #[require(
     AttributeRanks,
     CharacterProgress,
@@ -72,7 +71,14 @@ impl Plugin for PlayerPlugin {
     MovementCosts,
     MeleeDamageMultiplier
 )]
-#[require(Stamina, WeaponStance, WeaponAttack, FootstepCadence)]
+#[require(
+    Stamina,
+    WeaponStance,
+    WeaponAttack,
+    FootstepCadence,
+    Inventory,
+    Equipment
+)]
 pub struct Player {
     pub(crate) area: Area,
     pub velocity: Vec3,
@@ -83,6 +89,50 @@ pub struct Player {
     jumping: bool,
     movement_direction: Vec2,
 }
+/// Access to the current player’s actor-owned data in systems.
+pub(crate) type PlayerRead<'w, 's, T> = Single<'w, 's, Ref<'static, T>, With<Player>>;
+pub(crate) type PlayerWrite<'w, 's, T> = Single<'w, 's, &'static mut T, With<Player>>;
+
+pub(crate) trait PlayerWorldExt {
+    fn player_entity(&self) -> Entity;
+    #[cfg(test)]
+    fn actor_data<T: Component>(&self) -> &T;
+    fn actor_data_mut<T: Component<Mutability = bevy::ecs::component::Mutable>>(
+        &mut self,
+    ) -> Mut<'_, T>;
+    #[cfg(test)]
+    fn set_player_data(&mut self, data: impl Bundle);
+}
+
+impl PlayerWorldExt for World {
+    fn player_entity(&self) -> Entity {
+        self.try_query_filtered::<Entity, With<Player>>()
+            .expect("a player must have been spawned")
+            .single(self)
+            .expect("this operation requires one player")
+    }
+
+    #[cfg(test)]
+    fn actor_data<T: Component>(&self) -> &T {
+        self.get::<T>(self.player_entity())
+            .expect("the component belongs to the player")
+    }
+
+    fn actor_data_mut<T: Component<Mutability = bevy::ecs::component::Mutable>>(
+        &mut self,
+    ) -> Mut<'_, T> {
+        let player = self.player_entity();
+        self.get_mut::<T>(player)
+            .expect("the mutable component belongs to the player")
+    }
+
+    #[cfg(test)]
+    fn set_player_data(&mut self, data: impl Bundle) {
+        let player = self.player_entity();
+        self.entity_mut(player).insert(data);
+    }
+}
+
 impl Player {
     pub(crate) fn respawn(&mut self, dodge: &mut Dodge, transform: &mut Transform, start: Vec3) {
         self.area = Area::Surface;
@@ -187,7 +237,7 @@ pub(crate) enum Pace {
 }
 
 impl Pace {
-    fn speed(self) -> f32 {
+    pub(crate) fn speed(self) -> f32 {
         match self {
             Self::Walk => WALK_SPEED,
             Self::Run => RUN_SPEED,
@@ -328,12 +378,8 @@ fn footsteps(
     }
 }
 
-fn sync_defense(
-    items: Res<Items>,
-    equipment: Res<Equipment>,
-    mut players: Query<&mut Defense, With<Player>>,
-) {
-    for mut armor in &mut players {
+fn sync_defense(items: Res<Items>, mut actors: Query<(Ref<Equipment>, &mut Defense)>) {
+    for (equipment, mut armor) in &mut actors {
         if equipment.is_changed() || armor.is_added() {
             armor.set_if_neq(Defense(equipment.total_defense(&items)));
         }
@@ -343,8 +389,28 @@ fn sync_defense(
 #[derive(Component)]
 pub(crate) enum ActorVisual {
     Player,
-    Nemi,
+    Npc,
 }
+
+/// The locomotion pose requested by NPC movement or scripted travel.
+#[derive(Component, Clone, Copy, Debug, Default, PartialEq)]
+pub(crate) enum NpcGait {
+    #[default]
+    Idle,
+    Walk(f32),
+    Run(f32),
+}
+
+impl NpcGait {
+    fn playback(self) -> (Gait, f32) {
+        match self {
+            Self::Idle => (Gait::Idle, 1.0),
+            Self::Walk(speed) => (Gait::Walk, speed / WALK_SPEED),
+            Self::Run(speed) => (Gait::Run, speed / RUN_SPEED),
+        }
+    }
+}
+
 #[derive(Component)]
 struct AnimatedActor {
     owner: Entity,
@@ -398,8 +464,6 @@ impl Gait {
 }
 
 const SPEAR_LOCOMOTION_START: usize = Gait::WalkBackRight as usize + 1;
-pub(crate) const WALK_CLIP: usize = Gait::Walk as usize;
-pub(crate) const RUN_CLIP: usize = Gait::Run as usize;
 const SWORD_LOCOMOTION_START: usize = SPEAR_LOCOMOTION_START * 2;
 const SPEAR_THRUST_CLIP: usize = SPEAR_LOCOMOTION_START * 3;
 const SWORD_MAIN_SLASH_CLIP: usize = SPEAR_THRUST_CLIP + 1;
@@ -453,11 +517,7 @@ pub struct AnimationLibrary {
     pub sword_guards: [AnimationNodeIndex; 2],
 }
 
-impl AnimationLibrary {
-    pub(crate) fn walking_node(&self, walking: bool) -> AnimationNodeIndex {
-        self.nodes[if walking { Gait::Walk } else { Gait::Idle } as usize]
-    }
-}
+impl AnimationLibrary {}
 
 pub(crate) fn add_sword_animation_masks(
     graph: &mut AnimationGraph,
@@ -592,8 +652,8 @@ pub(crate) fn movement(
     orbit: Res<Orbit>,
     dialogue: Res<Dialogue>,
     layout: Res<WorldLayout>,
-    inventory: Res<Inventory>,
-    equipment: Res<Equipment>,
+    inventory: PlayerRead<Inventory>,
+    equipment: PlayerRead<Equipment>,
     mut input: ResMut<MovementInput>,
     spatial: SpatialQuery,
     mover: MoveAndSlide,
@@ -742,17 +802,12 @@ pub(crate) fn bind_actor_animation(
             commands
                 .entity(child)
                 .insert((AnimationGraphHandle(library.graph.clone()), transitions));
-            if matches!(actor, ActorVisual::Player) {
-                commands.entity(child).insert(AnimatedActor {
-                    owner: parent.parent(),
-                    current: Some(Gait::Idle as usize),
-                });
-            } else {
+            commands.entity(child).insert(AnimatedActor {
+                owner: parent.parent(),
+                current: Some(Gait::Idle as usize),
+            });
+            if matches!(actor, ActorVisual::Npc) {
                 death_players.push(child);
-                commands.entity(child).insert(NemiPlayback {
-                    owner: parent.parent(),
-                    clip: Gait::Idle as usize,
-                });
             }
         }
     }
@@ -767,8 +822,16 @@ pub(crate) fn bind_actor_animation(
 fn animate(
     items: Res<Items>,
     library: Res<AnimationLibrary>,
-    equipment: Res<Equipment>,
-    players: Query<(&Player, &Dodge, &WeaponStance, &WeaponAttack)>,
+    actors: Query<
+        (
+            &Equipment,
+            &WeaponStance,
+            &WeaponAttack,
+            Option<(&Player, &Dodge)>,
+            Option<&NpcGait>,
+        ),
+        Without<crate::combat::Dead>,
+    >,
     mut animations: Query<(
         &mut AnimationPlayer,
         &mut AnimationTransitions,
@@ -776,10 +839,16 @@ fn animate(
     )>,
 ) {
     for (mut animation, mut transitions, mut actor) in &mut animations {
-        let Ok((player, dodge, stance, attack)) = players.get(actor.owner) else {
+        let Ok((equipment, stance, attack, player, npc_gait)) = actors.get(actor.owner) else {
             continue;
         };
-        let gait = Gait::for_player(player);
+        let (gait, speed, dodging) = if let Some((player, dodge)) = player {
+            let gait = Gait::for_player(player);
+            (gait, gait.playback_speed(player.pace), dodge.active())
+        } else {
+            let (gait, speed) = npc_gait.copied().unwrap_or_default().playback();
+            (gait, speed, false)
+        };
         let sword_times = Hand::ALL.map(|hand| {
             attack
                 .current(hand)
@@ -843,7 +912,7 @@ fn animate(
                 });
                 let blend = if changes_grip {
                     Duration::ZERO
-                } else if dodge.active() {
+                } else if dodging {
                     DODGE_ANIMATION_BLEND
                 } else {
                     LOCOMOTION_ANIMATION_BLEND
@@ -855,7 +924,6 @@ fn animate(
             actor.current = Some(index);
         }
         if !thrusting {
-            let speed = gait.playback_speed(player.pace);
             if let Some(clip) = animation.animation_mut(library.nodes[index])
                 && clip.speed() != speed
             {
@@ -920,8 +988,6 @@ mod tests {
         .insert_resource(WorldLayout::SmokeArena)
         .init_resource::<Dialogue>()
         .init_resource::<Orbit>()
-        .init_resource::<Equipment>()
-        .init_resource::<Inventory>()
         .init_resource::<MovementInput>()
         .init_resource::<Keybinds>()
         .init_resource::<ButtonInput<KeyCode>>()
@@ -1016,7 +1082,7 @@ mod tests {
         let mut bag = Inventory::default();
         assert!(bag.add(ItemKind::FieldSpear, 1));
         assert_eq!(
-            app.world_mut().resource_mut::<Equipment>().equip(
+            app.world_mut().actor_data_mut::<Equipment>().equip(
                 &mut bag,
                 ItemKind::FieldSpear,
                 10,

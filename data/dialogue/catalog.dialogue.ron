@@ -136,6 +136,8 @@
         ),
     ],
     notices: [
+        (id: "crossing.station_needs_samples", text: "Tovan’s guide calls for five Mycelium samples side by side. Bring five in your pack."),
+        (id: "crossing.station_verified", text: "Under the inspection light, all five samples bend inward. Tovan’s guide identifies that pattern as growth toward the warm gate channels. You record the finding and keep the samples.\n\nQUEST COMPLETE / CONTAIN THE HUSHCAPS"),
         // Notice IDs must exactly match the strings in the NoticeId constants in
         // src/interaction.rs (beacon) and src/dungeon.rs (Old Relay).
         (

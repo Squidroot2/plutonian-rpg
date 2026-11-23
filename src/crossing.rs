@@ -1,8 +1,10 @@
 //! The moving gate, the Listening Flats, and the crossing families.
 mod caravan;
-pub(crate) use caravan::Caravan;
 #[cfg(test)]
 pub(crate) use caravan::register_topics;
+pub(crate) use caravan::{
+    Caravan, STATION_NEEDS_SAMPLES, STATION_VERIFIED, SampleStation, verify_samples,
+};
 
 use crate::{
     GameState,

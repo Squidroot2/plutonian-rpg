@@ -5,6 +5,7 @@ use crate::{
     interaction::InteractionSystems,
     inventory::Inventory,
     nemi::react_to_player_hit,
+    player::PlayerRead,
     quest::QuestJournal,
     ui::{
         menu_ui::{SELECTED, button, modal_overlay, scroll_hovered, scrollable_pane},
@@ -45,7 +46,7 @@ fn render(
     catalog: Res<DialogueCatalog>,
     handlers: Res<DialogueRegistry>,
     journal: Res<QuestJournal>,
-    inventory: Res<Inventory>,
+    inventory: PlayerRead<Inventory>,
     bindings: Res<Keybinds>,
     panels: Query<Entity, With<Panel>>,
 ) {

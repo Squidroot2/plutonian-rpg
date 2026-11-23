@@ -1,0 +1,25 @@
+[
+    (
+        id: sella,
+        attributes: (vitality: 15, strength: 98),
+        equipment: [
+            (slot: Body, item: "reinforced_armor"),
+            (slot: Helmet, item: "reinforced_helmet"),
+            (slot: MainHand, item: "guard_polearm"),
+        ],
+    ),
+    (
+        id: orren,
+        attributes: (vitality: 15, strength: 98),
+        equipment: [
+            (slot: Body, item: "reinforced_armor"),
+            (slot: Helmet, item: "reinforced_helmet"),
+            (slot: MainHand, item: "guard_polearm"),
+        ],
+    ),
+    (id: nemi, attributes: (vitality: 1)),
+    (id: isera),
+    (id: vey),
+    (id: tovan),
+    (id: orla),
+]

@@ -1,3 +1,5 @@
+#[cfg(test)]
+use crate::player::PlayerWorldExt as _;
 mod content_ids;
 
 use crate::{
@@ -6,7 +8,9 @@ use crate::{
     camera::Orbit,
     cave::{self, CaveEncounter},
     combat::{ActorDefeated, CombatSystems, ConfirmedHit, Dead, Health, Hit},
-    content::{CollectedPickups, ContentId, EnemyArchetype, Items, PlacedPickup, Placements},
+    content::{
+        CollectedPickups, ContentId, EnemyArchetype, Items, NpcId, PlacedPickup, Placements,
+    },
     dialogue::{Dialogue, DialogueClick},
     dungeon::{ARCHIVE_HUSHCAP_HOME, Area, DungeonProgress},
     equipment::{Equipment, EquipmentSlot},
@@ -14,7 +18,7 @@ use crate::{
     guard::{self, GuardPost, OutpostSecurity},
     interaction::{ActiveChest, CorpseLoot, InteractionSystems, LootTarget, Nearby, Target},
     inventory::{Inventory, InventoryNotice, ItemKind, Pickup},
-    nemi::{self, Nemi, NemiState},
+    nemi::{self, FleeState, Nemi, NemiState},
     player::{MovementInput, Player},
     quest::{QuestAction, QuestJournal, SavedJournal},
     storage::ChestStorage,
@@ -36,7 +40,8 @@ use std::{
 };
 
 // Four magic bytes followed by the little-endian save schema version.
-const HEADER: &[u8; 6] = b"PLUT\x0a\x00";
+const HEADER: &[u8; 6] = b"PLUT\x0b\x00";
+const V10_HEADER: &[u8; 6] = b"PLUT\x0a\x00";
 const V9_HEADER: &[u8; 6] = b"PLUT\x09\x00";
 const V7_HEADER: &[u8; 6] = b"PLUT\x07\x00";
 const V6_HEADER: &[u8; 6] = b"PLUT\x06\x00";
@@ -130,6 +135,7 @@ impl EncounterId {
 }
 
 // Historical balance is used only to validate and reconstruct the old wire formats.
+const LEGACY_NEMI_HEALTH: u16 = 30;
 const LEGACY_WORM_HEALTH: u16 = 30;
 const LEGACY_ROACH_HEALTH: u16 = 20;
 const LEGACY_HUSHCAP_HEALTH: u16 = 42;
@@ -287,6 +293,25 @@ impl SavedEncounter {
 }
 
 #[derive(Clone, bitcode::Encode, bitcode::Decode)]
+pub(crate) struct SavedCaravanActor {
+    actor: SavedActor,
+    flee: NemiState,
+}
+
+impl SavedCaravanActor {
+    pub(crate) fn restore(
+        &self,
+        pose: &mut Transform,
+        health: &mut Health,
+        flee: &mut FleeState,
+        entity: &mut EntityCommands,
+    ) {
+        self.actor.restore(pose, health, entity);
+        flee.restore(&self.flee);
+    }
+}
+
+#[derive(Clone, bitcode::Encode, bitcode::Decode)]
 pub(crate) struct Snapshot<
     E = Equipment,
     P = SavedProgress,
@@ -311,6 +336,10 @@ pub(crate) struct Snapshot<
     pub(crate) add_shortswords_on_spawn: bool,
     #[bitcode(skip)]
     pub(crate) collected_pickups: BTreeSet<ContentId>,
+    #[bitcode(skip)]
+    caravan: BTreeMap<NpcId, SavedCaravanActor>,
+    #[bitcode(skip)]
+    legacy_nemi_health: bool,
 }
 
 type LegacyEquipment = Equipment<LegacyItem>;
@@ -442,6 +471,8 @@ fn upgrade_snapshot<E, P, X, I: Ord + Into<EncounterId>, G>(
         guards_hostile: false,
         add_shortswords_on_spawn,
         collected_pickups: BTreeSet::new(),
+        caravan: BTreeMap::new(),
+        legacy_nemi_health: false,
     }
 }
 
@@ -464,12 +495,26 @@ fn legacy_strength(item: ItemKind) -> u8 {
 }
 
 impl Snapshot {
+    pub(crate) fn caravan_speaker(&self, id: NpcId) -> Option<&SavedCaravanActor> {
+        self.caravan.get(&id)
+    }
+
+    pub(crate) fn player_loadout(&self) -> (Inventory, Equipment) {
+        (self.inventory.clone(), self.equipment.clone())
+    }
+
     pub(crate) fn player_experience(&self) -> Experience {
         self.experience.player
     }
 
     fn is_valid(&self) -> bool {
         self.valid_state()
+            && (self.caravan.is_empty() || self.journal.has_occurred(QuestAction::CaravanArrived))
+            && self.caravan.iter().all(|(&id, actor)| {
+                NpcId::CARAVAN.contains(&id)
+                    && actor.actor.is_valid(u16::MAX)
+                    && actor.flee.is_valid()
+            })
             && EncounterId::shipped().all(|id| self.encounters.contains_key(&id))
             && self
                 .encounters
@@ -489,7 +534,7 @@ impl Snapshot {
             })
             && self.chests.valid_stacks()
             && self.dungeon.is_valid()
-            && self.nemi.is_valid(Nemi::MAX_HEALTH)
+            && self.nemi.is_valid(u16::MAX)
             && self.nemi_state.is_valid()
             && self.pickups.iter().all(|pickup| {
                 pickup.stack.quantity > 0
@@ -728,16 +773,35 @@ fn read_save(path: &Path) -> io::Result<Snapshot> {
         ));
     }
     if let Some(payload) = data.strip_prefix(HEADER) {
-        let snapshot = content_ids::decode(payload)?;
+        let (base, caravan): (Vec<u8>, BTreeMap<String, SavedCaravanActor>) =
+            bitcode::decode(payload).map_err(invalid_save)?;
+        let mut snapshot = content_ids::decode(&base)?;
+        snapshot.caravan = caravan
+            .into_iter()
+            .map(|(key, actor)| {
+                NpcId::caravan_id(&key)
+                    .map(|id| (id, actor))
+                    .ok_or_else(|| invalid_save(format!("Unknown caravan speaker {key}")))
+            })
+            .collect::<io::Result<_>>()?;
         return snapshot
             .is_valid()
             .then_some(snapshot)
             .ok_or_else(|| invalid_save("Invalid save contents"));
     }
-    if let Some(payload) = data.strip_prefix(V9_HEADER) {
-        return read_v9(payload);
-    }
-    read_legacy_save(&data)
+    let mut snapshot = if let Some(payload) = data.strip_prefix(V10_HEADER) {
+        let snapshot = content_ids::decode(payload)?;
+        if !snapshot.is_valid() || snapshot.nemi.health > LEGACY_NEMI_HEALTH {
+            return Err(invalid_save("Invalid version 10 save contents"));
+        }
+        snapshot
+    } else if let Some(payload) = data.strip_prefix(V9_HEADER) {
+        read_v9(payload)?
+    } else {
+        read_legacy_save(&data)?
+    };
+    snapshot.legacy_nemi_health = true;
+    Ok(snapshot)
 }
 
 fn invalid_save(error: impl std::fmt::Display) -> io::Error {
@@ -870,6 +934,7 @@ fn validate_contents(
 ) -> io::Result<Snapshot> {
     let strength = snapshot.progression.ranks().rank(AttributeId::Strength);
     if !snapshot.valid_state()
+        || snapshot.nemi.health > LEGACY_NEMI_HEALTH
         || !snapshot.legacy_slots_valid()
         || snapshot
             .equipment
@@ -893,7 +958,12 @@ fn write_save(path: &Path, snapshot: &Snapshot) -> io::Result<()> {
             "Invalid save contents",
         ));
     }
-    let bytes = content_ids::encode(snapshot);
+    let caravan: BTreeMap<_, _> = snapshot
+        .caravan
+        .iter()
+        .map(|(id, actor)| (id.key(), actor.clone()))
+        .collect();
+    let bytes = bitcode::encode(&(content_ids::encode(snapshot), caravan));
     if HEADER.len() + bytes.len() > MAX_SAVE_BYTES {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
@@ -996,10 +1066,12 @@ pub(crate) fn save_at_bed(
             &AttributeRanks,
             &CharacterProgress,
             &Experience,
+            &Inventory,
+            &Equipment,
         ),
         (Without<Dead>, Without<Nemi>, Without<EncounterId>),
     >,
-    nemi: Query<(&Transform, &Health, &Nemi, &ExperienceReward)>,
+    nemi: Query<(&Transform, &Health, &FleeState, &ExperienceReward), With<Nemi>>,
     encounters: Query<(
         &EncounterId,
         &Transform,
@@ -1008,10 +1080,9 @@ pub(crate) fn save_at_bed(
         &ExperienceReward,
     )>,
     pickups: Query<(&Pickup, &Transform), Without<PlacedPickup>>,
+    caravan: Query<(&NpcId, &Transform, &Health, &FleeState), (Without<Nemi>, Without<Player>)>,
     (next, collected): (Res<NextState<GameState>>, Res<CollectedPickups>),
     journal: Res<QuestJournal>,
-    inventory: Res<Inventory>,
-    equipment: Res<Equipment>,
     chests: Res<ChestStorage>,
     dungeon: Res<DungeonProgress>,
     security: Res<OutpostSecurity>,
@@ -1024,7 +1095,9 @@ pub(crate) fn save_at_bed(
     {
         return;
     }
-    let Ok((player, mut player_health, ranks, progress, experience)) = player.single_mut() else {
+    let Ok((player, mut player_health, ranks, progress, experience, inventory, equipment)) =
+        player.single_mut()
+    else {
         return;
     };
     let Ok((pose, health, nemi, nemi_reward)) = nemi.single() else {
@@ -1075,6 +1148,19 @@ pub(crate) fn save_at_bed(
         guards_hostile: security.hostile,
         add_shortswords_on_spawn: false,
         collected_pickups: collected.0.clone(),
+        caravan: caravan
+            .iter()
+            .map(|(&id, pose, health, flee)| {
+                (
+                    id,
+                    SavedCaravanActor {
+                        actor: SavedActor::capture(pose, health),
+                        flee: flee.snapshot(),
+                    },
+                )
+            })
+            .collect(),
+        legacy_nemi_health: false,
     };
     let text = match slot.save(snapshot, &mut run) {
         Ok(()) => {
@@ -1101,13 +1187,9 @@ pub(crate) fn reset_session(world: &mut World) {
     let checkpoint = world.resource::<RunSave>().0.clone();
     if let Some(save) = checkpoint {
         world.insert_resource(CollectedPickups(save.collected_pickups.clone()));
-        world.insert_resource(save.inventory.clone());
-        world.insert_resource(save.equipment.clone());
         world.insert_resource(save.chests.clone());
         world.insert_resource(save.dungeon);
     } else {
-        world.insert_resource(Inventory::<ItemKind>::default());
-        world.insert_resource(Equipment::<ItemKind>::default());
         let stock = world.resource::<Placements>().stock();
         world.insert_resource(stock);
         world.insert_resource(CollectedPickups::default());
@@ -1141,10 +1223,10 @@ fn restore_actors(
             Entity,
             &mut Transform,
             &mut Health,
-            &mut Nemi,
+            &mut FleeState,
             &mut ExperienceReward,
         ),
-        Without<EncounterId>,
+        (With<Nemi>, Without<EncounterId>),
     >,
     mut encounters: Query<
         (
@@ -1165,8 +1247,12 @@ fn restore_actors(
     };
     security.hostile = save.guards_hostile;
     if let Ok((entity, mut transform, mut health, mut nemi, mut reward)) = nemi.single_mut() {
-        save.nemi
-            .restore(&mut transform, &mut health, &mut commands.entity(entity));
+        let mut actor = save.nemi.clone();
+        if save.legacy_nemi_health {
+            actor.health = (u32::from(actor.health) * u32::from(health.maximum()))
+                .div_ceil(u32::from(LEGACY_NEMI_HEALTH)) as u16;
+        }
+        actor.restore(&mut transform, &mut health, &mut commands.entity(entity));
         nemi.restore(&save.nemi_state);
         reward.player_contributed = save.experience.nemi_contributed;
     }
@@ -1237,8 +1323,7 @@ mod tests {
         world.init_resource::<SaveNotice>();
         world.init_resource::<NextState<GameState>>();
         world.init_resource::<Messages<SaveAtBed>>();
-        world.init_resource::<Inventory>();
-        world.init_resource::<Equipment>();
+
         world.insert_resource(crate::content::test_placements().stock());
         world.init_resource::<CollectedPickups>();
         world.insert_resource(crate::content::test_placements().clone());
@@ -1250,7 +1335,12 @@ mod tests {
             .get_mut::<Health>(player)
             .expect("player health")
             .set_current(21);
-        world.spawn((Nemi::default(), Transform::default(), Collider::sphere(0.5)));
+        world.spawn((
+            Nemi,
+            Health::new(LEGACY_NEMI_HEALTH),
+            Transform::default(),
+            Collider::sphere(0.5),
+        ));
         let mut corpse = Entity::PLACEHOLDER;
         use EncounterId::*;
         let base =
@@ -1386,6 +1476,8 @@ mod tests {
             guards_hostile: (),
             add_shortswords_on_spawn: false,
             collected_pickups: BTreeSet::new(),
+            caravan: BTreeMap::new(),
+            legacy_nemi_health: false,
         }
     }
 
@@ -1419,7 +1511,7 @@ mod tests {
             .clone();
         assert_eq!(
             world
-                .resource_mut::<Equipment>()
+                .actor_data_mut::<Equipment>()
                 .equip(&mut bag, pickup.stack.item, 10, &items),
             Ok(true)
         );
@@ -1464,7 +1556,7 @@ mod tests {
                 .contains("relay_pike")
         );
         assert!(world.despawn(dropped));
-        world.resource_mut::<Equipment>().0.clear();
+        world.actor_data_mut::<Equipment>().0.clear();
         interact_with(&mut world, bed);
 
         let mut saved =
@@ -1481,7 +1573,7 @@ mod tests {
         let dir = TestDirectory::new();
         let (mut world, bed, _, _) = bed_world(dir.path());
         world
-            .resource_mut::<Equipment>()
+            .actor_data_mut::<Equipment>()
             .0
             .insert(EquipmentSlot::Body, ItemKind::FieldArmor);
         interact_with(&mut world, bed);
@@ -1519,12 +1611,87 @@ mod tests {
     }
 
     #[test]
+    fn version_ten_nemi_health_migrates_by_fraction_and_keeps_defeat() {
+        let dir = TestDirectory::new();
+        let path = dir.path();
+        let (mut world, bed, _, _) = bed_world(path.clone());
+        interact_with(&mut world, bed);
+        let mut old = read_save(&path).expect("fixture checkpoint");
+        for (previous, expected) in [(30, 84), (15, 42), (0, 0)] {
+            old.nemi.health = previous;
+            let mut bytes = V10_HEADER.to_vec();
+            bytes.extend(content_ids::encode(&old));
+            fs::write(&path, bytes).expect("write the original v10 format");
+            let checkpoint = read_save(&path).expect("v10 save still loads");
+            let (mut rebuilt, _, _, _) = bed_world(path.clone());
+            let keeper = rebuilt
+                .query_filtered::<Entity, With<Nemi>>()
+                .single(&rebuilt)
+                .expect("keeper");
+            rebuilt.entity_mut(keeper).insert(Health::new(84));
+            rebuilt.insert_resource(RunSave(Some(Arc::new(checkpoint))));
+            rebuilt
+                .run_system_once(restore_actors)
+                .expect("restore Nemi");
+            assert_eq!(
+                rebuilt
+                    .get::<Health>(keeper)
+                    .expect("Nemi health")
+                    .current(),
+                expected
+            );
+            assert_eq!(rebuilt.get::<Dead>(keeper).is_some(), expected == 0);
+        }
+    }
+
+    #[test]
+    fn version_eleven_round_trips_caravan_casualties_and_poses() {
+        let dir = TestDirectory::new();
+        let (mut world, bed, _, _) = bed_world(dir.path());
+        world
+            .resource_mut::<QuestJournal>()
+            .record(QuestAction::CaravanArrived);
+        let position = Vec3::new(-25.0, 0.0, 18.0);
+        world.spawn((
+            NpcId::Tovan,
+            Transform::from_translation(position),
+            Health::new(0),
+            FleeState::civilian(),
+        ));
+        world.spawn((
+            NpcId::Isera,
+            Transform::default(),
+            Health::new(64),
+            FleeState::civilian(),
+        ));
+        interact_with(&mut world, bed);
+        let checkpoint = read_save(&dir.path()).expect("read v11 checkpoint");
+        let tovan = checkpoint
+            .caravan_speaker(NpcId::Tovan)
+            .expect("Tovan checkpoint");
+        assert_eq!(tovan.actor.position, position.to_array());
+        assert_eq!(tovan.actor.health, 0);
+        assert_eq!(
+            checkpoint
+                .caravan_speaker(NpcId::Isera)
+                .expect("Isera checkpoint")
+                .actor
+                .health,
+            64
+        );
+    }
+
+    #[test]
     fn version_nine_decodes_the_original_bitcode_ids_and_cavern_credit() {
         let dir = TestDirectory::new();
         let (mut world, bed, _, _) = bed_world(dir.path());
-        assert!(world.resource_mut::<Inventory>().add(ItemKind::Mycelium, 4));
+        assert!(
+            world
+                .actor_data_mut::<Inventory>()
+                .add(ItemKind::Mycelium, 4)
+        );
         world
-            .resource_mut::<Equipment>()
+            .actor_data_mut::<Equipment>()
             .0
             .insert(EquipmentSlot::Body, ItemKind::FieldArmor);
         world.resource_mut::<OutpostSecurity>().hostile = true;
@@ -1560,6 +1727,8 @@ mod tests {
             guards_hostile: current.guards_hostile,
             add_shortswords_on_spawn: false,
             collected_pickups: BTreeSet::new(),
+            caravan: BTreeMap::new(),
+            legacy_nemi_health: false,
         };
         let defeats = BTreeSet::from([CaveEncounter::FirstWestHushcap]);
         let mut bytes = V9_HEADER.to_vec();
@@ -1613,10 +1782,10 @@ mod tests {
         assert!(inventory.add(ItemKind::Scrap, 3));
         assert!(inventory.add(ItemKind::FieldArmor, 1));
         world
-            .resource_mut::<Equipment>()
+            .actor_data_mut::<Equipment>()
             .equip(&mut inventory, ItemKind::FieldArmor, 10, test_items())
             .expect("equip armor");
-        world.insert_resource(inventory);
+        world.set_player_data(inventory);
         let lamp = world
             .resource_mut::<ChestStorage>()
             .into_inner()
@@ -1696,7 +1865,7 @@ mod tests {
             .get_mut::<Health>(player)
             .expect("player health")
             .set_current(19);
-        assert!(world.resource_mut::<Inventory>().add(ItemKind::Scrap, 2));
+        assert!(world.actor_data_mut::<Inventory>().add(ItemKind::Scrap, 2));
         interact_with(&mut world, bed);
         let active = world
             .resource::<RunSave>()
@@ -1722,7 +1891,11 @@ mod tests {
         let (mut world, bed, player, _) = bed_world(dir.path());
         interact_with(&mut world, bed);
         let previous = fs::read(dir.path()).expect("bed save");
-        assert!(world.resource_mut::<Inventory>().add(ItemKind::Battery, 2));
+        assert!(
+            world
+                .actor_data_mut::<Inventory>()
+                .add(ItemKind::Battery, 2)
+        );
         world.entity_mut(player).insert(Dead);
         world
             .run_system_once(recover_defeated)
@@ -1784,6 +1957,8 @@ mod tests {
             guards_hostile: (),
             add_shortswords_on_spawn: false,
             collected_pickups: BTreeSet::new(),
+            caravan: BTreeMap::new(),
+            legacy_nemi_health: false,
         };
         let mut bytes = LEGACY_HEADER.to_vec();
         bytes.extend(bitcode::encode(&legacy));
@@ -1850,6 +2025,8 @@ mod tests {
             guards_hostile: (),
             add_shortswords_on_spawn: false,
             collected_pickups: BTreeSet::new(),
+            caravan: BTreeMap::new(),
+            legacy_nemi_health: false,
         };
         let mut bytes = V2_HEADER.to_vec();
         bytes.extend(bitcode::encode(&legacy));
@@ -1983,6 +2160,8 @@ mod tests {
             guards_hostile: (),
             add_shortswords_on_spawn: false,
             collected_pickups: BTreeSet::new(),
+            caravan: BTreeMap::new(),
+            legacy_nemi_health: false,
         };
         let mut bytes = V3_HEADER.to_vec();
         bytes.extend(bitcode::encode(&legacy));
@@ -2002,7 +2181,11 @@ mod tests {
         let dir = TestDirectory::new();
         let path = dir.path();
         let (mut world, bed, _, _) = bed_world(path.clone());
-        assert!(world.resource_mut::<Inventory>().add(ItemKind::WormMeat, 2));
+        assert!(
+            world
+                .actor_data_mut::<Inventory>()
+                .add(ItemKind::WormMeat, 2)
+        );
         interact_with(&mut world, bed);
         let base = read_save(&path).expect("read the fixture save");
         let mut legacy = legacy_snapshot(base, true);
@@ -2131,6 +2314,8 @@ mod tests {
             guards_hostile: (),
             add_shortswords_on_spawn: false,
             collected_pickups: BTreeSet::new(),
+            caravan: BTreeMap::new(),
+            legacy_nemi_health: false,
         }
     }
 
@@ -2431,7 +2616,11 @@ mod tests {
     fn title_mouse_and_keyboard_load_a_saved_run_and_start_leaves_the_slot_intact() {
         let dir = TestDirectory::new();
         let (mut world, bed, _, _) = bed_world(dir.path());
-        assert!(world.resource_mut::<Inventory>().add(ItemKind::Battery, 3));
+        assert!(
+            world
+                .actor_data_mut::<Inventory>()
+                .add(ItemKind::Battery, 3)
+        );
         interact_with(&mut world, bed);
 
         for control in [Some(KeyCode::ArrowDown), Some(KeyCode::Tab), None] {

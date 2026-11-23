@@ -9,7 +9,8 @@ This document describes the current runtime architecture.
 ## Ownership and lifecycle
 
 Components hold actor-specific state: health, movement, attacks, reactions, animation and equipment attachment points.
-  Resources hold shared session state such as the quest journal, inventory, equipment, dialogue and save slot.
+  Resources hold shared session state such as the quest journal, dialogue and save slot.
+  The player and NPCs own inventory and equipment as components.
   Messages connect combat and saving without making attackers responsible for their targets' behavior.
   Observers handle discrete requests and scene/world construction.
 The gameplay catalogs supply item and enemy tuning.
@@ -62,7 +63,10 @@ Resolve -> guard reaction -> save
   A press that opens a conversation cannot also choose a topic, since the dialogue input system has already run.
   Player facing and weapon attack follow interaction, and facing precedes `CombatSystems::Detect`.
   Attribute spending and capability synchronization are chained before detection, so attacks use current attributes.
-  Weapon attacks and enemy spit contacts emit `Hit`.
+  Player and guard weapon attacks use shared per-hand timing and emit `Hit`.
+  The guard AI chooses movement and an attack hand in FixedUpdate.
+  Guard strikes resolve in the frame attack detection stage.
+  Enemy spit contacts also emit `Hit`.
   The Detect and Resolve sets are chained.
   Spit advances existing projectiles before spawning newly released shots,
   and defeat cleanup runs after Resolve.

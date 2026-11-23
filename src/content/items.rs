@@ -138,22 +138,6 @@ impl Items {
                 .validate()
                 .map_err(|error| format!("{} entry {id}: {error}", Self::PATH))?;
         }
-        for (id, slot, profile) in [
-            (ItemKind::ReinforcedArmor, EquipmentSlot::Body, None),
-            (ItemKind::ReinforcedHelmet, EquipmentSlot::Helmet, None),
-            (
-                ItemKind::Trident,
-                EquipmentSlot::MainHand,
-                Some(WeaponKind::Spear),
-            ),
-        ] {
-            if !self[id].fits_slot(slot) || self[id].weapon() != profile {
-                return Err(format!(
-                    "{} entry {id} must be compatible with the guard outfit",
-                    Self::PATH
-                ));
-            }
-        }
         Ok(())
     }
 }

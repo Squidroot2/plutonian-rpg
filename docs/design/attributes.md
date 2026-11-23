@@ -1,10 +1,14 @@
 # Character Attributes
 
+The player and Plutonian NPCs use the same attribute formulas and equipment rules.
+The NPC catalog supplies starting ranks, worn gear, and bag contents.
+Each character owns their current inventory, equipment, and derived capabilities.
+Player progression continues to award attribute points to the player.
+
 ## Progression
 
 Each attribute has ranks **1–100**.
-  New characters start at rank **5** in every
-attribute.
+  New player characters start at rank **5** in every attribute.
   Rank 5 reproduces the current health, stamina, melee damage, movement
 costs, and carrying capacity.
   Future character creation can set different
@@ -112,7 +116,8 @@ they have yet to qualify for.
 
 ## Data, saves, and extension
 
-- Keep ranks, character level, and unspent points on the player entity.
+- Keep ranks, inventory, and equipment on their owning actor.
+  The player also owns character level and unspent points.
   Grant
   points for each newly reached level and record the new level in the same
   operation.

@@ -44,15 +44,17 @@ Two Plutonian guards stand watch at separate posts in Nivalis.
   where they resume watching their assigned approaches.
   Returning to the courtyard exposes the player to another attack.
 
-The guards use the shared grounded melee phase machine and the Plutonian spear clips.
-The enemy catalog supplies the guards’ thrust damage and contact tuning independently of player weapons.
-  Reinforced armor and helmet mount to the rig as it loads, along with a trident.
-  Each guard has 140 health and subtracts 8 damage from incoming hits before the minimum damage rule.
-  A thrust strikes after a 0.25 s windup and deals 58 base damage.
-  The thrust uses the same shape cast as the player's spear, so obstacles and sidesteps can break contact.
-  A 0.6 s recovery gives the player's damage protection time to expire between attacks from one guard.
-  Each defeated guard awards 100 XP and leaves one Scrap.
+Guards use the same equipment slots, swing timing, contact casts, and Strength scaling as the player.
+  Their AI alternates usable hands when dual wielding.
+  The shipped guard loadout uses Vitality 15 for 140 HP and reinforced gear for 8 defense.
+  Strength 98 scales the Guard Polearm’s 30 base damage to 58.
+  Each guard awards 100 XP and leaves the equipped main-hand weapon.
   Guard-inflicted player death uses the normal checkpoint reload.
+
+Nemi and the caravan speakers use the same attribute formulas and equipment rules.
+  Caravan speakers become damageable once parked.
+  A surviving speaker flees, returns when safe, and resumes dialogue.
+  Tovan’s inspection station is available if he dies before examining the five Mycelium samples.
 
 ## Enemy ranged attacks
 

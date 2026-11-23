@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 
 use crate::{
     GameState,
-    combat::{CombatSystems, Dead, Health, HealthRecovery},
+    combat::{CombatSystems, Dead, Defense, Health, HealthRecovery},
     experience::{Experience, ExperienceUpdates},
     player::{Player, Stamina},
     ui::menu_ui::{MenuTab, PlayerMenu},
@@ -65,6 +65,20 @@ impl AttributeRanks {
         );
         self.0[id as usize] = rank;
         self
+    }
+
+    pub(crate) fn actor_components(self) -> impl Bundle {
+        let effects = self.effects();
+        (
+            self,
+            Health::new(effects.health),
+            Defense::default(),
+            HealthRecovery::character(effects.health_per_second),
+            Stamina::new(effects.stamina, effects.stamina_per_second),
+            effects.costs,
+            effects.carry,
+            effects.melee,
+        )
     }
 
     pub(crate) fn effects(&self) -> AttributeEffects {
@@ -143,18 +157,7 @@ impl SavedProgress {
 
     /// Construct all player capabilities before the first gameplay tick.
     pub(crate) fn player_components(&self) -> impl Bundle {
-        let ranks = self.ranks();
-        let effect = ranks.effects();
-        (
-            ranks,
-            self.progress,
-            Health::new(effect.health),
-            HealthRecovery::player(effect.health_per_second),
-            Stamina::new(effect.stamina, effect.stamina_per_second),
-            effect.costs,
-            effect.carry,
-            effect.melee,
-        )
+        (self.ranks().actor_components(), self.progress)
     }
 }
 
@@ -193,6 +196,16 @@ impl Default for CarryLimits {
 }
 
 impl CarryLimits {
+    pub(crate) fn ground_speed(self, weight_kg: u64, desired: f32) -> f32 {
+        if weight_kg > self.movement_limit_kg {
+            0.0
+        } else if weight_kg > self.capacity_kg {
+            desired.min(crate::player::Pace::Walk.speed())
+        } else {
+            desired
+        }
+    }
+
     fn for_rank(rank: u8) -> Self {
         let capacity_kg = 55 + u64::from(rank);
         Self {

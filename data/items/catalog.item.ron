@@ -137,4 +137,18 @@
         pickup_size_m: (0.62, 0.6, 0.62),
         kind: Material,
     ),
+    (
+        id: "guard_polearm",
+        name: "Guard polearm",
+        description: "A heavy, three-pronged polearm carried by Nivalis guards.",
+        weight_kg: 4,
+        pickup_model: "models/trident.glb",
+        pickup_size_m: (0.58, 0.23, 2.3),
+        kind: Weapon(
+            profile: Spear,
+            minimum_strength: 25,
+            worn_model: "models/trident_worn.glb",
+            stats: (damage: 30, reach_m: 2.5, contact_radius_m: 0.12),
+        ),
+    ),
 ]

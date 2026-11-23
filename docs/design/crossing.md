@@ -26,3 +26,11 @@ The Listening Flats form a separate shelf beyond the gate.
 Tovan’s examination reads the live backpack and records the final objective once.
   The encounter ledger counts combat defeats from quest activation, so looting a corpse or loading one adds no credit.
   A checkpoint restores a parked caravan in its bays, or places a pending arrival on the staging road.
+
+## Parked speakers
+
+Caravan speakers use the shared Plutonian attributes and equipment.
+When the wagons park, the speakers become damageable and can flee before returning to their posts.
+The bed checkpoint preserves each parked speaker’s health, position, and flee state.
+If Tovan dies before examining the samples, use his inspection station by the rear wagon with five Mycelium in the bag.
+Both routes complete the same objective and preserve the samples.

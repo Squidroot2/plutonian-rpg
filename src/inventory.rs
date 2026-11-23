@@ -9,6 +9,7 @@ use crate::{
     equipment::Equipment,
     loading::{GameAssets, PendingScene, scene_ready},
     player::Player,
+    player::PlayerWrite,
     save::RunSave,
     ui::menu_ui::{MenuTab, PlayerMenu},
     world::{SessionEntity, SpawnWorld, WorldLayout},
@@ -16,7 +17,7 @@ use crate::{
 
 pub use crate::content::ItemKind;
 
-#[derive(Resource, Clone, Debug, bitcode::Encode, bitcode::Decode)]
+#[derive(Component, Clone, Debug, bitcode::Encode, bitcode::Decode)]
 pub struct Inventory<I: Ord = ItemKind>(pub(crate) BTreeMap<I, u32>);
 impl<I: Ord> Default for Inventory<I> {
     fn default() -> Self {
@@ -118,8 +119,7 @@ pub struct InventoryNotice(pub String);
 pub struct InventoryPlugin;
 impl Plugin for InventoryPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<Inventory>()
-            .init_resource::<InventoryNotice>()
+        app.init_resource::<InventoryNotice>()
             .add_observer(spawn_loot)
             .add_observer(drop_items)
             .add_systems(OnExit(GameState::Loading), ground_pickups);
@@ -369,7 +369,7 @@ fn drop_items(
     items: Res<Items>,
     state: Res<State<GameState>>,
     menu: Res<PlayerMenu>,
-    mut inventory: ResMut<Inventory>,
+    mut inventory: PlayerWrite<Inventory>,
     players: Query<(Entity, &Transform), With<Player>>,
     spatial: SpatialQuery,
     mut notice: ResMut<InventoryNotice>,

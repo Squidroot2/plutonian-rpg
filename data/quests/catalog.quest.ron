@@ -126,11 +126,11 @@
             ),
             (
                 id: "show_mycelium",
-                title: "Show Tovan five Mycelium",
-                directions: "The southwest gate has opened for the crossing caravan. Let the wagons park, then bring five Mycelium in your backpack to Tovan, the craftsman beside the rear wagon.",
+                title: "Have five Mycelium samples examined",
+                directions: "The southwest gate has opened for the crossing caravan. Let the wagons park, then bring five Mycelium in your backpack to Tovan, the craftsman beside the rear wagon. If Tovan is dead, use his inspection station by that wagon.",
                 transitions: [(when: Action(ShowedTovanMycelium), to: Complete)],
             ),
         ],
-        completion: "The crossing families have come home to Nivalis. Tovan examined the threads you brought from the caverns and found where the colony had begun to spread.",
+        completion: "The crossing families have come home to Nivalis. The threads you brought from the caverns showed where the colony had begun to spread.",
     ),
 ]

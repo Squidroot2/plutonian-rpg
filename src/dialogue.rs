@@ -5,6 +5,7 @@ use crate::{
     interaction::{INTERACT_HEIGHT, INTERACT_RANGE, unobstructed},
     inventory::Inventory,
     player::Player,
+    player::PlayerWrite,
     quest::QuestJournal,
 };
 use avian3d::prelude::SpatialQuery;
@@ -488,7 +489,7 @@ pub(crate) fn handle_input(
     mut dialogue: ResMut<Dialogue>,
     mut click: ResMut<DialogueClick>,
     mut journal: ResMut<QuestJournal>,
-    mut inventory: ResMut<Inventory>,
+    mut inventory: PlayerWrite<Inventory>,
     speakers: Query<(&Speaker, &Transform), Without<Dead>>,
     players: Query<(Entity, &Player, &Transform), Without<Dead>>,
     spatial: SpatialQuery,

@@ -2,6 +2,7 @@ use crate::{
     GameState,
     attributes::{AttributeId, AttributeRanks, CharacterProgress, SavedProgress},
     camera::Orbit,
+    content::{Items, NpcId, Npcs},
     equipment::bind_equipment_attachments,
     experience::Experience,
     interaction::Target,
@@ -101,6 +102,8 @@ fn spawn_world(
     gltfs: Res<Assets<Gltf>>,
     layout: Res<WorldLayout>,
     run: Res<RunSave>,
+    items: Res<Items>,
+    npcs: Res<Npcs>,
     mut orbit: ResMut<Orbit>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
@@ -124,12 +127,16 @@ fn spawn_world(
         .checkpoint()
         .map_or_else(Experience::default, |save| save.player_experience());
     spawn_actors(
+        (&items, &npcs),
         &mut commands,
         &gltfs,
         &assets,
         *layout,
         progress,
         experience,
+        run.checkpoint()
+            .map(|save| save.player_loadout())
+            .unwrap_or_default(),
     );
     spawn_core(&mut commands, &gltfs, &assets, *layout);
     spawn_beacon(&mut commands, &mut meshes, &mut materials, *layout);
@@ -200,12 +207,14 @@ fn spawn_outpost(
 }
 
 fn spawn_actors(
+    (items, npcs): (&Items, &Npcs),
     commands: &mut Commands,
     gltfs: &Assets<Gltf>,
     assets: &GameAssets,
     layout: WorldLayout,
     progress: &SavedProgress,
     experience: Experience,
+    loadout: (crate::inventory::Inventory, crate::equipment::Equipment),
 ) {
     let character = gltfs
         .get(&assets.character)
@@ -224,6 +233,7 @@ fn spawn_actors(
             Transform::from_translation(layout.initial_spawn()),
             progress.player_components(),
             experience,
+            loadout,
         ))
         .with_children(|parent| {
             parent
@@ -237,12 +247,22 @@ fn spawn_actors(
                 .observe(bind_actor_animation)
                 .observe(bind_equipment_attachments);
         });
+    let (ranks, inventory, equipment) = npcs.loadout(NpcId::Nemi, items);
     commands
         .spawn((
             SessionEntity,
             Name::new("Keeper Nemi"),
             nemi::speaker(),
-            Nemi::default(),
+            Nemi,
+            NpcId::Nemi,
+            ranks.actor_components(),
+            (
+                inventory,
+                equipment,
+                crate::weapon::WeaponStance::Holstered,
+                crate::weapon::WeaponAttack::default(),
+                crate::player::NpcGait::default(),
+            ),
             Transform::from_translation(layout.keeper() + Vec3::Y * nemi::GROUND_OFFSET)
                 .with_rotation(Quat::from_rotation_y(0.5)),
             Visibility::default(),
@@ -253,13 +273,14 @@ fn spawn_actors(
         .with_children(|parent| {
             parent
                 .spawn((
-                    ActorVisual::Nemi,
+                    ActorVisual::Npc,
                     PendingScene,
                     WorldAssetRoot(character),
                     Transform::from_xyz(0.0, -0.9, 0.0).with_scale(Vec3::splat(1.12)),
                 ))
                 .observe(scene_ready)
-                .observe(bind_actor_animation);
+                .observe(bind_actor_animation)
+                .observe(bind_equipment_attachments);
         });
 }
 

@@ -98,6 +98,8 @@ impl<E, P, X, I: Ord, G, K: Ord> Snapshot<E, P, X, I, G, K> {
             guards_hostile: self.guards_hostile,
             add_shortswords_on_spawn: self.add_shortswords_on_spawn,
             collected_pickups: self.collected_pickups,
+            caravan: self.caravan,
+            legacy_nemi_health: self.legacy_nemi_health,
         })
     }
 }
@@ -159,6 +161,8 @@ pub(super) fn encode(snapshot: &Snapshot) -> Vec<u8> {
         guards_hostile: wire.guards_hostile,
         add_shortswords_on_spawn: false,
         collected_pickups: BTreeSet::new(),
+        caravan: BTreeMap::new(),
+        legacy_nemi_health: false,
     };
     let pickups: BTreeSet<_> = snapshot
         .collected_pickups
@@ -226,5 +230,7 @@ pub(super) fn decode(bytes: &[u8]) -> io::Result<Snapshot> {
             .into_iter()
             .map(|id| ContentId::parse(&id).map_err(invalid_save))
             .collect::<io::Result<_>>()?,
+        caravan: BTreeMap::new(),
+        legacy_nemi_health: false,
     })
 }

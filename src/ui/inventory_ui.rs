@@ -1,3 +1,5 @@
+#[cfg(test)]
+use crate::player::PlayerWorldExt as _;
 use std::collections::BTreeMap;
 
 use crate::{
@@ -7,6 +9,7 @@ use crate::{
     equipment::{EquipRequest, Equipment, EquipmentSlot, Handedness, UnequipRequest},
     inventory::{DropRequest, Inventory, InventoryNotice, ItemKind},
     player::Player,
+    player::PlayerRead,
     ui::menu_ui::{
         self, BUTTON, DISABLED, MenuTab, PlayerMenu, SELECTED, column, scroll_pane, set_display,
     },
@@ -313,8 +316,8 @@ impl ItemList {
 fn sync_inventory_rows(
     items: Res<Items>,
     menu: Res<PlayerMenu>,
-    inventory: Res<Inventory>,
-    equipment: Res<Equipment>,
+    inventory: PlayerRead<Inventory>,
+    equipment: PlayerRead<Equipment>,
     ui: Res<InventoryUiState>,
     mut lists: Query<(Entity, &mut ItemList)>,
     empty_label: Query<Entity, With<EmptyList>>,
@@ -654,8 +657,8 @@ fn action(
     actions: Query<&InventoryAction>,
     ranks: Query<&AttributeRanks, With<Player>>,
     menu: Res<PlayerMenu>,
-    inventory: Res<Inventory>,
-    equipment: Res<Equipment>,
+    inventory: PlayerRead<Inventory>,
+    equipment: PlayerRead<Equipment>,
     mut ui: ResMut<InventoryUiState>,
     mut notice: ResMut<InventoryNotice>,
     mut warnings: Query<&mut Visibility, With<StrengthWarning>>,
@@ -812,7 +815,7 @@ fn navigate_items(
 fn edit_quantity(
     mut events: MessageReader<KeyboardInput>,
     mut ui: ResMut<InventoryUiState>,
-    inventory: Res<Inventory>,
+    inventory: PlayerRead<Inventory>,
     menu: Res<PlayerMenu>,
     keys: Res<ButtonInput<KeyCode>>,
     bindings: Res<Keybinds>,
@@ -882,8 +885,8 @@ fn inventory_panel_changed(
             Or<(Changed<AttributeRanks>, Changed<CarryLimits>)>,
         ),
     >,
-    inventory: Res<Inventory>,
-    equipment: Res<Equipment>,
+    inventory: PlayerRead<Inventory>,
+    equipment: PlayerRead<Equipment>,
     ui: Res<InventoryUiState>,
     notice: Res<InventoryNotice>,
     bindings: Res<Keybinds>,
@@ -901,8 +904,8 @@ fn inventory_panel_changed(
 
 fn reconcile_selection(
     items: Res<Items>,
-    inventory: Res<Inventory>,
-    equipment: Res<Equipment>,
+    inventory: PlayerRead<Inventory>,
+    equipment: PlayerRead<Equipment>,
     lists: Query<&ItemList>,
     mut ui: ResMut<InventoryUiState>,
 ) {
@@ -940,8 +943,8 @@ fn selection_is_droppable(ui: &InventoryUiState, inventory: &Inventory) -> bool 
 fn refresh_controls(
     items: Res<Items>,
     ranks: Query<&AttributeRanks, With<Player>>,
-    inventory: Res<Inventory>,
-    equipment: Res<Equipment>,
+    inventory: PlayerRead<Inventory>,
+    equipment: PlayerRead<Equipment>,
     ui: Res<InventoryUiState>,
     mut nodes: ParamSet<(
         Query<&mut Node, With<DropControls>>,
@@ -999,8 +1002,8 @@ fn refresh_controls(
 fn refresh_labels(
     items: Res<Items>,
     limits: Query<&CarryLimits, With<Player>>,
-    inventory: Res<Inventory>,
-    equipment: Res<Equipment>,
+    inventory: PlayerRead<Inventory>,
+    equipment: PlayerRead<Equipment>,
     ui: Res<InventoryUiState>,
     notice: Res<InventoryNotice>,
     bindings: Res<Keybinds>,
@@ -1142,7 +1145,7 @@ mod tests {
         assert!(bag.add(ItemKind::ReinforcedArmor, 1));
         assert!(bag.add(ItemKind::Battery, 1));
         assert_eq!(
-            world.resource_mut::<Equipment>().equip(
+            world.actor_data_mut::<Equipment>().equip(
                 &mut bag,
                 ItemKind::FieldArmor,
                 10,
@@ -1150,7 +1153,7 @@ mod tests {
             ),
             Ok(true)
         );
-        world.insert_resource(bag);
+        world.set_player_data(bag);
 
         let armor = world
             .spawn(InventoryAction::Select(InventoryRow::BagGear(
@@ -1177,7 +1180,7 @@ mod tests {
             ..pointer_click(battery, window, camera)
         });
         assert_eq!(
-            world.resource::<Equipment>().get(EquipmentSlot::Body),
+            world.actor_data::<Equipment>().get(EquipmentSlot::Body),
             Some(ItemKind::FieldArmor)
         );
         assert!(world.resource::<InventoryNotice>().0.is_empty());
@@ -1190,16 +1193,19 @@ mod tests {
             world.flush();
         }
         assert_eq!(
-            world.resource::<Equipment>().get(EquipmentSlot::Body),
+            world.actor_data::<Equipment>().get(EquipmentSlot::Body),
             Some(ItemKind::ReinforcedArmor)
         );
         assert_eq!(
             world
-                .resource::<Inventory>()
+                .actor_data::<Inventory>()
                 .count(ItemKind::ReinforcedArmor),
             0
         );
-        assert_eq!(world.resource::<Inventory>().count(ItemKind::FieldArmor), 1);
+        assert_eq!(
+            world.actor_data::<Inventory>().count(ItemKind::FieldArmor),
+            1
+        );
     }
 
     #[test]
@@ -1226,7 +1232,7 @@ mod tests {
         world.insert_resource(menu);
         let mut bag = Inventory::default();
         assert!(bag.add(ItemKind::ReinforcedArmor, 1));
-        world.insert_resource(bag);
+        world.set_player_data(bag);
         let armor = world
             .spawn(InventoryAction::Select(InventoryRow::BagGear(
                 ItemKind::ReinforcedArmor,
@@ -1243,10 +1249,13 @@ mod tests {
         });
         world.flush();
 
-        assert_eq!(world.resource::<Equipment>().get(EquipmentSlot::Body), None);
+        assert_eq!(
+            world.actor_data::<Equipment>().get(EquipmentSlot::Body),
+            None
+        );
         assert_eq!(
             world
-                .resource::<Inventory>()
+                .actor_data::<Inventory>()
                 .count(ItemKind::ReinforcedArmor),
             1
         );
@@ -1281,7 +1290,7 @@ mod tests {
         menu.show(MenuTab::Inventory);
         let world = app.world_mut();
         world.spawn(Player::default());
-        world.insert_resource(bag);
+        world.set_player_data(bag);
         world.insert_resource(menu);
         let window = world.spawn_empty().id();
         let camera = world.spawn_empty().id();
@@ -1322,14 +1331,14 @@ mod tests {
 
         let world = app.world_mut();
         assert_eq!(
-            world.resource::<Equipment>().get(EquipmentSlot::MainHand),
+            world.actor_data::<Equipment>().get(EquipmentSlot::MainHand),
             Some(sword)
         );
         assert_eq!(
-            world.resource::<Equipment>().get(EquipmentSlot::OffHand),
+            world.actor_data::<Equipment>().get(EquipmentSlot::OffHand),
             None
         );
-        assert_eq!(world.resource::<Inventory>().count(sword), 1);
+        assert_eq!(world.actor_data::<Inventory>().count(sword), 1);
         let rows = &lists.single(world).expect("inventory list").rows;
         assert_eq!(
             rows[0].0,
@@ -1348,10 +1357,10 @@ mod tests {
         app.update();
 
         let world = app.world();
-        let equipment = world.resource::<Equipment>();
+        let equipment = world.actor_data::<Equipment>();
         assert_eq!(equipment.get(EquipmentSlot::MainHand), Some(sword));
         assert_eq!(equipment.get(EquipmentSlot::OffHand), Some(sword));
-        assert_eq!(world.resource::<Inventory>().count(sword), 0);
+        assert_eq!(world.actor_data::<Inventory>().count(sword), 0);
         assert!(
             lists
                 .single(world)
@@ -1381,14 +1390,14 @@ mod tests {
         });
         world.flush();
         assert_eq!(
-            world.resource::<Equipment>().get(EquipmentSlot::MainHand),
+            world.actor_data::<Equipment>().get(EquipmentSlot::MainHand),
             None
         );
         assert_eq!(
-            world.resource::<Equipment>().get(EquipmentSlot::OffHand),
+            world.actor_data::<Equipment>().get(EquipmentSlot::OffHand),
             Some(sword)
         );
-        assert_eq!(world.resource::<Inventory>().count(sword), 1);
+        assert_eq!(world.actor_data::<Inventory>().count(sword), 1);
     }
 
     #[test]
@@ -1413,7 +1422,7 @@ mod tests {
         let mut bag = Inventory::default();
         assert!(bag.add(ItemKind::FieldHelmet, 1));
         assert!(bag.add(ItemKind::FieldArmor, 1));
-        world.insert_resource(bag);
+        world.set_player_data(bag);
 
         let open_picker = world
             .spawn(InventoryAction::ToggleSlot(EquipmentSlot::Helmet))
@@ -1439,15 +1448,18 @@ mod tests {
         world.trigger(pointer_click(equip_helmet, window, camera));
         world.flush();
         assert_eq!(
-            world.resource::<Equipment>().get(EquipmentSlot::Helmet),
+            world.actor_data::<Equipment>().get(EquipmentSlot::Helmet),
             Some(ItemKind::FieldHelmet)
         );
         assert_eq!(
-            world.resource::<Inventory>().count(ItemKind::FieldHelmet),
+            world.actor_data::<Inventory>().count(ItemKind::FieldHelmet),
             0
         );
         assert_eq!(world.resource::<InventoryUiState>().equip_slot, None);
-        assert_eq!(world.resource::<Inventory>().count(ItemKind::FieldArmor), 1);
+        assert_eq!(
+            world.actor_data::<Inventory>().count(ItemKind::FieldArmor),
+            1
+        );
     }
 
     #[test]

@@ -49,7 +49,7 @@ pub(crate) struct HealthRecovery {
 }
 
 impl HealthRecovery {
-    pub(crate) fn player(points_per_second: f64) -> Self {
+    pub(crate) fn character(points_per_second: f64) -> Self {
         Self::new(Duration::from_secs(5), points_per_second)
     }
 

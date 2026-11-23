@@ -1,13 +1,19 @@
 //! The two wagon parties share a route and carry their own pose and animation state.
 use super::{CrossingGate, GATE_CENTER};
 use crate::{
-    dialogue::{DialogueRegistry, ReplyId, Speaker},
+    combat::{HitReaction, RemoveColliderOnDeath},
+    content::{Items, NpcId, Npcs},
+    dialogue::{DialogueRegistry, NoticeId, ReplyId, Speaker},
     dungeon::Area,
+    equipment::bind_equipment_attachments,
     inventory::{Inventory, ItemKind},
     loading::GameAssets,
-    player::{AnimationLibrary, Player},
+    nemi::FleeState,
+    player::{ActorVisual, NpcGait, Player, bind_actor_animation},
     quest::{MYCELIUM_GOAL, QuestAction, QuestJournal},
+    save::RunSave,
     terrain::{ground_heading, walkable_height},
+    weapon::{WeaponAttack, WeaponStance},
     world::SessionEntity,
 };
 use avian3d::prelude::*;
@@ -16,12 +22,18 @@ use bevy::{
     prelude::*,
     world_serialization::WorldInstanceReady,
 };
-use std::time::Duration;
 
-const TOVAN: &str = "tovan";
+const TOVAN: &str = NpcId::Tovan.key();
 const SHOW_MYCELIUM: &str = "show_mycelium";
 const SAMPLES_NEEDED: ReplyId = ReplyId("samples_needed");
 const SAMPLES_EXAMINED: ReplyId = ReplyId("samples_examined");
+pub(crate) const STATION_NEEDS_SAMPLES: NoticeId = NoticeId("crossing.station_needs_samples");
+pub(crate) const STATION_VERIFIED: NoticeId = NoticeId("crossing.station_verified");
+const STATION_OFFSET_M: f32 = 1.1;
+
+#[derive(Component)]
+pub(crate) struct SampleStation;
+
 const ARRIVAL_DISTANCE_M: f32 = 20.0;
 const CARAVAN_SPEED_MPS: f32 = 2.1;
 const VELLIK_LEAD_M: f32 = 4.20;
@@ -30,6 +42,7 @@ const SUPPORT_PROBE_Y: f32 = 2.0;
 const SUPPORT_PROBE_RANGE_M: f32 = 5.0;
 
 pub(crate) fn register_topics(handlers: &mut DialogueRegistry) {
+    handlers.require_notices(&[STATION_NEEDS_SAMPLES, STATION_VERIFIED]);
     handlers.register(
         TOVAN,
         SHOW_MYCELIUM,
@@ -40,17 +53,25 @@ pub(crate) fn register_topics(handlers: &mut DialogueRegistry) {
 }
 
 fn examine_samples(journal: &mut QuestJournal, inventory: &mut Inventory) -> ReplyId {
+    if verify_samples(journal, inventory) {
+        SAMPLES_EXAMINED
+    } else {
+        SAMPLES_NEEDED
+    }
+}
+
+pub(crate) fn verify_samples(journal: &mut QuestJournal, inventory: &Inventory) -> bool {
     if !journal.expects(QuestAction::ShowedTovanMycelium)
         || inventory.count(ItemKind::Mycelium) < MYCELIUM_GOAL
     {
-        return SAMPLES_NEEDED;
+        return false;
     }
     journal.record(QuestAction::ShowedTovanMycelium);
-    SAMPLES_EXAMINED
+    true
 }
 
 struct Villager {
-    profile: &'static str,
+    id: NpcId,
     name: &'static str,
     color: Color,
     scale: f32,
@@ -60,7 +81,7 @@ struct Villager {
 
 const VILLAGERS: [Villager; 4] = [
     Villager {
-        profile: "isera",
+        id: NpcId::Isera,
         name: "Isera",
         color: Color::srgb(0.42, 0.27, 0.18),
         scale: 1.09,
@@ -68,7 +89,7 @@ const VILLAGERS: [Villager; 4] = [
         kit: Vec3::new(0.40, 0.18, 0.12),
     },
     Villager {
-        profile: "vey",
+        id: NpcId::Vey,
         name: "Vey",
         color: Color::srgb(0.22, 0.37, 0.37),
         scale: 0.97,
@@ -76,7 +97,7 @@ const VILLAGERS: [Villager; 4] = [
         kit: Vec3::new(0.25, 0.31, 0.14),
     },
     Villager {
-        profile: TOVAN,
+        id: NpcId::Tovan,
         name: "Tovan",
         color: Color::srgb(0.37, 0.30, 0.23),
         scale: 1.03,
@@ -84,7 +105,7 @@ const VILLAGERS: [Villager; 4] = [
         kit: Vec3::new(0.46, 0.20, 0.16),
     },
     Villager {
-        profile: "orla",
+        id: NpcId::Orla,
         name: "Orla",
         color: Color::srgb(0.35, 0.24, 0.37),
         scale: 0.90,
@@ -122,7 +143,7 @@ pub(super) struct WagonUnit {
 #[derive(Component)]
 pub(super) struct CaravanBody {
     size: Vec3,
-    profile: Option<&'static str>,
+    npc: Option<NpcId>,
 }
 
 #[derive(Component)]
@@ -130,14 +151,7 @@ struct ConvoyVisual;
 
 #[derive(Component)]
 struct VillagerVisual {
-    wagon: Entity,
     coat: Handle<StandardMaterial>,
-}
-
-#[derive(Component)]
-pub(super) struct VillagerPlayback {
-    wagon: Entity,
-    walking: bool,
 }
 
 #[derive(Component)]
@@ -191,6 +205,7 @@ fn route_pose(route: &[Vec2; 4], mut distance: f32) -> (Vec2, Vec3, f32, bool) {
 
 pub(super) fn stage_caravan(
     assets: Res<GameAssets>,
+    (npcs, items): (Res<Npcs>, Res<Items>),
     models: Res<Assets<Gltf>>,
     gates: Query<&CrossingGate>,
     existing: Query<(), With<Caravan>>,
@@ -278,6 +293,7 @@ pub(super) fn stage_caravan(
                         ));
                         for villager in &VILLAGERS[index * 2..index * 2 + 2] {
                             spawn_villager(
+                                (&npcs, &items),
                                 unit,
                                 villager,
                                 character.scenes[0].clone(),
@@ -298,10 +314,7 @@ fn spawn_rig(
     size: Vec3,
     parked: bool,
 ) {
-    let body = CaravanBody {
-        size,
-        profile: None,
-    };
+    let body = CaravanBody { size, npc: None };
     let mut entity = unit.spawn((
         Name::new(name),
         Transform::from_translation(at),
@@ -316,6 +329,7 @@ fn spawn_rig(
 }
 
 fn spawn_villager(
+    (npcs, items): (&Npcs, &Items),
     unit: &mut ChildSpawnerCommands,
     villager: &Villager,
     model: Handle<WorldAsset>,
@@ -334,10 +348,17 @@ fn spawn_villager(
     });
     let body = CaravanBody {
         size: Vec3::new(0.67, 1.66, 0.6),
-        profile: Some(villager.profile),
+        npc: Some(villager.id),
     };
-    let wagon = unit.target_entity();
+    let (ranks, inventory, equipment) = npcs.loadout(villager.id, items);
     let mut entity = unit.spawn((
+        villager.id,
+        ranks.actor_components(),
+        inventory,
+        equipment,
+        WeaponStance::Holstered,
+        WeaponAttack::default(),
+        NpcGait::default(),
         Name::new(villager.name),
         Transform::from_xyz(villager.side * 2.38, 0.0, -0.2)
             .with_scale(Vec3::splat(villager.scale)),
@@ -348,9 +369,12 @@ fn spawn_villager(
             .spawn((
                 Transform::default(),
                 WorldAssetRoot(model),
-                VillagerVisual { wagon, coat },
+                ActorVisual::Npc,
+                VillagerVisual { coat },
             ))
-            .observe(bind_villager);
+            .observe(bind_villager)
+            .observe(bind_actor_animation)
+            .observe(bind_equipment_attachments);
         villager_root.spawn((
             Mesh3d(meshes.add(Cuboid::from_size(villager.kit))),
             MeshMaterial3d(kit_color),
@@ -360,17 +384,15 @@ fn spawn_villager(
 }
 
 fn enable_parked(entity: &mut EntityCommands, body: &CaravanBody) {
-    entity.insert((
-        RigidBody::Static,
-        Collider::compound(vec![(
-            Vec3::Y * body.size.y * 0.5,
-            Quat::IDENTITY,
-            Collider::cuboid(body.size.x, body.size.y, body.size.z),
-        )]),
-    ));
-    if let Some(profile) = body.profile {
-        entity.insert(Speaker::new(profile, Area::Surface, 0.95));
-    }
+    entity.insert((RigidBody::Static, parked_collider(body.size)));
+}
+
+fn parked_collider(size: Vec3) -> Collider {
+    Collider::compound(vec![(
+        Vec3::Y * size.y * 0.5,
+        Quat::IDENTITY,
+        Collider::cuboid(size.x, size.y, size.z),
+    )])
 }
 
 pub(super) fn move_caravan(
@@ -422,7 +444,7 @@ pub(super) fn move_caravan(
     }
     if all_parked {
         for (entity, body) in &bodies {
-            if body.profile.is_none() {
+            if body.npc.is_none() {
                 enable_parked(&mut commands.entity(entity), body);
             }
         }
@@ -435,7 +457,19 @@ pub(super) fn move_caravan(
 pub(super) fn settle_villagers(
     caravan: Query<&Caravan>,
     wagons: Query<&Transform, With<WagonUnit>>,
-    members: Query<(Entity, &CaravanBody, &ChildOf, &Transform), Without<Speaker>>,
+    mut members: Query<
+        (
+            Entity,
+            &CaravanBody,
+            &ChildOf,
+            &Transform,
+            &mut crate::combat::Health,
+        ),
+        Without<Speaker>,
+    >,
+    run: Res<RunSave>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
     mut commands: Commands,
 ) {
     if !caravan
@@ -444,20 +478,57 @@ pub(super) fn settle_villagers(
     {
         return;
     }
-    for (entity, body, parent, local) in &members {
-        if body.profile.is_none() {
+    for (entity, body, parent, local, mut health) in &mut members {
+        let Some(id) = body.npc else {
             continue;
-        }
+        };
         let Ok(wagon) = wagons.get(parent.parent()) else {
             continue;
         };
         let mut world = wagon.mul_transform(*local);
         let outward = wagon.rotation * (Vec3::X * local.translation.x.signum());
         world.rotation = ground_heading(outward);
+        if id == NpcId::Tovan {
+            spawn_sample_station(
+                &mut commands,
+                &mut meshes,
+                &mut materials,
+                world.translation + outward * STATION_OFFSET_M,
+            );
+        }
+        let mut flee = FleeState::civilian();
         let mut entity = commands.entity(entity);
-        entity.remove::<ChildOf>().insert((SessionEntity, world));
-        enable_parked(&mut entity, body);
+        entity.remove::<ChildOf>().insert((
+            SessionEntity,
+            RigidBody::Kinematic,
+            CustomPositionIntegration,
+            parked_collider(body.size),
+            RemoveColliderOnDeath,
+            HitReaction::new(crate::enemy::HIT_REACTION_SECONDS),
+            Speaker::new(id.key(), Area::Surface, 0.95),
+        ));
+        if let Some(saved) = run.checkpoint().and_then(|save| save.caravan_speaker(id)) {
+            saved.restore(&mut world, &mut health, &mut flee, &mut entity);
+        }
+        entity.insert((world, flee, NpcGait::Idle));
     }
+}
+
+fn spawn_sample_station(
+    commands: &mut Commands,
+    meshes: &mut Assets<Mesh>,
+    materials: &mut Assets<StandardMaterial>,
+    ground: Vec3,
+) {
+    const SIZE: Vec3 = Vec3::new(0.62, 0.70, 0.42);
+    commands.spawn((
+        SessionEntity,
+        SampleStation,
+        Name::new("Tovan’s inspection station"),
+        Transform::from_translation(ground + Vec3::Y * SIZE.y * 0.5),
+        Mesh3d(meshes.add(Cuboid::from_size(SIZE))),
+        MeshMaterial3d(materials.add(Color::srgb(0.34, 0.24, 0.16))),
+    ));
 }
 
 fn ground_pose(
@@ -515,29 +586,12 @@ fn bind_villager(
     ready: On<WorldInstanceReady>,
     costumes: Query<&VillagerVisual>,
     hierarchy: Query<&Children>,
-    library: Res<AnimationLibrary>,
-    mut players: Query<&mut AnimationPlayer>,
     mut coats: Query<(&GltfMaterialName, &mut MeshMaterial3d<StandardMaterial>)>,
-    mut commands: Commands,
 ) {
     let Ok(costume) = costumes.get(ready.entity) else {
         return;
     };
     for child in hierarchy.iter_descendants(ready.entity) {
-        if let Ok(mut player) = players.get_mut(child) {
-            let mut transition = AnimationTransitions::new();
-            transition
-                .play(&mut player, library.walking_node(false), Duration::ZERO)
-                .repeat();
-            commands.entity(child).insert((
-                VillagerPlayback {
-                    wagon: costume.wagon,
-                    walking: false,
-                },
-                transition,
-                AnimationGraphHandle(library.graph.clone()),
-            ));
-        }
         if let Ok((name, mut mat)) = coats.get_mut(child)
             && name.0 == "Woven basalt cloak"
         {
@@ -549,13 +603,8 @@ fn bind_villager(
 pub(super) fn animate(
     wagons: Query<&WagonUnit>,
     time: Res<Time>,
-    library: Res<AnimationLibrary>,
     mut parts: Query<(&MovingPart, &mut Transform)>,
-    mut villagers: Query<(
-        &mut VillagerPlayback,
-        &mut AnimationTransitions,
-        &mut AnimationPlayer,
-    )>,
+    mut villagers: Query<(&ChildOf, &mut NpcGait), With<NpcId>>,
 ) {
     for (part, mut transform) in &mut parts {
         let Ok(wagon) = wagons.get(part.wagon) else {
@@ -576,20 +625,13 @@ pub(super) fn animate(
         transform.rotation = Quat::from_rotation_x(rotation);
         transform.translation.y = part.rest_y + lift;
     }
-    for (mut playback, mut transitions, mut player) in &mut villagers {
-        let Ok(wagon) = wagons.get(playback.wagon) else {
-            continue;
-        };
-        let walking = wagon.walking;
-        if playback.walking != walking {
-            playback.walking = walking;
-            transitions
-                .play(
-                    &mut player,
-                    library.walking_node(walking),
-                    Duration::from_millis(150),
-                )
-                .repeat();
+    for (parent, mut gait) in &mut villagers {
+        if let Ok(wagon) = wagons.get(parent.parent()) {
+            gait.set_if_neq(if wagon.walking {
+                NpcGait::Walk(CARAVAN_SPEED_MPS)
+            } else {
+                NpcGait::Idle
+            });
         }
     }
 }

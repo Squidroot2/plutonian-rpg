@@ -1,6 +1,7 @@
 use crate::{
     experience::ExperienceUpdates,
     inventory::{Inventory, ItemKind},
+    player::PlayerRead,
     quest::{
         CAVERN_HUSHCAP_GOAL, CONTAIN_THE_HUSHCAPS, MYCELIUM_GOAL, QuestJournal, QuestOutcome,
         QuestStatus,
@@ -179,7 +180,7 @@ fn sync(
 fn refresh_cavern_counts(
     mut text: Query<&mut Text, With<CavernQuestCounts>>,
     journal: Res<QuestJournal>,
-    inventory: Res<Inventory>,
+    inventory: PlayerRead<Inventory>,
     mut previous: Local<Option<(usize, u32)>>,
 ) {
     let Ok(mut text) = text.single_mut() else {

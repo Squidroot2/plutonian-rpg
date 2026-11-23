@@ -13,6 +13,7 @@ use crate::{
     hushcap::Hushcap,
     interaction::{CorpseLoot, InteractionTarget, Nearby},
     inventory::{Inventory, ItemKind},
+    player::PlayerRead,
     player::{PLAYER_GROUND_OFFSET, Player},
     save::EncounterId,
     terrain::walkable_height,
@@ -257,7 +258,11 @@ pub(super) fn drive(
     ),
     projectiles: Query<(), With<SpitProjectile>>,
     combat: (MessageReader<ConfirmedHit>, MessageWriter<Hit>),
-    loot: (Res<Inventory>, Res<Nearby>, Query<(Entity, &LootAction)>),
+    loot: (
+        PlayerRead<Inventory>,
+        Res<Nearby>,
+        Query<(Entity, &LootAction)>,
+    ),
     mut commands: Commands,
     mut exit: MessageWriter<AppExit>,
 ) {

@@ -1,19 +1,18 @@
+#[cfg(test)]
+use crate::player::PlayerWorldExt as _;
 use crate::{
     GameState,
     combat::{CombatSystems, Dead, Health, Hit, HitReaction, RemoveColliderOnDeath},
     combat_feedback::DeathAnimation,
-    content::{EnemyArchetype, EnemyDefinition, WeaponStats},
+    content::{EnemyArchetype, EnemyDefinition},
     dialogue::Dialogue,
     dungeon::Area,
-    equipment::bind_fixed_outfit,
-    guard::OutpostSecurity,
     interaction::CorpseLoot,
     inventory::Pickup,
     loading::{EnemyVisuals, PendingScene, scene_ready},
     player::Player,
     save::EncounterId,
     terrain::{MAX_GROUND_STEP, ground_heading, walkable_height},
-    weapon::{self, Hand},
     world::SessionEntity,
 };
 use avian3d::prelude::*;
@@ -26,7 +25,7 @@ const SIGHT_RANGE: f32 = 7.0;
 const LEASH: f32 = 10.0;
 const GLOW_INTENSITY: f32 = 280.0;
 const HIT_GLOW_INTENSITY: f32 = 3500.0;
-const HIT_REACTION_SECONDS: f32 = 0.16;
+pub(crate) const HIT_REACTION_SECONDS: f32 = 0.16;
 const SIGHT_ORIGIN_HEIGHT: f32 = 0.15;
 const HOME_ARRIVAL_RADIUS: f32 = 0.2;
 const TURN_SPEED: f32 = 10.0;
@@ -87,7 +86,6 @@ pub(crate) struct MeleePursuit {
     pub(crate) phase: MeleePhase,
     home: Transform,
     bite: Bite,
-    engagement: Engagement,
     area: Area,
 }
 
@@ -97,18 +95,9 @@ impl MeleePursuit {
             phase: MeleePhase::Waiting,
             home,
             bite,
-            engagement: Engagement::OnSight,
             area: Area::Surface,
         }
     }
-}
-
-/// Encounter rules for acquiring a target and choosing the attack contact.
-#[derive(Component, Default, Clone, Copy)]
-pub(crate) enum Engagement {
-    #[default]
-    OnSight,
-    DefendOutpost(WeaponStats),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -148,10 +137,10 @@ impl MeleePhase {
 
 #[derive(Component)]
 pub(crate) struct GroundMovement {
-    speed: f32,
+    pub(crate) speed: f32,
     ground_offset: f32,
-    destination: Option<Vec3>,
-    moving: bool,
+    pub(crate) destination: Option<Vec3>,
+    pub(crate) moving: bool,
 }
 
 impl GroundMovement {
@@ -204,7 +193,7 @@ impl Plugin for EnemyPlugin {
     }
 }
 
-fn no_dialogue(dialogue: Res<Dialogue>) -> bool {
+pub(crate) fn no_dialogue(dialogue: Res<Dialogue>) -> bool {
     !dialogue.is_open()
 }
 
@@ -212,7 +201,6 @@ pub(crate) struct GroundMelee {
     pub(crate) body: EnemyBody,
     pub(crate) movement: GroundMovement,
     pub(crate) bite: Bite,
-    pub(crate) engagement: Engagement,
 }
 
 pub(crate) struct EnemyBody {
@@ -257,7 +245,6 @@ pub(crate) fn spawn_ground_melee(
         config.body,
         (
             MeleePursuit {
-                engagement: config.engagement,
                 area,
                 ..MeleePursuit::new(home, config.bite)
             },
@@ -307,20 +294,23 @@ pub(crate) fn spawn_enemy(
                 Transform::from_translation(visual.offset),
             ))
             .observe(scene_ready)
-            .observe(bind_animation)
-            .observe(bind_fixed_outfit);
-            root.spawn((
-                HitGlow,
-                PointLight {
-                    color: Color::srgb(1.0, 0.38, 0.14),
-                    intensity: GLOW_INTENSITY,
-                    range: 2.2,
-                    ..default()
-                },
-                Transform::from_xyz(0.0, 0.35, 0.68),
-            ));
+            .observe(bind_animation);
+            spawn_hit_glow(root);
         })
         .id()
+}
+
+pub(crate) fn spawn_hit_glow(root: &mut ChildSpawnerCommands) {
+    root.spawn((
+        HitGlow,
+        PointLight {
+            color: Color::srgb(1.0, 0.38, 0.14),
+            intensity: GLOW_INTENSITY,
+            range: 2.2,
+            ..default()
+        },
+        Transform::from_xyz(0.0, 0.35, 0.68),
+    ));
 }
 
 fn ground_encounters(
@@ -350,7 +340,6 @@ fn plan_actions(
     time: Res<Time<Fixed>>,
     spatial: SpatialQuery,
     player: Query<(Entity, &Player, &Transform), Without<Dead>>,
-    security: Option<Res<OutpostSecurity>>,
     mut enemies: Query<
         (
             Entity,
@@ -374,45 +363,24 @@ fn plan_actions(
         let sight = SpatialQueryFilter::from_excluded_entities([entity, player_entity]);
         let bite = pursuit.bite;
         let same_area = pursuit.area == controller.area;
-        let defends_outpost = matches!(pursuit.engagement, Engagement::DefendOutpost(_));
-        let guard_pursuit_active = defends_outpost
-            && security
-                .as_ref()
-                .is_some_and(|security| security.defends(controller.area, target));
         if same_area
-            && (!defends_outpost || guard_pursuit_active)
             && matches!(
                 pursuit.phase,
                 MeleePhase::Windup(_) | MeleePhase::Recovery(_)
             )
         {
-            if pursuit.phase.tick_attack(delta, bite.recovery) {
-                let hit = if let Engagement::DefendOutpost(stats) = pursuit.engagement {
-                    weapon::weapon_contact(
-                        crate::equipment::WeaponKind::Spear,
-                        stats,
-                        Hand::Main,
-                        &spatial,
-                        entity,
-                        position,
-                        transform.rotation,
-                    )
-                    .filter(|hit| hit.target == player_entity)
-                } else {
-                    bite_contact(&spatial, &sight, &transform, target, bite.range).then_some(Hit {
-                        source: entity,
-                        target: player_entity,
-                        damage: bite.damage,
-                        contact: None,
-                    })
-                };
-                if let Some(hit) = hit {
-                    hits.write(hit);
-                }
+            if pursuit.phase.tick_attack(delta, bite.recovery)
+                && bite_contact(&spatial, &sight, &transform, target, bite.range)
+            {
+                hits.write(Hit {
+                    source: entity,
+                    target: player_entity,
+                    damage: bite.damage,
+                    contact: None,
+                });
             }
             continue;
         }
-
         let visible = || {
             clear_path(
                 &spatial,
@@ -429,20 +397,10 @@ fn plan_actions(
             && visible();
         let near_home = position.xz().distance(pursuit.home.translation.xz()) < HOME_ARRIVAL_RADIUS;
 
-        let destination = if guard_pursuit_active
-            || (!defends_outpost
-                && sees_player
-                && (pursuit.phase != MeleePhase::Returning || near_home))
-        {
+        let destination = if sees_player && (pursuit.phase != MeleePhase::Returning || near_home) {
             pursuit.phase = MeleePhase::Pursuing;
-            if to_target.length_squared() <= bite.range * bite.range
-                && (!defends_outpost || visible())
-            {
-                transform.rotation = if defends_outpost {
-                    weapon::spear_heading(to_target)
-                } else {
-                    ground_heading(to_target)
-                };
+            if to_target.length_squared() <= bite.range * bite.range {
+                transform.rotation = ground_heading(to_target);
                 pursuit.phase = MeleePhase::Windup(bite.windup);
                 continue;
             }
@@ -452,9 +410,6 @@ fn plan_actions(
             pursuit.home.translation
         } else {
             pursuit.phase = MeleePhase::Waiting;
-            if defends_outpost && transform.rotation != pursuit.home.rotation {
-                transform.rotation = pursuit.home.rotation;
-            }
             continue;
         };
 
@@ -462,7 +417,7 @@ fn plan_actions(
     }
 }
 
-fn move_ground_enemies(
+pub(crate) fn move_ground_enemies(
     time: Res<Time<Fixed>>,
     spatial: SpatialQuery,
     mover: MoveAndSlide,
@@ -705,7 +660,6 @@ pub(crate) mod tests {
         .init_state::<GameState>()
         .init_resource::<WorldLayout>()
         .init_resource::<Dialogue>()
-        .init_resource::<Equipment>()
         .init_resource::<MovementInput>()
         .init_resource::<Assets<StandardMaterial>>()
         .add_plugins((CombatPlugin, EnemyPlugin))
@@ -869,13 +823,14 @@ pub(crate) mod tests {
         assert!(bag.add(ItemKind::FieldArmor, 1));
         assert!(bag.add(ItemKind::BeaconCore, 1));
         app.world_mut()
-            .resource_mut::<Equipment>()
+            .actor_data_mut::<Equipment>()
             .equip(&mut bag, ItemKind::FieldArmor, 10, test_items())
             .expect("the armor fixture must be equipable");
         let mut journal = test_journal();
         journal.record(QuestAction::TalkedToNemi);
         journal.record(QuestAction::RecoveredCore);
-        app.insert_resource(bag).insert_resource(journal);
+        app.world_mut().set_player_data(bag);
+        app.insert_resource(journal);
         app.world_mut().entity_mut(player).insert((
             Health::new(100),
             Defense(2),
@@ -955,7 +910,13 @@ pub(crate) mod tests {
                 .resource::<QuestJournal>()
                 .expects(QuestAction::ReturnedCore)
         );
-        assert_eq!(world.resource::<Inventory>().count(ItemKind::BeaconCore), 1);
-        assert_eq!(world.resource::<Equipment>().total_defense(test_items()), 2);
+        assert_eq!(
+            world.actor_data::<Inventory>().count(ItemKind::BeaconCore),
+            1
+        );
+        assert_eq!(
+            world.actor_data::<Equipment>().total_defense(test_items()),
+            2
+        );
     }
 }

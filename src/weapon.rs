@@ -1,3 +1,5 @@
+#[cfg(test)]
+use crate::player::PlayerWorldExt as _;
 use avian3d::prelude::*;
 use bevy::{prelude::*, window::PrimaryWindow};
 
@@ -11,6 +13,7 @@ use crate::{
     equipment::{Equipment, EquipmentSlot, WeaponKind},
     interaction::InteractionSystems,
     inventory::{Inventory, ItemKind},
+    player::PlayerRead,
     player::{Dodge, MovementInput, Player, Stamina},
     ui::menu_ui::PlayerMenu,
 };
@@ -44,7 +47,7 @@ pub(crate) enum Hand {
 impl Hand {
     pub(crate) const ALL: [Self; 2] = [Self::Main, Self::Off];
 
-    fn slot(self) -> EquipmentSlot {
+    pub(crate) fn slot(self) -> EquipmentSlot {
         match self {
             Self::Main => EquipmentSlot::MainHand,
             Self::Off => EquipmentSlot::OffHand,
@@ -119,6 +122,53 @@ impl WeaponAttack {
         *self = Self::default();
     }
 
+    pub(crate) fn begin(&mut self, hand: Hand, equipment: &Equipment, items: &Items) -> bool {
+        if self.current(hand).is_some() {
+            return false;
+        }
+        let Some(item) = equipment.get(hand.slot()) else {
+            return false;
+        };
+        let Some((weapon, stats)) = items[item].attack() else {
+            return false;
+        };
+        self.swings[hand as usize] = Some(Swing {
+            weapon,
+            item,
+            stats,
+            elapsed: 0.0,
+        });
+        true
+    }
+
+    pub(crate) fn strike(
+        &mut self,
+        hand: Hand,
+        equipment: &Equipment,
+        delta: f32,
+        melee: MeleeDamageMultiplier,
+        spatial: &SpatialQuery,
+        entity: Entity,
+        pose: &Transform,
+    ) -> Option<Hit> {
+        if equipment.get(hand.slot()) != Some(self.current(hand)?.item) {
+            self.swings[hand as usize] = None;
+            return None;
+        }
+        let (weapon, stats) = self.advance(hand, delta)?;
+        let mut hit = weapon_contact(
+            weapon,
+            stats,
+            hand,
+            spatial,
+            entity,
+            pose.translation,
+            pose.rotation,
+        )?;
+        hit.damage = melee.scale(hit.damage);
+        Some(hit)
+    }
+
     fn advance(&mut self, hand: Hand, delta: f32) -> Option<(WeaponKind, WeaponStats)> {
         let slot = &mut self.swings[hand as usize];
         let swing = slot.as_mut()?;
@@ -140,8 +190,8 @@ fn attack(
     keys: Res<ButtonInput<KeyCode>>,
     bindings: Res<Keybinds>,
     windows: Query<&Window, With<PrimaryWindow>>,
-    equipment: Res<Equipment>,
-    inventory: Res<Inventory>,
+    equipment: PlayerRead<Equipment>,
+    inventory: PlayerRead<Inventory>,
     dialogue: Res<Dialogue>,
     time: Res<Time>,
     spatial: SpatialQuery,
@@ -210,43 +260,53 @@ fn attack(
             && movement.dodge_pending(controller.grounded, dodge, stamina, costs.dodge));
 
     for hand in Hand::ALL {
-        let equipped = equipment.get(hand.slot());
-        if let Some(current) = swing.current(hand) {
-            if equipped != Some(current.item) {
-                swing.swings[hand as usize] = None;
-            } else if let Some((weapon, stats)) = swing.advance(hand, time.delta_secs())
-                && let Some(mut hit) = weapon_contact(
-                    weapon,
-                    stats,
-                    hand,
-                    &spatial,
-                    entity,
-                    transform.translation,
-                    transform.rotation,
-                )
-            {
-                hit.damage = melee.scale(hit.damage);
+        if swing.current(hand).is_some() {
+            if let Some(hit) = swing.strike(
+                hand,
+                &equipment,
+                time.delta_secs(),
+                *melee,
+                &spatial,
+                entity,
+                transform,
+            ) {
                 hits.write(hit);
             }
-        } else if can_start
-            && let Some(item) = equipped
-            && let Some((weapon, stats)) = items[item].attack()
-            && bindings.get(hand.control()).just_pressed(&keys, &buttons)
-        {
-            swing.swings[hand as usize] = Some(Swing {
-                weapon,
-                item,
-                stats,
-                elapsed: 0.0,
-            });
+        } else if can_start && bindings.get(hand.control()).just_pressed(&keys, &buttons) {
+            swing.begin(hand, &equipment, &items);
         }
     }
 }
 
-/// Aim the offset spear grip's forward ray at the target's horizontal position.
-pub(crate) fn spear_heading(delta: Vec3) -> Quat {
-    let radius = delta.xz().length().max(GRIP_SIDE.abs());
-    crate::terrain::ground_heading(delta) * Quat::from_rotation_y((-GRIP_SIDE / radius).asin())
+/// Aim the hand's offset contact cast toward a horizontal target.
+pub(crate) fn weapon_heading(profile: WeaponKind, hand: Hand, delta: Vec3) -> Quat {
+    let (side, direction) = contact_geometry(profile, hand);
+    let local_origin = Vec2::new(side, 0.0);
+    let ray = direction.xz().normalize();
+    let along = local_origin.dot(ray);
+    let distance_squared = delta
+        .xz()
+        .length_squared()
+        .max(local_origin.length_squared());
+    let travel = (along * along + distance_squared - local_origin.length_squared())
+        .max(0.0)
+        .sqrt()
+        - along;
+    let contact = local_origin + ray * travel;
+    crate::terrain::ground_heading(delta) * Quat::from_rotation_y(-contact.x.atan2(contact.y))
+}
+
+fn contact_geometry(weapon: WeaponKind, hand: Hand) -> (f32, Vec3) {
+    match weapon {
+        WeaponKind::Spear => (GRIP_SIDE, Vec3::Z),
+        WeaponKind::Shortsword => {
+            let sign = if hand == Hand::Main { -1.0 } else { 1.0 };
+            (
+                SWORD_GRIP_OFFSET * sign,
+                Vec3::new(-SWORD_INWARD_SWEEP * sign, 0.0, 1.0),
+            )
+        }
+    }
 }
 
 pub(crate) fn weapon_contact(
@@ -258,17 +318,7 @@ pub(crate) fn weapon_contact(
     position: Vec3,
     facing: Quat,
 ) -> Option<Hit> {
-    let (side, local_direction) = match weapon {
-        WeaponKind::Spear => (GRIP_SIDE, Vec3::Z),
-        WeaponKind::Shortsword => {
-            // Sweep inward from the striking hand at close range.
-            let sign = if hand == Hand::Main { -1.0 } else { 1.0 };
-            (
-                SWORD_GRIP_OFFSET * sign,
-                Vec3::new(-SWORD_INWARD_SWEEP * sign, 0.0, 1.0),
-            )
-        }
-    };
+    let (side, local_direction) = contact_geometry(weapon, hand);
     let direction = Dir3::new(facing * local_direction).ok()?;
     let origin = position + facing * Vec3::new(side, GRIP_HEIGHT, 0.0);
     spatial
@@ -379,7 +429,6 @@ mod tests {
         .init_asset::<AudioSource>()
         .init_state::<GameState>()
         .init_resource::<Dialogue>()
-        .init_resource::<Inventory>()
         .init_resource::<InventoryNotice>()
         .init_resource::<Orbit>()
         .init_resource::<MovementInput>()
@@ -521,7 +570,7 @@ mod tests {
         let mut bag = crate::inventory::Inventory::default();
         assert!(bag.add(ItemKind::FieldSpear, 1));
         assert_eq!(
-            world.resource_mut::<Equipment>().equip(
+            world.actor_data_mut::<Equipment>().equip(
                 &mut bag,
                 ItemKind::FieldSpear,
                 10,
@@ -624,7 +673,7 @@ mod tests {
         let mut bag = crate::inventory::Inventory::default();
         assert!(bag.add(ItemKind::FieldSpear, 1));
         assert_eq!(
-            world.resource_mut::<Equipment>().equip(
+            world.actor_data_mut::<Equipment>().equip(
                 &mut bag,
                 ItemKind::FieldSpear,
                 10,
@@ -715,7 +764,7 @@ mod tests {
             equipment.equip(&mut bag, ItemKind::FieldSpear, 10, test_items()),
             Ok(true)
         );
-        app.insert_resource(equipment.clone());
+        app.world_mut().set_player_data(equipment.clone());
         for _ in 0..3 {
             app.update();
         }
@@ -727,7 +776,7 @@ mod tests {
             equipment.equip_in(&mut bag, OffHand, ItemKind::Shortsword, 10, test_items()),
             Ok(true)
         );
-        app.insert_resource(equipment.clone());
+        app.world_mut().set_player_data(equipment.clone());
         click(&mut app, &[Left]);
         assert!(!player_attack(&app, player).active());
         click(&mut app, &[Right]);
@@ -741,7 +790,7 @@ mod tests {
             equipment.equip_in(&mut bag, MainHand, ItemKind::Shortsword, 10, test_items()),
             Ok(true)
         );
-        app.insert_resource(equipment);
+        app.world_mut().set_player_data(equipment);
         click(&mut app, &[Right, Left]);
         let attack = player_attack(&app, player);
         assert!(
@@ -825,7 +874,6 @@ mod tests {
         assert_eq!(equipment.equip(&mut bag, pike, 10, &items), Ok(true));
         let world = app.world_mut();
         world.insert_resource(items);
-        world.insert_resource(equipment);
         world.spawn((
             PrimaryWindow,
             Window {
@@ -835,7 +883,7 @@ mod tests {
         ));
         let mut player = Player::default();
         player.grounded = true;
-        let player = world.spawn((player, Transform::default())).id();
+        let player = world.spawn((player, Transform::default(), equipment)).id();
         let target = world
             .spawn((
                 Health::new(60),
@@ -921,7 +969,7 @@ mod tests {
                 Ok(true)
             );
         }
-        app.insert_resource(equipment);
+        app.world_mut().set_player_data(equipment);
         for _ in 0..3 {
             app.update();
         }
@@ -998,7 +1046,7 @@ mod tests {
         let mut bag = Inventory::default();
         assert!(bag.add(ItemKind::Shortsword, 1));
         assert_eq!(
-            app.world_mut().resource_mut::<Equipment>().equip_in(
+            app.world_mut().actor_data_mut::<Equipment>().equip_in(
                 &mut bag,
                 EquipmentSlot::OffHand,
                 ItemKind::Shortsword,

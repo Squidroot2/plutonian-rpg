@@ -1,5 +1,6 @@
 mod enemies;
 mod items;
+mod npcs;
 mod placements;
 #[cfg(test)]
 pub(crate) mod tests;
@@ -7,6 +8,9 @@ pub(crate) mod tests;
 pub(crate) use enemies::{Enemies, EnemyArchetype, EnemyDefinition};
 pub(crate) use items::WeaponStats;
 pub use items::{ItemKind, Items};
+#[cfg(test)]
+pub(crate) use npcs::test_npcs;
+pub(crate) use npcs::{NpcId, Npcs};
 pub(crate) use placements::{CollectedPickups, PlacedPickup, Placements};
 
 use crate::{GameState, loading::LoadStatus, save::SaveSlot};
@@ -118,6 +122,7 @@ struct CatalogHandles {
     items: Handle<Items>,
     enemies: Handle<Enemies>,
     placements: Handle<Placements>,
+    npcs: Handle<Npcs>,
     started: Instant,
 }
 
@@ -128,6 +133,7 @@ impl Plugin for ContentPlugin {
         register::<Items>(app);
         register::<Enemies>(app);
         register::<Placements>(app);
+        register::<Npcs>(app);
         app.add_observer(placements::spawn_encounters)
             .add_systems(OnEnter(GameState::Boot), request_catalogs)
             .add_systems(Update, prepare_catalogs.run_if(in_state(GameState::Boot)));
@@ -144,6 +150,7 @@ fn request_catalogs(mut commands: Commands, server: Res<AssetServer>) {
         items: server.load(Items::PATH),
         enemies: server.load(Enemies::PATH),
         placements: server.load(Placements::PATH),
+        npcs: server.load(Npcs::PATH),
         started: Instant::now(),
     });
 }
@@ -155,6 +162,7 @@ fn prepare_catalogs(
     items: Res<Assets<Items>>,
     enemies: Res<Assets<Enemies>>,
     placements: Res<Assets<Placements>>,
+    npcs: Res<Assets<Npcs>>,
     mut slot: ResMut<SaveSlot>,
     mut status: ResMut<LoadStatus>,
     mut next: ResMut<NextState<GameState>>,
@@ -163,6 +171,7 @@ fn prepare_catalogs(
         (handles.items.id().untyped(), Items::PATH),
         (handles.enemies.id().untyped(), Enemies::PATH),
         (handles.placements.id().untyped(), Placements::PATH),
+        (handles.npcs.id().untyped(), Npcs::PATH),
     ] {
         if let Some(LoadState::Failed(error)) = server.get_load_state(id) {
             status.error = Some(format!("Could not load {path}: {error}"));
@@ -175,10 +184,11 @@ fn prepare_catalogs(
         next.set(GameState::Failed);
         return;
     }
-    let (Some(items), Some(enemies), Some(placements)) = (
+    let (Some(items), Some(enemies), Some(placements), Some(npcs)) = (
         items.get(&handles.items),
         enemies.get(&handles.enemies),
         placements.get(&handles.placements),
+        npcs.get(&handles.npcs),
     ) else {
         return;
     };
@@ -186,6 +196,7 @@ fn prepare_catalogs(
         .validate()
         .and_then(|()| enemies.validate(items))
         .and_then(|()| placements.validate(items, enemies))
+        .and_then(|()| npcs.validate(items))
     {
         status.error = Some(error);
         next.set(GameState::Failed);
@@ -195,6 +206,7 @@ fn prepare_catalogs(
     commands.insert_resource(items.clone());
     commands.insert_resource(enemies.clone());
     commands.insert_resource(placements.clone());
+    commands.insert_resource(npcs.clone());
     commands.remove_resource::<CatalogHandles>();
     next.set(GameState::Title);
 }

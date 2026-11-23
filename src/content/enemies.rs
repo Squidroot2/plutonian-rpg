@@ -1,6 +1,6 @@
-use super::{Catalog, ContentId, Items, WeaponStats, positive};
+use super::{Catalog, ContentId, Items, positive};
 use crate::{
-    enemy::{Bite, EnemyBody, Engagement, GroundMelee, GroundMovement, ranged::Spit},
+    enemy::{Bite, EnemyBody, GroundMelee, GroundMovement, ranged::Spit},
     inventory::Pickup,
 };
 use bevy::prelude::*;
@@ -82,33 +82,27 @@ impl Enemies {
 pub(crate) struct EnemyDefinition {
     id: ContentId,
     name: String,
-    health: u16,
+    #[serde(default, deserialize_with = "present")]
+    health: Option<u16>,
     xp: u16,
-    loot: Pickup,
+    #[serde(default, deserialize_with = "present")]
+    loot: Option<Pickup>,
     behavior: Behavior,
+}
+
+fn present<'de, D: serde::Deserializer<'de>, T: Deserialize<'de>>(
+    deserializer: D,
+) -> Result<Option<T>, D::Error> {
+    T::deserialize(deserializer).map(Some)
 }
 
 #[derive(Clone, Copy, Deserialize)]
 #[serde(deny_unknown_fields)]
 enum Behavior {
-    Worm {
-        speed_mps: f32,
-        bite: Bite,
-    },
-    Roach {
-        speed_mps: f32,
-        bite: Bite,
-    },
-    Hushcap {
-        spit: Spit,
-    },
-    Guard {
-        speed_mps: f32,
-        defense: u16,
-        thrust: Bite,
-        contact_reach_m: f32,
-        contact_radius_m: f32,
-    },
+    Worm { speed_mps: f32, bite: Bite },
+    Roach { speed_mps: f32, bite: Bite },
+    Hushcap { spit: Spit },
+    Guard { speed_mps: f32 },
 }
 
 impl EnemyDefinition {
@@ -122,45 +116,38 @@ impl EnemyDefinition {
     }
 
     pub(super) fn loot(&self) -> Pickup {
-        self.loot
+        self.loot.expect("creature loot must be validated at boot")
     }
 
     pub(crate) fn body(&self) -> EnemyBody {
         EnemyBody {
             name: self.name.clone(),
-            health: self.health,
+            health: self
+                .health
+                .expect("creature health must be validated at boot"),
             experience: self.xp,
-            loot: self.loot,
+            loot: self.loot(),
         }
     }
 
     pub(crate) fn melee(&self, ground_offset: f32) -> GroundMelee {
-        let (speed, bite, engagement) = match self.behavior {
+        let (speed, bite) = match self.behavior {
             Behavior::Worm { speed_mps, bite } | Behavior::Roach { speed_mps, bite } => {
-                (speed_mps, bite, Engagement::OnSight)
+                (speed_mps, bite)
             }
-            Behavior::Guard {
-                speed_mps,
-                thrust,
-                contact_reach_m,
-                contact_radius_m,
-                ..
-            } => (
-                speed_mps,
-                thrust,
-                Engagement::DefendOutpost(WeaponStats {
-                    damage: thrust.damage,
-                    reach_m: contact_reach_m,
-                    contact_radius_m,
-                }),
-            ),
-            Behavior::Hushcap { .. } => unreachable!("Hushcaps use ranged attacks"),
+            _ => unreachable!("only biting creatures use this attack configuration"),
         };
         GroundMelee {
             body: self.body(),
             movement: GroundMovement::new(speed, ground_offset),
             bite,
-            engagement,
+        }
+    }
+
+    pub(crate) fn guard_role(&self) -> (&str, f32, u16) {
+        match self.behavior {
+            Behavior::Guard { speed_mps } => (&self.name, speed_mps, self.xp),
+            _ => unreachable!("the placement must assign a validated guard role"),
         }
     }
 
@@ -171,35 +158,27 @@ impl EnemyDefinition {
         }
     }
 
-    pub(crate) fn defense(&self) -> u16 {
-        match self.behavior {
-            Behavior::Guard { defense, .. } => defense,
-            _ => unreachable!("only guards have configured defense"),
-        }
-    }
-
     fn validate(&self, items: &Items) -> Result<(), String> {
-        items.validate_stack(self.loot)?;
-        if self.name.trim().is_empty() || self.health == 0 || self.xp == 0 {
-            return Err("Name, positive health, and positive XP are required".into());
+        if self.name.trim().is_empty() || self.xp == 0 {
+            return Err("Name and positive XP are required".into());
+        }
+        if self.archetype() == EnemyArchetype::Guard {
+            if self.health.is_some() || self.loot.is_some() {
+                return Err(
+                    "Guard health and loot come from the NPC's attributes and loadout".into(),
+                );
+            }
+        } else {
+            if self.health.is_none_or(|health| health == 0) {
+                return Err("Creatures need positive health".into());
+            }
+            items.validate_stack(self.loot.ok_or("Creatures need a loot stack")?)?;
         }
         let valid = match self.behavior {
             Behavior::Worm { speed_mps, bite } | Behavior::Roach { speed_mps, bite } => {
                 positive(speed_mps) && bite.is_valid()
             }
-            Behavior::Guard {
-                speed_mps,
-                thrust,
-                contact_reach_m,
-                contact_radius_m,
-                ..
-            } => {
-                positive(speed_mps)
-                    && thrust.is_valid()
-                    && positive(contact_reach_m)
-                    && positive(contact_radius_m)
-                    && thrust.range <= contact_reach_m
-            }
+            Behavior::Guard { speed_mps } => positive(speed_mps),
             Behavior::Hushcap { spit } => spit.is_valid(),
         };
         valid

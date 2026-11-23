@@ -558,6 +558,7 @@ fn refresh_prompt(
                     }
                     InteractionTarget::Corpse => "Loot corpse".into(),
                     InteractionTarget::Chest(chest) => format!("Open {}", chest.name()),
+                    InteractionTarget::SampleStation => "Verify Mycelium samples".into(),
                     InteractionTarget::Bed => "Save game".into(),
                     InteractionTarget::Dungeon(target) => match target {
                         DungeonTarget::Hatch if !quest.beacon_powered() => {

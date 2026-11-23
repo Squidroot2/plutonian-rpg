@@ -1,14 +1,18 @@
+#[cfg(test)]
+use crate::player::PlayerWorldExt as _;
 use crate::{
     GameState,
     combat::Dead,
-    content::{CollectedPickups, PlacedPickup},
+    content::{CollectedPickups, NpcId, PlacedPickup},
     controls::{Control, Keybinds},
+    crossing::{STATION_NEEDS_SAMPLES, STATION_VERIFIED, SampleStation, verify_samples},
     dialogue::{
         self, Dialogue, DialogueCatalog, DialogueClick, DialogueRegistry, NoticeId, Speaker,
     },
     dungeon::{Area, DungeonTarget, UseDungeonTarget},
     inventory::{Inventory, ItemKind, Pickup},
     player::Player,
+    player::PlayerWrite,
     quest::{QuestAction, QuestJournal},
     save::{Bed, SaveAtBed},
     storage::ChestId,
@@ -31,6 +35,7 @@ pub enum InteractionTarget {
     Corpse,
     Chest(ChestId),
     Bed,
+    SampleStation,
 }
 #[derive(Component)]
 pub(crate) struct CorpseLoot {
@@ -119,6 +124,7 @@ struct Candidate {
     speaker: Option<&'static Speaker>,
     chest: Option<&'static ChestId>,
     bed: Has<Bed>,
+    sample_station: Has<SampleStation>,
 }
 
 impl CandidateItem<'_, '_> {
@@ -127,6 +133,7 @@ impl CandidateItem<'_, '_> {
         area: Area,
         quest: &QuestJournal,
         catalog: &DialogueCatalog,
+        can_use_station: bool,
     ) -> Option<(InteractionTarget, Vec3)> {
         if let Some(speaker) = self.speaker.filter(|speaker| {
             !self.dead
@@ -171,6 +178,8 @@ impl CandidateItem<'_, '_> {
             (InteractionTarget::Corpse, 0.0)
         } else if let Some(&chest) = self.chest.filter(|_| area == Area::Surface) {
             (InteractionTarget::Chest(chest), 0.0)
+        } else if self.sample_station && area == Area::Surface && can_use_station {
+            (InteractionTarget::SampleStation, 0.0)
         } else if self.bed && area == Area::Surface {
             (InteractionTarget::Bed, 0.0)
         } else {
@@ -192,9 +201,11 @@ fn find_target(
             With<CorpseLoot>,
             With<ChestId>,
             With<Bed>,
+            With<SampleStation>,
         )>,
     >,
     quest: Res<QuestJournal>,
+    defeated_npcs: Query<&NpcId, With<Dead>>,
     catalog: Res<DialogueCatalog>,
     dialogue: Res<Dialogue>,
     spatial: SpatialQuery,
@@ -209,11 +220,14 @@ fn find_target(
         nearby.set_if_neq(Nearby::default());
         return;
     };
+    let can_use_station = quest.expects(QuestAction::ShowedTovanMycelium)
+        && defeated_npcs.iter().any(|id| *id == NpcId::Tovan);
     let mut selected = None;
     let origin = transform.translation + Vec3::Y * INTERACT_HEIGHT;
     let mut closest = INTERACT_RANGE;
     for candidate in &targets {
-        let Some((interaction, point)) = candidate.interaction(player.area, &quest, &catalog)
+        let Some((interaction, point)) =
+            candidate.interaction(player.area, &quest, &catalog, can_use_station)
         else {
             continue;
         };
@@ -258,7 +272,7 @@ fn interact(
     nearby: Res<Nearby>,
     mut dialogue: ResMut<Dialogue>,
     mut quest: ResMut<QuestJournal>,
-    (mut inventory, mut collected): (ResMut<Inventory>, ResMut<CollectedPickups>),
+    (mut inventory, mut collected): (PlayerWrite<Inventory>, ResMut<CollectedPickups>),
     mut commands: Commands,
     pickups: Query<(&Pickup, Option<&PlacedPickup>)>,
     speakers: Query<&Speaker, Without<Dead>>,
@@ -320,6 +334,14 @@ fn interact(
                     }
                     finish_pickup(&mut commands, entity);
                 }
+            }
+            InteractionTarget::SampleStation => {
+                let notice = if verify_samples(&mut quest, &inventory) {
+                    STATION_VERIFIED
+                } else {
+                    STATION_NEEDS_SAMPLES
+                };
+                dialogue.show_notice(&catalog, notice);
             }
             InteractionTarget::Dungeon(target) => commands.trigger(UseDungeonTarget(target)),
             InteractionTarget::Corpse
@@ -454,7 +476,6 @@ mod tests {
         .init_state::<GameState>()
         .insert_resource(crate::quest::test_journal())
         .init_resource::<Dialogue>()
-        .init_resource::<Inventory>()
         .init_resource::<Keybinds>()
         .init_resource::<PlayerMenu>()
         .init_resource::<ButtonInput<KeyCode>>()
@@ -579,7 +600,10 @@ mod tests {
         assert!(journal.has_occurred(QuestAction::RecoveredCore));
         assert!(journal.expects(QuestAction::TalkedToNemi));
         assert!(!journal.beacon_powered());
-        assert_eq!(world.resource::<Inventory>().count(ItemKind::BeaconCore), 1);
+        assert_eq!(
+            world.actor_data::<Inventory>().count(ItemKind::BeaconCore),
+            1
+        );
         assert!(world.get_entity(core).is_err());
         assert_eq!(
             world.resource::<Dialogue>().text(),
@@ -604,7 +628,10 @@ mod tests {
         let journal = world.resource::<QuestJournal>();
         assert!(journal.has_occurred(QuestAction::TalkedToNemi));
         assert!(journal.is_complete(LAST_LIGHT));
-        assert_eq!(world.resource::<Inventory>().count(ItemKind::BeaconCore), 0);
+        assert_eq!(
+            world.actor_data::<Inventory>().count(ItemKind::BeaconCore),
+            0
+        );
         assert_nemi_reply(world, EARLY_CORE_RETURNED);
     }
 
@@ -642,13 +669,13 @@ mod tests {
             .record(QuestAction::RecoveredCore);
         assert!(
             world
-                .resource_mut::<Inventory>()
+                .actor_data_mut::<Inventory>()
                 .add(ItemKind::BeaconCore, 1)
         );
         press_interact(&mut app);
         assert!(shows_topic(&mut app, RETURN_BEACON_CORE));
 
-        assert!(app.world_mut().resource_mut::<Inventory>().consume_core());
+        assert!(app.world_mut().actor_data_mut::<Inventory>().consume_core());
         press_key(&mut app, KeyCode::Enter);
         assert!(
             app.world()
@@ -733,7 +760,7 @@ mod tests {
         journal.record(QuestAction::RecoveredCore);
         assert!(
             world
-                .resource_mut::<Inventory>()
+                .actor_data_mut::<Inventory>()
                 .add(ItemKind::BeaconCore, 1)
         );
 
@@ -766,7 +793,7 @@ mod tests {
         );
         assert_eq!(
             app.world()
-                .resource::<Inventory>()
+                .actor_data::<Inventory>()
                 .count(ItemKind::BeaconCore),
             1
         );
@@ -807,7 +834,9 @@ mod tests {
         click(&mut app, take);
         click(&mut app, take);
         assert_eq!(
-            app.world().resource::<Inventory>().count(ItemKind::Battery),
+            app.world()
+                .actor_data::<Inventory>()
+                .count(ItemKind::Battery),
             2
         );
         assert_eq!(
@@ -823,7 +852,9 @@ mod tests {
         press_interact(&mut app);
         click(&mut app, take);
         assert_eq!(
-            app.world().resource::<Inventory>().count(ItemKind::Battery),
+            app.world()
+                .actor_data::<Inventory>()
+                .count(ItemKind::Battery),
             2
         );
         click(&mut app, StorageAction::Close);
@@ -942,13 +973,13 @@ mod tests {
             );
             click(&mut app, LootAction::Close);
             app.update();
-            assert_eq!(app.world().resource::<Inventory>().count(item), 0);
+            assert_eq!(app.world().actor_data::<Inventory>().count(item), 0);
 
             press_interact(&mut app);
             // A full stack must leave the loot available for a later attempt.
             assert!(
                 app.world_mut()
-                    .resource_mut::<Inventory>()
+                    .actor_data_mut::<Inventory>()
                     .add(item, u32::MAX)
             );
             click(&mut app, LootAction::Take);
@@ -961,12 +992,12 @@ mod tests {
             );
             assert!(
                 app.world_mut()
-                    .resource_mut::<Inventory>()
+                    .actor_data_mut::<Inventory>()
                     .remove(item, u32::MAX)
             );
 
             click(&mut app, LootAction::Take);
-            assert_eq!(app.world().resource::<Inventory>().count(item), 1);
+            assert_eq!(app.world().actor_data::<Inventory>().count(item), 1);
             assert!(
                 app.world()
                     .get::<CorpseLoot>(corpse)
@@ -978,8 +1009,69 @@ mod tests {
             app.update();
             press_interact(&mut app);
             assert!(app.world().resource::<Nearby>().0.is_none());
-            assert_eq!(app.world().resource::<Inventory>().count(item), 1);
+            assert_eq!(app.world().actor_data::<Inventory>().count(item), 1);
         }
+    }
+
+    #[test]
+    fn the_inspection_station_completes_the_quest_once_with_every_speaker_defeated() {
+        use crate::quest::{CONTAIN_THE_HUSHCAPS, test_relay_journal};
+
+        let mut app = test_app();
+        let mut journal = test_relay_journal();
+        journal.offer_cavern_report();
+        journal.record(QuestAction::ReportedArchiveHushcap);
+        journal.record(QuestAction::DefeatedFiveCavernHushcaps);
+        app.insert_resource(journal);
+        let world = app.world_mut();
+        for id in NpcId::CARAVAN.into_iter().filter(|id| *id != NpcId::Tovan) {
+            world.spawn((id, Dead));
+        }
+        let tovan = world.spawn(NpcId::Tovan).id();
+        let station = world
+            .spawn((SampleStation, Transform::from_xyz(0.0, 0.0, -1.0)))
+            .id();
+        assert!(
+            world
+                .actor_data_mut::<Inventory>()
+                .add(ItemKind::Mycelium, 4)
+        );
+        press_interact(&mut app);
+        assert!(app.world().resource::<Nearby>().0.is_none());
+
+        app.world_mut().entity_mut(tovan).insert(Dead);
+        app.update();
+        assert_eq!(
+            app.world().resource::<Nearby>().0,
+            Some((station, InteractionTarget::SampleStation))
+        );
+        press_interact(&mut app);
+        assert!(
+            !app.world()
+                .resource::<QuestJournal>()
+                .is_complete(CONTAIN_THE_HUSHCAPS)
+        );
+        press_interact(&mut app);
+        assert!(
+            app.world_mut()
+                .actor_data_mut::<Inventory>()
+                .add(ItemKind::Mycelium, 1)
+        );
+        press_interact(&mut app);
+
+        let world = app.world_mut();
+        assert_eq!(world.actor_data::<Inventory>().count(ItemKind::Mycelium), 5);
+        let mut journal = world.resource_mut::<QuestJournal>();
+        assert!(journal.is_complete(CONTAIN_THE_HUSHCAPS));
+        assert_eq!(journal.take_completion_xp(), 150);
+        press_interact(&mut app);
+        press_interact(&mut app);
+        assert_eq!(
+            app.world_mut()
+                .resource_mut::<QuestJournal>()
+                .take_completion_xp(),
+            0
+        );
     }
 
     #[test]
@@ -1008,7 +1100,7 @@ mod tests {
         app.world_mut().entity_mut(entity).insert(marker);
         assert!(
             app.world_mut()
-                .resource_mut::<Inventory>()
+                .actor_data_mut::<Inventory>()
                 .add(placement.stack.item, u32::MAX)
         );
         press_interact(&mut app);
@@ -1017,7 +1109,7 @@ mod tests {
 
         assert!(
             app.world_mut()
-                .resource_mut::<Inventory>()
+                .actor_data_mut::<Inventory>()
                 .remove(placement.stack.item, u32::MAX)
         );
         press_interact(&mut app);
@@ -1029,7 +1121,7 @@ mod tests {
         );
         assert_eq!(
             app.world()
-                .resource::<Inventory>()
+                .actor_data::<Inventory>()
                 .count(placement.stack.item),
             1
         );
@@ -1057,7 +1149,7 @@ mod tests {
         app.update();
         assert_eq!(
             app.world()
-                .resource::<Inventory>()
+                .actor_data::<Inventory>()
                 .count(crate::inventory::ItemKind::Battery),
             2
         );
@@ -1082,7 +1174,7 @@ mod tests {
         assert!(app.world().resource::<Dialogue>().text().is_none());
         assert_eq!(
             app.world()
-                .resource::<Inventory>()
+                .actor_data::<Inventory>()
                 .count(crate::inventory::ItemKind::Battery),
             2
         );
@@ -1143,7 +1235,7 @@ mod tests {
         assert!(app.world().get_entity(item).is_ok());
         assert_eq!(
             app.world()
-                .resource::<Inventory>()
+                .actor_data::<Inventory>()
                 .count(crate::inventory::ItemKind::Scrap),
             0
         );
@@ -1174,7 +1266,7 @@ mod tests {
         );
         assert_eq!(
             app.world()
-                .resource::<Inventory>()
+                .actor_data::<Inventory>()
                 .count(crate::inventory::ItemKind::Scrap),
             0
         );

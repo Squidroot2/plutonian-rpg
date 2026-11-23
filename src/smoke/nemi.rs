@@ -12,7 +12,8 @@ use crate::{
     experience::Experience,
     interaction::{BEACON_RESTORED, CORE_RECOVERED_SOLO, InteractionTarget, Nearby, Target},
     inventory::{Inventory, ItemKind},
-    nemi::{Nemi, dialogue::PROFILE},
+    nemi::{FleeState, Nemi, dialogue::PROFILE},
+    player::PlayerWrite,
     player::{Dodge, Player},
     quest::{Beacon, LAST_LIGHT, OLD_RELAY, QuestJournal, QuestStatus, RELIGHT_BEACON},
     ui::menu_ui::{MenuTab, PlayerMenu},
@@ -26,8 +27,11 @@ use bevy::{app::AppExit, prelude::*};
 pub(super) enum Check {
     #[default]
     Start,
-    Attack(u16),
-    Hit(u16),
+    Attack(bool),
+    Hit {
+        before: u16,
+        first: bool,
+    },
     Flee,
     Return,
     Talk,
@@ -74,7 +78,7 @@ pub(super) fn drive(
     nemi: Query<
         (
             Entity,
-            &Nemi,
+            &FleeState,
             &Health,
             &Transform,
             Has<Dead>,
@@ -92,7 +96,7 @@ pub(super) fn drive(
         Res<PlayerMenu>,
         Res<QuestSelection>,
     ),
-    (bag, equipment): (ResMut<Inventory>, ResMut<Equipment>),
+    (bag, equipment): (PlayerWrite<Inventory>, PlayerWrite<Equipment>),
     (lights, animations, rows): (
         Query<&PointLight, With<Beacon>>,
         Query<&AnimationPlayer>,
@@ -162,7 +166,7 @@ pub(super) fn drive(
     match *stage {
         Check::Start
         | Check::Attack(..)
-        | Check::Hit(..)
+        | Check::Hit { .. }
         | Check::Flee
         | Check::Return
         | Check::Talk
@@ -193,14 +197,14 @@ fn check_nemi_reactions(
     items: &Items,
     mut stage: ResMut<Check>,
     mut home: Local<Vec3>,
-    nemi: &Nemi,
+    nemi: &FleeState,
     quest: Res<QuestJournal>,
     dialogue: Res<Dialogue>,
     catalog: &DialogueCatalog,
     log: Res<PlayerMenu>,
     selection: Res<QuestSelection>,
-    mut bag: ResMut<Inventory>,
-    mut equipment: ResMut<Equipment>,
+    mut bag: PlayerWrite<Inventory>,
+    mut equipment: PlayerWrite<Equipment>,
     rows: Query<(Entity, &QuestRow)>,
     window: Query<Entity, With<Window>>,
     camera: Query<Entity, With<FollowCamera>>,
@@ -233,25 +237,30 @@ fn check_nemi_reactions(
                 &mut dodge,
                 &mut transform,
             );
-            *stage = Check::Attack(30);
+            *stage = Check::Attack(true);
         }
-        Check::Attack(before) if player.grounded && !thrust.active() => {
+        Check::Attack(first) if player.grounded && !thrust.active() => {
             aim(&mut orbit, transform.translation, position);
             mouse.press(MouseButton::Left);
-            *stage = Check::Hit(before);
+            *stage = Check::Hit {
+                before: health.current(),
+                first,
+            };
         }
-        Check::Hit(before) if health.current() < before => {
-            assert_eq!(health.current(), before - 10);
+        Check::Hit { before, first } if health.current() < before => {
+            assert_eq!(health.current(), before.saturating_sub(10));
             assert_eq!(quest.status(LAST_LIGHT), Some(QuestStatus::Failed));
             assert!(!quest.beacon_powered());
             assert!(!nemi.can_talk());
-            *stage = match health.current() {
-                20 => Check::Flee,
-                10 => Check::FinishRecovering,
-                _ => Check::Collapse,
+            *stage = if dead {
+                Check::Collapse
+            } else if first {
+                Check::Flee
+            } else {
+                Check::FinishRecovering
             };
         }
-        Check::Hit(_) => aim(&mut orbit, transform.translation, position),
+        Check::Hit { .. } => aim(&mut orbit, transform.translation, position),
         Check::Flee if position.xz().distance(home.xz()) >= 2.0 => {
             assert!(!dead && collider);
             capture(&mut commands, "nemi-flee");
@@ -312,7 +321,7 @@ fn check_nemi_reactions(
             assert_eq!(selection.selected(), Some(LAST_LIGHT));
             capture(&mut commands, "nemi-quest-failed");
             keys.press(KeyCode::Tab);
-            *stage = Check::Attack(20);
+            *stage = Check::Attack(false);
         }
         _ => {}
     }
@@ -323,7 +332,7 @@ fn check_solo_route(
     quest: Res<QuestJournal>,
     dialogue: Res<Dialogue>,
     catalog: &DialogueCatalog,
-    bag: ResMut<Inventory>,
+    bag: PlayerWrite<Inventory>,
     lights: Query<&PointLight, With<Beacon>>,
     animations: Query<&AnimationPlayer>,
     mut keys: ResMut<ButtonInput<KeyCode>>,
@@ -350,7 +359,7 @@ fn check_solo_route(
                 &mut dodge,
                 &mut transform,
             );
-            *stage = Check::Attack(10);
+            *stage = Check::Attack(false);
         }
         Check::Collapse => {
             assert!(dead && !collider);

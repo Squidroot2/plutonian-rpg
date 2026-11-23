@@ -1,3 +1,5 @@
+#[cfg(test)]
+use crate::player::PlayerWorldExt as _;
 use std::collections::BTreeMap;
 
 use bevy::{gltf::Gltf, prelude::*, world_serialization::WorldInstanceReady};
@@ -14,7 +16,18 @@ use crate::{
     weapon::{WeaponAttack, WeaponStance},
 };
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, bitcode::Encode, bitcode::Decode)]
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    bitcode::Encode,
+    bitcode::Decode,
+    serde::Deserialize,
+)]
 pub enum EquipmentSlot {
     Body,
     Helmet,
@@ -60,7 +73,7 @@ impl WeaponKind {
     }
 }
 
-#[derive(Resource, Clone, Debug, PartialEq, Eq, bitcode::Encode, bitcode::Decode)]
+#[derive(Component, Clone, Debug, PartialEq, Eq, bitcode::Encode, bitcode::Decode)]
 pub struct Equipment<I = ItemKind>(pub(crate) BTreeMap<EquipmentSlot, I>);
 impl<I> Default for Equipment<I> {
     fn default() -> Self {
@@ -214,15 +227,12 @@ pub struct WornEquipment {
 pub struct EquipmentPlugin;
 impl Plugin for EquipmentPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<Equipment>()
-            .add_observer(equip)
-            .add_observer(unequip)
-            .add_systems(
-                Update,
-                sync_worn
-                    .after(CombatSystems::Detect)
-                    .run_if(resource_exists::<GameAssets>),
-            );
+        app.add_observer(equip).add_observer(unequip).add_systems(
+            Update,
+            sync_worn
+                .after(CombatSystems::Detect)
+                .run_if(resource_exists::<GameAssets>),
+        );
     }
 }
 fn equip(
@@ -230,9 +240,15 @@ fn equip(
     items: Res<Items>,
     state: Res<State<GameState>>,
     menu: Res<PlayerMenu>,
-    mut players: Query<(&AttributeRanks, &mut WeaponAttack), (With<Player>, Without<Dead>)>,
-    mut equipment: ResMut<Equipment>,
-    mut bag: ResMut<Inventory>,
+    mut players: Query<
+        (
+            &AttributeRanks,
+            &mut WeaponAttack,
+            &mut Equipment,
+            &mut Inventory,
+        ),
+        (With<Player>, Without<Dead>),
+    >,
     mut notice: ResMut<InventoryNotice>,
     assets: Option<Res<AssetServer>>,
     mut commands: Commands,
@@ -242,7 +258,7 @@ fn equip(
     {
         return;
     }
-    let Ok((ranks, mut attack)) = players.single_mut() else {
+    let Ok((ranks, mut attack, mut equipment, mut bag)) = players.single_mut() else {
         return;
     };
     let strength = ranks.rank(AttributeId::Strength);
@@ -274,9 +290,10 @@ fn unequip(
     request: On<UnequipRequest>,
     state: Res<State<GameState>>,
     menu: Res<PlayerMenu>,
-    mut attacks: Query<&mut WeaponAttack, With<Player>>,
-    mut equipment: ResMut<Equipment>,
-    mut bag: ResMut<Inventory>,
+    mut players: Query<
+        (&mut WeaponAttack, &mut Equipment, &mut Inventory),
+        (With<Player>, Without<Dead>),
+    >,
     mut notice: ResMut<InventoryNotice>,
     assets: Option<Res<AssetServer>>,
     mut commands: Commands,
@@ -286,11 +303,12 @@ fn unequip(
     {
         return;
     }
+    let Ok((mut attack, mut equipment, mut bag)) = players.single_mut() else {
+        return;
+    };
     notice.0 = match equipment.unequip(&mut bag, request.0) {
         Ok(true) => {
-            if request.0.is_hand()
-                && let Ok(mut attack) = attacks.single_mut()
-            {
+            if request.0.is_hand() {
                 attack.cancel();
             }
             if let Some(assets) = assets {
@@ -307,6 +325,7 @@ fn unequip(
 }
 #[derive(Component)]
 struct EquipmentAttachment {
+    owner: Entity,
     slot: EquipmentSlot,
     handedness: Option<Handedness>,
     holster: Option<Entity>,
@@ -336,10 +355,14 @@ pub(crate) const EQUIPMENT_SOCKETS: [(&str, EquipmentSlot, Option<Handedness>); 
 
 pub(crate) fn bind_equipment_attachments(
     event: On<WorldInstanceReady>,
+    parents: Query<&ChildOf>,
     children: Query<&Children>,
     names: Query<&Name>,
     mut commands: Commands,
 ) {
+    let Ok(owner) = parents.get(event.entity).map(ChildOf::parent) else {
+        return;
+    };
     let bones = equipment_bones(event.entity, &children, &names);
     let (Some(&spine), Some(&root)) = (bones.get("spine"), bones.get(HOLSTER_ROOT_BONE)) else {
         return;
@@ -351,6 +374,7 @@ pub(crate) fn bind_equipment_attachments(
         let holster =
             handedness.map(|hands| spawn_holster(&mut commands, slot, hands, spine, root));
         commands.entity(bone).insert(EquipmentAttachment {
+            owner,
             slot,
             handedness,
             holster,
@@ -368,39 +392,6 @@ fn equipment_bones<'a>(
         .iter_descendants(scene)
         .filter_map(|entity| names.get(entity).ok().map(|name| (name.as_str(), entity)))
         .collect()
-}
-
-/// Gear mounted once on the owning actor's rig as its scene becomes ready.
-#[derive(Component)]
-pub(crate) struct FixedOutfit(pub(crate) &'static [(EquipmentSlot, ItemKind)]);
-
-pub(crate) fn bind_fixed_outfit(
-    event: On<WorldInstanceReady>,
-    items: Res<Items>,
-    parents: Query<&ChildOf>,
-    outfits: Query<&FixedOutfit>,
-    children: Query<&Children>,
-    names: Query<&Name>,
-    assets: Res<GameAssets>,
-    gltfs: Res<Assets<Gltf>>,
-    mut commands: Commands,
-) {
-    let Some(outfit) = parents
-        .get(event.entity)
-        .ok()
-        .and_then(|parent| outfits.get(parent.parent()).ok())
-    else {
-        return;
-    };
-    let bones = equipment_bones(event.entity, &children, &names);
-    for (name, slot, handedness) in EQUIPMENT_SOCKETS {
-        if let Some(&(_, item)) = outfit.0.iter().find(|&&(equipped_slot, item)| {
-            equipped_slot == slot && items[item].weapon().map(WeaponKind::handedness) == handedness
-        }) && let Some(&bone) = bones.get(name)
-        {
-            spawn_worn(&items, &mut commands, &assets, &gltfs, slot, item, bone);
-        }
-    }
 }
 
 fn spawn_holster(
@@ -441,20 +432,20 @@ fn spawn_holster(
 fn sync_worn(
     items: Res<Items>,
     mut commands: Commands,
-    equipment: Res<Equipment>,
+    actors: Query<(Ref<Equipment>, Ref<WeaponStance>)>,
     assets: Res<GameAssets>,
     gltfs: Res<Assets<Gltf>>,
-    player: Query<Ref<WeaponStance>, With<Player>>,
     mut attachments: Query<(Entity, &mut EquipmentAttachment)>,
     worn: Query<(&WornEquipment, &ChildOf)>,
 ) {
-    let stance = player.single().ok();
-    let stance_changed = stance.as_ref().is_some_and(|stance| stance.is_changed());
-    let holstered = stance.is_some_and(|stance| *stance == WeaponStance::Holstered);
     for (bone, mut attachment) in &mut attachments {
-        if !equipment.is_changed() && !stance_changed && !attachment.is_added() {
+        let Ok((equipment, stance)) = actors.get(attachment.owner) else {
+            continue;
+        };
+        if !equipment.is_changed() && !stance.is_changed() && !attachment.is_added() {
             continue;
         }
+        let holstered = *stance == WeaponStance::Holstered;
         let mount = attachment.holster.filter(|_| holstered).unwrap_or(bone);
         let slot = attachment.slot;
         let desired = equipment.get(slot).filter(|item| {
@@ -731,8 +722,6 @@ mod tests {
         app.insert_resource(test_items().clone());
         app.add_plugins((MinimalPlugins, StatesPlugin))
             .init_state::<GameState>()
-            .init_resource::<Equipment>()
-            .init_resource::<Inventory>()
             .init_resource::<InventoryNotice>()
             .init_resource::<PlayerMenu>()
             .add_observer(equip)
@@ -741,7 +730,7 @@ mod tests {
         app.cleanup();
         app.world_mut().spawn(Player::default());
         app.world_mut()
-            .resource_mut::<Inventory>()
+            .actor_data_mut::<Inventory>()
             .add(ItemKind::FieldArmor, 1);
         app.world_mut()
             .resource_mut::<NextState<GameState>>()
@@ -750,12 +739,14 @@ mod tests {
         app.world_mut()
             .trigger(EquipRequest::Quick(ItemKind::FieldArmor));
         assert_eq!(
-            app.world().resource::<Equipment>().get(EquipmentSlot::Body),
+            app.world()
+                .actor_data::<Equipment>()
+                .get(EquipmentSlot::Body),
             None
         );
         assert_eq!(
             app.world()
-                .resource::<Inventory>()
+                .actor_data::<Inventory>()
                 .count(ItemKind::FieldArmor),
             1
         );
@@ -765,7 +756,9 @@ mod tests {
         app.world_mut()
             .trigger(EquipRequest::Quick(ItemKind::FieldArmor));
         assert_eq!(
-            app.world().resource::<Equipment>().get(EquipmentSlot::Body),
+            app.world()
+                .actor_data::<Equipment>()
+                .get(EquipmentSlot::Body),
             Some(ItemKind::FieldArmor)
         );
         app.world_mut()
@@ -773,12 +766,14 @@ mod tests {
             .show(MenuTab::Inventory);
         app.world_mut().trigger(UnequipRequest(EquipmentSlot::Body));
         assert_eq!(
-            app.world().resource::<Equipment>().get(EquipmentSlot::Body),
+            app.world()
+                .actor_data::<Equipment>()
+                .get(EquipmentSlot::Body),
             None
         );
         assert_eq!(
             app.world()
-                .resource::<Inventory>()
+                .actor_data::<Inventory>()
                 .count(ItemKind::FieldArmor),
             1
         );
@@ -788,7 +783,9 @@ mod tests {
         app.world_mut()
             .trigger(EquipRequest::Quick(ItemKind::FieldArmor));
         assert_eq!(
-            app.world().resource::<Equipment>().get(EquipmentSlot::Body),
+            app.world()
+                .actor_data::<Equipment>()
+                .get(EquipmentSlot::Body),
             Some(ItemKind::FieldArmor)
         );
         app.world_mut()
@@ -796,12 +793,14 @@ mod tests {
             .show(MenuTab::Inventory);
         app.world_mut().trigger(UnequipRequest(EquipmentSlot::Body));
         assert_eq!(
-            app.world().resource::<Equipment>().get(EquipmentSlot::Body),
+            app.world()
+                .actor_data::<Equipment>()
+                .get(EquipmentSlot::Body),
             None
         );
         assert_eq!(
             app.world()
-                .resource::<Inventory>()
+                .actor_data::<Inventory>()
                 .count(ItemKind::FieldArmor),
             1
         );

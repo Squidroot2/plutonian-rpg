@@ -6,6 +6,7 @@ Edit the files directly and restart the game to pick up changes.
 
 - `data/items/catalog.item.ron` contains each item's display text, weight in kg, pickup model, and pickup dimensions in meters.
 - `data/enemies/catalog.enemy.ron` contains each enemy's health, XP, loot stack, and archetype-specific movement and attack tuning.
+- `data/npcs/catalog.npc.ron` contains Plutonian NPC ranks, worn gear, and starting bags.
 - `data/world/catalog.placement.ron` contains starter chest stock, assignments for shipped encounters, and additional pickups and encounters.
 
 Use stable IDs of up to 48 lowercase ASCII letters, digits, or underscores.
@@ -57,7 +58,6 @@ Each entry supplies its own damage, reach, and contact radius.
 
 Use `Helmet` for head armor and `Material` for a stackable item.
 The beacon core retains its quest interactions and cannot be placed as an ordinary pickup.
-The reinforced armor, reinforced helmet, and trident are used by the guard outfit and must remain compatible with its rig sockets.
 
 ## Add an enemy
 
@@ -65,7 +65,8 @@ Append an entry inside the enemy catalog list.
 This example uses the roach model, collider, animations, and pursuit behavior.
 `Worm` uses the same bite fields.
 `Hushcap` uses the spit fields shown in the shipped catalog.
-`Guard` uses the existing outpost posts and exposes defense and thrust tuning.
+`Guard` uses the existing outpost posts and specifies pursuit speed and XP.
+The NPC catalog supplies each guard’s health, combat stats, defense, and weapon drop through the shared ranks and loadout.
 
 ```ron
 (
@@ -80,6 +81,31 @@ This example uses the roach model, collider, animations, and pursuit behavior.
     ),
 ),
 ```
+
+## Edit Plutonian NPCs
+
+Use the existing NPC’s ID to set their ranks, worn items, and starting bag.
+Omitted ranks default to 5.
+The equipment list uses `Body`, `Helmet`, `MainHand`, and `OffHand`.
+Every item must meet the same slot, Strength, and handedness rules as the player.
+Guards require a main-hand weapon and drop it when defeated.
+The guard role supplies pursuit speed and XP.
+Remove `health`, `loot`, and the old defense and thrust fields from custom guard role definitions when switching to this format.
+
+```ron
+(
+    id: sella,
+    attributes: (vitality: 15, strength: 98),
+    equipment: [
+        (slot: Body, item: "reinforced_armor"),
+        (slot: Helmet, item: "reinforced_helmet"),
+        (slot: MainHand, item: "guard_polearm"),
+    ],
+    inventory: [(item: "battery", quantity: 1)],
+),
+```
+
+The other NPC IDs are `orren`, `nemi`, `isera`, `vey`, `tovan`, and `orla`.
 
 ## Place variants
 

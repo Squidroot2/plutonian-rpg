@@ -3,6 +3,7 @@ use super::{
     SmokeRun, capture,
     inventory::{click, pointer_click, walk},
 };
+use crate::player::PlayerWorldExt as _;
 use crate::{
     GameState,
     attributes::{AttributeId, AttributeRanks, CharacterProgress},
@@ -29,6 +30,7 @@ use crate::{
         CAVERN_BRIEFING, EARLY_CORE_RETURNED, PROFILE, RELAY_HATCH, REPORT_ARCHIVE_HUSHCAP,
         RETURN_BEACON_CORE,
     },
+    player::PlayerRead,
     player::{Dodge, PLAYER_GROUND_OFFSET, Player},
     quest::{CONTAIN_THE_HUSHCAPS, LAST_LIGHT, OLD_RELAY, QuestAction, QuestJournal, QuestStatus},
     roach::Roach,
@@ -131,7 +133,7 @@ impl GuardSmoke<'_, '_> {
             assert_eq!(items.len(), 3);
             assert!(items.contains(&ItemKind::ReinforcedArmor));
             assert!(items.contains(&ItemKind::ReinforcedHelmet));
-            assert!(items.contains(&ItemKind::Trident));
+            assert!(items.iter().any(|id| id.as_str() == "guard_polearm"));
         }
     }
 }
@@ -260,7 +262,7 @@ pub(super) fn drive(
     >,
     (quest, inventory, dialogue, catalog, nearby, checkpoint): (
         Res<QuestJournal>,
-        Res<Inventory>,
+        PlayerRead<Inventory>,
         Res<Dialogue>,
         Res<DialogueCatalog>,
         Res<Nearby>,
@@ -332,7 +334,7 @@ pub(super) fn drive(
     let frame = WorldFrame {
         phase,
         quest,
-        inventory,
+        inventory: inventory.into_inner().into_inner(),
         checkpoint,
         names,
         parents,
@@ -469,7 +471,7 @@ fn check_world_phase(frame: WorldFrame) {
 struct WorldFrame<'w, 's, 'a> {
     phase: ResMut<'w, WorldCheck>,
     quest: Res<'w, QuestJournal>,
-    inventory: Res<'w, Inventory>,
+    inventory: &'w Inventory,
     checkpoint: Res<'w, RunSave>,
     names: Query<'w, 's, &'static Name>,
     parents: Query<'w, 's, &'static ChildOf>,
@@ -594,7 +596,7 @@ fn check_fresh_run(frame: WorldFrame) {
                 .expect("the junction worm must have a supporting floor");
             assert!((support.distance - 1.0 - GROUND_OFFSET).abs() < 0.03);
             commands.queue(|world: &mut World| {
-                assert!(world.resource_mut::<Inventory>().add(ItemKind::Scrap, 1));
+                assert!(world.actor_data_mut::<Inventory>().add(ItemKind::Scrap, 1));
                 world
                     .resource_mut::<QuestJournal>()
                     .record(QuestAction::TalkedToNemi);
@@ -1094,7 +1096,7 @@ fn unlock_relay(frame: WorldFrame) {
             *phase = WorldCheck::ChooseNemiLore;
         }
         WorldCheck::ChooseNemiLore => {
-            assert_uncommitted_beacon(&quest, &inventory);
+            assert_uncommitted_beacon(&quest, inventory);
             assert!(dialogue.is_open() && dialogue.text().is_none());
             match dialogue.selected_topic() {
                 Some("about_nemi") => {
@@ -1116,7 +1118,7 @@ fn unlock_relay(frame: WorldFrame) {
                     .topic("about_nemi")
                     .and_then(|topic| topic.text_reply())
             );
-            assert_uncommitted_beacon(&quest, &inventory);
+            assert_uncommitted_beacon(&quest, inventory);
             keys.press(KeyCode::KeyE);
             *phase = WorldCheck::ChooseNivalisLore;
         }
@@ -1136,7 +1138,7 @@ fn unlock_relay(frame: WorldFrame) {
                     .topic("about_nivalis")
                     .and_then(|topic| topic.text_reply())
             );
-            assert_uncommitted_beacon(&quest, &inventory);
+            assert_uncommitted_beacon(&quest, inventory);
             keys.press(KeyCode::KeyE);
             *phase = WorldCheck::SelectBeaconTopic;
         }
@@ -1462,20 +1464,16 @@ fn finish_relay_quest(frame: WorldFrame) {
             );
             keys.press(KeyCode::Tab);
             commands.queue(|world: &mut World| {
-                world.resource_scope(|world, mut equipment: Mut<Equipment>| {
-                    world.resource_scope(|world, mut inventory: Mut<Inventory>| {
-                        assert!(inventory.add(ItemKind::FieldSpear, 1));
-                        assert_eq!(
-                            equipment.equip(
-                                &mut inventory,
-                                ItemKind::FieldSpear,
-                                5,
-                                world.resource::<Items>()
-                            ),
-                            Ok(true)
-                        );
-                    });
-                });
+                let items = world.resource::<Items>().clone();
+                let mut query =
+                    world.query_filtered::<(&mut Inventory, &mut Equipment), With<Player>>();
+                let (mut inventory, mut equipment) =
+                    query.single_mut(world).expect("one player with gear");
+                assert!(inventory.add(ItemKind::FieldSpear, 1));
+                assert_eq!(
+                    equipment.equip(&mut inventory, ItemKind::FieldSpear, 5, &items),
+                    Ok(true)
+                );
             });
             *phase = WorldCheck::ApproachHushcap;
         }
@@ -1874,12 +1872,12 @@ fn check_bed_rollback(frame: WorldFrame) {
             commands.queue(|world: &mut World| {
                 assert!(
                     world
-                        .resource_mut::<Inventory>()
+                        .actor_data_mut::<Inventory>()
                         .remove(ItemKind::RoachMeat, 1)
                 );
                 assert!(
                     world
-                        .resource_mut::<Inventory>()
+                        .actor_data_mut::<Inventory>()
                         .remove(ItemKind::Mycelium, 1)
                 );
                 assert!(
