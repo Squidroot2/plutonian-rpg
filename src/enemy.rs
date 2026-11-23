@@ -70,13 +70,13 @@ pub(crate) struct Bite {
 #[derive(Component)]
 pub(crate) struct MeleePursuit {
     pub(crate) phase: MeleePhase,
-    home: Vec3,
+    home: Transform,
     bite: Bite,
     engagement: Engagement,
 }
 
 impl MeleePursuit {
-    fn new(home: Vec3, bite: Bite) -> Self {
+    fn new(home: Transform, bite: Bite) -> Self {
         Self {
             phase: MeleePhase::Waiting,
             home,
@@ -209,7 +209,7 @@ pub(crate) fn spawn_ground_melee(
     commands: &mut Commands,
     marker: impl Component,
     visual: &EnemyVisual,
-    home: Vec3,
+    home: Transform,
     area: Area,
     config: GroundMelee,
     body: Collider,
@@ -218,7 +218,7 @@ pub(crate) fn spawn_ground_melee(
         commands,
         marker,
         visual,
-        Transform::from_translation(home),
+        home,
         area,
         config.body,
         (
@@ -302,7 +302,7 @@ fn ground_encounters(
         ) {
             transform.translation.y = y;
             if let Some(mut pursuit) = pursuit {
-                pursuit.home = transform.translation;
+                pursuit.home.translation = transform.translation;
             }
         }
     }
@@ -384,11 +384,11 @@ fn plan_actions(
                 target,
             )
         };
-        let within_leash = position.xz().distance(pursuit.home.xz()) < LEASH
-            && target.xz().distance(pursuit.home.xz()) < LEASH;
+        let within_leash = position.xz().distance(pursuit.home.translation.xz()) < LEASH
+            && target.xz().distance(pursuit.home.translation.xz()) < LEASH;
         let sees_player =
             within_leash && to_target.length_squared() < SIGHT_RANGE * SIGHT_RANGE && visible();
-        let near_home = position.xz().distance(pursuit.home.xz()) < HOME_ARRIVAL_RADIUS;
+        let near_home = position.xz().distance(pursuit.home.translation.xz()) < HOME_ARRIVAL_RADIUS;
 
         let destination = if guard_pursuit_active
             || (!defends_outpost
@@ -410,9 +410,12 @@ fn plan_actions(
             target
         } else if !near_home {
             pursuit.phase = MeleePhase::Returning;
-            pursuit.home
+            pursuit.home.translation
         } else {
             pursuit.phase = MeleePhase::Waiting;
+            if defends_outpost && transform.rotation != pursuit.home.rotation {
+                transform.rotation = pursuit.home.rotation;
+            }
             continue;
         };
 
@@ -723,7 +726,7 @@ mod tests {
             (
                 MeleePursuit {
                     phase: MeleePhase::Windup(0.001),
-                    ..MeleePursuit::new(position, config.bite)
+                    ..MeleePursuit::new(Transform::from_translation(position), config.bite)
                 },
                 config.movement,
                 Transform::from_translation(position),
@@ -780,7 +783,7 @@ mod tests {
             .spawn((
                 MeleePursuit {
                     phase: MeleePhase::Windup(0.1),
-                    ..MeleePursuit::new(Vec3::ZERO, CONFIG.bite)
+                    ..MeleePursuit::new(Transform::IDENTITY, CONFIG.bite)
                 },
                 CONFIG.movement,
                 Transform::from_xyz(0.0, GROUND_OFFSET, 0.0),

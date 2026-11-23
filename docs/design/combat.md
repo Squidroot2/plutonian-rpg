@@ -31,11 +31,13 @@ Enemy attacks enter the same shared resolver as player attacks.
 
 ## Outpost guards
 
-Two Plutonian guards flank Keeper Nemi in the courtyard.
+Two Plutonian guards stand watch at separate posts in Nivalis.
+  One overlooks the Old Relay hatch and the other faces the ice trail out of the settlement.
   A confirmed hit from the player on Nemi or either guard makes both surviving guards hostile.
   Hostility is shared across the outpost and follows the checkpoint.
-  A guard pursues within 12 m of Nemi's original position on the surface.
-  Leaving that area cancels an active thrust and sends the guards back to their posts.
+  A guard pursues within 12 m of the settlement center on the surface.
+  Leaving that area cancels an active thrust and sends the guards back to their posts,
+  where they resume watching their assigned approaches.
   Returning to the courtyard exposes the player to another attack.
 
 The guards use the shared grounded melee phase machine and the Plutonian spear clips.

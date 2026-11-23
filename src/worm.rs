@@ -90,7 +90,7 @@ pub(crate) fn spawn(
         commands,
         Worm,
         visuals.get(&MODEL),
-        home,
+        Transform::from_translation(home),
         area,
         CONFIG,
         body,

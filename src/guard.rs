@@ -1,8 +1,8 @@
-//! The two outpost guards share an incident response and defend their courtyard.
+//! The two outpost guards share an incident response and defend Nivalis.
 use crate::{
     GameState,
     combat::{CombatSystems, ConfirmedHit, Defense},
-    dungeon::Area,
+    dungeon::{Area, HATCH},
     enemy::{self, Bite, EnemyBody, EnemyModel, Engagement, GroundMelee, GroundMovement},
     equipment::{EquipmentSlot, FixedOutfit, WeaponKind},
     inventory::ItemKind,
@@ -10,11 +10,13 @@ use crate::{
     nemi::Nemi,
     player::{PLAYER_COLLIDER_LENGTH, PLAYER_COLLIDER_RADIUS, PLAYER_GROUND_OFFSET, Player},
     save::EncounterId,
+    terrain::ground_heading,
     world::{SpawnWorld, WorldLayout},
 };
 use avian3d::prelude::Collider;
 use bevy::prelude::*;
 
+const OUTPOST_CENTER_XZ: Vec2 = Vec2::ZERO;
 const OUTPOST_RADIUS_M: f32 = 12.0;
 const PURSUIT_SPEED_MPS: f32 = 5.5;
 const ARMOR_DEFENSE: u16 = 8;
@@ -66,9 +68,19 @@ impl GuardPost {
 
     pub(crate) const fn home(self) -> Vec3 {
         match self {
-            Self::West => Vec3::new(0.5, 0.0, -1.0),
-            Self::East => Vec3::new(5.5, 0.0, -1.0),
+            // This post overlooks the Old Relay hatch from the west.
+            Self::West => Vec3::new(-5.5, 0.0, 2.5),
+            // The other post watches the ice trail out of Nivalis.
+            Self::East => Vec3::new(3.5, 0.0, -8.75),
         }
+    }
+
+    pub(crate) fn facing(self) -> Quat {
+        let heading = match self {
+            Self::West => HATCH - self.home(),
+            Self::East => Vec3::NEG_Z,
+        };
+        ground_heading(heading)
     }
 }
 
@@ -81,9 +93,7 @@ impl OutpostSecurity {
     pub(crate) fn defends(&self, area: Area, target: Vec3) -> bool {
         self.hostile
             && area == Area::Surface
-            && target
-                .xz()
-                .distance_squared(WorldLayout::Outpost.keeper().xz())
+            && target.xz().distance_squared(OUTPOST_CENTER_XZ)
                 <= OUTPOST_RADIUS_M * OUTPOST_RADIUS_M
     }
 }
@@ -118,7 +128,7 @@ fn spawn_guards(
             &mut commands,
             post,
             visuals.get(&MODEL),
-            post.home(),
+            Transform::from_translation(post.home()).with_rotation(post.facing()),
             Area::Surface,
             CONFIG,
             Collider::capsule(PLAYER_COLLIDER_RADIUS, PLAYER_COLLIDER_LENGTH),
@@ -207,9 +217,13 @@ mod tests {
     #[test]
     fn the_alarm_survives_leaving_the_outpost_and_applies_again_on_return() {
         let mut security = OutpostSecurity::default();
-        let center = WorldLayout::Outpost.keeper();
+        let center = Vec3::new(OUTPOST_CENTER_XZ.x, 0.0, OUTPOST_CENTER_XZ.y);
         assert!(!security.defends(Area::Surface, center));
         security.hostile = true;
+        for post in GuardPost::ALL {
+            assert!(security.defends(Area::Surface, post.home()));
+        }
+        assert!(security.defends(Area::Surface, WorldLayout::Outpost.keeper()));
         assert!(security.defends(Area::Surface, center + Vec3::X * OUTPOST_RADIUS_M));
         assert!(!security.defends(Area::Surface, center + Vec3::X * (OUTPOST_RADIUS_M + 0.1)));
         assert!(!security.defends(Area::OldRelay, center));

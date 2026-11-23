@@ -44,7 +44,7 @@ pub(crate) fn spawn(
         commands,
         Roach,
         visuals.get(&MODEL),
-        home,
+        Transform::from_translation(home),
         area,
         CONFIG,
         collider(),

@@ -127,7 +127,8 @@ Select a quest to read its details.
   Inspecting the sealed Old Relay hatch adds that quest alongside The Last Light.
   Restoring power also adds it if you missed the hatch.
 
-Two heavily armored Plutonian guards stand beside Nemi.
+Two heavily armored Plutonian guards keep watch over Nivalis.
+  One watches the Old Relay hatch and the other faces the ice trail out of the settlement.
   Landing a hit on Nemi or either guard provokes both surviving guards.
   They defend the outpost and stay hostile if you escape and return.
   Two clean trident thrusts can defeat a starting character.

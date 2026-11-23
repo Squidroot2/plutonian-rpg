@@ -39,7 +39,7 @@ The player is spawned at the configured starting point with the saved
 progression, inventory, equipment and experience restored as session state.
 Nemi and encounter poses, health, contribution credit and loot are applied
 after the Loading-to-Playing transition.
-  Living guards regroup at their original posts so the restored player has room to leave the tent.
+  Living guards regroup at their authored posts so the restored player has room to leave the tent.
   Defeated guards retain their saved poses.
 Quest journal reconstruction applies durable quest effects, and actor restore
 removes the core pickup when the journal says it was already recovered.

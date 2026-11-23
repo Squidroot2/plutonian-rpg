@@ -28,7 +28,7 @@ use crate::{
         CAVERN_BRIEFING, EARLY_CORE_RETURNED, PROFILE, RELAY_HATCH, REPORT_ARCHIVE_HUSHCAP,
         RETURN_BEACON_CORE,
     },
-    player::{Dodge, Player},
+    player::{Dodge, PLAYER_GROUND_OFFSET, Player},
     quest::{CONTAIN_THE_HUSHCAPS, LAST_LIGHT, OLD_RELAY, QuestAction, QuestJournal, QuestStatus},
     roach::Roach,
     save::{EncounterId, RunSave},
@@ -97,13 +97,30 @@ pub(super) struct GuardSmoke<'w, 's> {
 }
 
 impl GuardSmoke<'_, '_> {
-    fn check_posts(&self) {
+    fn check_posts(&self, spatial: &SpatialQuery) {
+        const MIN_KEEPER_DISTANCE_M: f32 = 7.0;
         assert_eq!(self.guards.iter().count(), 2);
         assert!(!self.security.hostile);
         for (entity, post, at, health) in &self.guards {
             assert_eq!(health.current(), guard::HEALTH);
             assert!(at.translation.xz().distance(post.home().xz()) < 0.05);
-            assert!((at.translation.y + 0.06).abs() < 0.05);
+            assert!(
+                at.translation
+                    .xz()
+                    .distance(WorldLayout::Outpost.keeper().xz())
+                    >= MIN_KEEPER_DISTANCE_M
+            );
+            assert!(at.rotation.angle_between(post.facing()).abs() < 0.01);
+            let floor = spatial
+                .cast_ray(
+                    at.translation,
+                    Dir3::NEG_Y,
+                    2.0,
+                    true,
+                    &SpatialQueryFilter::from_excluded_entities([entity]),
+                )
+                .expect("the guard post must have ice below it");
+            assert!((floor.distance - PLAYER_GROUND_OFFSET).abs() < 0.05);
             let items: Vec<_> = self
                 .children
                 .iter_descendants(entity)
@@ -1769,7 +1786,7 @@ fn check_bed_rollback(frame: WorldFrame) {
                         .add(ItemKind::Battery, 1)
                 );
             });
-            guard_smoke.check_posts();
+            guard_smoke.check_posts(&spatial);
             let keeper = guard_smoke
                 .keeper
                 .single()
@@ -1786,7 +1803,7 @@ fn check_bed_rollback(frame: WorldFrame) {
         }
         WorldCheck::SavedRespawn(old) if entity != old && controller.grounded => {
             assert!(position.distance(WorldLayout::Outpost.initial_spawn()) < 0.04);
-            guard_smoke.check_posts();
+            guard_smoke.check_posts(&spatial);
             assert!(!quest.has_occurred(QuestAction::AttackedNemi));
             assert_eq!(ranks.rank(AttributeId::Vitality), SAVED_VITALITY);
             assert_eq!((*attributes, *xp), (RELAY_PROGRESS, LOOTED_RELAY_XP));
@@ -1866,6 +1883,12 @@ fn check_guard_retaliation(frame: WorldFrame) {
                 assert!(quest.has_occurred(QuestAction::AttackedNemi));
             }
             if landed > 0 && hits == 0 {
+                assert!(
+                    guard_smoke.guards.iter().all(|(_, post, at, _)| {
+                        at.translation.xz().distance(post.home().xz()) > 1.0
+                    }),
+                    "both guards must respond from their posts"
+                );
                 capture(&mut commands, "outpost-guards");
             }
             if player_health.current() == 0 {
