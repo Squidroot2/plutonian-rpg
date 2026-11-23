@@ -666,7 +666,7 @@ mod tests {
                 .validate_registry(&DialogueRegistry::default())
                 .is_err()
         );
-        catalog.profiles[0].topics.remove(0);
+        profile_mut(&mut catalog, "nemi").topics.remove(0);
         assert!(catalog.validate_registry(&handlers).is_err());
     }
 
@@ -690,7 +690,7 @@ mod tests {
             Err("Missing notice old_relay.survey_log".into())
         );
 
-        let nemi = &mut catalog.profiles[0];
+        let nemi = profile_mut(&mut catalog, "nemi");
         nemi.replies.retain(|line| line.id != "early_core_returned");
         let error = catalog
             .validate_registry(&registry)
@@ -709,13 +709,21 @@ mod tests {
         assert!(error.contains(&first.id));
         catalog.notices.pop();
 
-        let reply = &mut catalog.profiles[0].replies[0];
+        let reply = &mut profile_mut(&mut catalog, "nemi").replies[0];
         reply.text.clear();
         let id = reply.id.clone();
         let error = catalog
             .validate_content()
             .expect_err("blank reply text must fail loading");
         assert!(error.contains("nemi") && error.contains(&id));
+    }
+
+    fn profile_mut<'a>(catalog: &'a mut DialogueCatalog, id: &str) -> &'a mut Profile {
+        catalog
+            .profiles
+            .iter_mut()
+            .find(|profile| profile.id == id)
+            .expect("test dialogue profile must exist")
     }
 
     #[test]
