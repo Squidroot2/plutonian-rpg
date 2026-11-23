@@ -1,6 +1,7 @@
 use bevy::prelude::*;
+use strum::VariantArray;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, VariantArray)]
 pub(crate) enum Control {
     Forward,
     Backward,
@@ -24,28 +25,6 @@ pub(crate) enum Control {
 }
 
 impl Control {
-    pub(crate) const ALL: [Self; 19] = [
-        Self::Forward,
-        Self::Backward,
-        Self::Left,
-        Self::Right,
-        Self::ToggleRun,
-        Self::Sprint,
-        Self::Jump,
-        Self::Dodge,
-        Self::Interact,
-        Self::Inventory,
-        Self::QuestLog,
-        Self::Drop,
-        Self::MenuUp,
-        Self::MenuDown,
-        Self::MenuLeft,
-        Self::MenuRight,
-        Self::Attack,
-        Self::OffHandAttack,
-        Self::Holster,
-    ];
-
     const MENU: [Self; 5] = [
         Self::MenuUp,
         Self::MenuDown,
@@ -172,12 +151,12 @@ impl Binding {
 }
 
 #[derive(Resource)]
-pub(crate) struct Keybinds([Binding; Control::ALL.len()]);
+pub(crate) struct Keybinds([Binding; Control::VARIANTS.len()]);
 
 impl Default for Keybinds {
     fn default() -> Self {
         use KeyCode::*;
-        let mut bindings = [Binding::Mouse(MouseButton::Left); Control::ALL.len()];
+        let mut bindings = [Binding::Mouse(MouseButton::Left); Control::VARIANTS.len()];
         let keys = [
             (Control::Forward, KeyW),
             (Control::Backward, KeyS),
@@ -233,7 +212,7 @@ impl Keybinds {
             }
             _ => {}
         }
-        if let Some(other) = Control::ALL.into_iter().find(|&other| {
+        if let Some(other) = Control::VARIANTS.into_iter().find(|&&other| {
             other != control && control.conflicts_with(other) && self.get(other) == binding
         }) {
             return Err(format!("Already assigned to {}.", other.label()));

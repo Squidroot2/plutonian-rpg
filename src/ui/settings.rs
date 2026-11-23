@@ -11,6 +11,7 @@ use bevy::{
     prelude::*,
     window::{MonitorSelection, PrimaryWindow, WindowMode},
 };
+use strum::VariantArray;
 
 pub(crate) const FULLSCREEN_MODE: WindowMode =
     WindowMode::BorderlessFullscreen(MonitorSelection::Primary);
@@ -193,11 +194,11 @@ fn setup(mut commands: Commands) {
                             ..default()
                         })
                         .with_children(|table| {
-                            for control in Control::ALL
+                            for control in Control::VARIANTS
                                 .into_iter()
                                 .filter(|control| control.keybind_category() == category)
                             {
-                                spawn_keybind_row(table, control);
+                                spawn_keybind_row(table, *control);
                             }
                         });
                     }
