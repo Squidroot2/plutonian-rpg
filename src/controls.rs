@@ -100,8 +100,8 @@ pub(crate) enum KeybindCategory {
 enum ConflictGroup {
     Gameplay,
     Menu,
-    // Inventory is active in both gameplay and menu contexts, so its binding
-    // must remain unique across both groups.
+    /// Some keys are active in both gameplay and menu contexts, so its binding
+    /// must remain unique across both groups.
     Exclusive,
 }
 
