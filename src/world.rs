@@ -82,6 +82,7 @@ impl Plugin for WorldPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<WorldLayout>()
             .add_observer(spawn_world)
+            .add_systems(Update, disable_star_field_shadows)
             .add_systems(OnExit(GameState::Loading), ground_spawned_models);
     }
 }
@@ -350,6 +351,18 @@ fn spawn_lights(commands: &mut Commands, layout: WorldLayout) {
             },
             Transform::from_translation(position),
         ));
+    }
+}
+
+/// Keep emissive sky geometry from projecting tiny shadows onto the terrain.
+fn disable_star_field_shadows(
+    mut commands: Commands,
+    meshes: Query<(Entity, &Name), (With<Mesh3d>, Added<Mesh3d>)>,
+) {
+    for (entity, name) in &meshes {
+        if name.as_str().starts_with("Distant star field.") {
+            commands.entity(entity).insert(bevy::light::NotShadowCaster);
+        }
     }
 }
 
