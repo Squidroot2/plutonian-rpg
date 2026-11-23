@@ -688,6 +688,35 @@ def starting_tent():
              Vector((lamp_x + x*.18, lamp_y + y*.18, .96)), .039, frame)
 
 
+def star_field(material, count=1600):
+    bpy.ops.mesh.primitive_ico_sphere_add(subdivisions=1, radius=1)
+    template = bpy.context.object.data
+    base_vertices = [vertex.co.copy() for vertex in template.vertices]
+    base_faces = [tuple(polygon.vertices) for polygon in template.polygons]
+    bpy.data.objects.remove(bpy.context.object, do_unlink=True)
+
+    vertices = []
+    faces = []
+    for _ in range(count):
+        position = Vector((
+            random.uniform(-220, 220),
+            random.uniform(-100, 250),
+            random.uniform(45, 190),
+        ))
+        radius = random.triangular(.045, .14, .065)
+        offset = len(vertices)
+        vertices.extend(position + vertex * radius for vertex in base_vertices)
+        faces.extend(tuple(offset + index for index in face) for face in base_faces)
+
+    mesh = bpy.data.meshes.new('Distant star field')
+    mesh.from_pydata(vertices, [], faces)
+    mesh.update()
+    stars = bpy.data.objects.new('Distant star field', mesh)
+    bpy.context.collection.objects.link(stars)
+    stars.data.materials.append(material)
+    return stars
+
+
 def world():
     reset()
     ice = material('Blue graphite ice', (.075,.13,.19), metal=.25)
@@ -758,11 +787,9 @@ def world():
         x = random.choice([-1,1])*random.uniform(4.7,5.4)
         y = random.uniform(106,127)
         cone('Cave crystal', (x,y,1.5), .3, random.uniform(1,3), teal)
-    # Stars are geometry, so the exported environment needs no external textures.
-    stars = material('Distant stars', (.6,.75,1), 3)
-    for i in range(140):
-        x,y,z = random.uniform(-190,190),random.uniform(-90,220),random.uniform(45,120)
-        ico('Star', (x,y,z), (.10,.10,.10), stars)
+    # One combined mesh keeps the abundant star field inexpensive to draw.
+    stars = material('Distant stars', (.82,.9,1), 4)
+    star_field(stars)
     # A small distant Charon, away from the route.
     ico('Charon', (-72,100,65), (13,13,13), material('Charon rock', (.23,.26,.32)), 3)
     ground_outpost()
@@ -1717,6 +1744,9 @@ elif '--meat' in sys.argv:
     meat_pickups()
 elif '--items' in sys.argv:
     items()
+elif '--build-outpost' in sys.argv:
+    world()
+    collision_from_world()
 elif '--ground' in sys.argv:
     # Repair existing sources without replacing authored meshes or materials.
     bpy.context.preferences.filepaths.save_version = 0

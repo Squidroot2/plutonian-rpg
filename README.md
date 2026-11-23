@@ -320,6 +320,12 @@ blender --background -noaudio --factory-startup --python-exit-code 1 --python sc
 Append `--outpost` to export just the outpost and its collision scene.
 Append `--shortsword` to export just the player rig and the two shortsword models.
 
+To rebuild only the procedural outpost and its collision scene, including their editable `.blend` sources and GLB exports:
+
+```sh
+blender --background -noaudio --factory-startup --python-exit-code 1 --python scripts/assets.py -- --build-outpost
+```
+
 To **rebuild all source art and exports from the procedural designs**, overwriting the editable `.blend` sources:
 
 ```sh

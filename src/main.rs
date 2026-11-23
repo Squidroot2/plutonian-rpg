@@ -73,8 +73,8 @@ fn main() {
     app.register_asset_source("data", AssetSourceBuilder::platform_default("data", None))
         .insert_resource(ClearColor(Color::srgb(0.008, 0.014, 0.027)))
         .insert_resource(GlobalAmbientLight {
-            color: Color::srgb(0.42, 0.65, 0.85),
-            brightness: 220.0,
+            color: Color::srgb(0.28, 0.38, 0.55),
+            brightness: 80.0,
             ..default()
         })
         .add_plugins(DefaultPlugins.set(WindowPlugin {
