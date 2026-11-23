@@ -4,6 +4,7 @@ mod dungeon;
 mod equipment;
 mod inventory;
 mod nemi;
+mod perimeter;
 #[cfg(test)]
 pub(crate) use inventory::pointer_click;
 mod spear;
@@ -211,7 +212,12 @@ impl Plugin for SmokePlugin {
         } else {
             app.add_systems(
                 OnEnter(GameState::Playing),
-                (check_pillar_collision, worm::check_outpost_sites).run_if(run_once),
+                (
+                    check_pillar_collision,
+                    perimeter::check_geometry,
+                    worm::check_outpost_sites,
+                )
+                    .run_if(run_once),
             )
             .init_resource::<dungeon::WorldCheck>()
             .add_systems(

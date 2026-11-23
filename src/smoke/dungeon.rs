@@ -164,6 +164,14 @@ pub(super) enum WorldCheck {
     InspectStoredChest,
     CheckStoredChest,
     LeaveStorage,
+    ApproachPerimeterGate,
+    PerimeterGatePhoto(Entity),
+    LineUpPerimeterGate,
+    RunIntoPerimeterGate,
+    JumpIntoPerimeterGate {
+        takeoff_y: f32,
+        rose: bool,
+    },
     RecoverCore,
     CheckRecoveredCore,
     InspectLocked,
@@ -370,6 +378,10 @@ pub(super) fn drive(
         run,
         exit,
     };
+    check_world_phase(frame);
+}
+
+fn check_world_phase(frame: WorldFrame) {
     match *frame.phase {
         WorldCheck::Spawn
         | WorldCheck::FreshRespawn(..)
@@ -388,6 +400,11 @@ pub(super) fn drive(
         | WorldCheck::InspectStoredChest
         | WorldCheck::CheckStoredChest
         | WorldCheck::LeaveStorage => check_outpost_storage(frame),
+        WorldCheck::ApproachPerimeterGate
+        | WorldCheck::PerimeterGatePhoto(..)
+        | WorldCheck::LineUpPerimeterGate
+        | WorldCheck::RunIntoPerimeterGate
+        | WorldCheck::JumpIntoPerimeterGate { .. } => check_perimeter_gate(frame),
         WorldCheck::RecoverCore
         | WorldCheck::CheckRecoveredCore
         | WorldCheck::InspectLocked
@@ -827,6 +844,84 @@ fn check_outpost_storage(frame: WorldFrame) {
             );
         }
         WorldCheck::LeaveStorage if !storage_open => {
+            fixture(
+                &spatial,
+                entity,
+                &mut controller,
+                &mut dodge,
+                &mut transform,
+                Vec3::new(-6.0, 0.0, 16.5),
+            );
+            *phase = WorldCheck::ApproachPerimeterGate;
+        }
+        _ => {}
+    }
+}
+
+fn check_perimeter_gate(frame: WorldFrame) {
+    const GATE_APPROACH: Vec3 = Vec3::new(-30.0, 0.0, 16.5);
+    const GATE_VIEW_X: f32 = -17.5;
+    const GATE_FACE_Z: f32 = 26.65;
+    const GATE_STOP_Z: f32 = GATE_FACE_Z - crate::player::PLAYER_COLLIDER_RADIUS;
+    let WorldFrame {
+        mut phase,
+        captures,
+        spatial,
+        entity,
+        position,
+        mut orbit,
+        mut keys,
+        mut commands,
+        mut controller,
+        mut dodge,
+        mut transform,
+        ..
+    } = frame;
+    match *phase {
+        WorldCheck::ApproachPerimeterGate if position.x <= GATE_VIEW_X => {
+            let delta = Vec3::new(GATE_APPROACH.x, 0.0, GATE_FACE_Z) - position;
+            orbit.yaw = (-delta.x).atan2(-delta.z);
+            orbit.pitch = -0.11;
+            *phase = WorldCheck::PerimeterGatePhoto(capture(&mut commands, "perimeter-gate"));
+        }
+        WorldCheck::ApproachPerimeterGate => {
+            walk(&mut keys, &mut orbit, position, GATE_APPROACH);
+        }
+        WorldCheck::PerimeterGatePhoto(photo) if captures.get(photo).is_err() => {
+            orbit.pitch = 0.22;
+            *phase = WorldCheck::LineUpPerimeterGate;
+        }
+        WorldCheck::LineUpPerimeterGate if position.xz().distance(GATE_APPROACH.xz()) < 0.25 => {
+            orbit.yaw = std::f32::consts::PI;
+            *phase = WorldCheck::RunIntoPerimeterGate;
+        }
+        WorldCheck::LineUpPerimeterGate => walk(&mut keys, &mut orbit, position, GATE_APPROACH),
+        WorldCheck::RunIntoPerimeterGate => {
+            keys.press(KeyCode::ShiftLeft);
+            keys.press(KeyCode::KeyW);
+            assert!(
+                position.z <= GATE_STOP_Z + 0.03,
+                "sprinting crossed the gate"
+            );
+            if position.z >= GATE_STOP_Z - 0.025 && controller.grounded {
+                keys.press(KeyCode::Space);
+                *phase = WorldCheck::JumpIntoPerimeterGate {
+                    takeoff_y: position.y,
+                    rose: false,
+                };
+            }
+        }
+        WorldCheck::JumpIntoPerimeterGate { takeoff_y, rose } => {
+            keys.press(KeyCode::KeyW);
+            assert!(position.z <= GATE_STOP_Z + 0.03, "jumping crossed the gate");
+            let rose = rose || position.y > takeoff_y + 0.4;
+            if !rose || !controller.grounded {
+                *phase = WorldCheck::JumpIntoPerimeterGate { takeoff_y, rose };
+                return;
+            }
+            assert!((position.y - takeoff_y).abs() < 0.08);
+            assert!((position.z - GATE_STOP_Z).abs() < 0.06);
+            info!("PERIMETER GATE PASS: sprint and jump stopped on the ice shelf");
             fixture(
                 &spatial,
                 entity,

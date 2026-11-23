@@ -124,11 +124,15 @@ def position_bounds(document, node):
             for part in document['meshes'][node['mesh']]['primitives']]
 
 
-def check_static_pair(asset, required):
+def check_static_pair(asset, required, collision_asset=None, prefix=''):
     scene = documents[asset]
-    collision = documents[asset + '_collision']
+    collision = documents[collision_asset or asset + '_collision']
     visuals = {node['name']: node for node in scene['nodes'] if 'mesh' in node}
-    solids = {node['name']: node for node in collision['nodes'] if 'mesh' in node}
+    solids = {node['name']: node for node in collision['nodes']
+              if 'mesh' in node and node['name'].startswith(prefix)}
+    if prefix:
+        assert solids.keys() == {name for name in visuals if name.startswith(prefix)}, (
+            f'{asset}: {prefix.strip()} visual and collision mesh names differ')
     assert required <= solids.keys(), f'{asset}: missing colliders {required - solids.keys()}'
     for name, collider in solids.items():
         assert name in visuals, f'{name}: no matching visual'
@@ -137,6 +141,13 @@ def check_static_pair(asset, required):
         assert position_bounds(scene, visual) == position_bounds(collision, collider), f'{name}: collider bounds differ'
     print(f'{asset}: static collision matches visuals for {len(solids)} bodies')
 
+
+perimeter_prefix = 'Perimeter solid '
+check_static_pair('outpost', {perimeter_prefix + name for name in (
+    'Shelf cliffs', 'Basin west cliffs', 'Cavern headwall', 'Gate leaf', 'Gate header',
+    'Gate east buttress', 'Gate west buttress', 'Gate east infill', 'Gate west infill',
+    'Gate east jamb', 'Gate west jamb',
+)}, 'collision', perimeter_prefix)
 
 check_static_pair('old_relay', {'Archive service console'} | {
     f'{room} {surface}'

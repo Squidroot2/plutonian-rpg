@@ -11,6 +11,7 @@ from mathutils import Vector, Matrix, Quaternion
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 from grounding import ground_outpost
+import perimeter
 random.seed(19)
 
 
@@ -794,16 +795,37 @@ def world():
     ico('Charon', (-72,100,65), (13,13,13), material('Charon rock', (.23,.26,.32)), 3)
     ground_outpost()
     starting_tent()
+    perimeter.build(material, box)
     save_export('outpost')
 
 
 def collision_from_world():
     bpy.ops.wm.open_mainfile(filepath=str(ROOT/'art/outpost.blend'))
     prefixes = ('Ice shelf', 'Trail rise', 'Habitat ', 'Beacon foundation', 'Beacon spindle',
-                'Ice escarpment', 'Cavern ', 'Core plinth', 'Waystone', TENT_SOLID)
+                'Ice escarpment', 'Cavern ', 'Core plinth', 'Waystone', TENT_SOLID,
+                perimeter.SOLID_PREFIX)
     for o in list(bpy.data.objects):
         if not o.name.startswith(prefixes) or o.name.startswith('Waystone lamp'):
             bpy.data.objects.remove(o, do_unlink=True)
+    save_export('collision')
+
+
+def rebuild_perimeter():
+    """Replace the perimeter in the authored scenes and preserve the rest of the map."""
+    bpy.context.preferences.filepaths.save_version = 0
+    bpy.context.preferences.filepaths.file_preview_type = 'NONE'
+    outpost = str(ROOT / 'art/outpost.blend')
+    bpy.ops.wm.open_mainfile(filepath=outpost)
+    perimeter.build(material, box)
+    save_export('outpost')
+
+    bpy.ops.wm.open_mainfile(filepath=str(ROOT / 'art/collision.blend'))
+    perimeter.clear()
+    with bpy.data.libraries.load(outpost, link=False) as (source, target):
+        target.objects = [name for name in source.objects if name.startswith(perimeter.SOLID_PREFIX)]
+    for obj in target.objects:
+        bpy.context.scene.collection.objects.link(obj)
+    bpy.context.view_layer.update()
     save_export('collision')
 
 
@@ -1618,7 +1640,7 @@ def south_basin_exterior(ice, frost, rock, rng):
 def south_basin_tunnel(rock, ice, frost, rng):
     # (depth, center, half width, floor height, vault height), all in meters.
     profiles = [
-        (83.95, 14, 3.5, -1.83, 4.7), (89, 14, 3.3, -2.48, 4.6),
+        perimeter.CAVE_MOUTH, perimeter.CAVE_APPROACH,
         (94, 11, 3.6, -3.75, 5.1), (100, 13, 7, -5.50, 7.1),
         (104, 14, 12, -5.50, 8.2), (113, 14, 12, -5.50, 8.7),
         (117, 13, 4.5, -5.50, 5.8), (121, 12, 12, -5.50, 9.5),
@@ -1627,10 +1649,8 @@ def south_basin_tunnel(rock, ice, frost, rng):
         (158, 14, 11, -5.50, 11.2), (161, 14, 7, -5.50, 6.7),
     ]
     tunnel = south_basin_mesh('Hushcap Caverns shell', [
-        [(x+dx*w, floor+height*h, z) for dx, height in [
-            (-1, 0), (-.37, 0), (.29, 0), (1, 0), (1.04, .38), (.81, .82),
-            (.18, 1), (-.46, .94), (-.91, .69), (-1.03, .31),
-        ]] for z, x, w, floor, h in profiles
+        [(x+dx*w, floor+height*h, z) for dx, height in perimeter.TUNNEL_RING]
+        for z, x, w, floor, h in profiles
     ], [rock, ice, frost], cap_start=False)
     for face in tunnel.data.polygons:
         face.material_index = rng.choices([0, 1, 2], [6, 4, 1])[0]
@@ -1744,6 +1764,8 @@ elif '--meat' in sys.argv:
     meat_pickups()
 elif '--items' in sys.argv:
     items()
+elif '--build-perimeter' in sys.argv:
+    rebuild_perimeter()
 elif '--build-outpost' in sys.argv:
     world()
     collision_from_world()

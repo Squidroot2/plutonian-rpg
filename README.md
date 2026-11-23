@@ -55,7 +55,7 @@ Choose **Start Game** on the title screen to begin a fresh run in Nivalis, or **
 
 The pause menu also has Resume and Quit to desktop buttons.
   Losing window focus pauses the game.
-  Falling beyond the playable area returns you to the outpost and preserves current progress.
+  Emergency fall recovery returns you to the outpost and preserves current progress.
 
 ### Saving
 
@@ -77,6 +77,9 @@ The core route connects the outpost, an inclined ice shelf, and a shallow cavern
   With the core in your backpack, tell Nemi **I found the beacon core** to hand it over and relight the beacon.
   You can also ask about Nemi or Nivalis. Click a topic, or use Menu Up and Menu Down and press Enter.
   You can continue exploring afterward.
+
+Blue-ice cliffs and ceramic walls surround Nivalis and the South Basin shelf.
+  The large gate southwest of the outpost is sealed.
 
 South of the outpost courtyard, the ice shelf opens into South Basin.
   Two paths around the ice fins lead behind a ridge,
@@ -297,7 +300,7 @@ Blender 5.3 was used for the included editable sources in `art/`.
 | Source / export | Purpose |
 | --- | --- |
 | `plutonian` | Shared skinned character with locomotion, spear and sword carry, two slash actions, `SpearThrust`, and `NemiDeath` |
-| `outpost` | Ice shelf, habitats, waystones, cavern, beacon tower, distant sky details |
+| `outpost` | Ice shelf, habitats, waystones, cavern, beacon tower, perimeter cliffs and gate, distant sky details |
 | `collision` | Simplified static geometry, hidden at runtime |
 | `core` | Collectible beacon power core |
 | `battery`, `scrap`, `methane_pouch` | Ground-based material pickups |
@@ -319,6 +322,10 @@ blender --background -noaudio --factory-startup --python-exit-code 1 --python sc
 
 Append `--outpost` to export just the outpost and its collision scene.
 Append `--shortsword` to export just the player rig and the two shortsword models.
+
+Use `-- --build-perimeter` to regenerate the cliffs, walls, and sealed gate in the existing outpost and collision sources and exports.
+  After hand-editing the perimeter, use `-- --export --outpost` to export both sources.
+  See [Nivalis perimeter](docs/design/nivalis-perimeter.md) for the design and collision details.
 
 To rebuild only the procedural outpost and its collision scene, including their editable `.blend` sources and GLB exports:
 
@@ -419,6 +426,8 @@ Run one smoke scenario at a time on an idle graphical desktop without supplying 
   The run prints `SMOKE PASS` and its duration, or fails within 60 seconds with the current phase.
 - `--smoke-world` loads the shipped outpost, checks transfers in all three tent chests, and walks out of and back into the tent to verify stored contents.
   It checks grounded worm spawns, traversable routes, and pillar collision from four directions.
+  It sweeps the perimeter with the player capsule,
+  then sprints and jumps into the sealed gate to verify the player stays on the shelf.
   It also checks hatch unlocking, the relay encounters, roach loot and XP, archive discovery, return and reentry, fall recovery, and combat defeat with and without a bed save.
   In the archive it checks projectile cover, reads the log with the Hushcap alive, and uses a spear to defeat and loot it.
   It verifies journal reward text, completion XP for The Last Light and Old Relay, and restoration of saved XP after combat defeat.

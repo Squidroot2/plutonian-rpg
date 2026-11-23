@@ -165,6 +165,30 @@ fn spawn_outpost(
         // The interaction point sits just above the mattress on its aisle side.
         Transform::from_xyz(9.45, -0.12, -4.40),
     ));
+    for x in [-36.55, -23.45] {
+        commands.spawn((
+            SessionEntity,
+            Name::new("Perimeter gate lamp"),
+            PointLight {
+                color: Color::srgb(1.0, 0.53, 0.22),
+                intensity: 32_000.0,
+                range: 16.0,
+                ..default()
+            },
+            Transform::from_xyz(x, 3.6, 23.5),
+        ));
+    }
+    commands.spawn((
+        SessionEntity,
+        Name::new("Perimeter gate skylight"),
+        PointLight {
+            color: Color::srgb(0.42, 0.60, 0.88),
+            intensity: 55_000.0,
+            range: 24.0,
+            ..default()
+        },
+        Transform::from_xyz(-30.0, 7.0, 20.0),
+    ));
 }
 
 fn spawn_actors(
