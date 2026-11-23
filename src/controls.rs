@@ -212,7 +212,7 @@ impl Keybinds {
             }
             _ => {}
         }
-        if let Some(other) = Control::VARIANTS.into_iter().find(|&&other| {
+        if let Some(other) = Control::VARIANTS.iter().find(|&&other| {
             other != control && control.conflicts_with(other) && self.get(other) == binding
         }) {
             return Err(format!("Already assigned to {}.", other.label()));

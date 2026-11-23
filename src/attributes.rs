@@ -115,7 +115,7 @@ impl SavedProgress {
     pub(crate) fn capture(ranks: &AttributeRanks, progress: CharacterProgress) -> Self {
         Self {
             ranks: AttributeId::VARIANTS
-                .into_iter()
+                .iter()
                 .map(|id| (id.key().into(), ranks.rank(*id)))
                 .collect(),
             progress,

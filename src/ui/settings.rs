@@ -195,7 +195,7 @@ fn setup(mut commands: Commands) {
                         })
                         .with_children(|table| {
                             for control in Control::VARIANTS
-                                .into_iter()
+                                .iter()
                                 .filter(|control| control.keybind_category() == category)
                             {
                                 spawn_keybind_row(table, *control);
