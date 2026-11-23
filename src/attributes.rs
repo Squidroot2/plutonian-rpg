@@ -2,7 +2,7 @@
 use std::collections::BTreeMap;
 
 use bevy::prelude::*;
-
+use strum::VariantArray;
 use crate::{
     GameState,
     combat::{CombatSystems, Dead, Health, HealthRecovery},
@@ -15,7 +15,7 @@ pub(crate) const DEFAULT_RANK: u8 = 5;
 pub(crate) const MAX_RANK: u8 = 100;
 const POINTS_PER_LEVEL: u32 = 3;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, VariantArray)]
 pub(crate) enum AttributeId {
     Vitality,
     Endurance,
@@ -24,13 +24,6 @@ pub(crate) enum AttributeId {
 }
 
 impl AttributeId {
-    pub(crate) const ALL: [Self; 4] = [
-        Self::Vitality,
-        Self::Endurance,
-        Self::Agility,
-        Self::Strength,
-    ];
-
     /// Return the stable lowercase key used to save and restore this rank.
     fn key(self) -> &'static str {
         match self {
@@ -52,11 +45,11 @@ impl AttributeId {
 }
 
 #[derive(Component, Clone, Debug, PartialEq, Eq)]
-pub(crate) struct AttributeRanks([u8; AttributeId::ALL.len()]);
+pub(crate) struct AttributeRanks([u8; AttributeId::VARIANTS.len()]);
 
 impl Default for AttributeRanks {
     fn default() -> Self {
-        Self([DEFAULT_RANK; AttributeId::ALL.len()])
+        Self([DEFAULT_RANK; AttributeId::VARIANTS.len()])
     }
 }
 
@@ -121,17 +114,22 @@ impl SavedProgress {
 
     pub(crate) fn capture(ranks: &AttributeRanks, progress: CharacterProgress) -> Self {
         Self {
-            ranks: AttributeId::ALL
+            ranks: AttributeId::VARIANTS
                 .into_iter()
-                .map(|id| (id.key().into(), ranks.rank(id)))
+                .map(|id| (id.key().into(), ranks.rank(*id)))
                 .collect(),
             progress,
         }
     }
 
     pub(crate) fn ranks(&self) -> AttributeRanks {
+        let mut rank_array = [0; AttributeId::VARIANTS.len()];
+        for (i, rank) in rank_array.iter_mut().enumerate() {
+            let attr = AttributeId::VARIANTS.get(i).expect("Index is always within variant bounds");
+            *rank = self.ranks.get(attr.key()).copied().unwrap_or(DEFAULT_RANK);
+        }
         AttributeRanks(
-            AttributeId::ALL.map(|id| self.ranks.get(id.key()).copied().unwrap_or(DEFAULT_RANK)),
+            rank_array
         )
     }
 
@@ -377,7 +375,7 @@ pub(crate) fn spawn_character(page: &mut ChildSpawnerCommands) {
     page.spawn(menu_ui::scroll_pane(MenuTab::Character, percent(100)))
         .with_children(|pane| {
             pane.spawn((CharacterText::Progress, Text::default(), text_style(18.0)));
-            for id in AttributeId::ALL {
+            for id in AttributeId::VARIANTS {
                 pane.spawn((Node {
                     align_items: AlignItems::Center,
                     column_gap: px(12),
@@ -385,7 +383,7 @@ pub(crate) fn spawn_character(page: &mut ChildSpawnerCommands) {
                 },))
                     .with_children(|row| {
                         row.spawn((
-                            CharacterText::Attribute(id),
+                            CharacterText::Attribute(*id),
                             Text::default(),
                             text_style(15.0),
                             Node {
@@ -397,13 +395,13 @@ pub(crate) fn spawn_character(page: &mut ChildSpawnerCommands) {
                         .observe(show_attribute_details)
                         .observe(hide_attribute_details);
                         row.spawn((
-                            AttributeDetails(id),
+                            AttributeDetails(*id),
                             Text::new(""),
                             text_style(13.0),
                             Visibility::Hidden,
                             Pickable::IGNORE,
                         ));
-                        row.spawn((SpendButton(id), menu_ui::button()))
+                        row.spawn((SpendButton(*id), menu_ui::button()))
                             .with_child((Text::new("+"), text_style(20.0), Pickable::IGNORE))
                             .observe(spend_click)
                             .observe(show_rank_up_details)
@@ -569,14 +567,14 @@ mod tests {
         );
         assert_eq!(baseline.melee.scale(7), 7);
 
-        let minimum = AttributeRanks([1; AttributeId::ALL.len()]).effects();
+        let minimum = AttributeRanks([1; AttributeId::VARIANTS.len()]).effects();
         assert_eq!((minimum.health, minimum.stamina), (84, 84.0));
         assert_eq!(
             (minimum.carry.capacity_kg, minimum.carry.movement_limit_kg),
             (56, 67)
         );
 
-        let maximum = AttributeRanks([MAX_RANK; AttributeId::ALL.len()]).effects();
+        let maximum = AttributeRanks([MAX_RANK; AttributeId::VARIANTS.len()]).effects();
         assert_eq!((maximum.health, maximum.health_per_second), (480, 48.0));
         assert_eq!(
             (maximum.stamina, maximum.stamina_per_second),

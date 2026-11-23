@@ -11,6 +11,7 @@ avian3d = "0.8"
 bitcode = "0.6.9"
 ron = "0.12"
 serde = { version = "1", features = ["derive"] }
+strum = { version = "0.28", features = ["derive"] }
 
 [profile.dev]
 opt-level = 1
