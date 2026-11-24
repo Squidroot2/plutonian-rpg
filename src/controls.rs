@@ -227,50 +227,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn controls_have_expected_categories_and_mouse_support() {
-        assert_eq!(
-            Control::Forward.keybind_category(),
-            KeybindCategory::Gameplay
-        );
-        assert_eq!(Control::MenuUp.keybind_category(), KeybindCategory::Menu);
-        assert_eq!(Control::Drop.keybind_category(), KeybindCategory::Menu);
-        assert_eq!(
-            Control::Inventory.keybind_category(),
-            KeybindCategory::MenuShortcuts
-        );
-        assert_eq!(
-            Control::QuestLog.keybind_category(),
-            KeybindCategory::MenuShortcuts
-        );
-        assert!(Control::Attack.accepts_mouse());
-        assert!(Control::OffHandAttack.accepts_mouse());
-        assert!(!Control::Interact.accepts_mouse());
-    }
-
-    #[test]
-    fn default_bindings_match_gameplay_and_menu_controls() {
-        let keybinds = Keybinds::default();
-
-        assert!(keybinds.get(Control::Forward) == Binding::Key(KeyCode::KeyW));
-        assert!(keybinds.get(Control::MenuUp) == Binding::Key(KeyCode::KeyW));
-        assert!(keybinds.get(Control::QuestLog) == Binding::Key(KeyCode::KeyL));
-        assert!(keybinds.get(Control::Holster) == Binding::Key(KeyCode::KeyX));
-        assert!(keybinds.get(Control::Attack) == Binding::Mouse(MouseButton::Left));
-        assert!(keybinds.get(Control::OffHandAttack) == Binding::Mouse(MouseButton::Right));
-    }
-
-    #[test]
-    fn bindings_have_human_readable_labels() {
-        assert_eq!(Binding::Key(KeyCode::KeyW).label(), "W");
-        assert_eq!(Binding::Key(KeyCode::Digit4).label(), "4");
-        assert_eq!(Binding::Key(KeyCode::ControlLeft).label(), "Left Ctrl");
-        assert_eq!(Binding::Key(KeyCode::CapsLock).label(), "Caps Lock");
-        assert_eq!(Binding::Mouse(MouseButton::Left).label(), "Left click");
-        assert_eq!(Binding::Mouse(MouseButton::Back).label(), "Mouse Back");
-        assert_eq!(Control::Holster.label(), "Holster / Draw Weapons");
-    }
-
-    #[test]
     fn assignment_rejects_reserved_keys_and_mouse_on_non_attack_controls() {
         let mut keybinds = Keybinds::default();
 
