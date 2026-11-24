@@ -142,4 +142,4 @@ Previously collected authored pickups stay collected.
 Uncollected authored pickups use their current entries, and newly added encounters start fresh.
 Removed encounter placements disappear, including their pending XP contribution credit.
 A saved item still in the bag, equipped, in a chest, or on the ground needs its catalog definition to load.
-See [Save and Recovery Design](saves.md) for migration and balance changes.
+See [Save and Recovery Design](saves.md) for how checkpoints handle format and balance changes.

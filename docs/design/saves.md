@@ -50,38 +50,20 @@ messages are reset during loading instead of persisted.
 Visuals, colliders and session entities are rebuilt from assets and feature
 systems.
 
-## File format and compatibility
+## File format
 
 The file begins with the six-byte `PLUT` header and a little-endian schema
 version, followed by a bitcode-encoded snapshot.
-The current schema is version 11.
-It adds parked caravan speaker state to the version 10 checkpoint.
-Older checkpoints recreate caravan speakers from the NPC catalog.
-Nemi’s remaining health from versions 1 through 10 is restored as a fraction of the new maximum.
-Defeat stays at zero health.
+The current schema is version 11, and it is the only supported format.
 It encodes item IDs, encounter IDs, and collected pickup IDs as strings.
-Version 9 added credited cavern encounters and journal actions for caravan arrival and Tovan’s examination.
-Loading reconstructs the raised gate from the kill milestone and parks the caravan if it had arrived at the checkpoint.
-The version 1 through 7 decoders also remain available.
-Legacy saves that predate progression or experience retain the fields they
-already had and receive defaults for fields introduced later.
-Version 1 equipment slots are decoded using their original three-variant enum
-before `Weapon` is mapped to `MainHand`; preserving that old enum shape is
-required because bitcode encodes enum cardinality.
-Versions 1 through 4 used the archive encounter slot for an ice worm.
-  Migration replaces that encounter with a full-health Hushcap at its authored position
-  and clears pending XP contribution for the worm.
-  The remaining encounters, previously earned XP, and quest progress carry forward.
-Version 5 saves track Hushcap health, defeat, and loot availability like other authored encounters.
-Version 6 adds stable IDs for the Hushcap Caverns encounters.
-  Versions 1 through 5 decode encounter poses and XP contributions with the original six-variant ID enum,
-  then add the new cave encounters at their authored positions, with full health and loot.
-  Version 5 archive Hushcap progress carries forward.
-Version 7 records the completed relay hatch exit and Contain the Hushcaps journal actions.
-  The original migration infers the Relay return for a friendly Nemi.
-  Existing cavern defeats carry forward through the saved encounter health.
-Versions 6 and 7 seed two full-health, neutral guards when loaded.
-The next successful bed save writes the current format.
+Parked caravan speaker state is stored alongside the snapshot payload.
+
+There is no backward compatibility.
+When the schema changes, bump the version byte and update the single
+decoder; saves written by any other version are rejected as unsupported
+rather than migrated.
+Do not add migrations or legacy decoders without an explicit request from
+Hayden.
 
 Reads are limited to 1 MiB plus one byte so oversized files can be rejected.
 Unknown headers, malformed bitcode, unsupported versions, and invalid decoded contents disable title-screen loading.
@@ -160,8 +142,10 @@ World, quest, dungeon, inventory, equipment and actor plugins own their parts
 of spawning and restoration.
 
 When adding persistent state, define its stable representation and validation,
-capture it in the bed snapshot, restore it in the owning feature's lifecycle,
-and account for older schema versions.
+capture it in the bed snapshot, and restore it in the owning feature's lifecycle.
+When the schema changes, bump the save version and let older saves be
+rejected; do not add migrations or legacy decoders without an explicit
+request from Hayden.
 Prefer stable IDs over entity IDs for anything whose entities are recreated.
 Keep fall recovery distinct unless its gameplay contract is intentionally
 changed.

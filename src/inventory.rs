@@ -197,9 +197,6 @@ fn spawn_loot(
                 pickup.position.into(),
             );
         }
-        if save.add_shortswords_on_spawn {
-            spawn_shortswords(&items, &mut commands, &assets, &gltfs);
-        }
         return;
     }
     if *layout == WorldLayout::SmokeArena {

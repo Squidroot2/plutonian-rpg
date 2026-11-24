@@ -40,7 +40,9 @@ Use rustfmt, four-space indentation, `snake_case` functions and modules, and `Pa
 - Use `///` comments where callers need to understand a contract, invariant, or lifecycle.
   Explain why ordering, thresholds, or relationships matter when the code alone does not make that clear.
   Handle expected failures explicitly and use `expect` to describe a violated invariant.
-- Preserve gameplay behavior, tuning values, and save compatibility during refactors.
+- Preserve gameplay behavior and tuning values during refactors, and preserve
+  save-format behavior for the current save version only.
+  Do not add save migrations or legacy save decoders without an explicit request.
   Preserve frame and schedule ordering when extracting systems or helpers.
 
 ## ECS Design

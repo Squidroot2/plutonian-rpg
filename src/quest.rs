@@ -369,18 +369,6 @@ impl SavedJournal {
     pub(crate) fn has_occurred(&self, action: QuestAction) -> bool {
         self.occurred.contains(&action)
     }
-
-    /// Older bed saves put the player on the surface without recording the hatch exit.
-    pub(crate) fn credit_legacy_relay_return(&mut self) {
-        if self
-            .progress
-            .get(OLD_RELAY)
-            .is_some_and(|quest| matches!(quest.outcome, SavedOutcome::Completed))
-            && !self.occurred.contains(&QuestAction::AttackedNemi)
-        {
-            self.occurred.insert(QuestAction::ReturnedThroughRelayHatch);
-        }
-    }
 }
 
 #[derive(Clone, bitcode::Encode, bitcode::Decode)]

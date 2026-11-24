@@ -17,5 +17,5 @@ The cave is part of the continuous surface world.
   World position drives the basin and cave location labels.
   The separate visual and collision scenes load with the outpost,
   and play waits for the collision hierarchy.
-  Enemy placement is shared by spawning and save migration,
+  Enemy placement is shared by spawning and save restore,
   and stable encounter IDs track health, loot, and XP contributions in bed saves.
