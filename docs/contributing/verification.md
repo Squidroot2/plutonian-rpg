@@ -15,7 +15,7 @@ python3 scripts/check_assets.py
 
 Clippy enforces a 150-line function limit, including smoke drivers.
 GitHub Actions builds, tests, and runs Clippy for pushes and pull requests to `master`.
-See the [repository guidelines](/AGENTS.md) for development and verification standards.
+See the [repository guidelines](../../AGENTS.md) for development and verification standards.
 
 Run one smoke scenario at a time on an idle graphical desktop without supplying mouse or keyboard input.
 Add `--windowed` to a smoke command to run it in a window.
