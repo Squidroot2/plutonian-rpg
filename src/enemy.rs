@@ -32,7 +32,9 @@ const TURN_SPEED: f32 = 10.0;
 const GROUND_PROBE_RANGE: f32 = 1.1;
 const ENCOUNTER_GROUND_PROBE_HEIGHT: f32 = 2.0;
 const ENCOUNTER_GROUND_PROBE_RANGE: f32 = 15.0;
+// Ignore destination offsets under 0.01 units to avoid tiny corrective movements.
 const DESTINATION_EPSILON_SQUARED: f32 = 0.0001;
+// Count movement over 0.001 units so only meaningful displacement starts locomotion.
 const ANIMATION_MOVEMENT_EPSILON_SQUARED: f32 = 0.000_001;
 const LOCOMOTION_BLEND: Duration = Duration::from_millis(100);
 
