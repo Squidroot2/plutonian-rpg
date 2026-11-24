@@ -6,8 +6,6 @@ mod equipment;
 mod inventory;
 mod nemi;
 mod perimeter;
-#[cfg(test)]
-pub(crate) use inventory::pointer_click;
 mod spear;
 mod worm;
 
@@ -33,7 +31,7 @@ use crate::{
     ui::menu_ui::{MenuTab, PlayerMenu},
     ui::quest_ui::{QuestRow, QuestSelection},
     ui::title::{TitleBackdrop, TitleInput},
-    world::{SessionEntity, WorldLayout},
+    world::{ARENA_BOULDER_SITES, ARENA_WALL, SmokeRun, WorldLayout},
 };
 use avian3d::prelude::*;
 use bevy::{
@@ -50,66 +48,7 @@ const SHIPPED_HUSHCAP_XP: u16 = 45;
 const SHIPPED_HUSHCAP_MUZZLE_HEIGHT_M: f32 = 1.01;
 const SHIPPED_HUSHCAP_SPIT_RADIUS_M: f32 = 0.14;
 
-const BOULDER_SITES: [Vec3; 2] = [Vec3::new(2.5, 0.0, -2.0), Vec3::new(2.5, 0.0, 2.0)];
-
-pub const ARENA_LOOT: [(ItemKind, f32, f32); 14] = [
-    (ItemKind::MethanePouch, -2.0, 0.0),
-    (ItemKind::Scrap, -3.0, 1.3),
-    (ItemKind::Battery, -4.0, 0.0),
-    (ItemKind::Battery, -5.0, 1.3),
-    (ItemKind::FieldSpear, 4.0, 0.0),
-    (ItemKind::Trident, 7.5, 1.0),
-    (ItemKind::Shortsword, 4.0, 2.5),
-    (ItemKind::Shortsword, 7.5, 2.7),
-    (ItemKind::FieldArmor, -3.0, -4.0),
-    (ItemKind::FieldHelmet, 0.0, -4.0),
-    (ItemKind::ReinforcedArmor, 3.0, -4.0),
-    (ItemKind::ReinforcedHelmet, 6.0, -4.0),
-    (
-        ItemKind::LargeBoulder,
-        BOULDER_SITES[0].x,
-        BOULDER_SITES[0].z,
-    ),
-    (
-        ItemKind::LargeBoulder,
-        BOULDER_SITES[1].x,
-        BOULDER_SITES[1].z,
-    ),
-];
-
-const WALL: Vec3 = Vec3::new(0.0, 1.0, 9.0);
 const TIMEOUT: Duration = Duration::from_secs(60);
-
-#[derive(Component)]
-pub struct ArenaFloor;
-
-pub fn spawn_arena(
-    commands: &mut Commands,
-    meshes: &mut Assets<Mesh>,
-    materials: &mut Assets<StandardMaterial>,
-) {
-    let floor = Vec3::new(28.0, 1.0, 28.0);
-    commands.spawn((
-        SessionEntity,
-        ArenaFloor,
-        Name::new("Smoke arena floor"),
-        Mesh3d(meshes.add(Cuboid::from_size(floor))),
-        MeshMaterial3d(materials.add(Color::srgb(0.16, 0.23, 0.32))),
-        RigidBody::Static,
-        Collider::cuboid(floor.x, floor.y, floor.z),
-        Transform::from_xyz(0.0, -0.5, 0.0),
-    ));
-    let wall = Vec3::new(4.0, 2.0, 0.4);
-    commands.spawn((
-        SessionEntity,
-        Name::new("Smoke arena wall"),
-        Mesh3d(meshes.add(Cuboid::from_size(wall))),
-        MeshMaterial3d(materials.add(Color::srgb(0.4, 0.24, 0.12))),
-        RigidBody::Static,
-        Collider::cuboid(wall.x, wall.y, wall.z),
-        Transform::from_translation(WALL),
-    ));
-}
 
 pub struct SmokePlugin {
     pub arena: bool,
@@ -117,9 +56,6 @@ pub struct SmokePlugin {
     pub cave: bool,
     pub crossing: bool,
 }
-
-#[derive(Resource)]
-pub(crate) struct SmokeRun(Instant);
 
 #[derive(Resource, Debug, Default)]
 enum ArenaStep {
@@ -801,7 +737,7 @@ fn check_carrying_limits(
                     &mut keys,
                     &mut orbit,
                     transform.translation,
-                    BOULDER_SITES[count as usize - 1],
+                    ARENA_BOULDER_SITES[count as usize - 1],
                 );
             }
         }
@@ -893,7 +829,7 @@ fn check_arena_wall(players: Query<&Collider, With<Player>>, mover: MoveAndSlide
     let position = mover
         .move_and_slide(
             capsule,
-            WALL + Vec3::new(0.0, -0.085, -2.0),
+            ARENA_WALL + Vec3::new(0.0, -0.085, -2.0),
             Quat::IDENTITY,
             Vec3::Z * 5.0,
             Duration::from_secs(1),
@@ -903,7 +839,7 @@ fn check_arena_wall(players: Query<&Collider, With<Player>>, mover: MoveAndSlide
         )
         .position;
     assert!(
-        (0.45..0.65).contains(&(WALL.z - position.z)),
+        (0.45..0.65).contains(&(ARENA_WALL.z - position.z)),
         "the movement capsule must approach and stop at the arena wall, position {position:?}"
     );
     info!("ARENA COLLISION PASS: wall stops the character capsule");

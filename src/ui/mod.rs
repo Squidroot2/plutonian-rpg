@@ -278,7 +278,7 @@ fn spawn_status_bar(commands: &mut Commands, kind: StatusBarKind, bottom: u16) -
 }
 
 pub(crate) fn pause(
-    smoke: Option<Res<crate::smoke::SmokeRun>>,
+    smoke: Option<Res<crate::world::SmokeRun>>,
     keys: Res<ButtonInput<KeyCode>>,
     bindings: Res<Keybinds>,
     state: Res<State<GameState>>,

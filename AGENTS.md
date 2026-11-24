@@ -10,14 +10,14 @@ This Linux desktop RPG uses Rust 2024, Bevy 0.20, and Avian 0.8. `src/main.rs` r
 
 Run these commands from the repository root with Rust 1.97.1 or newer.
 
-- `cargo run --locked` launches the game.
+- `cargo run --locked` launches the game. The default build excludes the desktop smoke scenarios; they are behind the `smoke` Cargo feature.
 - `cargo build --locked` builds the executable. `cargo check --locked` checks compilation without linking.
 - `cargo fmt --check` checks formatting. `cargo fmt` applies it.
 - `cargo test --locked` runs Rust tests. `cargo clippy --locked --all-targets` runs lint checks.
 - `python3 scripts/check_assets.py` validates GLB structure, resources, skin, and animation names.
-- `cargo run --locked -- --smoke-test` exercises the gameplay arena.
-- `cargo run --locked -- --smoke-world` exercises the shipped map, tent storage, Old Relay, and bed-save rollback.
-- `cargo run --locked -- --smoke-nemi` exercises Nemi's combat reactions and the solo quest route.
+- `cargo run --locked --features smoke -- --smoke-test` exercises the gameplay arena.
+- `cargo run --locked --features smoke -- --smoke-world` exercises the shipped map, tent storage, Old Relay, and bed-save rollback.
+- `cargo run --locked --features smoke -- --smoke-nemi` exercises Nemi's combat reactions and the solo quest route.
 
 Run `cargo test --locked` after every change.
   Before handing off Rust changes, run `cargo fmt --check` and `cargo clippy --locked --all-targets`.

@@ -34,7 +34,10 @@ use std::{
     fs::{self, File, OpenOptions},
     io::{self, Read, Write},
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -409,10 +412,17 @@ fn data_path() -> Option<PathBuf> {
 }
 
 fn unique_suffix() -> String {
+    // The timestamp alone is not a uniqueness guarantee: parallel tests (and
+    // concurrent saves) can observe the same clock value, and two callers
+    // sharing a suffix share the path built from it — one caller's cleanup
+    // can then delete the other's directory mid-write. The counter makes
+    // every suffix in this process distinct.
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default();
-    format!("{}-{}", std::process::id(), now.as_nanos())
+    let count = COUNTER.fetch_add(1, Ordering::Relaxed);
+    format!("{}-{}-{}", std::process::id(), now.as_nanos(), count)
 }
 
 fn read_save(path: &Path) -> io::Result<Snapshot> {
@@ -808,7 +818,10 @@ mod tests {
 
     impl TestDirectory {
         fn new() -> Self {
-            Self(std::env::temp_dir().join(format!("plutonian-save-test-{}", unique_suffix())))
+            let dir =
+                Self(std::env::temp_dir().join(format!("plutonian-save-test-{}", unique_suffix())));
+            fs::create_dir_all(&dir.0).expect("create the test save directory");
+            dir
         }
 
         fn path(&self) -> PathBuf {
@@ -1643,7 +1656,7 @@ mod tests {
                     .expect("load button exists");
                 let window = world.spawn_empty().id();
                 let camera = world.spawn_empty().id();
-                world.trigger(crate::smoke::pointer_click(load, window, camera));
+                world.trigger(crate::interaction::pointer_click(load, window, camera));
             }
             app.update();
             assert_eq!(
