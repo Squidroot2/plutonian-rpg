@@ -6,6 +6,7 @@ use crate::{
     equipment::bind_equipment_attachments,
     experience::Experience,
     interaction::Target,
+    inventory::ItemKind,
     loading::{GameAssets, LoadStatus, PendingScene, scene_ready, spawn_static_scenes},
     nemi::{self, Nemi},
     player::{
@@ -17,6 +18,8 @@ use crate::{
 };
 use avian3d::prelude::*;
 use bevy::{gltf::Gltf, prelude::*};
+#[cfg(feature = "smoke")]
+use std::time::Instant;
 
 #[derive(Resource, Default, Clone, Copy, PartialEq, Eq)]
 pub enum WorldLayout {
@@ -85,6 +88,77 @@ pub struct WorldPlugin;
 #[derive(Component)]
 pub(crate) struct SessionEntity;
 
+/// Identifies the active desktop smoke run, when one is in progress.
+/// The pause system checks for this resource so a smoke run is never
+/// auto-paused by a window focus change.
+#[derive(Resource)]
+pub(crate) struct SmokeRun(#[cfg(feature = "smoke")] pub(crate) Instant);
+
+/// The arena floor spawned in place of the outpost in the smoke arena layout.
+#[derive(Component)]
+pub(crate) struct ArenaFloor;
+
+pub(crate) const ARENA_BOULDER_SITES: [Vec3; 2] =
+    [Vec3::new(2.5, 0.0, -2.0), Vec3::new(2.5, 0.0, 2.0)];
+
+/// Loot placed around the smoke arena, as (item, x, z) triples.
+pub(crate) const ARENA_LOOT: [(ItemKind, f32, f32); 14] = [
+    (ItemKind::MethanePouch, -2.0, 0.0),
+    (ItemKind::Scrap, -3.0, 1.3),
+    (ItemKind::Battery, -4.0, 0.0),
+    (ItemKind::Battery, -5.0, 1.3),
+    (ItemKind::FieldSpear, 4.0, 0.0),
+    (ItemKind::Trident, 7.5, 1.0),
+    (ItemKind::Shortsword, 4.0, 2.5),
+    (ItemKind::Shortsword, 7.5, 2.7),
+    (ItemKind::FieldArmor, -3.0, -4.0),
+    (ItemKind::FieldHelmet, 0.0, -4.0),
+    (ItemKind::ReinforcedArmor, 3.0, -4.0),
+    (ItemKind::ReinforcedHelmet, 6.0, -4.0),
+    (
+        ItemKind::LargeBoulder,
+        ARENA_BOULDER_SITES[0].x,
+        ARENA_BOULDER_SITES[0].z,
+    ),
+    (
+        ItemKind::LargeBoulder,
+        ARENA_BOULDER_SITES[1].x,
+        ARENA_BOULDER_SITES[1].z,
+    ),
+];
+
+pub(crate) const ARENA_WALL: Vec3 = Vec3::new(0.0, 1.0, 9.0);
+
+/// Spawn the standalone arena floor and wall used by the smoke arena layout
+/// when no outpost scene is loaded.
+pub(crate) fn spawn_arena(
+    commands: &mut Commands,
+    meshes: &mut Assets<Mesh>,
+    materials: &mut Assets<StandardMaterial>,
+) {
+    let floor = Vec3::new(28.0, 1.0, 28.0);
+    commands.spawn((
+        SessionEntity,
+        ArenaFloor,
+        Name::new("Smoke arena floor"),
+        Mesh3d(meshes.add(Cuboid::from_size(floor))),
+        MeshMaterial3d(materials.add(Color::srgb(0.16, 0.23, 0.32))),
+        RigidBody::Static,
+        Collider::cuboid(floor.x, floor.y, floor.z),
+        Transform::from_xyz(0.0, -0.5, 0.0),
+    ));
+    let wall = Vec3::new(4.0, 2.0, 0.4);
+    commands.spawn((
+        SessionEntity,
+        Name::new("Smoke arena wall"),
+        Mesh3d(meshes.add(Cuboid::from_size(wall))),
+        MeshMaterial3d(materials.add(Color::srgb(0.4, 0.24, 0.12))),
+        RigidBody::Static,
+        Collider::cuboid(wall.x, wall.y, wall.z),
+        Transform::from_translation(ARENA_WALL),
+    ));
+}
+
 #[derive(Event)]
 pub struct SpawnWorld;
 impl Plugin for WorldPlugin {
@@ -112,7 +186,7 @@ fn spawn_world(
         orbit.yaw = std::f32::consts::FRAC_PI_2;
         spawn_outpost(&mut commands, &gltfs, outpost);
     } else {
-        crate::smoke::spawn_arena(&mut commands, &mut meshes, &mut materials);
+        spawn_arena(&mut commands, &mut meshes, &mut materials);
     }
     let fresh = if *layout == WorldLayout::SmokeArena {
         SavedProgress::capture(

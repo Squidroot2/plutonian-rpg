@@ -17,6 +17,7 @@ pub(crate) struct QuestUiPlugin;
 pub(crate) struct QuestSelection(Option<String>);
 
 impl QuestSelection {
+    #[cfg(feature = "smoke")]
     pub(crate) fn selected(&self) -> Option<&str> {
         self.0.as_deref()
     }
@@ -31,6 +32,8 @@ struct CavernQuestCounts;
 #[derive(Component)]
 pub(crate) struct QuestRow {
     pub(crate) id: String,
+    // Read by the smoke scenarios when asserting on the quest log.
+    #[allow(dead_code)]
     pub(crate) status: QuestStatus,
 }
 impl Plugin for QuestUiPlugin {

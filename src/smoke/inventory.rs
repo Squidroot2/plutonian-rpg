@@ -10,20 +10,16 @@ use crate::{
     ui::menu_ui::{MenuTab, PlayerMenu},
 };
 use bevy::{
-    camera::NormalizedRenderTarget,
     input::{
         ButtonState, InputSystems,
         keyboard::{Key, KeyboardInput},
     },
-    picking::{
-        backend::HitData,
-        pointer::{Location, PointerButton, PointerId},
-    },
     prelude::*,
     render::view::screenshot::Screenshot,
-    window::WindowRef,
 };
 use std::time::Duration;
+
+pub(crate) use crate::interaction::pointer_click;
 
 pub struct InventorySmokePlugin;
 #[derive(Resource)]
@@ -76,26 +72,6 @@ pub(crate) fn click<T: Component + PartialEq>(
     commands.trigger(pointer_click(entity, window, camera));
 }
 
-pub(crate) fn pointer_click(entity: Entity, window: Entity, camera: Entity) -> PointerClick {
-    PointerClick {
-        entity,
-        pointer: Pointer::new(
-            PointerId::Mouse,
-            Location {
-                target: NormalizedRenderTarget::Window(
-                    WindowRef::Entity(window)
-                        .normalize(Some(window))
-                        .expect("an explicit smoke-test window reference must always normalize"),
-                ),
-                position: Vec2::ZERO,
-            },
-        ),
-        button: PointerButton::Primary,
-        hit: HitData::new(camera, 0.0, None, None),
-        duration: Duration::from_millis(50),
-        count: 1,
-    }
-}
 pub(crate) fn walk(
     keys: &mut ButtonInput<KeyCode>,
     orbit: &mut Orbit,

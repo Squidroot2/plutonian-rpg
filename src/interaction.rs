@@ -20,6 +20,15 @@ use crate::{
     ui::menu_ui::PlayerMenu,
 };
 use avian3d::prelude::*;
+#[cfg(any(test, feature = "smoke"))]
+use bevy::camera::NormalizedRenderTarget;
+#[cfg(any(test, feature = "smoke"))]
+use bevy::picking::{
+    backend::HitData,
+    pointer::{Location, PointerButton, PointerId},
+};
+#[cfg(any(test, feature = "smoke"))]
+use bevy::window::WindowRef;
 use bevy::{ecs::query::QueryData, prelude::*};
 
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
@@ -58,6 +67,30 @@ pub(crate) const INTERACT_RANGE: f32 = 3.0;
 pub(crate) const INTERACT_HEIGHT: f32 = 0.45;
 const PICKUP_INTERACTION_OFFSET: f32 = 0.18;
 const HATCH_INTERACTION_OFFSET: f32 = 0.65;
+
+/// Build a primary pointer click on `entity` for unit tests and smoke drivers,
+/// which trigger UI observers directly instead of synthesizing OS input.
+#[cfg(any(test, feature = "smoke"))]
+pub(crate) fn pointer_click(entity: Entity, window: Entity, camera: Entity) -> PointerClick {
+    PointerClick {
+        entity,
+        pointer: Pointer::new(
+            PointerId::Mouse,
+            Location {
+                target: NormalizedRenderTarget::Window(
+                    WindowRef::Entity(window)
+                        .normalize(Some(window))
+                        .expect("an explicit test window reference must always normalize"),
+                ),
+                position: Vec2::ZERO,
+            },
+        ),
+        button: PointerButton::Primary,
+        hit: HitData::new(camera, 0.0, None, None),
+        duration: std::time::Duration::from_millis(50),
+        count: 1,
+    }
+}
 
 // Match the beacon notice IDs in data/dialogue/catalog.dialogue.ron.
 pub(crate) const CORE_RECOVERED_SOLO: NoticeId = NoticeId("beacon.core_recovered_solo");
@@ -759,7 +792,7 @@ mod tests {
             world.get_entity(button).is_ok(),
             "an idle topic list must preserve its buttons between mouse press and release"
         );
-        world.trigger(crate::smoke::pointer_click(button, window, camera));
+        world.trigger(crate::interaction::pointer_click(button, window, camera));
         app.update();
         assert_eq!(
             app.world().resource::<Dialogue>().text(),
@@ -852,7 +885,7 @@ mod tests {
                 .find(|(_, current)| **current == action)
                 .expect("storage action")
                 .0;
-            world.trigger(crate::smoke::pointer_click(button, window, camera));
+            world.trigger(crate::interaction::pointer_click(button, window, camera));
         };
         let take =
             StorageAction::Transfer(StorageSide::Chest, ItemKind::Battery, TransferAmount::Stack);
@@ -973,7 +1006,7 @@ mod tests {
 
     #[test]
     fn loot_panel_transfers_each_corpse_stack_once_and_keeps_the_body() {
-        use crate::{smoke::pointer_click, ui::loot_ui::LootAction};
+        use crate::{interaction::pointer_click, ui::loot_ui::LootAction};
 
         let mut app = test_app();
         let window = app.world_mut().spawn_empty().id();

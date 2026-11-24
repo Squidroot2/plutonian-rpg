@@ -200,7 +200,7 @@ fn spawn_loot(
         return;
     }
     if *layout == WorldLayout::SmokeArena {
-        for (item, x, z) in crate::smoke::ARENA_LOOT {
+        for (item, x, z) in crate::world::ARENA_LOOT {
             spawn_initial_pickup(
                 &items,
                 &mut commands,

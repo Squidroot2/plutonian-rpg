@@ -284,6 +284,7 @@ impl DialogueRegistry {
 }
 
 impl Topic {
+    #[cfg(feature = "smoke")]
     pub(crate) fn text_reply(&self) -> Option<&str> {
         match &self.reply {
             Reply::Text(text) => Some(text),

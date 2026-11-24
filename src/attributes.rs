@@ -562,7 +562,7 @@ fn refresh_character(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::smoke::pointer_click;
+    use crate::interaction::pointer_click;
     use bevy::state::app::StatesPlugin;
 
     #[test]

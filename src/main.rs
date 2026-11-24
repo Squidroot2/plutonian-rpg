@@ -29,6 +29,7 @@ mod practice_dummy;
 mod quest;
 mod roach;
 mod save;
+#[cfg(feature = "smoke")]
 mod smoke;
 mod storage;
 mod terrain;
@@ -54,6 +55,11 @@ pub enum GameState {
 
 fn main() {
     let args: Vec<_> = std::env::args().skip(1).collect();
+    #[cfg(not(feature = "smoke"))]
+    assert!(
+        !args.iter().any(|arg| arg.starts_with("--smoke-")),
+        "smoke scenarios require building with --features smoke"
+    );
     let arena = args.iter().any(|arg| arg == "--smoke-test");
     let world = args.iter().any(|arg| arg == "--smoke-world");
     let nemi = args.iter().any(|arg| arg == "--smoke-nemi");
@@ -134,6 +140,7 @@ fn main() {
             cave::CavePlugin,
             crossing::CrossingPlugin,
         ));
+    #[cfg(feature = "smoke")]
     if arena || world || nemi || cave || crossing {
         app.add_plugins(smoke::SmokePlugin {
             arena,

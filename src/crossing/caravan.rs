@@ -127,6 +127,7 @@ pub(crate) struct Caravan {
 }
 
 impl Caravan {
+    #[cfg(feature = "smoke")]
     pub(crate) fn crossed_threshold(&self) -> bool {
         self.distance >= 8.0
     }
