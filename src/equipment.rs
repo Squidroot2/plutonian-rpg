@@ -220,6 +220,8 @@ pub enum EquipRequest {
 pub struct UnequipRequest(pub EquipmentSlot);
 #[derive(Component, Clone, Copy, Debug)]
 pub struct WornEquipment {
+    // Read by the smoke scenarios when asserting on worn gear.
+    #[allow(dead_code)]
     pub slot: EquipmentSlot,
     pub item: ItemKind,
 }

@@ -105,6 +105,7 @@ pub struct Player {
 pub(crate) type PlayerRead<'w, 's, T> = Single<'w, 's, Ref<'static, T>, With<Player>>;
 pub(crate) type PlayerWrite<'w, 's, T> = Single<'w, 's, &'static mut T, With<Player>>;
 
+#[cfg(any(test, feature = "smoke"))]
 pub(crate) trait PlayerWorldExt {
     fn player_entity(&self) -> Entity;
     #[cfg(test)]
@@ -116,6 +117,7 @@ pub(crate) trait PlayerWorldExt {
     fn set_player_data(&mut self, data: impl Bundle);
 }
 
+#[cfg(any(test, feature = "smoke"))]
 impl PlayerWorldExt for World {
     fn player_entity(&self) -> Entity {
         self.try_query_filtered::<Entity, With<Player>>()

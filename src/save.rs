@@ -1643,7 +1643,7 @@ mod tests {
                     .expect("load button exists");
                 let window = world.spawn_empty().id();
                 let camera = world.spawn_empty().id();
-                world.trigger(crate::smoke::pointer_click(load, window, camera));
+                world.trigger(crate::interaction::pointer_click(load, window, camera));
             }
             app.update();
             assert_eq!(

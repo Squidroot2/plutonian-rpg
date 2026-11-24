@@ -234,7 +234,7 @@ fn check(
     mut next: ResMut<NextState<GameState>>,
     pending: Query<(), With<PendingScene>>,
     spatial: SpatialQuery,
-    arena_floor: Query<Entity, With<crate::smoke::ArenaFloor>>,
+    arena_floor: Query<Entity, With<crate::world::ArenaFloor>>,
     colliders: Query<&Collider, Without<crate::player::Player>>,
     mut run: ResMut<RunSave>,
     mut slot: ResMut<SaveSlot>,

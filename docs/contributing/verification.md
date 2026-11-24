@@ -5,11 +5,11 @@ cargo fmt --check
 cargo check --locked
 cargo clippy --locked --all-targets
 cargo test --locked
-cargo run --locked -- --smoke-test
-cargo run --locked -- --smoke-world
-cargo run --locked -- --smoke-nemi
-cargo run --locked -- --smoke-cave
-cargo run --locked -- --smoke-crossing
+cargo run --locked --features smoke -- --smoke-test
+cargo run --locked --features smoke -- --smoke-world
+cargo run --locked --features smoke -- --smoke-nemi
+cargo run --locked --features smoke -- --smoke-cave
+cargo run --locked --features smoke -- --smoke-crossing
 python3 scripts/check_assets.py
 ```
 

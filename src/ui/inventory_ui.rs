@@ -1123,7 +1123,7 @@ mod tests {
 
     #[test]
     fn inventory_double_click_equips_available_gear_and_swaps_the_worn_item() {
-        use crate::{GameState, equipment::EquipmentPlugin, smoke::pointer_click};
+        use crate::{GameState, equipment::EquipmentPlugin, interaction::pointer_click};
         use bevy::state::app::StatesPlugin;
 
         let mut app = App::new();
@@ -1210,7 +1210,7 @@ mod tests {
 
     #[test]
     fn double_clicking_strength_gated_gear_shows_notice_without_equipping() {
-        use crate::{GameState, equipment::EquipmentPlugin, smoke::pointer_click};
+        use crate::{GameState, equipment::EquipmentPlugin, interaction::pointer_click};
         use bevy::state::app::StatesPlugin;
 
         let mut app = App::new();
@@ -1267,7 +1267,7 @@ mod tests {
 
     #[test]
     fn each_shortsword_row_can_be_selected_equipped_and_unequipped_separately() {
-        use crate::{GameState, equipment::EquipmentPlugin, smoke::pointer_click};
+        use crate::{GameState, equipment::EquipmentPlugin, interaction::pointer_click};
         use bevy::state::app::StatesPlugin;
 
         let mut app = App::new();
@@ -1402,7 +1402,7 @@ mod tests {
 
     #[test]
     fn empty_equipment_slot_opens_a_compatible_gear_picker() {
-        use crate::{GameState, equipment::EquipmentPlugin, smoke::pointer_click};
+        use crate::{GameState, equipment::EquipmentPlugin, interaction::pointer_click};
         use bevy::state::app::StatesPlugin;
 
         let mut app = App::new();
