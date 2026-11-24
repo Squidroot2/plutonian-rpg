@@ -34,6 +34,9 @@ use std::{fmt, io, marker::PhantomData, time::Instant};
 /// IDs are ASCII, so this is also their maximum character count; checkpoints
 /// serialize them as strings rather than storing the padded representation.
 const MAX_ID_BYTES: usize = 48;
+/// Maximum time allowed for the gameplay catalogs to finish loading during boot.
+/// The timer starts when catalog handles are requested; if any catalog is still
+/// unavailable after this duration, boot transitions to `GameState::Failed`.
 const BOOT_TIMEOUT_SECONDS: u64 = 90;
 
 /// A short authored ID. Its inline representation keeps inventory and encounter keys copyable.
