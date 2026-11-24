@@ -37,7 +37,7 @@ jobs:
       - name: Install Rust 1.100.0
         id: rust
         run: |
-          rustup toolchain install 1.100.0 --profile minimal --component clippy
+          rustup toolchain install 1.100.0 --profile minimal --component clippy --component rustfmt
           rustup default 1.100.0
           echo "version=$(rustc --version)" >> "$GITHUB_OUTPUT"
 
