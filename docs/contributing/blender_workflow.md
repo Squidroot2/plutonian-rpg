@@ -50,7 +50,7 @@ Append `--shortsword` to export just the player rig and the two shortsword model
 
 Use `-- --build-perimeter` to regenerate the cliffs, walls, and gate frame in the existing outpost and collision sources and exports.
 After hand-editing the perimeter, use `-- --export --outpost` to export both sources.
-See [Nivalis perimeter](docs/design/nivalis-perimeter.md) for the design and collision details.
+See [Nivalis perimeter](/docs/design/nivalis-perimeter.md) for the design and collision details.
 
 To rebuild only the procedural outpost and its collision scene, including their editable `.blend` sources and GLB exports:
 
