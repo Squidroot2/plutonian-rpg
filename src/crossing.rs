@@ -1,5 +1,6 @@
 //! The moving gate, the Listening Flats, and the crossing families.
 mod caravan;
+pub(crate) mod village;
 #[cfg(test)]
 pub(crate) use caravan::register_topics;
 pub(crate) use caravan::{
@@ -75,6 +76,9 @@ impl CrossingGate {
     }
 }
 
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) struct CaravanArrivalSystems;
+
 pub(crate) struct CrossingPlugin;
 
 impl Plugin for CrossingPlugin {
@@ -90,8 +94,10 @@ impl Plugin for CrossingPlugin {
                     caravan::settle_villagers,
                 )
                     .chain()
+                    .in_set(CaravanArrivalSystems)
                     .run_if(in_state(GameState::Playing)),
             )
+            .add_systems(FixedUpdate, village::movement_systems())
             .add_systems(
                 Update,
                 caravan::animate.run_if(in_state(GameState::Playing)),

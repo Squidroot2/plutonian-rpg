@@ -23,7 +23,7 @@ Runtime exports are checked in under `assets/models/`, so Blender is not needed 
 | Source / export | Purpose |
 | --- | --- |
 | `plutonian` | Shared skinned character with locomotion, spear and sword carry, two slash actions, `SpearThrust`, and `NemiDeath` |
-| `outpost` | Ice shelf, habitats, waystones, cavern, beacon tower, perimeter cliffs and gate, distant sky details |
+| `outpost` | Ice shelf, furnished village huts, waystones, cavern, beacon tower, perimeter cliffs and gate, distant sky details |
 | `collision` | Simplified static geometry, hidden at runtime |
 | `core` | Collectible beacon power core |
 | `battery`, `scrap`, `methane_pouch` | Ground-based material pickups |
@@ -51,6 +51,10 @@ Append `--shortsword` to export just the player rig and the two shortsword model
 Use `-- --build-perimeter` to regenerate the cliffs, walls, and gate frame in the existing outpost and collision sources and exports.
 After hand-editing the perimeter, use `-- --export --outpost` to export both sources.
 See [Nivalis perimeter](../design/nivalis-perimeter.md) for the design and collision details.
+
+Use `-- --build-village` to regenerate the resident huts in both existing outpost sources and exports.
+Hut footprints, entrance directions, furnishings, and cot counts are defined in `scripts/village.py`.
+Run the crossing smoke after moving an entrance, since it also changes the walking route.
 
 To rebuild only the procedural outpost and its collision scene, including their editable `.blend` sources and GLB exports:
 

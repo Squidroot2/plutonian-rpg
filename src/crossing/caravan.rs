@@ -1,9 +1,9 @@
 //! The two wagon parties share a route and carry their own pose and animation state.
-use super::{CrossingGate, GATE_CENTER};
+use super::{CrossingGate, GATE_CENTER, village};
 use crate::{
-    combat::{HitReaction, RemoveColliderOnDeath},
+    combat::{Health, HitReaction, RemoveColliderOnDeath},
     content::{Items, NpcId, Npcs},
-    dialogue::{DialogueContextMut, DialogueRegistry, NoticeId, ReplyId, Speaker},
+    dialogue::{DialogueContextMut, DialogueRegistry, NoticeId, ReplyId},
     dungeon::Area,
     equipment::bind_equipment_attachments,
     inventory::{Inventory, ItemKind},
@@ -29,7 +29,6 @@ const SAMPLES_NEEDED: ReplyId = ReplyId("samples_needed");
 const SAMPLES_EXAMINED: ReplyId = ReplyId("samples_examined");
 pub(crate) const STATION_NEEDS_SAMPLES: NoticeId = NoticeId("crossing.station_needs_samples");
 pub(crate) const STATION_VERIFIED: NoticeId = NoticeId("crossing.station_verified");
-const STATION_OFFSET_M: f32 = 1.1;
 
 #[derive(Component)]
 pub(crate) struct SampleStation;
@@ -395,6 +394,17 @@ fn parked_collider(size: Vec3) -> Collider {
     )])
 }
 
+fn villager_collider(size: Vec3) -> Collider {
+    const SOLE_CLEARANCE_M: f32 = 0.035;
+    let radius = size.z * 0.5;
+    // The rounded foot clears threshold ramps while the model stays grounded.
+    Collider::compound(vec![(
+        Vec3::Y * (size.y * 0.5 + SOLE_CLEARANCE_M),
+        Quat::IDENTITY,
+        Collider::capsule(radius, size.y - 2.0 * radius),
+    )])
+}
+
 pub(super) fn move_caravan(
     mut caravan: Query<&mut Caravan>,
     mut wagons: Query<(&mut WagonUnit, &mut Transform)>,
@@ -453,23 +463,22 @@ pub(super) fn move_caravan(
     }
 }
 
-/// Parked speakers use world poses, as do other interactive actors.
+/// Release each actor in its current world pose when the wagon party parks.
 pub(super) fn settle_villagers(
     caravan: Query<&Caravan>,
     wagons: Query<&Transform, With<WagonUnit>>,
-    mut members: Query<
-        (
-            Entity,
-            &CaravanBody,
-            &ChildOf,
-            &Transform,
-            &mut crate::combat::Health,
-        ),
-        Without<Speaker>,
-    >,
+    mut members: Query<(
+        Entity,
+        &NpcId,
+        &CaravanBody,
+        &ChildOf,
+        &Transform,
+        &mut Health,
+    )>,
+    station: Query<(), With<SampleStation>>,
+    players: Query<Entity, With<Player>>,
+    spatial: SpatialQuery,
     run: Res<RunSave>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
     mut commands: Commands,
 ) {
     if !caravan
@@ -478,57 +487,47 @@ pub(super) fn settle_villagers(
     {
         return;
     }
-    for (entity, body, parent, local, mut health) in &mut members {
-        let Some(id) = body.npc else {
-            continue;
-        };
+    if station.is_empty() {
+        village::spawn_sample_station(&mut commands);
+    }
+    let checkpoint = run
+        .checkpoint()
+        .filter(|save| save.journal.has_occurred(QuestAction::CaravanArrived));
+    let player = players.single().ok();
+    for (entity, &id, body, parent, local, mut health) in &mut members {
         let Ok(wagon) = wagons.get(parent.parent()) else {
             continue;
         };
-        let mut world = wagon.mul_transform(*local);
-        let outward = wagon.rotation * (Vec3::X * local.translation.x.signum());
-        world.rotation = ground_heading(outward);
-        if id == NpcId::Tovan {
-            spawn_sample_station(
-                &mut commands,
-                &mut meshes,
-                &mut materials,
-                world.translation + outward * STATION_OFFSET_M,
-            );
-        }
+        let mut pose = wagon.mul_transform(*local);
+        let residence = village::residence(id);
         let mut flee = FleeState::civilian();
         let mut entity = commands.entity(entity);
         entity.remove::<ChildOf>().insert((
             SessionEntity,
             RigidBody::Kinematic,
             CustomPositionIntegration,
-            parked_collider(body.size),
+            villager_collider(body.size),
             RemoveColliderOnDeath,
             HitReaction::new(crate::enemy::HIT_REACTION_SECONDS),
-            Speaker::new(id.key(), Area::Surface, 0.95),
+            NpcGait::Idle,
         ));
-        if let Some(saved) = run.checkpoint().and_then(|save| save.caravan_speaker(id)) {
-            saved.restore(&mut world, &mut health, &mut flee, &mut entity);
+        if let Some(checkpoint) = checkpoint {
+            if let Some(saved) = checkpoint.caravan_speaker(id) {
+                saved.restore(&mut pose, &mut health, &mut flee, &mut entity);
+            }
+            let home = residence.pose(pose, &spatial, player);
+            if health.current() > 0 {
+                if flee.can_talk() {
+                    pose = home;
+                }
+                flee.set_residence(home.translation, residence.entrance);
+            }
+            entity.insert(village::speaker(id));
+        } else {
+            entity.insert((village::Homebound::new(residence), village::travel()));
         }
-        entity.insert((world, flee, NpcGait::Idle));
+        entity.insert((pose, flee));
     }
-}
-
-fn spawn_sample_station(
-    commands: &mut Commands,
-    meshes: &mut Assets<Mesh>,
-    materials: &mut Assets<StandardMaterial>,
-    ground: Vec3,
-) {
-    const SIZE: Vec3 = Vec3::new(0.62, 0.70, 0.42);
-    commands.spawn((
-        SessionEntity,
-        SampleStation,
-        Name::new("Tovan’s inspection station"),
-        Transform::from_translation(ground + Vec3::Y * SIZE.y * 0.5),
-        Mesh3d(meshes.add(Cuboid::from_size(SIZE))),
-        MeshMaterial3d(materials.add(Color::srgb(0.34, 0.24, 0.16))),
-    ));
 }
 
 fn ground_pose(

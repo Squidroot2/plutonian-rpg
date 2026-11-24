@@ -32,7 +32,7 @@ saves at a bed.
 - Nemi's position, rotation, health and quest-related state.
 - Each authored encounter's position, rotation, health and loot availability.
 - The outpost guards' shared hostility.
-- Parked caravan speakers’ poses, health, and flee state, keyed by NPC ID.
+- Caravan residents’ health, poses, and flee state after the wagons park, keyed by NPC ID.
 - XP contribution credit for living enemies and Nemi, keyed by stable encounter
   identifiers because world loading recreates those actors.
 
@@ -41,6 +41,8 @@ progression, inventory, equipment and experience restored as session state.
 Nemi and encounter poses, health, contribution credit and loot are applied
 after the Loading-to-Playing transition.
   Living guards regroup at their authored posts so the restored player has room to leave the tent.
+  After the caravan parks, their posts are outside the barracks.
+  Peaceful caravan residents restore at their homes, and residents who were fleeing keep their saved position and return home when safe.
   Defeated guards retain their saved poses.
 Quest journal reconstruction applies durable quest effects, and actor restore
 removes the core pickup when the journal says it was already recovered.

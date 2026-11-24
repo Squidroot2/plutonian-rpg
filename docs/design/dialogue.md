@@ -10,7 +10,7 @@ Nemi offers two repeatable lore topics and conversational choices for the beacon
   Quest choices reflect the current objective and the contents of the backpack.
   The offer to help gives way to an offer to hand over the core when it is carried.
   The Hushcap report gives way to directions to the caverns or the caravan.
-  Tovan examines five samples after both wagons park.
+  Tovan examines five samples once he reaches his workshop.
   Isera, Vey, and Orla have repeatable topics about the crossing, velliks, and home.
   Each quest's choices disappear when that quest is complete.
   Opening the conversation and reading lore leave the journal and backpack as they were.

@@ -149,6 +149,21 @@ check_static_pair('outpost', {perimeter_prefix + name for name in (
     'Gate east jamb', 'Gate west jamb',
 )}, 'collision', perimeter_prefix)
 
+village_prefix = 'Village solid '
+village_beds = {'Family': 2, 'Workshop': 1, 'Orla': 1, 'Keeper': 1, 'Barracks': 2}
+village_meshes = {node['name'] for node in documents['outpost']['nodes'] if 'mesh' in node}
+for home, beds in village_beds.items():
+    room = village_prefix + home + ' '
+    room_beds = {name for name in village_meshes
+                 if name.startswith(room + 'bed ') and name.endswith(' frame')}
+    assert room_beds == {room + f'bed {i} frame' for i in range(1, beds + 1)}, home
+check_static_pair('outpost', {
+    village_prefix + f'{home} {part}'
+    for home in village_beds
+    for part in ('deck', 'left jamb', 'right jamb', 'lintel', 'threshold ramp', 'crown')
+}, 'collision', village_prefix)
+assert not any(name.startswith(('Habitat ', 'Lit doorway')) for name in village_meshes)
+
 check_static_pair('listening_flats', {'Flats solid Floor', 'Flats solid Charon overlook',
                                        'Perimeter solid Listening Flats cliffs'})
 for name in ('outpost', 'collision'):

@@ -108,7 +108,8 @@ Restoring the beacon and leaving through the Relay hatch after reading the surve
   The journal credits combat defeat messages for distinct cavern Hushcaps after the quest activates.
   Defeats credited during the report step stay recorded while the report remains current.
   The fifth credited defeat opens the southwest gate for the caravan.
-  Tovan can examine the samples when the caravan parks and the player carries five Mycelium.
+  Tovan can examine the samples at his workshop when the player carries five Mycelium.
+  His workshop bench can examine the samples if he dies.
   Tovan leaves the samples with the player and completion awards 150 XP.
 
 ## Reward lifecycle

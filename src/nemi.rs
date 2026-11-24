@@ -5,6 +5,7 @@ use crate::{
     attributes::CarryLimits,
     combat::{CombatSystems, ConfirmedHit, Dead, HitReaction, RemoveColliderOnDeath},
     content::Items,
+    crossing::village::{Doorway, Homebound},
     dialogue::{Availability, Dialogue, DialogueRegistry, Speaker},
     dungeon::Area,
     equipment::Equipment,
@@ -49,6 +50,7 @@ pub(crate) struct FleeState {
     behavior: Behavior,
     ground_offset: f32,
     refuses_on_return: bool,
+    entrance: Option<Doorway>,
 }
 
 impl FleeState {
@@ -58,6 +60,7 @@ impl FleeState {
             behavior: Behavior::Peaceful,
             ground_offset: 0.0,
             refuses_on_return: false,
+            entrance: None,
         }
     }
 
@@ -114,6 +117,11 @@ impl FleeState {
         self.behavior = state.behavior;
     }
 
+    pub(crate) fn set_residence(&mut self, home: Vec3, entrance: Option<Doorway>) {
+        self.home = Some(home);
+        self.entrance = entrance;
+    }
+
     pub(crate) fn can_talk(&self) -> bool {
         matches!(self.behavior, Behavior::Peaceful | Behavior::Refuses)
     }
@@ -163,9 +171,13 @@ impl FleeState {
                     };
                     return None;
                 }
+                let toward_waypoint = self.entrance.map_or(toward_home, |door| {
+                    let point = door.approach(position.xz(), home.xz());
+                    Vec3::new(point.x - position.x, 0.0, point.y - position.z)
+                });
                 Some((
-                    toward_home.normalize(),
-                    RETURN_SPEED.min(toward_home.length() / delta),
+                    toward_waypoint.normalize_or_zero(),
+                    RETURN_SPEED.min(toward_waypoint.length() / delta),
                 ))
             }
             Behavior::Peaceful | Behavior::Refuses => None,
@@ -242,7 +254,7 @@ pub(crate) fn react_to_player_hit(
     }
 }
 
-fn move_fleeing_actors(
+pub(crate) fn move_fleeing_actors(
     time: Res<Time<Fixed>>,
     items: Res<Items>,
     players: Query<(Entity, &Player, &Transform), Without<FleeState>>,
@@ -253,6 +265,7 @@ fn move_fleeing_actors(
             &mut Transform,
             &Collider,
             &mut NpcGait,
+            Has<Homebound>,
             &CarryLimits,
             &Inventory,
             &Equipment,
@@ -266,8 +279,12 @@ fn move_fleeing_actors(
         return;
     };
     let delta = time.delta_secs();
-    for (entity, mut flee, mut transform, collider, mut gait, limits, bag, equipment) in &mut actors
+    for (entity, mut flee, mut transform, collider, mut gait, homebound, limits, bag, equipment) in
+        &mut actors
     {
+        if homebound && flee.can_talk() {
+            continue;
+        }
         let mut next_gait = NpcGait::Idle;
         let position = transform.translation;
         let away = (position - player_transform.translation).with_y(0.0);

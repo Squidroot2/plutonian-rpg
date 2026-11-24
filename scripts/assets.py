@@ -13,6 +13,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 from grounding import ground_outpost
 import perimeter
 import crossing
+import village
 random.seed(19)
 
 
@@ -752,15 +753,6 @@ def world():
     bpy.context.collection.objects.link(ramp)
     ramp.data.materials.append(path)
     solid(ramp)
-    # An inhabited outpost, open central courtyard.
-    for i, (x,y) in enumerate([(-10,1), (10,3), (-13,-8), (12,-10)]):
-        if i == 1:
-            continue
-        solid(cone(f'Habitat {i}', (x,y,2.2), 4.1, 5, wall, 2.8))
-        cone('Habitat cap', (x,y,5), 3.1, 1.5, stone, 1)
-        box('Lit doorway', (x,y-3.65,1.5), (1.4,.18,2.3), warm)
-        for s in [-1,1]:
-            box('Window', (x+s*1.6,y-3.3,2.6), (.7,.2,.4), warm)
     solid(cone('Beacon foundation', (0,-5,.55), 2.5, 1.3, stone, 2))
     solid(cone('Beacon spindle', (0,-5,4), .65, 6, wall, .38))
     for h in [3,4.3,5.6]:
@@ -796,18 +788,37 @@ def world():
     ico('Charon', (-72,100,65), (13,13,13), material('Charon rock', (.23,.26,.32)), 3)
     ground_outpost()
     starting_tent()
+    village.build(material, box, ico, cone)
     perimeter.build(material, box)
     save_export('outpost')
 
 
 def collision_from_world():
     bpy.ops.wm.open_mainfile(filepath=str(ROOT/'art/outpost.blend'))
-    prefixes = ('Ice shelf', 'Trail rise', 'Habitat ', 'Beacon foundation', 'Beacon spindle',
+    prefixes = ('Ice shelf', 'Trail rise', 'Beacon foundation', 'Beacon spindle',
                 'Ice escarpment', 'Cavern ', 'Core plinth', 'Waystone', TENT_SOLID,
-                perimeter.SOLID_PREFIX)
+                perimeter.SOLID_PREFIX, village.SOLID)
     for o in list(bpy.data.objects):
         if not o.name.startswith(prefixes) or o.name.startswith('Waystone lamp'):
             bpy.data.objects.remove(o, do_unlink=True)
+    save_export('collision')
+
+
+def rebuild_village():
+    """Replace just the occupied huts in the editable outpost and collider scenes."""
+    bpy.context.preferences.filepaths.save_version = 0
+    bpy.context.preferences.filepaths.file_preview_type = 'NONE'
+    bpy.ops.wm.open_mainfile(filepath=str(ROOT / 'art/outpost.blend'))
+    village.remove_homes()
+    village.build(material, box, ico, cone)
+    save_export('outpost')
+
+    bpy.ops.wm.open_mainfile(filepath=str(ROOT / 'art/collision.blend'))
+    village.remove_homes()
+    with bpy.data.libraries.load(str(ROOT / 'art/outpost.blend')) as (source, target):
+        target.objects = [name for name in source.objects if name.startswith(village.SOLID)]
+    for obj in target.objects:
+        bpy.context.scene.collection.objects.link(obj)
     save_export('collision')
 
 
@@ -1802,6 +1813,8 @@ elif '--build-crossing' in sys.argv:
     build_crossing()
 elif '--build-perimeter' in sys.argv:
     rebuild_perimeter()
+elif '--build-village' in sys.argv:
+    rebuild_village()
 elif '--build-outpost' in sys.argv:
     world()
     collision_from_world()

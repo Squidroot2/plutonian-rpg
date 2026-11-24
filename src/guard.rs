@@ -6,6 +6,7 @@ use crate::{
         ActorDefeated, CombatSystems, ConfirmedHit, Dead, Hit, HitReaction, RemoveColliderOnDeath,
     },
     content::{Enemies, Items, NpcId, Npcs, Placements},
+    crossing::village::guard_waypoint,
     dialogue::{Dialogue, Speaker},
     dungeon::{Area, HATCH},
     enemy::{self, Enemy, GroundMovement},
@@ -19,6 +20,7 @@ use crate::{
         ActorVisual, NpcGait, PLAYER_COLLIDER_LENGTH, PLAYER_COLLIDER_RADIUS, PLAYER_GROUND_OFFSET,
         Pace, Player, bind_actor_animation,
     },
+    quest::{QuestAction, QuestJournal},
     save::{EncounterId, save_at_bed},
     terrain::ground_heading,
     weapon::{self, Hand, WeaponAttack, WeaponStance},
@@ -30,6 +32,7 @@ use bevy::{gltf::Gltf, prelude::*};
 const OUTPOST_CENTER_XZ: Vec2 = Vec2::ZERO;
 const OUTPOST_RADIUS_M: f32 = 12.0;
 const HOME_STOP_DISTANCE_M: f32 = 0.2;
+const REGROUP_SPEED_MPS: f32 = 1.8;
 
 #[derive(
     Component, Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, bitcode::Encode, bitcode::Decode,
@@ -48,6 +51,21 @@ impl GuardPost {
             Self::West => Vec3::new(-5.5, 0.0, 2.5),
             // The other post watches the ice trail out of Nivalis.
             Self::East => Vec3::new(3.5, 0.0, -8.75),
+        }
+    }
+
+    pub(crate) const fn barracks(self) -> Vec3 {
+        match self {
+            Self::West => Vec3::new(-4.22, 0.0, -8.77),
+            Self::East => Vec3::new(-4.22, 0.0, -11.23),
+        }
+    }
+
+    fn station(self, arrived: bool) -> (Vec3, Quat) {
+        if arrived {
+            (self.barracks(), ground_heading(Vec3::new(1.0, 0.0, 0.30)))
+        } else {
+            (self.home(), self.facing())
         }
     }
 
@@ -95,6 +113,7 @@ impl Plugin for GuardPlugin {
                 FixedUpdate,
                 plan_guard_actions
                     .after(crate::player::movement)
+                    .after(crate::crossing::CaravanArrivalSystems)
                     .before(enemy::move_ground_enemies)
                     .run_if(in_state(GameState::Playing))
                     .run_if(enemy::no_dialogue)
@@ -141,6 +160,7 @@ fn spawn_guards(
     enemies: Res<Enemies>,
     npcs: Res<Npcs>,
     items: Res<Items>,
+    journal: Res<QuestJournal>,
 ) {
     if *layout != WorldLayout::Outpost {
         return;
@@ -153,6 +173,7 @@ fn spawn_guards(
     for post in GuardPost::ALL {
         let id = EncounterId::Guard(post);
         let npc = post.npc();
+        let (station, facing) = post.station(journal.has_occurred(QuestAction::CaravanArrived));
         let (name, chase_speed, xp) = placements.enemy(&enemies, id).guard_role();
         let (ranks, inventory, equipment) = npcs.loadout(npc, &items);
         let item = equipment
@@ -180,7 +201,7 @@ fn spawn_guards(
                     Collider::capsule(PLAYER_COLLIDER_RADIUS, PLAYER_COLLIDER_LENGTH),
                     RigidBody::Kinematic,
                     CustomPositionIntegration,
-                    Transform::from_translation(post.home()).with_rotation(post.facing()),
+                    Transform::from_translation(station).with_rotation(facing),
                     Visibility::default(),
                 ),
                 (
@@ -219,6 +240,7 @@ fn spawn_guards(
 fn plan_guard_actions(
     items: Res<Items>,
     security: Res<OutpostSecurity>,
+    journal: Option<Res<QuestJournal>>,
     spatial: SpatialQuery,
     players: Query<(Entity, &Player, &Transform), (Without<GuardPost>, Without<Dead>)>,
     mut guards: Query<
@@ -239,6 +261,7 @@ fn plan_guard_actions(
     let Ok((player, controller, target)) = players.single() else {
         return;
     };
+    let arrived = journal.is_some_and(|journal| journal.has_occurred(QuestAction::CaravanArrived));
     for (entity, post, mut pose, mut movement, mut action, attack, equipment, bag, limits) in
         &mut guards
     {
@@ -247,10 +270,14 @@ fn plan_guard_actions(
             limits.ground_speed(bag.carried_weight(equipment, &items), action.chase_speed);
         action.ready = None;
         if !security.defends(controller.area, target.translation) {
-            if pose.translation.xz().distance(post.home().xz()) > HOME_STOP_DISTANCE_M {
-                movement.destination = Some(post.home());
+            let (station, facing) = post.station(arrived);
+            if pose.translation.xz().distance(station.xz()) > HOME_STOP_DISTANCE_M {
+                if arrived {
+                    movement.speed = movement.speed.min(REGROUP_SPEED_MPS);
+                }
+                movement.destination = Some(guard_waypoint(pose.translation, station));
             } else {
-                pose.rotation = post.facing();
+                pose.set_if_neq(pose.with_rotation(facing));
             }
             continue;
         }
@@ -270,7 +297,7 @@ fn plan_guard_actions(
             pose.rotation = facing;
             action.ready = Some(hand);
         } else {
-            movement.destination = Some(target.translation);
+            movement.destination = Some(guard_waypoint(pose.translation, target.translation));
         }
     }
 }

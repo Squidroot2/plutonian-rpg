@@ -180,6 +180,7 @@ fn spawn_outpost(
         // The interaction point sits just above the mattress on its aisle side.
         Transform::from_xyz(9.45, -0.12, -4.40),
     ));
+    crate::crossing::village::light_homes(commands);
     for x in [-36.55, -23.45] {
         commands.spawn((
             SessionEntity,

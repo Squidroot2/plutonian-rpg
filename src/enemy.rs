@@ -423,7 +423,7 @@ pub(crate) fn move_ground_enemies(
     time: Res<Time<Fixed>>,
     spatial: SpatialQuery,
     mover: MoveAndSlide,
-    actors: Query<Entity, Or<(With<Player>, With<Enemy>, With<crate::nemi::Nemi>)>>,
+    actors: Query<Entity, Or<(With<Player>, With<Enemy>, With<crate::nemi::FleeState>)>>,
     mut enemies: Query<(Entity, &mut Transform, &Collider, &mut GroundMovement), Without<Dead>>,
 ) {
     let delta = time.delta_secs();

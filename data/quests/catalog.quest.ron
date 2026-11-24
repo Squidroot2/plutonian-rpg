@@ -127,7 +127,7 @@
             (
                 id: "show_mycelium",
                 title: "Have five Mycelium samples examined",
-                directions: "The southwest gate has opened for the crossing caravan. Let the wagons park, then bring five Mycelium in your backpack to Tovan, the craftsman beside the rear wagon. If Tovan is dead, use his inspection station by that wagon.",
+                directions: "The southwest gate has opened for the crossing caravan. Let the caravan reach the village, then bring five Mycelium in your backpack to Tovan in the tall-roofed workshop southwest of the beacon. If Tovan is dead, use the blue-lit inspection bench inside.",
                 transitions: [(when: Action(ShowedTovanMycelium), to: Complete)],
             ),
         ],

@@ -5,12 +5,14 @@ use crate::{
     cave::CaveEncounter,
     combat::{Dead, Hit},
     content::NpcId,
-    crossing::{Caravan, CrossingGate},
+    crossing::{Caravan, CrossingGate, SampleStation, village::Homebound},
     dialogue::{Dialogue, Screen, Speaker},
+    guard::GuardPost,
     hushcap::Hushcap,
+    interaction::{InteractionTarget, Nearby},
     inventory::{Inventory, ItemKind},
     player::PlayerWrite,
-    player::{Dodge, PLAYER_GROUND_OFFSET, Player},
+    player::{Dodge, NpcGait, PLAYER_GROUND_OFFSET, Player},
     quest::{CONTAIN_THE_HUSHCAPS, QuestAction, QuestJournal},
     save::{Bed, EncounterId, RunSave, SaveAtBed},
     terrain::walkable_height,
@@ -29,8 +31,12 @@ pub(super) enum Check {
     Opening,
     FirstArrivalPhoto(Entity),
     Parked,
-    ParkedView,
-    ParkedPhoto(Entity),
+    Settling(ArrivalWatch),
+    RoomView(usize),
+    RoomPhoto(usize, Entity),
+    Bench,
+    BenchResult,
+    ReloadHomes(Entity),
     Speak,
     Samples,
     CloseReply,
@@ -43,6 +49,45 @@ pub(super) enum Check {
     Defeat,
     Restored(Entity),
 }
+
+#[derive(Debug, Default, Clone, Copy)]
+pub(super) struct ArrivalWatch {
+    walked: u8,
+    guard_walked: u8,
+    staggered: bool,
+    courtyard_photo: bool,
+}
+
+const VILLAGE_HOMES: [(NpcId, Vec2); 4] = [
+    (NpcId::Isera, Vec2::new(-8.15, -1.0)),
+    (NpcId::Vey, Vec2::new(-5.8, -2.65)),
+    (NpcId::Tovan, Vec2::new(-11.70, 7.22)),
+    (NpcId::Orla, Vec2::new(8.55, 9.0)),
+];
+
+const ROOM_VIEWS: [(&str, Vec2, f32); 5] = [
+    (
+        "nivalis-family-hut",
+        Vec2::new(-9.25, -0.45),
+        std::f32::consts::FRAC_PI_2,
+    ),
+    (
+        "nivalis-orla-hut",
+        Vec2::new(10.30, 10.0),
+        -std::f32::consts::FRAC_PI_2,
+    ),
+    ("nivalis-keeper-hut", Vec2::new(3.0, -4.64), 0.0),
+    (
+        "nivalis-barracks",
+        Vec2::new(-7.30, -10.15),
+        std::f32::consts::FRAC_PI_2,
+    ),
+    (
+        "nivalis-workshop",
+        Vec2::new(-11.35, 8.17),
+        std::f32::consts::FRAC_PI_2,
+    ),
+];
 
 const ELIGIBLE: [CaveEncounter; 5] = [
     CaveEncounter::FirstWestHushcap,
@@ -88,6 +133,28 @@ pub(super) struct Fixtures<'w, 's> {
         ),
         With<crate::nemi::FleeState>,
     >,
+    arrivals: Query<
+        'w,
+        's,
+        (
+            &'static NpcId,
+            &'static NpcGait,
+            &'static GlobalTransform,
+            Has<Homebound>,
+            Has<Speaker>,
+        ),
+    >,
+    guards: Query<
+        'w,
+        's,
+        (
+            &'static GuardPost,
+            &'static GlobalTransform,
+            &'static NpcGait,
+        ),
+    >,
+    bench: Query<'w, 's, Entity, With<SampleStation>>,
+    nearby: Res<'w, Nearby>,
     beds: Query<'w, 's, Entity, With<Bed>>,
     captures: Query<'w, 's, (), With<Screenshot>>,
     spatial: SpatialQuery<'w, 's>,
@@ -136,41 +203,28 @@ pub(super) fn drive(
         Check::FirstArrivalPhoto(photo) if fixtures.captures.get(photo).is_err() => {
             *check = Check::Parked
         }
-        Check::Parked if journal.has_occurred(QuestAction::CaravanArrived) => {
-            check_villagers(&fixtures);
-            at(
-                &fixtures,
-                entity,
-                &mut controller,
-                &mut dodge,
-                &mut pose,
-                Vec2::new(-30.0, 23.5),
-            );
-            orbit.yaw = 0.0;
-            orbit.pitch = 0.12;
-            *check = Check::ParkedView;
-        }
-        Check::ParkedView => {
-            *check = Check::ParkedPhoto(capture(&mut commands, "crossing-caravan"));
-        }
-        Check::ParkedPhoto(photo) if fixtures.captures.get(photo).is_err() => {
-            let (_, _, tovan) = fixtures
-                .speakers
-                .iter()
-                .find(|(_, speaker, _)| speaker.profile == "tovan")
-                .expect("the rear wagon has a craftsman");
-            let spot = tovan.translation().xz() + Vec2::X * 1.6;
-            at(
-                &fixtures,
-                entity,
-                &mut controller,
-                &mut dodge,
-                &mut pose,
-                spot,
-            );
-            assert!(inventory.add(ItemKind::Mycelium, 5));
-            *check = Check::Speak;
-        }
+        Check::Parked
+        | Check::Settling(_)
+        | Check::RoomView(_)
+        | Check::RoomPhoto(_, _)
+        | Check::Bench
+        | Check::BenchResult
+        | Check::ReloadHomes(_) => check_homecoming(
+            &mut check,
+            &fixtures,
+            entity,
+            &mut controller,
+            &mut dodge,
+            &mut pose,
+            capsule,
+            &journal,
+            &mut inventory,
+            &mut keys,
+            &mut orbit,
+            &mut hits,
+            &mut saves,
+            &mut commands,
+        ),
         Check::Speak if controller.grounded => {
             keys.press(KeyCode::KeyE);
             *check = Check::Samples;
@@ -245,6 +299,241 @@ pub(super) fn drive(
             exit.write(AppExit::Success);
         }
         _ => {}
+    }
+}
+
+fn check_homecoming(
+    check: &mut Check,
+    fixtures: &Fixtures,
+    player: Entity,
+    controller: &mut Player,
+    dodge: &mut Dodge,
+    pose: &mut Transform,
+    capsule: &Collider,
+    journal: &QuestJournal,
+    inventory: &mut Inventory,
+    keys: &mut ButtonInput<KeyCode>,
+    orbit: &mut Orbit,
+    hits: &mut MessageWriter<Hit>,
+    saves: &mut MessageWriter<SaveAtBed>,
+    commands: &mut Commands,
+) {
+    match *check {
+        Check::Parked if journal.has_occurred(QuestAction::CaravanArrived) => {
+            for (id, _) in VILLAGE_HOMES {
+                let (_, _, homebound, speaker) = resident(fixtures, id);
+                assert!(
+                    homebound && !speaker,
+                    "{id:?} must leave the parked wagon before talking"
+                );
+            }
+            assert!(inventory.add(ItemKind::Mycelium, 5));
+            // Capture a real checkpoint while the homeward routes are active.
+            saves.write(SaveAtBed(
+                fixtures
+                    .beds
+                    .single()
+                    .expect("the player’s cot saves the run"),
+            ));
+            at(
+                fixtures,
+                player,
+                controller,
+                dodge,
+                pose,
+                Vec2::new(-6.6, 15.4),
+            );
+            orbit.yaw = 0.45;
+            orbit.pitch = 0.15;
+            *check = Check::Settling(ArrivalWatch::default());
+        }
+        Check::Settling(mut watch) => {
+            observe_arrival(fixtures, &mut watch, commands);
+            if check_home_positions(fixtures) {
+                assert_eq!(watch.walked, 0b1111);
+                assert_eq!(watch.guard_walked, 0b11);
+                assert!(watch.staggered);
+                check_village_rooms(fixtures, player, capsule);
+                frame_room(fixtures, (player, controller, dodge, pose), orbit, 0);
+                *check = Check::RoomView(0);
+            } else if let Check::Settling(previous) = check {
+                *previous = watch;
+            }
+        }
+        Check::RoomView(index) => {
+            *check = Check::RoomPhoto(index, capture(commands, ROOM_VIEWS[index].0));
+        }
+        Check::RoomPhoto(index, photo) if fixtures.captures.get(photo).is_err() => {
+            let next = index + 1;
+            if next < ROOM_VIEWS.len() {
+                frame_room(fixtures, (player, controller, dodge, pose), orbit, next);
+                *check = Check::RoomView(next);
+                return;
+            }
+            orbit.distance = Orbit::default().distance;
+            let (tovan, ..) = fixtures
+                .villagers
+                .iter()
+                .find(|(_, id, ..)| **id == NpcId::Tovan)
+                .expect("Tovan has reached his workshop");
+            hits.write(Hit {
+                source: player,
+                target: tovan,
+                damage: u16::MAX,
+                contact: None,
+            });
+            at(
+                fixtures,
+                player,
+                controller,
+                dodge,
+                pose,
+                Vec2::new(-12.60, 7.48),
+            );
+            *check = Check::Bench;
+        }
+        Check::Bench
+            if controller.grounded
+                && fixtures.bench.single().is_ok_and(|bench| {
+                    fixtures.nearby.0 == Some((bench, InteractionTarget::SampleStation))
+                }) =>
+        {
+            keys.press(KeyCode::KeyE);
+            *check = Check::BenchResult;
+        }
+        Check::BenchResult => {
+            assert!(journal.is_complete(CONTAIN_THE_HUSHCAPS));
+            assert_eq!(inventory.count(ItemKind::Mycelium), 5);
+            hits.write(Hit {
+                source: player,
+                target: player,
+                damage: u16::MAX,
+                contact: None,
+            });
+            *check = Check::ReloadHomes(player);
+        }
+        Check::ReloadHomes(original) if player != original && check_home_positions(fixtures) => {
+            assert!(journal.expects(QuestAction::ShowedTovanMycelium));
+            assert_eq!(inventory.count(ItemKind::Mycelium), 5);
+            at(
+                fixtures,
+                player,
+                controller,
+                dodge,
+                pose,
+                Vec2::new(-10.65, 8.0),
+            );
+            *check = Check::Speak;
+        }
+        _ => {}
+    }
+}
+
+fn frame_room(
+    fixtures: &Fixtures,
+    (player, controller, dodge, pose): (Entity, &mut Player, &mut Dodge, &mut Transform),
+    orbit: &mut Orbit,
+    index: usize,
+) {
+    let (_, point, yaw) = ROOM_VIEWS[index];
+    at(fixtures, player, controller, dodge, pose, point);
+    orbit.yaw = yaw;
+    orbit.pitch = 0.22;
+    orbit.distance = 3.0;
+}
+
+fn resident(fixtures: &Fixtures, id: NpcId) -> (Vec2, NpcGait, bool, bool) {
+    let (_, gait, pose, homebound, speaker) = fixtures
+        .arrivals
+        .iter()
+        .find(|(npc, ..)| **npc == id)
+        .expect("each caravan villager is spawned");
+    (pose.translation().xz(), *gait, homebound, speaker)
+}
+
+fn observe_arrival(fixtures: &Fixtures, watch: &mut ArrivalWatch, commands: &mut Commands) {
+    let mut moving = 0;
+    let mut waiting = 0;
+    for (i, (id, _)) in VILLAGE_HOMES.into_iter().enumerate() {
+        let (_, gait, homebound, speaker) = resident(fixtures, id);
+        if homebound {
+            assert!(!speaker, "{id:?} must reach home before talking");
+            if matches!(gait, NpcGait::Walk(_)) {
+                moving += 1;
+                watch.walked |= 1 << i;
+            } else {
+                waiting += 1;
+            }
+        }
+    }
+    for (post, _, gait) in &fixtures.guards {
+        if matches!(gait, NpcGait::Walk(_)) {
+            watch.guard_walked |= if *post == GuardPost::West { 1 } else { 2 };
+        }
+    }
+    watch.staggered |= moving > 0 && waiting > 0;
+    if !watch.courtyard_photo
+        && resident(fixtures, NpcId::Orla).0.x > -12.0
+        && resident(fixtures, NpcId::Orla).0.x < -7.5
+    {
+        capture(commands, "nivalis-homecoming");
+        watch.courtyard_photo = true;
+    }
+}
+
+fn check_home_positions(fixtures: &Fixtures) -> bool {
+    fixtures.caravans.single().is_ok()
+        && fixtures.bench.single().is_ok()
+        && VILLAGE_HOMES.into_iter().all(|(id, home)| {
+            let (position, gait, homebound, speaker) = resident(fixtures, id);
+            !homebound && speaker && gait == NpcGait::Idle && position.distance(home) < 0.25
+        })
+        && fixtures.guards.iter().count() == GuardPost::ALL.len()
+        && fixtures.guards.iter().all(|(post, pose, gait)| {
+            *gait == NpcGait::Idle && pose.translation().xz().distance(post.barracks().xz()) < 0.25
+        })
+}
+
+fn check_village_rooms(fixtures: &Fixtures, player: Entity, capsule: &Collider) {
+    let filter = SpatialQueryFilter::from_excluded_entities(
+        std::iter::once(player).chain(fixtures.villagers.iter().map(|(entity, ..)| entity)),
+    );
+    for (name, outside, inside) in [
+        ("Family", (-4.9, -1.0), (-11.3, -1.0)),
+        ("Workshop", (-7.85, 8.0), (-14.1, 8.0)),
+        ("Orla", (7.9, 10.0), (13.2, 10.0)),
+        ("Keeper", (3.0, -2.2), (3.0, -6.5)),
+        ("Barracks", (-3.6, -10.15), (-10.3, -10.15)),
+    ] {
+        let start = Vec2::from(outside);
+        let end = Vec2::from(inside);
+        let steps = (start.distance(end) / 0.20).ceil() as u32;
+        let mut previous = None;
+        for i in 0..=steps {
+            let point = start.lerp(end, i as f32 / steps as f32);
+            let probe = Vec3::new(point.x, 0.55, point.y);
+            let floor = walkable_height(&fixtures.spatial, &filter, probe, 2.5, 0.0)
+                .unwrap_or_else(|| panic!("{name} has no walkable floor at {point}"));
+            if let Some(y) = previous {
+                assert!(
+                    f32::abs(floor - y) < crate::terrain::MAX_GROUND_STEP,
+                    "{name} threshold at {point}"
+                );
+            }
+            assert!(
+                fixtures
+                    .spatial
+                    .shape_intersections(
+                        capsule,
+                        probe.with_y(floor + PLAYER_GROUND_OFFSET + 0.06),
+                        Quat::IDENTITY,
+                        &filter
+                    )
+                    .is_empty(),
+                "{name} doorway or aisle is blocked at {point}"
+            );
+            previous = Some(floor);
+        }
     }
 }
 
@@ -364,7 +653,9 @@ fn check_restored(
         .expect("the parked caravan reconstructs Isera");
     assert_eq!(health.current(), 0);
     assert!(dead && !collider);
-    info!("CROSSING SMOKE PASS: gate, caravan, Tovan, flats loop, and caravan casualty rollback");
+    info!(
+        "CROSSING SMOKE PASS: caravan homecoming, five walkable huts, Tovan’s two quest routes, flats loop, and two checkpoint restores"
+    );
 }
 
 fn prepare_arrival(
@@ -575,6 +866,7 @@ pub(super) fn log_progress(
     run: Res<SmokeRun>,
     check: Res<Check>,
     player: Query<&Transform, With<Player>>,
+    fixtures: Fixtures,
     mut last: Local<f64>,
 ) {
     let now = run.0.elapsed().as_secs_f64();
@@ -582,6 +874,15 @@ pub(super) fn log_progress(
         && let Ok(pose) = player.single()
     {
         info!("CROSSING SMOKE: {:?} at {:?}", *check, pose.translation);
+        if matches!(*check, Check::Settling(_)) && fixtures.bench.single().is_ok() {
+            let villagers = VILLAGE_HOMES.map(|(id, _)| (id, resident(&fixtures, id)));
+            let guards: Vec<_> = fixtures
+                .guards
+                .iter()
+                .map(|(post, at, gait)| (post, at.translation().xz(), gait))
+                .collect();
+            info!("Residents {villagers:?}, guards {guards:?}");
+        }
         *last = now;
     }
 }

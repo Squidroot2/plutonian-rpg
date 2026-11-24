@@ -93,7 +93,7 @@
                 ),
                 (
                     id: "caravan_directions",
-                    text: "The lamp over the southwest gate has changed. The families can come in. Look for Tovan beside the rear wagon when they park.",
+                    text: "The lamp over the southwest gate has changed. The families can come in. Once they’re home, look for Tovan at his tall-roofed workshop southwest of the beacon.",
                 ),
                 (
                     id: "cavern_directions",

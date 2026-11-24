@@ -50,7 +50,8 @@ If Nemi is unavailable, the survey log gives the warning.
 Head south from the outpost into South Basin and follow the ridge to Hushcap Caverns.
 Defeat five distinct cavern Hushcaps after **Contain the Hushcaps** begins.
 The fifth credited defeat raises the southwest gate and lets the crossing caravan pass.
-When the wagons park, speak to Tovan beside the rear wagon with five Mycelium in your backpack.
+Once the caravan returns home, bring five Mycelium to Tovan in the tall-roofed workshop southwest of the beacon.
+If Tovan is dead, use his blue-lit inspection bench.
 Tovan examines the samples and returns them.
 
 ## Character and experience
