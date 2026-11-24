@@ -34,11 +34,11 @@ jobs:
             build-essential pkg-config libx11-dev libwayland-dev \
             libxkbcommon-dev libxkbcommon-x11-0 libasound2-dev
 
-      - name: Install stable Rust
+      - name: Install Rust 1.100.0
         id: rust
         run: |
-          rustup toolchain install stable --profile minimal --component clippy
-          rustup default stable
+          rustup toolchain install 1.100.0 --profile minimal --component clippy
+          rustup default 1.100.0
           echo "version=$(rustc --version)" >> "$GITHUB_OUTPUT"
 
       - name: Cache Cargo dependencies and build artifacts
