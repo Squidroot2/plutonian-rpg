@@ -221,3 +221,114 @@ impl Keybinds {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn controls_have_expected_categories_and_mouse_support() {
+        assert_eq!(
+            Control::Forward.keybind_category(),
+            KeybindCategory::Gameplay
+        );
+        assert_eq!(Control::MenuUp.keybind_category(), KeybindCategory::Menu);
+        assert_eq!(Control::Drop.keybind_category(), KeybindCategory::Menu);
+        assert_eq!(
+            Control::Inventory.keybind_category(),
+            KeybindCategory::MenuShortcuts
+        );
+        assert_eq!(
+            Control::QuestLog.keybind_category(),
+            KeybindCategory::MenuShortcuts
+        );
+        assert!(Control::Attack.accepts_mouse());
+        assert!(Control::OffHandAttack.accepts_mouse());
+        assert!(!Control::Interact.accepts_mouse());
+    }
+
+    #[test]
+    fn default_bindings_match_gameplay_and_menu_controls() {
+        let keybinds = Keybinds::default();
+
+        assert!(keybinds.get(Control::Forward) == Binding::Key(KeyCode::KeyW));
+        assert!(keybinds.get(Control::MenuUp) == Binding::Key(KeyCode::KeyW));
+        assert!(keybinds.get(Control::QuestLog) == Binding::Key(KeyCode::KeyL));
+        assert!(keybinds.get(Control::Holster) == Binding::Key(KeyCode::KeyX));
+        assert!(keybinds.get(Control::Attack) == Binding::Mouse(MouseButton::Left));
+        assert!(keybinds.get(Control::OffHandAttack) == Binding::Mouse(MouseButton::Right));
+    }
+
+    #[test]
+    fn bindings_have_human_readable_labels() {
+        assert_eq!(Binding::Key(KeyCode::KeyW).label(), "W");
+        assert_eq!(Binding::Key(KeyCode::Digit4).label(), "4");
+        assert_eq!(Binding::Key(KeyCode::ControlLeft).label(), "Left Ctrl");
+        assert_eq!(Binding::Key(KeyCode::CapsLock).label(), "Caps Lock");
+        assert_eq!(Binding::Mouse(MouseButton::Left).label(), "Left click");
+        assert_eq!(Binding::Mouse(MouseButton::Back).label(), "Mouse Back");
+        assert_eq!(Control::Holster.label(), "Holster / Draw Weapons");
+    }
+
+    #[test]
+    fn assignment_rejects_reserved_keys_and_mouse_on_non_attack_controls() {
+        let mut keybinds = Keybinds::default();
+
+        assert_eq!(
+            keybinds.assign(Control::Jump, Binding::Key(KeyCode::Escape)),
+            Err("That key is reserved.".into())
+        );
+        assert_eq!(
+            keybinds.assign(Control::Interact, Binding::Mouse(MouseButton::Middle)),
+            Err("Press a keyboard key for this action.".into())
+        );
+        assert!(keybinds.get(Control::Jump) == Binding::Key(KeyCode::Space));
+    }
+
+    #[test]
+    fn assignment_checks_conflicts_within_and_across_contexts() {
+        let mut keybinds = Keybinds::default();
+
+        assert_eq!(
+            keybinds.assign(Control::Forward, Binding::Key(KeyCode::KeyW)),
+            Ok(())
+        );
+        assert_eq!(
+            keybinds.assign(Control::MenuDown, Binding::Key(KeyCode::KeyW)),
+            Err("Already assigned to Menu Up.".into())
+        );
+        assert_eq!(
+            keybinds.assign(Control::Sprint, Binding::Key(KeyCode::KeyW)),
+            Err("Already assigned to Move forward.".into())
+        );
+        assert_eq!(
+            keybinds.assign(Control::QuestLog, Binding::Key(KeyCode::KeyI)),
+            Err("Already assigned to Inventory.".into())
+        );
+
+        assert_eq!(
+            keybinds.assign(Control::Forward, Binding::Key(KeyCode::KeyZ)),
+            Ok(())
+        );
+        assert_eq!(
+            keybinds.assign(Control::Sprint, Binding::Key(KeyCode::KeyW)),
+            Ok(())
+        );
+    }
+
+    #[test]
+    fn bindings_report_just_pressed_for_the_matching_input_device() {
+        let mut keys = ButtonInput::<KeyCode>::default();
+        let mut mouse = ButtonInput::<MouseButton>::default();
+        keys.press(KeyCode::KeyW);
+        mouse.press(MouseButton::Left);
+
+        assert!(Binding::Key(KeyCode::KeyW).just_pressed(&keys, &mouse));
+        assert!(Binding::Mouse(MouseButton::Left).just_pressed(&keys, &mouse));
+        assert!(!Binding::Key(KeyCode::KeyS).just_pressed(&keys, &mouse));
+        assert!(!Binding::Mouse(MouseButton::Right).just_pressed(&keys, &mouse));
+        assert!(Keybinds::default().pressed(Control::Forward, &keys));
+        assert!(Keybinds::default().just_pressed(Control::Forward, &keys));
+        assert!(!Keybinds::default().pressed(Control::Attack, &keys));
+    }
+}
