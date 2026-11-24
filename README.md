@@ -22,6 +22,10 @@ The game opens in borderless fullscreen.
 Run `cargo run --locked -- --windowed` to open it in a window.
 The first build compiles Bevy and its renderer and can take several minutes.
 
+## How to Play
+
+See the [Guide](docs/guide/guide.md)
+
 ## License
 
 Licensed under the [MIT License](LICENSE).
