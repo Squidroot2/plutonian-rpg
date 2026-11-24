@@ -7,7 +7,7 @@ The story follows the beacon's return, an abandoned relay, and a crossing carava
 
 ## Run
 
-Requires Rust 1.97.1 or newer, a Vulkan-capable graphics driver, and a Linux desktop running X11 or Wayland.
+Requires Rust (only tested with latest stable), a Vulkan-capable graphics driver, and a Linux desktop running X11 or Wayland.
 Install your distribution's development packages for the window backends and ALSA audio.
 For the package list used on Ubuntu 24.04, see the [CI workflow](.github/workflows/ci.yml).
 For other distributions, see [Bevy's Linux setup guide](https://bevy.org/learn/quick-start/getting-started/setup/#installing-os-dependencies).
