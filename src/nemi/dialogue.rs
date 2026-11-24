@@ -3,8 +3,8 @@
 //! topic, and reply IDs in `data/dialogue/catalog.dialogue.ron`.
 
 use crate::{
-    dialogue::{DialogueRegistry, ReplyId},
-    inventory::{Inventory, ItemKind},
+    dialogue::{DialogueContextMut, DialogueContextRef, DialogueRegistry, ReplyId},
+    inventory::ItemKind,
     quest::{CONTAIN_THE_HUSHCAPS, LAST_LIGHT, OLD_RELAY, QuestAction, QuestJournal, QuestStatus},
 };
 
@@ -41,7 +41,7 @@ pub(crate) fn register_topics(handlers: &mut DialogueRegistry) {
     handlers.register(
         PROFILE,
         LAST_LIGHT,
-        |journal, inventory| active(journal, LAST_LIGHT) && !can_return_core(journal, inventory),
+        |context| active(context.journal, LAST_LIGHT) && !can_return_core(context),
         BEACON_REPLIES,
         speak_about_beacon,
     );
@@ -55,21 +55,22 @@ pub(crate) fn register_topics(handlers: &mut DialogueRegistry) {
     handlers.register(
         PROFILE,
         OLD_RELAY,
-        |journal, _| active(journal, OLD_RELAY),
+        |context| active(context.journal, OLD_RELAY),
         RELAY_REPLIES,
-        |journal, _| speak_about_relay(journal),
+        speak_about_relay,
     );
     handlers.register(
         PROFILE,
         REPORT_ARCHIVE_HUSHCAP,
-        |journal, _| journal.expects(QuestAction::ReportedArchiveHushcap),
+        |context| context.journal.expects(QuestAction::ReportedArchiveHushcap),
         CAVERN_REPLIES,
         speak_about_cavern,
     );
     handlers.register(
         PROFILE,
         CONTAIN_THE_HUSHCAPS,
-        |journal, _| {
+        |context| {
+            let journal = context.journal;
             active(journal, CONTAIN_THE_HUSHCAPS)
                 && !journal.expects(QuestAction::ReportedArchiveHushcap)
         },
@@ -82,14 +83,16 @@ fn active(journal: &QuestJournal, quest: &str) -> bool {
     journal.status(quest) == Some(QuestStatus::Active)
 }
 
-fn can_return_core(journal: &QuestJournal, inventory: &Inventory) -> bool {
-    inventory.count(ItemKind::BeaconCore) > 0
+fn can_return_core(context: &DialogueContextRef<'_>) -> bool {
+    let journal = context.journal;
+    context.inventory.count(ItemKind::BeaconCore) > 0
         && (journal.expects(QuestAction::ReturnedCore)
             || (journal.expects(QuestAction::TalkedToNemi)
                 && journal.has_occurred(QuestAction::RecoveredCore)))
 }
 
-fn speak_about_relay(journal: &QuestJournal) -> ReplyId {
+fn speak_about_relay(context: &mut DialogueContextMut<'_>) -> ReplyId {
+    let journal = &context.journal;
     if !journal.beacon_powered() {
         RELAY_SEALED
     } else if journal.expects(QuestAction::EnteredRelay) {
@@ -101,13 +104,14 @@ fn speak_about_relay(journal: &QuestJournal) -> ReplyId {
     }
 }
 
-pub(crate) fn speak_about_beacon(quest: &mut QuestJournal, inventory: &mut Inventory) -> ReplyId {
+fn speak_about_beacon(context: &mut DialogueContextMut<'_>) -> ReplyId {
+    let quest = &mut context.journal;
     let first_meeting = quest.expects(QuestAction::TalkedToNemi);
     if first_meeting {
         quest.record(QuestAction::TalkedToNemi);
     }
     if quest.expects(QuestAction::ReturnedCore) {
-        if inventory.consume_core() {
+        if context.inventory.consume_core() {
             quest.record(QuestAction::ReturnedCore);
             if first_meeting {
                 return EARLY_CORE_RETURNED;
@@ -126,7 +130,8 @@ pub(crate) fn speak_about_beacon(quest: &mut QuestJournal, inventory: &mut Inven
     }
 }
 
-fn speak_about_cavern(quest: &mut QuestJournal, _: &mut Inventory) -> ReplyId {
+fn speak_about_cavern(context: &mut DialogueContextMut<'_>) -> ReplyId {
+    let quest = &mut context.journal;
     let reported = quest.expects(QuestAction::ReportedArchiveHushcap);
     if reported {
         quest.record(QuestAction::ReportedArchiveHushcap);

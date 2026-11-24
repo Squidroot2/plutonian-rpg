@@ -1,7 +1,10 @@
 use crate::{
     GameState,
     controls::{Control, Keybinds},
-    dialogue::{Choice, Dialogue, DialogueCatalog, DialogueClick, DialogueRegistry, Page, Screen},
+    dialogue::{
+        Choice, Dialogue, DialogueCatalog, DialogueClick, DialogueContext, DialogueRegistry, Page,
+        Screen,
+    },
     interaction::InteractionSystems,
     inventory::Inventory,
     nemi::react_to_player_hit,
@@ -99,9 +102,11 @@ fn render(
                             } = screen
                                 && let Some(profile) = catalog.profile(profile)
                             {
-                                for topic in
-                                    profile.available_topics(&handlers, &journal, &inventory)
-                                {
+                                let context = DialogueContext {
+                                    journal: &*journal,
+                                    inventory: &**inventory,
+                                };
+                                for topic in profile.available_topics(&handlers, &context) {
                                     spawn_button(
                                         pane,
                                         &topic.label,

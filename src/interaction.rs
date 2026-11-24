@@ -7,7 +7,8 @@ use crate::{
     controls::{Control, Keybinds},
     crossing::{STATION_NEEDS_SAMPLES, STATION_VERIFIED, SampleStation, verify_samples},
     dialogue::{
-        self, Dialogue, DialogueCatalog, DialogueClick, DialogueRegistry, NoticeId, Speaker,
+        self, Dialogue, DialogueCatalog, DialogueClick, DialogueContext, DialogueRegistry,
+        NoticeId, Speaker,
     },
     dungeon::{Area, DungeonTarget, UseDungeonTarget},
     inventory::{Inventory, ItemKind, Pickup},
@@ -299,9 +300,11 @@ fn interact(
                 if let Ok(speaker) = speakers.get(entity)
                     && let Some(profile) = catalog.profile(speaker.profile)
                 {
-                    let first = profile
-                        .available_topics(&handlers, &quest, &inventory)
-                        .next();
+                    let context = DialogueContext {
+                        journal: &*quest,
+                        inventory: &**inventory,
+                    };
+                    let first = profile.available_topics(&handlers, &context).next();
                     dialogue.start(entity, speaker, profile, first);
                 }
             }
@@ -385,8 +388,8 @@ mod tests {
         nemi::{
             self,
             dialogue::{
-                EARLY_CORE_RETURNED, EARLY_CORE_STORED, PROFILE, RETURN_BEACON_CORE,
-                register_topics, speak_about_beacon,
+                CORE_MISSING, CORE_RETURNED, EARLY_CORE_RETURNED, EARLY_CORE_STORED, PROFILE,
+                RETURN_BEACON_CORE, register_topics,
             },
         },
         quest::LAST_LIGHT,
@@ -400,44 +403,74 @@ mod tests {
     use std::time::Duration;
     #[test]
     fn turn_in_requires_and_consumes_the_core() {
-        let mut journal = crate::quest::test_journal();
-        let mut inventory = Inventory::default();
-        speak_about_beacon(&mut journal, &mut inventory);
-        journal.record(QuestAction::RecoveredCore);
+        let mut app = test_app();
+        app.world_mut()
+            .spawn((nemi::speaker(), Transform::from_xyz(0.0, 0.0, -2.0)));
+        press_interact(&mut app);
+        press_key(&mut app, KeyCode::Enter);
+
+        let world = app.world_mut();
+        world
+            .resource_mut::<QuestJournal>()
+            .record(QuestAction::RecoveredCore);
+        let mut inventory = world.actor_data_mut::<Inventory>();
         assert!(inventory.add(ItemKind::BeaconCore, 1));
         let mut chest = ChestStorage::default();
         let supplies = chest.get_mut(ChestId::Supply);
         assert!(inventory.transfer_to(supplies, ItemKind::BeaconCore, 1));
-        speak_about_beacon(&mut journal, &mut inventory);
-        assert!(journal.expects(QuestAction::ReturnedCore));
-        assert!(supplies.transfer_to(&mut inventory, ItemKind::BeaconCore, 1));
-        speak_about_beacon(&mut journal, &mut inventory);
-        assert!(journal.is_complete(LAST_LIGHT));
-        assert_eq!(inventory.count(ItemKind::BeaconCore), 0);
+
+        press_interact(&mut app);
+        press_key(&mut app, KeyCode::Enter);
+        assert_nemi_reply(app.world(), CORE_MISSING);
+        assert!(
+            app.world()
+                .resource::<QuestJournal>()
+                .expects(QuestAction::ReturnedCore)
+        );
+
+        return_stored_core(&mut app, supplies);
     }
 
     #[test]
     fn an_early_core_in_storage_advances_to_turn_in_on_the_first_meeting() {
-        let mut journal = crate::quest::test_journal();
-        let mut inventory = Inventory::default();
+        let mut app = test_app();
+        let world = app.world_mut();
+        world.spawn((nemi::speaker(), Transform::from_xyz(0.0, 0.0, -2.0)));
+        world
+            .resource_mut::<QuestJournal>()
+            .record(QuestAction::RecoveredCore);
+        let mut inventory = world.actor_data_mut::<Inventory>();
         assert!(inventory.add(ItemKind::BeaconCore, 1));
-        journal.record(QuestAction::RecoveredCore);
         let mut chest = ChestStorage::default();
         let supplies = chest.get_mut(ChestId::Supply);
         assert!(inventory.transfer_to(supplies, ItemKind::BeaconCore, 1));
 
-        assert_eq!(
-            speak_about_beacon(&mut journal, &mut inventory),
-            EARLY_CORE_STORED
-        );
+        press_interact(&mut app);
+        press_key(&mut app, KeyCode::Enter);
+        assert_nemi_reply(app.world(), EARLY_CORE_STORED);
+        let journal = app.world().resource::<QuestJournal>();
         assert!(journal.expects(QuestAction::ReturnedCore));
         assert!(!journal.beacon_powered());
         assert_eq!(supplies.count(ItemKind::BeaconCore), 1);
 
-        assert!(supplies.transfer_to(&mut inventory, ItemKind::BeaconCore, 1));
-        speak_about_beacon(&mut journal, &mut inventory);
-        assert!(journal.is_complete(LAST_LIGHT));
-        assert_eq!(inventory.count(ItemKind::BeaconCore), 0);
+        return_stored_core(&mut app, supplies);
+    }
+
+    fn return_stored_core(app: &mut App, supplies: &mut Inventory) {
+        assert!(supplies.transfer_to(
+            &mut app.world_mut().actor_data_mut::<Inventory>(),
+            ItemKind::BeaconCore,
+            1,
+        ));
+        press_interact(app);
+        press_key(app, KeyCode::Enter);
+        let world = app.world();
+        assert_nemi_reply(world, CORE_RETURNED);
+        assert!(world.resource::<QuestJournal>().is_complete(LAST_LIGHT));
+        assert_eq!(
+            world.actor_data::<Inventory>().count(ItemKind::BeaconCore),
+            0
+        );
     }
 
     #[test]

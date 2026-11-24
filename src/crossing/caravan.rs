@@ -3,7 +3,7 @@ use super::{CrossingGate, GATE_CENTER};
 use crate::{
     combat::{HitReaction, RemoveColliderOnDeath},
     content::{Items, NpcId, Npcs},
-    dialogue::{DialogueRegistry, NoticeId, ReplyId, Speaker},
+    dialogue::{DialogueContextMut, DialogueRegistry, NoticeId, ReplyId, Speaker},
     dungeon::Area,
     equipment::bind_equipment_attachments,
     inventory::{Inventory, ItemKind},
@@ -46,14 +46,14 @@ pub(crate) fn register_topics(handlers: &mut DialogueRegistry) {
     handlers.register(
         TOVAN,
         SHOW_MYCELIUM,
-        |journal, _| journal.expects(QuestAction::ShowedTovanMycelium),
+        |context| context.journal.expects(QuestAction::ShowedTovanMycelium),
         &[SAMPLES_NEEDED, SAMPLES_EXAMINED],
         examine_samples,
     );
 }
 
-fn examine_samples(journal: &mut QuestJournal, inventory: &mut Inventory) -> ReplyId {
-    if verify_samples(journal, inventory) {
+fn examine_samples(context: &mut DialogueContextMut<'_>) -> ReplyId {
+    if verify_samples(&mut context.journal, &context.inventory) {
         SAMPLES_EXAMINED
     } else {
         SAMPLES_NEEDED
@@ -639,7 +639,10 @@ pub(super) fn animate(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::quest::{CONTAIN_THE_HUSHCAPS, test_relay_journal};
+    use crate::{
+        dialogue::DialogueContext,
+        quest::{CONTAIN_THE_HUSHCAPS, test_relay_journal},
+    };
 
     #[test]
     fn the_craftsman_examines_five_carried_samples_once_without_taking_them() {
@@ -647,25 +650,25 @@ mod tests {
         journal.offer_cavern_report();
         journal.record(QuestAction::ReportedArchiveHushcap);
         journal.record(QuestAction::DefeatedFiveCavernHushcaps);
-        let mut inventory = Inventory::default();
-        assert!(inventory.add(ItemKind::Mycelium, 4));
-        assert_eq!(
-            examine_samples(&mut journal, &mut inventory),
-            SAMPLES_NEEDED
-        );
-        assert!(!journal.is_complete(CONTAIN_THE_HUSHCAPS));
-        assert!(inventory.add(ItemKind::Mycelium, 1));
-        assert_eq!(
-            examine_samples(&mut journal, &mut inventory),
-            SAMPLES_EXAMINED
-        );
-        assert_eq!(inventory.count(ItemKind::Mycelium), 5);
-        assert!(journal.is_complete(CONTAIN_THE_HUSHCAPS));
-        assert_eq!(journal.take_completion_xp(), 150);
-        assert_eq!(
-            examine_samples(&mut journal, &mut inventory),
-            SAMPLES_NEEDED
-        );
-        assert_eq!(journal.take_completion_xp(), 0);
+        let mut world = World::new();
+        world.insert_resource(journal);
+        let player = world.spawn(Player::default()).id();
+        world.resource_scope(|world, journal: Mut<QuestJournal>| {
+            let inventory = world
+                .get_mut::<Inventory>(player)
+                .expect("the player must have an inventory");
+            let mut context = DialogueContext { journal, inventory };
+
+            assert!(context.inventory.add(ItemKind::Mycelium, 4));
+            assert_eq!(examine_samples(&mut context), SAMPLES_NEEDED);
+            assert!(!context.journal.is_complete(CONTAIN_THE_HUSHCAPS));
+            assert!(context.inventory.add(ItemKind::Mycelium, 1));
+            assert_eq!(examine_samples(&mut context), SAMPLES_EXAMINED);
+            assert_eq!(context.inventory.count(ItemKind::Mycelium), 5);
+            assert!(context.journal.is_complete(CONTAIN_THE_HUSHCAPS));
+            assert_eq!(context.journal.take_completion_xp(), 150);
+            assert_eq!(examine_samples(&mut context), SAMPLES_NEEDED);
+            assert_eq!(context.journal.take_completion_xp(), 0);
+        });
     }
 }

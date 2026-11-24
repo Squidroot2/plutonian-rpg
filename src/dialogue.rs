@@ -4,8 +4,7 @@ use crate::{
     dungeon::Area,
     interaction::{INTERACT_HEIGHT, INTERACT_RANGE, unobstructed},
     inventory::Inventory,
-    player::Player,
-    player::PlayerWrite,
+    player::{Player, PlayerWrite},
     quest::QuestJournal,
 };
 use avian3d::prelude::SpatialQuery;
@@ -211,6 +210,27 @@ impl AssetLoader for DialogueLoader {
     }
 }
 
+/// Borrows the live game state used to show topics and resolve replies.
+pub(crate) struct DialogueContext<J, I> {
+    pub(crate) journal: J,
+    pub(crate) inventory: I,
+}
+
+pub(crate) type DialogueContextRef<'a> = DialogueContext<&'a QuestJournal, &'a Inventory>;
+pub(crate) type DialogueContextMut<'a> = DialogueContext<Mut<'a, QuestJournal>, Mut<'a, Inventory>>;
+
+impl DialogueContextMut<'_> {
+    fn as_read_only(&self) -> DialogueContextRef<'_> {
+        DialogueContext {
+            journal: &self.journal,
+            inventory: &self.inventory,
+        }
+    }
+}
+
+type TopicAvailable = fn(&DialogueContextRef<'_>) -> bool;
+type TopicReply = fn(&mut DialogueContextMut<'_>) -> ReplyId;
+
 /// Registers the Rust IDs that must match `data/dialogue/catalog.dialogue.ron` exactly.
 /// Each registered profile and quest topic needs a matching entry.
 /// Each `ReplyId` matches an entry in that profile's `replies` list,
@@ -223,9 +243,9 @@ pub(crate) struct DialogueRegistry {
 }
 
 struct QuestTopic {
-    available: fn(&QuestJournal, &Inventory) -> bool,
+    available: TopicAvailable,
     replies: &'static [ReplyId],
-    reply: fn(&mut QuestJournal, &mut Inventory) -> ReplyId,
+    reply: TopicReply,
 }
 
 impl DialogueRegistry {
@@ -237,9 +257,9 @@ impl DialogueRegistry {
         &mut self,
         profile: &'static str,
         topic: &'static str,
-        available: fn(&QuestJournal, &Inventory) -> bool,
+        available: TopicAvailable,
         replies: &'static [ReplyId],
-        reply: fn(&mut QuestJournal, &mut Inventory) -> ReplyId,
+        reply: TopicReply,
     ) {
         assert!(
             self.topics
@@ -289,14 +309,13 @@ impl Profile {
     pub(crate) fn available_topics<'a>(
         &'a self,
         handlers: &DialogueRegistry,
-        journal: &QuestJournal,
-        inventory: &Inventory,
+        context: &DialogueContextRef<'_>,
     ) -> impl Iterator<Item = &'a Topic> {
         self.topics.iter().filter(move |topic| match topic.reply {
             Reply::Text(_) => true,
             Reply::Quest => handlers
                 .get(&self.id, &topic.id)
-                .is_some_and(|handler| (handler.available)(journal, inventory)),
+                .is_some_and(|handler| (handler.available)(context)),
         })
     }
 }
@@ -488,8 +507,8 @@ pub(crate) fn handle_input(
     handlers: Res<DialogueRegistry>,
     mut dialogue: ResMut<Dialogue>,
     mut click: ResMut<DialogueClick>,
-    mut journal: ResMut<QuestJournal>,
-    mut inventory: PlayerWrite<Inventory>,
+    journal: ResMut<QuestJournal>,
+    inventory: PlayerWrite<Inventory>,
     speakers: Query<(&Speaker, &Transform), Without<Dead>>,
     players: Query<(Entity, &Player, &Transform), Without<Dead>>,
     spatial: SpatialQuery,
@@ -550,12 +569,17 @@ pub(crate) fn handle_input(
         return;
     };
 
+    let mut context = DialogueContext {
+        journal: journal.into(),
+        inventory: inventory.into_inner(),
+    };
     match page {
         Page::Refusal(_) if advance || matches!(clicked, Some(Choice::Continue)) => {
             dialogue.request_close()
         }
         Page::Reply(_) if advance || matches!(clicked, Some(Choice::Continue)) => {
-            let mut topics = definition.available_topics(&handlers, &journal, &inventory);
+            let context = context.as_read_only();
+            let mut topics = definition.available_topics(&handlers, &context);
             let first = topics.next();
             if let Some(id) = dialogue.selected_topic()
                 && !first.is_some_and(|topic| topic.id == id)
@@ -571,8 +595,7 @@ pub(crate) fn handle_input(
                 (speaker, profile),
                 definition,
                 &handlers,
-                journal.reborrow(),
-                inventory.reborrow(),
+                &mut context,
                 &keys,
                 &bindings,
                 clicked,
@@ -588,15 +611,14 @@ fn handle_topics(
     (speaker, profile_id): (Entity, &'static str),
     profile: &Profile,
     handlers: &DialogueRegistry,
-    mut journal: Mut<QuestJournal>,
-    mut inventory: Mut<Inventory>,
+    context: &mut DialogueContextMut<'_>,
     keys: &ButtonInput<KeyCode>,
     bindings: &Keybinds,
     clicked: Option<Choice>,
     enter: bool,
 ) {
     let topics: Vec<_> = profile
-        .available_topics(handlers, &journal, &inventory)
+        .available_topics(handlers, &context.as_read_only())
         .collect();
     let selection = dialogue.selected_topic();
     let selected = selection.map_or(Some(topics.len()), |id| {
@@ -620,7 +642,7 @@ fn handle_topics(
                             let Some(handler) = handlers.get(&profile.id, &id) else {
                                 return;
                             };
-                            let id = (handler.reply)(&mut journal, &mut inventory);
+                            let id = (handler.reply)(context);
                             assert!(
                                 handler.replies.contains(&id),
                                 "dialogue handler {profile_id}/{id:?} must register every reply it can return"

@@ -42,9 +42,11 @@ For a new speaker, add a profile with a unique `id`, a `name`, and a `topics` li
   A refusing speaker can be approached when their profile supplies refusal text, for example `refusal: Some("Come back later.")`.
 
 For a gameplay topic, use `reply: Quest` and register its profile and topic IDs with `DialogueRegistry` in the feature's plugin.
-  The availability and reply functions both receive the live journal and inventory.
-  The availability function controls which choices appear.
-  The reply function applies gameplay effects and returns a `ReplyId` from the set declared at registration.
+  Availability functions take `&DialogueContextRef<'_>` and decide which choices appear.
+  Reply functions take `&mut DialogueContextMut<'_>`, apply gameplay effects, and return a `ReplyId` from the set declared at registration.
+  Both forms of `DialogueContext` borrow the live journal and player inventory.
+  To make more game state available to handlers, extend the context and supply the new field when opening, processing, and rendering dialogue.
+  If the field affects topic visibility, include it in the UI's change detection.
   Choices that share an outcome can reuse the same reply ID and wording from the profile's `replies` list.
 
 Edit the `text` field to revise wording for an existing outcome or notice.
