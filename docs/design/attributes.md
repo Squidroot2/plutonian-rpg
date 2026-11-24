@@ -261,8 +261,8 @@ starts with a consistent bag and equipped set.
   1–99, and allow actions at zero stamina only at rank 100.
 - Verify damage scaling per hand before armor, equipment gating through both
   equip paths, and inventory preservation when an equip attempt fails.
-- Verify level awards, spending, banking, save round-trips, legacy gear
-  migration, combat death rollback, and fall recovery.
+- Verify level awards, spending, banking, save round-trips, gear
+  transfers on load, combat death rollback, and fall recovery.
 - Use renderer-free Bevy apps to test multiple spends against one point
   balance, same-update capability changes, the first fixed tick after
   loading, and combat resolution with rank-scaled damage.

@@ -1,107 +1,24 @@
 use super::*;
 
-macro_rules! legacy_items {
-    ($($item:ident),+ $(,)?) => {
-        #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, bitcode::Decode)]
-        #[cfg_attr(test, derive(bitcode::Encode))]
-        pub(super) enum LegacyItem {
-            $($item),+
-        }
-
-        impl LegacyItem {
-            pub(super) fn current(self) -> ItemKind {
-                match self { $(Self::$item => ItemKind::$item),+ }
-            }
-
-            #[cfg(test)]
-            pub(super) fn from_current(id: ItemKind) -> Self {
-                match id {
-                    $(ItemKind::$item => Self::$item,)+
-                    _ => panic!("legacy fixtures use shipped item IDs"),
-                }
-            }
-        }
-    };
-}
-
-// Preserve discriminant order and packing for the original inventory, equipment,
-// chest and pickup codecs. Earlier schemas used the same bitcode packing width.
-legacy_items!(
-    Battery,
-    Scrap,
-    MethanePouch,
-    BeaconCore,
-    FieldArmor,
-    ReinforcedArmor,
-    FieldHelmet,
-    ReinforcedHelmet,
-    FieldSpear,
-    Trident,
-    LargeBoulder,
-    WormMeat,
-    RoachMeat,
-    Shortsword,
-    Mycelium,
-);
-
-pub(super) type V10Snapshot =
-    Snapshot<Equipment<String>, SavedProgress, SavedExperience<String>, String, bool, String>;
-
-impl<E, P, X, I: Ord, G, K: Ord> Snapshot<E, P, X, I, G, K> {
-    /// Maps the places a checkpoint stores item IDs. The caller supplies the
-    /// decoded equipment separately because v1 used different slot keys.
-    pub(super) fn map_items<T: Ord, F>(
-        self,
-        mut map: impl FnMut(K) -> Result<T, F>,
-    ) -> Result<Snapshot<E, P, X, I, G, T>, F> {
-        let mut map_inventory = |inventory: Inventory<K>| {
-            inventory
-                .0
-                .into_iter()
-                .map(|(item, qty)| Ok((map(item)?, qty)))
-                .collect::<Result<_, F>>()
-                .map(Inventory)
-        };
-        let inventory = map_inventory(self.inventory)?;
-        let chests = ChestStorage(
-            self.chests
-                .0
-                .into_iter()
-                .map(|(chest, inventory)| Ok((chest, map_inventory(inventory)?)))
-                .collect::<Result<_, F>>()?,
-        );
-        let pickups = self
-            .pickups
-            .into_iter()
-            .map(|pickup| {
-                Ok(SavedPickup {
-                    stack: Pickup {
-                        item: map(pickup.stack.item)?,
-                        quantity: pickup.stack.quantity,
-                    },
-                    position: pickup.position,
-                })
-            })
-            .collect::<Result<_, F>>()?;
-        Ok(Snapshot {
-            journal: self.journal,
-            inventory,
-            equipment: self.equipment,
-            chests,
-            dungeon: self.dungeon,
-            pickups,
-            nemi: self.nemi,
-            nemi_state: self.nemi_state,
-            encounters: self.encounters,
-            progression: self.progression,
-            experience: self.experience,
-            guards_hostile: self.guards_hostile,
-            add_shortswords_on_spawn: self.add_shortswords_on_spawn,
-            collected_pickups: self.collected_pickups,
-            caravan: self.caravan,
-            legacy_nemi_health: self.legacy_nemi_health,
-        })
-    }
+// The save wire format stores item and encounter IDs as strings so authored
+// IDs stay stable across code changes. `WireSnapshot` mirrors the runtime
+// `Snapshot` field-for-field, with string IDs in place of the runtime ID
+// types; collected pickups and credited cavern defeats travel alongside it
+// as string sets in `encode`/`decode`.
+#[derive(Clone, bitcode::Encode, bitcode::Decode)]
+struct WireSnapshot {
+    journal: SavedJournal,
+    inventory: Inventory<String>,
+    equipment: Equipment<String>,
+    chests: ChestStorage<String>,
+    dungeon: DungeonProgress,
+    pickups: Vec<SavedPickup<String>>,
+    nemi: SavedActor,
+    nemi_state: NemiState,
+    encounters: BTreeMap<String, SavedEncounter>,
+    progression: SavedProgress,
+    experience: SavedExperience<String>,
+    guards_hostile: bool,
 }
 
 fn string_item(id: ItemKind) -> String {
@@ -122,47 +39,77 @@ fn parse_encounter(id: &str) -> io::Result<EncounterId> {
         .map_err(invalid_save)
 }
 
+fn string_inventory(inventory: &Inventory) -> Inventory<String> {
+    Inventory(
+        inventory
+            .0
+            .iter()
+            .map(|(&id, &quantity)| (string_item(id), quantity))
+            .collect(),
+    )
+}
+
+fn parse_inventory(inventory: Inventory<String>) -> io::Result<Inventory> {
+    inventory
+        .0
+        .into_iter()
+        .map(|(id, quantity)| Ok((parse_item(&id)?, quantity)))
+        .collect::<io::Result<_>>()
+        .map(Inventory)
+}
+
 pub(super) fn encode(snapshot: &Snapshot) -> Vec<u8> {
-    let wire = snapshot
-        .clone()
-        .map_items(|id| Ok::<_, std::convert::Infallible>(string_item(id)))
-        .expect("validated runtime item IDs always produce strings");
-    let wire = Snapshot {
-        journal: wire.journal,
-        inventory: wire.inventory,
+    let wire = WireSnapshot {
+        journal: snapshot.journal.clone(),
+        inventory: string_inventory(&snapshot.inventory),
         equipment: Equipment(
-            wire.equipment
+            snapshot
+                .equipment
                 .0
-                .into_iter()
-                .map(|(slot, id)| (slot, string_item(id)))
+                .iter()
+                .map(|(&slot, &id)| (slot, string_item(id)))
                 .collect(),
         ),
-        chests: wire.chests,
-        dungeon: wire.dungeon,
-        pickups: wire.pickups,
-        nemi: wire.nemi,
-        nemi_state: wire.nemi_state,
-        encounters: wire
-            .encounters
-            .into_iter()
-            .map(|(id, actor)| (string_encounter(id), actor))
+        chests: ChestStorage(
+            snapshot
+                .chests
+                .0
+                .iter()
+                .map(|(&chest, inventory)| (chest, string_inventory(inventory)))
+                .collect(),
+        ),
+        dungeon: snapshot.dungeon,
+        pickups: snapshot
+            .pickups
+            .iter()
+            .map(|pickup| SavedPickup {
+                stack: Pickup {
+                    item: string_item(pickup.stack.item),
+                    quantity: pickup.stack.quantity,
+                },
+                position: pickup.position,
+            })
             .collect(),
-        progression: wire.progression,
+        nemi: snapshot.nemi.clone(),
+        nemi_state: snapshot.nemi_state.clone(),
+        encounters: snapshot
+            .encounters
+            .iter()
+            .map(|(&id, actor)| (string_encounter(id), actor.clone()))
+            .collect(),
+        progression: snapshot.progression.clone(),
         experience: SavedExperience {
-            player: wire.experience.player,
-            nemi_contributed: wire.experience.nemi_contributed,
-            encounter_contributions: wire
+            player: snapshot.experience.player,
+            nemi_contributed: snapshot.experience.nemi_contributed,
+            encounter_contributions: snapshot
                 .experience
                 .encounter_contributions
-                .into_iter()
+                .iter()
+                .copied()
                 .map(string_encounter)
                 .collect(),
         },
-        guards_hostile: wire.guards_hostile,
-        add_shortswords_on_spawn: false,
-        collected_pickups: BTreeSet::new(),
-        caravan: BTreeMap::new(),
-        legacy_nemi_health: false,
+        guards_hostile: snapshot.guards_hostile,
     };
     let pickups: BTreeSet<_> = snapshot
         .collected_pickups
@@ -180,9 +127,9 @@ pub(super) fn encode(snapshot: &Snapshot) -> Vec<u8> {
 }
 
 pub(super) fn decode(bytes: &[u8]) -> io::Result<Snapshot> {
-    let (wire, defeats, collected): (V10Snapshot, BTreeSet<String>, BTreeSet<String>) =
+    let (wire, defeats, collected): (WireSnapshot, BTreeSet<String>, BTreeSet<String>) =
         bitcode::decode(bytes).map_err(invalid_save)?;
-    let mut wire = wire.map_items(|id| parse_item(&id))?;
+    let mut journal = wire.journal;
     let defeats = defeats
         .iter()
         .map(|id| match parse_encounter(id)? {
@@ -192,10 +139,10 @@ pub(super) fn decode(bytes: &[u8]) -> io::Result<Snapshot> {
             ))),
         })
         .collect::<io::Result<_>>()?;
-    set_cavern_defeats(&mut wire.journal, defeats)?;
+    set_cavern_defeats(&mut journal, defeats)?;
     Ok(Snapshot {
-        journal: wire.journal,
-        inventory: wire.inventory,
+        journal,
+        inventory: parse_inventory(wire.inventory)?,
         equipment: Equipment(
             wire.equipment
                 .0
@@ -203,9 +150,27 @@ pub(super) fn decode(bytes: &[u8]) -> io::Result<Snapshot> {
                 .map(|(slot, id)| Ok((slot, parse_item(&id)?)))
                 .collect::<io::Result<_>>()?,
         ),
-        chests: wire.chests,
+        chests: ChestStorage(
+            wire.chests
+                .0
+                .into_iter()
+                .map(|(chest, inventory)| Ok((chest, parse_inventory(inventory)?)))
+                .collect::<io::Result<_>>()?,
+        ),
         dungeon: wire.dungeon,
-        pickups: wire.pickups,
+        pickups: wire
+            .pickups
+            .into_iter()
+            .map(|pickup| {
+                Ok(SavedPickup {
+                    stack: Pickup {
+                        item: parse_item(&pickup.stack.item)?,
+                        quantity: pickup.stack.quantity,
+                    },
+                    position: pickup.position,
+                })
+            })
+            .collect::<io::Result<_>>()?,
         nemi: wire.nemi,
         nemi_state: wire.nemi_state,
         encounters: wire
@@ -225,12 +190,10 @@ pub(super) fn decode(bytes: &[u8]) -> io::Result<Snapshot> {
                 .collect::<io::Result<_>>()?,
         },
         guards_hostile: wire.guards_hostile,
-        add_shortswords_on_spawn: false,
         collected_pickups: collected
             .into_iter()
             .map(|id| ContentId::parse(&id).map_err(invalid_save))
             .collect::<io::Result<_>>()?,
         caravan: BTreeMap::new(),
-        legacy_nemi_health: false,
     })
 }
