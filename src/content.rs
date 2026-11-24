@@ -1,3 +1,11 @@
+//! Loads and validates the authored gameplay catalogs used to build a session.
+//!
+//! Items, enemies, NPCs, and world placements are defined as RON assets and
+//! loaded together during boot. The catalogs are validated as a group before
+//! becoming resources; failures or timeouts send boot to the failed state.
+//! This module also defines the compact IDs shared by catalog references and
+//! save data.
+
 mod enemies;
 mod items;
 mod npcs;
