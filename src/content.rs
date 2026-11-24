@@ -29,6 +29,10 @@ use bevy::{
 use serde::{Deserialize, Deserializer, de::Error as _};
 use std::{fmt, io, marker::PhantomData, time::Instant};
 
+/// Maximum byte length for authored IDs, which fits the fixed-size inline
+/// representation of [`ContentId`] while keeping the accepted ID limit explicit.
+/// IDs are ASCII, so this is also their maximum character count; checkpoints
+/// serialize them as strings rather than storing the padded representation.
 const MAX_ID_BYTES: usize = 48;
 const BOOT_TIMEOUT_SECONDS: u64 = 90;
 
