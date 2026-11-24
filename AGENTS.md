@@ -68,6 +68,8 @@ Design documents are stored in `./docs/design`.
 
 Documentation for players is put in markdown files inside of `./docs/guide`
 
+Instruction for developers is put in markdown files inside of `./docs/contributing`
+
 Make sure all documentation is kept up to date as changes are made.
 
 Use semantic line breaks (one clause per line) when writing markdown files
