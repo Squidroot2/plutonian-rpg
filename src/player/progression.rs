@@ -21,6 +21,7 @@ pub(crate) const MAX_LEVEL: u32 = 100;
     bitcode::Encode,
     bitcode::Decode,
     serde::Serialize,
+    serde::Deserialize,
 )]
 pub(crate) struct Level(u32);
 
@@ -58,7 +59,16 @@ impl Level {
 /// Level gains and their unspent attribute points share an owner and lifecycle,
 /// so keeping them together avoids coordinating separate components.
 #[derive(
-    Component, Clone, Copy, Debug, PartialEq, Eq, bitcode::Encode, bitcode::Decode, serde::Serialize,
+    Component,
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    bitcode::Encode,
+    bitcode::Decode,
+    serde::Serialize,
+    serde::Deserialize,
 )]
 pub(crate) struct CharacterProgress {
     pub(crate) level: Level,
@@ -88,7 +98,9 @@ impl CharacterProgress {
     }
 }
 
-#[derive(Clone, Default, bitcode::Encode, bitcode::Decode, serde::Serialize)]
+#[derive(
+    Clone, Default, bitcode::Encode, bitcode::Decode, serde::Serialize, serde::Deserialize,
+)]
 pub(crate) struct SavedProgress {
     ranks: BTreeMap<String, u8>,
     progress: CharacterProgress,

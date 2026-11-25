@@ -73,7 +73,9 @@ impl FleeState {
     }
 }
 
-#[derive(Default, Clone, Copy, bitcode::Encode, bitcode::Decode, serde::Serialize)]
+#[derive(
+    Default, Clone, Copy, bitcode::Encode, bitcode::Decode, serde::Serialize, serde::Deserialize,
+)]
 enum Behavior {
     #[default]
     Peaceful,
@@ -84,7 +86,7 @@ enum Behavior {
     Refuses,
 }
 
-#[derive(Clone, bitcode::Encode, bitcode::Decode, serde::Serialize)]
+#[derive(Clone, bitcode::Encode, bitcode::Decode, serde::Serialize, serde::Deserialize)]
 pub(crate) struct NemiState {
     home: Option<[f32; 3]>,
     behavior: Behavior,

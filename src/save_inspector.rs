@@ -1,4 +1,4 @@
-//! Read-only inspection of current-version saves.
+//! JSON and text tools for current-version saves.
 use std::{
     fs, io,
     path::{Path, PathBuf},
@@ -10,6 +10,12 @@ pub fn inspect(path: Option<&Path>) -> io::Result<serde_json::Value> {
     let path = resolve_path(path, crate::save::data_path())?;
     let snapshot = crate::save::read_save(&path)?;
     crate::save::inspection_data(&snapshot)
+}
+
+/// Validate an inspection JSON document against current game data and atomically
+/// write a save to the explicit output path.
+pub fn create(input: &Path, output: &Path) -> io::Result<()> {
+    crate::save::create_from_json(input, output)
 }
 
 fn resolve_path(path: Option<&Path>, default: Option<PathBuf>) -> io::Result<PathBuf> {

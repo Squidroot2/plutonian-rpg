@@ -116,13 +116,13 @@ impl EncounterId {
     }
 }
 
-#[derive(Clone, bitcode::Encode, bitcode::Decode, serde::Serialize)]
+#[derive(Clone, bitcode::Encode, bitcode::Decode, serde::Serialize, serde::Deserialize)]
 pub(crate) struct SavedPickup<K = ItemKind> {
     pub(crate) stack: Pickup<K>,
     pub(crate) position: [f32; 3],
 }
 
-#[derive(Clone, bitcode::Encode, bitcode::Decode, serde::Serialize)]
+#[derive(Clone, bitcode::Encode, bitcode::Decode, serde::Serialize, serde::Deserialize)]
 struct SavedActor {
     position: [f32; 3],
     rotation: [f32; 4],
@@ -154,7 +154,7 @@ impl SavedActor {
     }
 }
 
-#[derive(Clone, bitcode::Encode, bitcode::Decode, serde::Serialize)]
+#[derive(Clone, bitcode::Encode, bitcode::Decode, serde::Serialize, serde::Deserialize)]
 struct SavedEncounter {
     actor: SavedActor,
     has_loot: bool,
@@ -166,7 +166,7 @@ impl SavedEncounter {
     }
 }
 
-#[derive(Clone, bitcode::Encode, bitcode::Decode, serde::Serialize)]
+#[derive(Clone, bitcode::Encode, bitcode::Decode, serde::Serialize, serde::Deserialize)]
 pub(crate) struct SavedCaravanActor {
     actor: SavedActor,
     flee: NemiState,
@@ -206,7 +206,7 @@ pub(crate) struct Snapshot {
     caravan: BTreeMap<NpcId, SavedCaravanActor>,
 }
 
-#[derive(Clone, bitcode::Encode, bitcode::Decode, serde::Serialize)]
+#[derive(Clone, bitcode::Encode, bitcode::Decode, serde::Serialize, serde::Deserialize)]
 pub(crate) struct SavedExperience<I: Ord = EncounterId> {
     player: Experience,
     nemi_contributed: bool,
@@ -533,21 +533,27 @@ pub(crate) fn read_save(path: &Path) -> io::Result<Snapshot> {
     let (base, caravan): (Vec<u8>, BTreeMap<String, SavedCaravanActor>) =
         bitcode::decode(payload).map_err(invalid_save)?;
     let mut snapshot = content_ids::decode(&base)?;
-    snapshot.caravan = caravan
-        .into_iter()
-        .map(|(key, actor)| {
-            NpcId::caravan_id(&key)
-                .map(|id| (id, actor))
-                .ok_or_else(|| invalid_save(format!("Unknown caravan speaker {key}")))
-        })
-        .collect::<io::Result<_>>()?;
+    snapshot.caravan = parse_caravan(caravan)?;
     snapshot
         .is_valid()
         .then_some(snapshot)
         .ok_or_else(|| invalid_save("Invalid save contents"))
 }
 
-#[derive(serde::Serialize)]
+fn parse_caravan(
+    caravan: BTreeMap<String, SavedCaravanActor>,
+) -> io::Result<BTreeMap<NpcId, SavedCaravanActor>> {
+    caravan
+        .into_iter()
+        .map(|(key, actor)| {
+            NpcId::caravan_id(&key)
+                .map(|id| (id, actor))
+                .ok_or_else(|| invalid_save(format!("Unknown caravan speaker {key}")))
+        })
+        .collect()
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
 struct InspectorDocument {
     format_version: u16,
     #[serde(flatten)]
@@ -579,6 +585,70 @@ pub(crate) fn inspection_data(snapshot: &Snapshot) -> io::Result<serde_json::Val
             .collect(),
     };
     serde_json::to_value(document).map_err(io::Error::other)
+}
+
+pub(crate) fn create_from_json(input: &Path, output: &Path) -> io::Result<()> {
+    use crate::{content, quest::QuestCatalog, world::WorldLayout};
+
+    let source = fs::read(input)?;
+    let json: serde_json::Value = serde_json::from_slice(&source).map_err(invalid_save)?;
+    let version = json
+        .get("format_version")
+        .and_then(serde_json::Value::as_u64)
+        .ok_or_else(|| invalid_save("Expected an integer format_version"))?;
+    if version != u64::from(SAVE_FORMAT_VERSION) {
+        return Err(invalid_save(format!(
+            "Unsupported save format version {version}, expected {SAVE_FORMAT_VERSION}"
+        )));
+    }
+    let document: InspectorDocument = serde_json::from_slice(&source).map_err(invalid_save)?;
+    let mut snapshot = content_ids::into_snapshot(
+        document.snapshot,
+        document.cavern_defeats,
+        document.collected_pickups,
+    )?;
+    snapshot.caravan = parse_caravan(document.caravan)?;
+    if !snapshot.is_valid() {
+        return Err(invalid_save("Invalid save contents"));
+    }
+
+    let data = bevy::asset::io::file::FileAssetReader::get_base_path().join("data");
+    let (items, placements) = content::read_save_catalogs(&data)?;
+    validate_fixture_placements(&snapshot, &placements)?;
+    // Loading can move gear to the bag. Validate those changes on a copy so the
+    // written save still describes the state provided by the fixture.
+    snapshot
+        .clone()
+        .apply_catalogs(&items, &placements)
+        .map_err(invalid_save)?;
+    let quests: QuestCatalog = content::read_ron(data.join(QuestCatalog::PATH))?;
+    quests.validate().map_err(invalid_save)?;
+    QuestJournal::from_snapshot(quests, WorldLayout::Outpost, &snapshot.journal)
+        .map_err(invalid_save)?;
+    if inspection_data(&snapshot)? != json {
+        return Err(invalid_save(
+            "Fixture differs from the inspect --json representation after decoding",
+        ));
+    }
+    write_save(output, &snapshot)
+}
+
+fn validate_fixture_placements(snapshot: &Snapshot, placements: &Placements) -> io::Result<()> {
+    let authored_encounters: BTreeSet<_> = placements.encounter_ids().collect();
+    for id in snapshot.encounters.keys() {
+        if matches!(id, EncounterId::Added(_)) && !authored_encounters.contains(id) {
+            return Err(invalid_save(format!("Unknown encounter ID {}", id.key())));
+        }
+    }
+    let authored_pickups: BTreeSet<_> = placements.pickups().map(|pickup| pickup.id).collect();
+    if let Some(id) = snapshot
+        .collected_pickups
+        .difference(&authored_pickups)
+        .next()
+    {
+        return Err(invalid_save(format!("Unknown collected pickup ID {id}")));
+    }
+    Ok(())
 }
 
 fn invalid_save(error: impl std::fmt::Display) -> io::Error {

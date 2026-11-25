@@ -48,7 +48,9 @@ impl ChestId {
     }
 }
 
-#[derive(Resource, Clone, bitcode::Encode, bitcode::Decode, serde::Serialize)]
+#[derive(
+    Resource, Clone, bitcode::Encode, bitcode::Decode, serde::Serialize, serde::Deserialize,
+)]
 pub(crate) struct ChestStorage<I: Ord = ItemKind>(pub(crate) BTreeMap<ChestId, Inventory<I>>);
 
 impl Default for ChestStorage {

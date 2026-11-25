@@ -160,6 +160,44 @@ fn register<T: Catalog>(app: &mut App) {
         .register_asset_loader(CatalogLoader::<T>(PhantomData));
 }
 
+pub(crate) fn read_save_catalogs(root: &std::path::Path) -> io::Result<(Items, Placements)> {
+    fn read<T: Catalog>(root: &std::path::Path) -> io::Result<T> {
+        let relative = T::PATH
+            .strip_prefix("data://")
+            .expect("catalog uses the data asset source");
+        read_ron(root.join(relative))
+    }
+
+    let items = read(root)?;
+    let enemies = read(root)?;
+    let placements = read(root)?;
+    let npcs = read(root)?;
+    validate_catalogs(&items, &enemies, &placements, &npcs).map_err(io::Error::other)?;
+    Ok((items, placements))
+}
+
+pub(crate) fn read_ron<T: serde::de::DeserializeOwned>(path: std::path::PathBuf) -> io::Result<T> {
+    let read = || ron::de::from_bytes(&std::fs::read(&path)?).map_err(io::Error::other);
+    read().map_err(|error: io::Error| {
+        io::Error::new(
+            error.kind(),
+            format!("Could not read {}: {error}", path.display()),
+        )
+    })
+}
+
+fn validate_catalogs(
+    items: &Items,
+    enemies: &Enemies,
+    placements: &Placements,
+    npcs: &Npcs,
+) -> Result<(), String> {
+    items.validate()?;
+    enemies.validate(items)?;
+    placements.validate(items, enemies)?;
+    npcs.validate(items)
+}
+
 fn request_catalogs(mut commands: Commands, server: Res<AssetServer>) {
     commands.insert_resource(CatalogHandles {
         items: server.load(Items::PATH),
@@ -206,12 +244,7 @@ fn prepare_catalogs(
     ) else {
         return;
     };
-    if let Err(error) = items
-        .validate()
-        .and_then(|()| enemies.validate(items))
-        .and_then(|()| placements.validate(items, enemies))
-        .and_then(|()| npcs.validate(items))
-    {
+    if let Err(error) = validate_catalogs(items, enemies, placements, npcs) {
         status.error = Some(error);
         next.set(GameState::Failed);
         return;

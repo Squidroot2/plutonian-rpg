@@ -168,7 +168,7 @@ fn load(
 ) {
     *status = LoadStatus::default();
     commands.insert_resource(GameAssets {
-        quests: server.load("data://quests/catalog.quest.ron"),
+        quests: server.load(format!("data://{}", QuestCatalog::PATH)),
         dialogue: server.load("data://dialogue/catalog.dialogue.ron"),
         character: server.load("models/plutonian.glb"),
         outpost: (*layout == WorldLayout::Outpost).then(|| {

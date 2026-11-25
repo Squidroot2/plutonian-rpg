@@ -30,6 +30,7 @@ const XP_NOTICE_SECONDS: f32 = 3.0;
     bitcode::Encode,
     bitcode::Decode,
     serde::Serialize,
+    serde::Deserialize,
 )]
 pub(crate) struct Experience(pub(crate) u64);
 

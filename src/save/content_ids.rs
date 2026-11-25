@@ -5,7 +5,7 @@ use super::*;
 // `Snapshot` field-for-field, with string IDs in place of the runtime ID
 // types; collected pickups and credited cavern defeats travel alongside it
 // as string sets in `encode`/`decode`.
-#[derive(Clone, bitcode::Encode, bitcode::Decode, serde::Serialize)]
+#[derive(Clone, bitcode::Encode, bitcode::Decode, serde::Serialize, serde::Deserialize)]
 pub(super) struct WireSnapshot {
     player_name: String,
     journal: SavedJournal,
@@ -135,6 +135,14 @@ pub(super) fn encode(snapshot: &Snapshot) -> Vec<u8> {
 pub(super) fn decode(bytes: &[u8]) -> io::Result<Snapshot> {
     let (wire, defeats, collected): (WireSnapshot, BTreeSet<String>, BTreeSet<String>) =
         bitcode::decode(bytes).map_err(invalid_save)?;
+    into_snapshot(wire, defeats, collected)
+}
+
+pub(super) fn into_snapshot(
+    wire: WireSnapshot,
+    defeats: BTreeSet<String>,
+    collected: BTreeSet<String>,
+) -> io::Result<Snapshot> {
     let mut journal = wire.journal;
     let defeats = defeats
         .iter()

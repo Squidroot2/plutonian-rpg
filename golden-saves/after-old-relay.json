@@ -1,0 +1,715 @@
+{
+  "caravan": {},
+  "cavern_defeats": [],
+  "chests": {
+    "Gear": {
+      "field_helmet": 1
+    },
+    "Lamp": {
+      "battery": 1,
+      "methane_pouch": 2
+    },
+    "Supply": {
+      "field_armor": 1,
+      "scrap": 2
+    }
+  },
+  "collected_pickups": [],
+  "dungeon": {
+    "gate": "Open"
+  },
+  "encounters": {
+    "cave_first_east_hushcap": {
+      "actor": {
+        "health": 42,
+        "position": [
+          22.299999237060547,
+          -5.5,
+          109.5999984741211
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      },
+      "has_loot": true
+    },
+    "cave_first_west_hushcap": {
+      "actor": {
+        "health": 42,
+        "position": [
+          8.800000190734863,
+          -5.5,
+          104.30000305175781
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      },
+      "has_loot": true
+    },
+    "cave_first_worm": {
+      "actor": {
+        "health": 30,
+        "position": [
+          12.800000190734863,
+          -4.940000057220459,
+          111.19999694824219
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      },
+      "has_loot": true
+    },
+    "cave_gallery_east_hushcap": {
+      "actor": {
+        "health": 42,
+        "position": [
+          21.299999237060547,
+          -5.5,
+          146.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      },
+      "has_loot": true
+    },
+    "cave_gallery_far_hushcap": {
+      "actor": {
+        "health": 42,
+        "position": [
+          15.0,
+          -5.5,
+          156.5
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      },
+      "has_loot": true
+    },
+    "cave_gallery_roach": {
+      "actor": {
+        "health": 20,
+        "position": [
+          8.800000190734863,
+          -5.179999828338623,
+          153.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      },
+      "has_loot": true
+    },
+    "cave_gallery_west_hushcap": {
+      "actor": {
+        "health": 42,
+        "position": [
+          5.599999904632568,
+          -5.5,
+          146.39999389648438
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      },
+      "has_loot": true
+    },
+    "cave_split_east_hushcap": {
+      "actor": {
+        "health": 42,
+        "position": [
+          19.799999237060547,
+          -5.5,
+          125.30000305175781
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      },
+      "has_loot": true
+    },
+    "cave_split_far_hushcap": {
+      "actor": {
+        "health": 42,
+        "position": [
+          10.699999809265137,
+          -5.5,
+          134.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      },
+      "has_loot": true
+    },
+    "cave_split_roach": {
+      "actor": {
+        "health": 20,
+        "position": [
+          19.5,
+          -5.179999828338623,
+          132.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      },
+      "has_loot": true
+    },
+    "cave_split_west_hushcap": {
+      "actor": {
+        "health": 42,
+        "position": [
+          3.5,
+          -5.5,
+          123.5
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      },
+      "has_loot": true
+    },
+    "cave_split_worm": {
+      "actor": {
+        "health": 30,
+        "position": [
+          5.0,
+          -4.940000057220459,
+          131.60000610351562
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      },
+      "has_loot": true
+    },
+    "cavern_worm": {
+      "actor": {
+        "health": 30,
+        "position": [
+          3.4000000953674316,
+          1.230149745941162,
+          -110.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      },
+      "has_loot": true
+    },
+    "far_trail_worm": {
+      "actor": {
+        "health": 30,
+        "position": [
+          -14.0,
+          0.6451056599617004,
+          -71.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      },
+      "has_loot": true
+    },
+    "guard_east": {
+      "actor": {
+        "health": 140,
+        "position": [
+          -4.21999979019165,
+          0.09348821640014648,
+          -11.229999542236328
+        ],
+        "rotation": [
+          0.0,
+          0.5969305634498596,
+          0.0,
+          0.8022929430007935
+        ]
+      },
+      "has_loot": true
+    },
+    "guard_west": {
+      "actor": {
+        "health": 140,
+        "position": [
+          -4.21999979019165,
+          0.05658555030822754,
+          -8.770000457763672
+        ],
+        "rotation": [
+          0.0,
+          0.5969305634498596,
+          0.0,
+          0.8022929430007935
+        ]
+      },
+      "has_loot": true
+    },
+    "near_trail_worm": {
+      "actor": {
+        "health": 30,
+        "position": [
+          14.0,
+          -0.014943540096282959,
+          -27.0
+        ],
+        "rotation": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ]
+      },
+      "has_loot": true
+    },
+    "relay_archive_hushcap": {
+      "actor": {
+        "health": 0,
+        "position": [
+          3.200000047683716,
+          -10.0,
+          -34.0
+        ],
+        "rotation": [
+          0.0,
+          -0.6845643520355225,
+          0.0,
+          0.7289524674415588
+        ]
+      },
+      "has_loot": false
+    },
+    "relay_junction_worm": {
+      "actor": {
+        "health": 30,
+        "position": [
+          -3.322491407394409,
+          -9.4399995803833,
+          -18.490365982055664
+        ],
+        "rotation": [
+          0.0,
+          0.7234110236167908,
+          0.0,
+          -0.6904175281524658
+        ]
+      },
+      "has_loot": true
+    },
+    "relay_roach": {
+      "actor": {
+        "health": 0,
+        "position": [
+          5.712167263031006,
+          -9.680000305175781,
+          -19.777767181396484
+        ],
+        "rotation": [
+          0.0,
+          -0.5040367841720581,
+          0.0,
+          0.8636821508407593
+        ]
+      },
+      "has_loot": false
+    }
+  },
+  "equipment": {
+    "MainHand": "field_spear"
+  },
+  "experience": {
+    "encounter_contributions": [],
+    "nemi_contributed": false,
+    "player": 70
+  },
+  "format_version": 12,
+  "guards_hostile": false,
+  "inventory": {
+    "battery": 1,
+    "mycelium": 1,
+    "roach_meat": 1
+  },
+  "journal": {
+    "occurred": [
+      "TalkedToNemi",
+      "RecoveredCore",
+      "ReturnedCore",
+      "InspectedSealedHatch",
+      "EnteredRelay",
+      "OpenedArchiveGate",
+      "ReadSurveyLog",
+      "ReturnedThroughRelayHatch",
+      "ReportedArchiveHushcap"
+    ],
+    "progress": {
+      "contain_the_hushcaps": {
+        "completed": [
+          "report_hushcap"
+        ],
+        "outcome": {
+          "Active": "defeat_hushcaps"
+        }
+      },
+      "last_light": {
+        "completed": [
+          "recover_core",
+          "meet_nemi",
+          "return_core"
+        ],
+        "outcome": "Completed"
+      },
+      "old_relay": {
+        "completed": [
+          "power_hatch",
+          "enter_relay",
+          "open_gate",
+          "read_log"
+        ],
+        "outcome": "Completed"
+      }
+    }
+  },
+  "nemi": {
+    "health": 84,
+    "position": [
+      3.0,
+      -0.06497347354888916,
+      -1.0
+    ],
+    "rotation": [
+      0.0,
+      0.24740397930145264,
+      0.0,
+      0.9689124226570129
+    ]
+  },
+  "nemi_state": {
+    "behavior": "Peaceful",
+    "home": null
+  },
+  "pickups": [
+    {
+      "position": [
+        -2.0,
+        -0.937972366809845,
+        -2.0
+      ],
+      "stack": {
+        "item": "battery",
+        "quantity": 1
+      }
+    },
+    {
+      "position": [
+        2.0,
+        -0.9154701828956604,
+        -3.5
+      ],
+      "stack": {
+        "item": "battery",
+        "quantity": 1
+      }
+    },
+    {
+      "position": [
+        -2.0,
+        -0.8779676556587219,
+        -6.0
+      ],
+      "stack": {
+        "item": "scrap",
+        "quantity": 1
+      }
+    },
+    {
+      "position": [
+        2.0,
+        -0.8554659485816956,
+        -7.5
+      ],
+      "stack": {
+        "item": "scrap",
+        "quantity": 1
+      }
+    },
+    {
+      "position": [
+        -2.0,
+        -0.817963182926178,
+        -10.0
+      ],
+      "stack": {
+        "item": "methane_pouch",
+        "quantity": 1
+      }
+    },
+    {
+      "position": [
+        2.0,
+        -0.7954612374305725,
+        -11.5
+      ],
+      "stack": {
+        "item": "methane_pouch",
+        "quantity": 1
+      }
+    },
+    {
+      "position": [
+        -2.0,
+        -0.13099989295005798,
+        -55.0
+      ],
+      "stack": {
+        "item": "battery",
+        "quantity": 1
+      }
+    },
+    {
+      "position": [
+        2.0,
+        -0.12041076272726059,
+        -56.5
+      ],
+      "stack": {
+        "item": "battery",
+        "quantity": 1
+      }
+    },
+    {
+      "position": [
+        -2.0,
+        -0.08290823549032211,
+        -59.0
+      ],
+      "stack": {
+        "item": "scrap",
+        "quantity": 1
+      }
+    },
+    {
+      "position": [
+        2.0,
+        -0.060406289994716644,
+        -60.5
+      ],
+      "stack": {
+        "item": "scrap",
+        "quantity": 1
+      }
+    },
+    {
+      "position": [
+        -2.0,
+        -0.022903526201844215,
+        -63.0
+      ],
+      "stack": {
+        "item": "methane_pouch",
+        "quantity": 1
+      }
+    },
+    {
+      "position": [
+        2.0,
+        -0.0004018191248178482,
+        -64.5
+      ],
+      "stack": {
+        "item": "methane_pouch",
+        "quantity": 1
+      }
+    },
+    {
+      "position": [
+        -2.0,
+        0.682149350643158,
+        -110.0
+      ],
+      "stack": {
+        "item": "battery",
+        "quantity": 1
+      }
+    },
+    {
+      "position": [
+        2.0,
+        0.7046512961387634,
+        -111.5
+      ],
+      "stack": {
+        "item": "battery",
+        "quantity": 1
+      }
+    },
+    {
+      "position": [
+        -2.0,
+        0.742154061794281,
+        -114.0
+      ],
+      "stack": {
+        "item": "scrap",
+        "quantity": 1
+      }
+    },
+    {
+      "position": [
+        2.0,
+        0.7646557688713074,
+        -115.5
+      ],
+      "stack": {
+        "item": "scrap",
+        "quantity": 1
+      }
+    },
+    {
+      "position": [
+        -2.0,
+        0.802158534526825,
+        -118.0
+      ],
+      "stack": {
+        "item": "methane_pouch",
+        "quantity": 1
+      }
+    },
+    {
+      "position": [
+        2.0,
+        0.8246602416038513,
+        -119.5
+      ],
+      "stack": {
+        "item": "methane_pouch",
+        "quantity": 1
+      }
+    },
+    {
+      "position": [
+        6.0,
+        -1.0429798364639282,
+        5.0
+      ],
+      "stack": {
+        "item": "field_spear",
+        "quantity": 1
+      }
+    },
+    {
+      "position": [
+        1.5,
+        0.17965355515480042,
+        5.0
+      ],
+      "stack": {
+        "item": "trident",
+        "quantity": 1
+      }
+    },
+    {
+      "position": [
+        -3.0,
+        0.7571553587913513,
+        -115.0
+      ],
+      "stack": {
+        "item": "reinforced_armor",
+        "quantity": 1
+      }
+    },
+    {
+      "position": [
+        3.0,
+        0.8321606516838074,
+        -120.0
+      ],
+      "stack": {
+        "item": "reinforced_helmet",
+        "quantity": 1
+      }
+    },
+    {
+      "position": [
+        3.25,
+        -1.0654817819595337,
+        6.5
+      ],
+      "stack": {
+        "item": "shortsword",
+        "quantity": 1
+      }
+    },
+    {
+      "position": [
+        5.25,
+        -1.0654817819595337,
+        6.5
+      ],
+      "stack": {
+        "item": "shortsword",
+        "quantity": 1
+      }
+    }
+  ],
+  "player_name": "Smoke",
+  "progression": {
+    "progress": {
+      "level": 3,
+      "unspent": 6
+    },
+    "ranks": {
+      "agility": 5,
+      "endurance": 5,
+      "strength": 5,
+      "vitality": 7
+    }
+  }
+}

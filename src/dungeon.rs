@@ -68,7 +68,15 @@ impl DungeonTarget {
 pub(crate) struct UseDungeonTarget(pub DungeonTarget);
 
 #[derive(
-    Clone, Copy, Debug, Default, PartialEq, bitcode::Encode, bitcode::Decode, serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Default,
+    PartialEq,
+    bitcode::Encode,
+    bitcode::Decode,
+    serde::Serialize,
+    serde::Deserialize,
 )]
 enum GateState {
     #[default]
@@ -88,7 +96,16 @@ impl GateState {
     }
 }
 
-#[derive(Resource, Clone, Copy, Default, bitcode::Encode, bitcode::Decode, serde::Serialize)]
+#[derive(
+    Resource,
+    Clone,
+    Copy,
+    Default,
+    bitcode::Encode,
+    bitcode::Decode,
+    serde::Serialize,
+    serde::Deserialize,
+)]
 pub(crate) struct DungeonProgress {
     gate: GateState,
 }
