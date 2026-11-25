@@ -13,6 +13,7 @@ use strum::VariantArray;
 
 pub(crate) const DEFAULT_RANK: u8 = 5;
 pub(crate) const MAX_RANK: u8 = 100;
+pub(crate) const MAX_LEVEL: u32 = 100;
 const POINTS_PER_LEVEL: u32 = 3;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, VariantArray)]
@@ -95,14 +96,58 @@ impl AttributeRanks {
 /// so keeping them together avoids coordinating separate components. Split
 /// them only if they need independent ownership or lifecycles.
 pub(crate) struct CharacterProgress {
-    pub(crate) level: u32,
+    pub(crate) level: Level,
     pub(crate) unspent: u32,
+}
+
+/// A player level constrained to `1..=MAX_LEVEL`.
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    bitcode::Encode,
+    bitcode::Decode,
+    serde::Serialize,
+)]
+pub(crate) struct Level(u32);
+
+impl Level {
+    pub(crate) const FIRST: Self = Self(1);
+    pub(crate) const MAX: Self = Self(MAX_LEVEL);
+
+    pub(crate) const fn new(value: u32) -> Option<Self> {
+        if value >= 1 && value <= MAX_LEVEL {
+            Some(Self(value))
+        } else {
+            None
+        }
+    }
+
+    pub(crate) const fn get(self) -> u32 {
+        self.0
+    }
+
+    pub(crate) const fn is_valid(self) -> bool {
+        self.0 >= 1 && self.0 <= MAX_LEVEL
+    }
+
+    pub(crate) fn advance(&mut self) -> bool {
+        if self.0 >= MAX_LEVEL {
+            return false;
+        }
+        self.0 += 1;
+        true
+    }
 }
 
 impl Default for CharacterProgress {
     fn default() -> Self {
         Self {
-            level: 1,
+            level: Level::FIRST,
             unspent: 0,
         }
     }
@@ -110,12 +155,12 @@ impl Default for CharacterProgress {
 
 impl CharacterProgress {
     /// Record an absolute level and grant points for each newly reached level.
-    pub(crate) fn advance_to(&mut self, level: u32) -> u32 {
-        if level <= self.level {
+    pub(crate) fn advance_to(&mut self, level: Level) -> u32 {
+        if level <= self.level || !level.is_valid() {
             return 0;
         }
         let previous_points = self.unspent;
-        let points = (level - self.level).saturating_mul(POINTS_PER_LEVEL);
+        let points = (level.get() - self.level.get()).saturating_mul(POINTS_PER_LEVEL);
         self.level = level;
         self.unspent = self.unspent.saturating_add(points);
         self.unspent - previous_points
@@ -129,7 +174,7 @@ pub(crate) struct SavedProgress {
 }
 
 impl SavedProgress {
-    pub(crate) fn level(&self) -> u32 {
+    pub(crate) fn level(&self) -> Level {
         self.progress.level
     }
 
@@ -155,7 +200,7 @@ impl SavedProgress {
     }
 
     pub(crate) fn is_valid(&self) -> bool {
-        self.progress.level > 0
+        self.progress.level.is_valid()
             && self
                 .ranks
                 .values()
@@ -561,7 +606,8 @@ fn refresh_character(
                 );
                 format!(
                     "Level {} | {experience} | {} unspent points",
-                    progress.level, progress.unspent
+                    progress.level.get(),
+                    progress.unspent
                 )
             }
             CharacterText::Attribute(id) => format!("{} {}", id.name(), ranks.rank(id)),
@@ -644,9 +690,18 @@ mod tests {
         let mut progress = world
             .get_mut::<CharacterProgress>(player)
             .expect("player progress");
-        assert_eq!(progress.advance_to(3), 6);
-        assert_eq!(progress.advance_to(3), 0);
-        assert_eq!(progress.advance_to(2), 0);
+        assert_eq!(
+            progress.advance_to(Level::new(3).expect("valid test level")),
+            6
+        );
+        assert_eq!(
+            progress.advance_to(Level::new(3).expect("valid test level")),
+            0
+        );
+        assert_eq!(
+            progress.advance_to(Level::new(2).expect("valid test level")),
+            0
+        );
         for _ in 0..7 {
             world.trigger(pointer_click(button, window, camera));
         }
@@ -655,7 +710,7 @@ mod tests {
         assert_eq!(
             world.get::<CharacterProgress>(player),
             Some(&CharacterProgress {
-                level: 3,
+                level: Level::new(3).expect("valid test level"),
                 unspent: 0
             })
         );
@@ -689,7 +744,7 @@ mod tests {
             .spawn((
                 Player::default(),
                 CharacterProgress {
-                    level: 2,
+                    level: Level::new(2).expect("valid test level"),
                     unspent: 3,
                 },
             ))
@@ -732,7 +787,7 @@ mod tests {
                 Player::default(),
                 AttributeRanks::default().with_rank(AttributeId::Agility, MAX_RANK),
                 CharacterProgress {
-                    level: 2,
+                    level: Level::new(2).expect("valid test level"),
                     unspent: 1,
                 },
             ))

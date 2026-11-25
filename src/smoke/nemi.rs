@@ -123,7 +123,7 @@ pub(super) fn drive(
         .expect("the shipped outpost must spawn a skinned Nemi");
     assert_eq!(*xp, Experience(if dead { 35 } else { 0 }));
     assert_eq!(
-        (progress.level, progress.unspent),
+        (progress.level.get(), progress.unspent),
         if quest.is_complete(RELIGHT_BEACON) {
             (2, 3)
         } else {

@@ -1774,7 +1774,7 @@ mod tests {
             .with_rank(AttributeId::Vitality, 12)
             .with_rank(AttributeId::Endurance, 10);
         let progress = CharacterProgress {
-            level: 8,
+            level: crate::attributes::Level::new(8).expect("valid test level"),
             unspent: 9,
         };
         let xp = Experience(41);

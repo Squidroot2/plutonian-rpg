@@ -6,7 +6,7 @@ use super::{
 use crate::player::PlayerWorldExt as _;
 use crate::{
     GameState,
-    attributes::{AttributeId, AttributeRanks, CharacterProgress},
+    attributes::{AttributeId, AttributeRanks, CharacterProgress, Level},
     camera::{FollowCamera, Orbit},
     combat::{ConfirmedHit, Dead, Health, Hit},
     content::Items,
@@ -56,11 +56,11 @@ use bevy::{
 };
 
 const BEACON_PROGRESS: CharacterProgress = CharacterProgress {
-    level: 2,
+    level: Level::new(2).expect("valid authored progress level"),
     unspent: 3,
 };
 const RELAY_PROGRESS: CharacterProgress = CharacterProgress {
-    level: 3,
+    level: Level::new(3).expect("valid authored progress level"),
     unspent: 6,
 };
 const SHIPPED_GUARD_HEALTH: u16 = 140;
@@ -1864,7 +1864,7 @@ fn check_bed_rollback(frame: WorldFrame) {
             commands.entity(entity).insert((
                 AttributeRanks::default().with_rank(AttributeId::Vitality, 8),
                 CharacterProgress {
-                    level: 3,
+                    level: Level::new(3).expect("valid authored progress level"),
                     unspent: 0,
                 },
                 Experience(90),

@@ -3,7 +3,7 @@ use bevy::prelude::*;
 
 use crate::{
     GameState,
-    attributes::CharacterProgress,
+    attributes::{CharacterProgress, Level},
     combat::{ActorDefeated, CombatSystems, ConfirmedHit, Dead, Health},
     interaction::InteractionSystems,
     nemi::react_to_player_hit,
@@ -35,15 +35,15 @@ const XP_NOTICE_SECONDS: f32 = 3.0;
 pub(crate) struct Experience(pub(crate) u64);
 
 impl Experience {
-    pub(crate) fn required(level: u32) -> Option<u64> {
-        if level == 0 || level == u32::MAX {
+    pub(crate) fn required(level: Level) -> Option<u64> {
+        if !level.is_valid() || level == Level::MAX {
             return None;
         }
 
-        Some(FIRST_LEVEL_XP + XP_INCREASE_PER_LEVEL * u64::from(level - 1))
+        Some(FIRST_LEVEL_XP + XP_INCREASE_PER_LEVEL * u64::from(level.get() - 1))
     }
 
-    pub(crate) fn is_valid(self, level: u32) -> bool {
+    pub(crate) fn is_valid(self, level: Level) -> bool {
         self.0 < Self::required(level).unwrap_or(1)
     }
 
@@ -55,9 +55,11 @@ impl Experience {
                 break;
             }
             xp -= required;
-            level += 1;
+            if !level.advance() {
+                break;
+            }
         }
-        self.0 = Self::required(level).map_or(0, |_| xp);
+        self.0 = xp;
         progress.advance_to(level)
     }
 }
@@ -156,7 +158,7 @@ fn award_experience(
     let text = if progress.level > previous_level {
         format!(
             "{text} | Level {} (+{points} attribute points)",
-            progress.level
+            progress.level.get()
         )
     } else {
         text
@@ -184,13 +186,16 @@ mod tests {
         assert_eq!(xp.gain(69, &mut progress), 0);
         assert_eq!(xp, Experience(69));
         assert_eq!(xp.gain(1, &mut progress), 3);
-        assert_eq!((progress.level, xp), (2, Experience(0)));
+        assert_eq!((progress.level.get(), xp), (2, Experience(0)));
         assert_eq!(xp.gain(300, &mut progress), 6);
         assert_eq!(
-            (progress.level, progress.unspent, xp),
+            (progress.level.get(), progress.unspent, xp),
             (4, 9, Experience(10))
         );
-        assert_eq!(Experience::required(4), Some(220));
+        assert_eq!(
+            Experience::required(Level::new(4).expect("valid test level")),
+            Some(220)
+        );
     }
 
     fn hit(world: &mut World, source: Entity, target: Entity, damage: u16) {
@@ -246,7 +251,7 @@ mod tests {
         assert_eq!(
             world.get::<CharacterProgress>(player),
             Some(&CharacterProgress {
-                level: 2,
+                level: Level::new(2).expect("valid test level"),
                 unspent: 3
             }),
         );
@@ -286,7 +291,7 @@ mod tests {
         assert_eq!(
             world.get::<CharacterProgress>(player),
             Some(&CharacterProgress {
-                level: 2,
+                level: Level::new(2).expect("valid test level"),
                 unspent: 3
             }),
         );
