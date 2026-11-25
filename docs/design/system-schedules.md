@@ -1,7 +1,7 @@
 # System interactions and schedules
 
 This document describes the current runtime architecture.
-  Plugin registration is in `src/main.rs`; individual plugins own their systems and ordering.
+  Plugin registration is in `src/lib.rs`; individual plugins own their systems and ordering.
   Bevy may run systems concurrently or in either order unless a schedule, set, chain, or explicit dependency orders them.
   The diagrams below show dependencies, not a total ordering of every system.
   Observer callbacks run when their events are triggered; they are not independent stages of the frame.

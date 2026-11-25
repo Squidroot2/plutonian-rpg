@@ -2,7 +2,9 @@
 
 ## Project Structure & Module Organization
 
-This Linux desktop RPG uses Rust 2024, Bevy 0.20, and Avian 0.8. `src/main.rs` registers feature plugins.
+This Linux desktop RPG uses Rust 2024, Bevy 0.20, and Avian 0.8.
+  `src/lib.rs` constructs the game and registers feature plugins,
+  while `src/main.rs` parses process arguments.
   Unit tests live beside their systems, and `src/smoke/` holds desktop scenarios.
   Keep Blender sources in `art/`, runtime GLBs in `assets/models/`, and asset tooling in `scripts/`.
 
