@@ -135,3 +135,108 @@ fn invalid_and_missing_saves_fail_without_panicking() {
     assert!(!result.status.success());
     assert!(String::from_utf8_lossy(&result.stderr).contains("No .save files"));
 }
+
+const GOLDEN_JSON: &str = include_str!("../golden-saves/after-old-relay.json");
+
+fn create(input: &Path, output: &Path) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_plutonian-save"))
+        .args(["create"])
+        .arg(input)
+        .arg("--output")
+        .arg(output)
+        .env("BEVY_ASSET_ROOT", env!("CARGO_MANIFEST_DIR"))
+        .output()
+        .expect("run save creator")
+}
+
+#[test]
+fn golden_fixture_and_real_bed_save_round_trip_through_create() {
+    let dir = TestDirectory::new();
+    let original = dir.0.join("original.save");
+    fs::write(&original, SAVE).expect("write captured bed save");
+    let inspected = inspect(&[&original], true, None);
+    assert!(inspected.status.success());
+
+    for source in [GOLDEN_JSON.as_bytes(), &inspected.stdout] {
+        let input = dir.0.join("scenario.json");
+        let output = dir.0.join("created.save");
+        fs::write(&input, source).expect("write input JSON");
+        let result = create(&input, &output);
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        let round_trip = inspect(&[&output], true, None);
+        assert!(round_trip.status.success());
+        let parse = |bytes: &[u8]| {
+            serde_json::from_slice::<serde_json::Value>(bytes).expect("parse inspection JSON")
+        };
+        assert_eq!(parse(source), parse(&round_trip.stdout));
+    }
+}
+
+#[test]
+fn malformed_and_invalid_fixtures_create_no_output() {
+    use serde_json::{Value, json};
+
+    let dir = TestDirectory::new();
+    let input = dir.0.join("invalid.json");
+    let output = dir.0.join("generated").join("invalid.save");
+    let fixture: Value = serde_json::from_str(GOLDEN_JSON).expect("valid golden fixture JSON");
+    let mut wrong_version = fixture.clone();
+    wrong_version["format_version"] = json!(0);
+    let mut unknown_item = fixture.clone();
+    unknown_item["inventory"]["unknown_item"] = json!(1);
+    let mut invalid_stack = fixture.clone();
+    invalid_stack["inventory"]["battery"] = json!(0);
+    let mut unknown_encounter = fixture.clone();
+    unknown_encounter["encounters"]["unknown_encounter"] =
+        fixture["encounters"]["relay_roach"].clone();
+    let mut unknown_pickup = fixture.clone();
+    unknown_pickup["collected_pickups"] = json!(["unknown_pickup"]);
+    let mut unknown_quest = fixture.clone();
+    unknown_quest["journal"]["progress"]["unknown_quest"] =
+        fixture["journal"]["progress"]["last_light"].clone();
+
+    let mut cases = vec![("{".to_owned(), "EOF")];
+    cases.extend(
+        [
+            (wrong_version, "Unsupported save format version"),
+            (unknown_item, "unknown_item"),
+            (invalid_stack, "Invalid save contents"),
+            (unknown_encounter, "Unknown encounter ID unknown_encounter"),
+            (unknown_pickup, "Unknown collected pickup ID unknown_pickup"),
+            (unknown_quest, "Unknown saved quest unknown_quest"),
+        ]
+        .map(|(data, message)| (data.to_string(), message)),
+    );
+
+    for (source, message) in cases {
+        fs::write(&input, source).expect("write invalid JSON fixture");
+        let result = create(&input, &output);
+        assert!(!result.status.success());
+        let error = String::from_utf8_lossy(&result.stderr);
+        assert!(error.contains(message), "{error}");
+        assert!(!output.parent().expect("output has parent").exists());
+    }
+}
+
+#[test]
+fn create_requires_an_explicit_output_path() {
+    let dir = TestDirectory::new();
+    let input = dir.0.join("scenario.json");
+    fs::write(&input, GOLDEN_JSON).expect("write valid input");
+    let result = Command::new(env!("CARGO_BIN_EXE_plutonian-save"))
+        .arg("create")
+        .arg(&input)
+        .env("XDG_DATA_HOME", &dir.0)
+        .output()
+        .expect("run save creator without output");
+    assert!(!result.status.success());
+    assert!(String::from_utf8_lossy(&result.stderr).contains("--output"));
+    assert_eq!(
+        fs::read_dir(&dir.0).expect("list data directory").count(),
+        1
+    );
+}

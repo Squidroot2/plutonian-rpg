@@ -154,7 +154,7 @@ Prefer stable IDs over entity IDs for anything whose entities are recreated.
 Keep fall recovery distinct unless its gameplay contract is intentionally
 changed.
 
-## Read-only save inspection
+## Save inspection and creation
 
 Run `cargo run --locked --bin plutonian-save -- inspect [PATH]` to inspect a save as text,
 or add `--json` to print JSON for diffing and tooling.
@@ -165,7 +165,7 @@ The newest file is inspected even if it is unreadable.
 The inspector uses the game's current-version decoder and validates the saved contents,
 without applying catalog-dependent changes or modifying any file.
 
-The JSON object is the fixture representation intended for the future `create` mode (issue #34).
+The JSON object is the shared representation for `inspect --json` and `create`.
 Its top-level `format_version` is the binary save version.
 The remaining top-level fields are `player_name`, `journal`, `inventory`, `equipment`, `chests`,
 `dungeon`, `pickups`, `collected_pickups`, `cavern_defeats`, `nemi`, `nemi_state`,
@@ -185,27 +185,37 @@ so a unit state is a string and a state with data is an object keyed by its vari
 The separately stored `cavern_defeats` and `caravan` fields are included alongside the wire snapshot,
 so the JSON captures the complete saved state.
 
+Run `cargo run --locked --bin plutonian-save -- create fixture.json --output out.save`
+to validate a fixture against the current save format and shipped gameplay catalogs,
+then write a save using the game's atomic writer.
+The command requires an explicit output path
+and rejects invalid fixtures before writing.
+The validated snapshot is written as provided,
+so any load-time equipment adjustments happen when the game loads the save.
+Use the values and array ordering emitted by `inspect --json`,
+including the saved precision of positions and rotations.
 
 ## Golden saves
 
-Use `cargo run --locked -- --save-dir golden-saves/<scenario>` to capture or test a known state.
+Commit one JSON fixture per scenario at `golden-saves/<scenario>.json`.
+The `after-old-relay` fixture comes from a bed save after the survey log was read and the Old Relay quest was completed.
+To capture a new fixture, play to the desired state, save at the bed, and quit.
+Run `cargo run --locked --bin plutonian-save -- inspect --json PATH > golden-saves/<scenario>.json`,
+where `PATH` names the captured save.
+
+Run `python3 scripts/golden_saves.py` to generate the saves.
+For each scenario, the script replaces existing `.save` files in that scenario's generated directory
+with a save named for the stored player and the current Unix time.
+Generated `.save` files are ignored by Git.
+After testing, rerun the script to restore the scenario from its committed JSON fixture.
+
+Launch with `cargo run --locked -- --save-dir golden-saves/<scenario>`,
+then select the generated save in **Load Game**.
 Relative directories resolve against the process working directory.
-The explicit directory replaces the normal save directory for listing, loading, saving, and deletion;
-smoke scenarios always use their own temporary directories.
-The game logs the resolved directory on startup when an override is used.
+The override applies to listing, loading, saving, and deletion.
+Smoke scenarios use separate temporary directories.
+The game logs the resolved directory at startup.
 
-Use one subdirectory per scenario, such as `golden-saves/before-caverns/`,
-so the load picker contains only saves for that scenario.
-To capture a golden save, play to the desired state, save at the bed, and quit.
-Every bed save creates a new file,
-so keep only the intended file, identified by its player name and capture time, and commit it.
-
-To test the scenario, launch with the same `--save-dir` and select the entry in Load Game.
-A later bed save creates another file beside the committed golden save,
-and the picker's delete action can remove files in that directory.
-After testing, restore tracked golden saves with `git checkout -- golden-saves`
-and remove untracked files created by the run with `git clean -f golden-saves`.
-
-Golden saves use the current version 12 format.
-A future schema bump will make them unreadable in the picker;
-recapture the scenarios after such a bump rather than expecting old files to load.
+CI generates each fixture in a temporary directory
+and checks that inspecting the resulting save reproduces the fixture's parsed JSON.
+Update fixtures when a schema or catalog change invalidates them.

@@ -17,7 +17,9 @@ use crate::{
 
 pub use crate::content::ItemKind;
 
-#[derive(Component, Clone, Debug, bitcode::Encode, bitcode::Decode, serde::Serialize)]
+#[derive(
+    Component, Clone, Debug, bitcode::Encode, bitcode::Decode, serde::Serialize, serde::Deserialize,
+)]
 pub struct Inventory<I: Ord = ItemKind>(pub(crate) BTreeMap<I, u32>);
 impl<I: Ord> Default for Inventory<I> {
     fn default() -> Self {

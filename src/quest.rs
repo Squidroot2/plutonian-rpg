@@ -244,7 +244,9 @@ impl QuestDefinition {
 pub(crate) struct QuestCatalog(Vec<QuestDefinition>);
 
 impl QuestCatalog {
-    fn validate(&self) -> Result<(), String> {
+    pub(crate) const PATH: &str = "quests/catalog.quest.ron";
+
+    pub(crate) fn validate(&self) -> Result<(), String> {
         let mut ids = BTreeSet::new();
         for quest in &self.0 {
             if quest.id.trim().is_empty() || !ids.insert(quest.id.as_str()) {
@@ -358,7 +360,7 @@ pub(crate) struct QuestJournal {
     cavern_defeats: BTreeSet<CaveEncounter>,
 }
 
-#[derive(Clone, bitcode::Encode, bitcode::Decode, serde::Serialize)]
+#[derive(Clone, bitcode::Encode, bitcode::Decode, serde::Serialize, serde::Deserialize)]
 pub(crate) struct SavedJournal {
     #[bitcode(skip)]
     #[serde(skip)]
@@ -373,13 +375,13 @@ impl SavedJournal {
     }
 }
 
-#[derive(Clone, bitcode::Encode, bitcode::Decode, serde::Serialize)]
+#[derive(Clone, bitcode::Encode, bitcode::Decode, serde::Serialize, serde::Deserialize)]
 struct SavedQuest {
     outcome: SavedOutcome,
     completed: Vec<String>,
 }
 
-#[derive(Clone, bitcode::Encode, bitcode::Decode, serde::Serialize)]
+#[derive(Clone, bitcode::Encode, bitcode::Decode, serde::Serialize, serde::Deserialize)]
 enum SavedOutcome {
     Active(String),
     Completed,

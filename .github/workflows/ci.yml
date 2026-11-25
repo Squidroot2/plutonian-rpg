@@ -65,6 +65,11 @@ jobs:
       - name: Build
         run: cargo build --locked
 
+      - name: Round-trip golden save fixtures
+        run: |
+          cargo build --locked --bin plutonian-save
+          python3 scripts/golden_saves.py --check --binary target/debug/plutonian-save
+
       - name: Test
         run: cargo test --locked
 
