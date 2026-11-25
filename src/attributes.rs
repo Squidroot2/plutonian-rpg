@@ -1,4 +1,5 @@
-//! Player progression and the gameplay capabilities derived from attribute ranks.
+//! Actor attribute ranks and the gameplay capabilities derived from them.
+//! Player progression also uses this module to allocate ranks and level-up points.
 use std::collections::BTreeMap;
 
 use crate::{
