@@ -36,7 +36,9 @@ When the wagons park, the villagers become damageable and can flee.
 A villager who flees before reaching home returns to the walk when it is safe.
 Settled residents return to their standing positions through their entrances.
 Sella and Orren take up new posts outside their shared barracks.
-Nemi keeps the beacon from the courtyard next to her hut.
+Nemi tends the beacon from the courtyard.
+Her hut sits south of the player’s shelter with its hatch facing back toward the village,
+  leaving the starting doorway and the route to South Basin open.
 
 The village’s ceramic shells have open, ramped hatches, supported decks, and solid large furnishings.
 Isera and Vey share two cots.

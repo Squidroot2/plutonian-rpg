@@ -14,7 +14,6 @@ use avian3d::prelude::*;
 use bevy::{
     ecs::{schedule::ScheduleConfigs, system::ScheduleSystem},
     prelude::*,
-    shape::{Aabb2d, RayCast2d},
 };
 
 const WALK_SPEED_MPS: f32 = 1.95;
@@ -278,52 +277,6 @@ pub(super) fn speaker(id: NpcId) -> Speaker {
     Speaker::new(id.key(), Area::Surface, SPEAKER_HEIGHT_M)
 }
 
-/// The keeper's hut sits between the old east watchpost and the courtyard.
-pub(crate) fn guard_waypoint(from: Vec3, goal: Vec3) -> Vec3 {
-    const KEEPER_CLEARANCE: Aabb2d = Aabb2d {
-        min: Vec2::new(0.20, -8.30),
-        max: Vec2::new(5.80, -2.90),
-    };
-    const CORNERS: [Vec2; 4] = [
-        Vec2::new(0.04, -8.46),
-        Vec2::new(0.04, -2.74),
-        Vec2::new(5.96, -8.46),
-        Vec2::new(5.96, -2.74),
-    ];
-    let clear = |a: Vec2, b: Vec2| {
-        let delta = b - a;
-        Dir2::new(delta).map_or(true, |direction| {
-            RayCast2d::new(a, direction, delta.length())
-                .aabb_intersection_at(&KEEPER_CLEARANCE)
-                .is_none()
-        })
-    };
-    let start = from.xz();
-    let end = goal.xz();
-    if clear(start, end) {
-        return goal;
-    }
-
-    let mut shortest = f32::INFINITY;
-    let mut waypoint = goal;
-    for first in CORNERS
-        .into_iter()
-        .filter(|&point| start.distance(point) > 0.06 && clear(start, point))
-    {
-        for last in CORNERS.into_iter().filter(|&point| clear(point, end)) {
-            if !clear(first, last) {
-                continue;
-            }
-            let distance = start.distance(first) + first.distance(last) + last.distance(end);
-            if distance < shortest {
-                shortest = distance;
-                waypoint = Vec3::new(first.x, goal.y, first.y);
-            }
-        }
-    }
-    waypoint
-}
-
 pub(super) fn spawn_sample_station(commands: &mut Commands) {
     commands.spawn((
         SessionEntity,
@@ -338,7 +291,7 @@ pub(crate) fn light_homes(commands: &mut Commands) {
         ("Family hearth", Vec3::new(-12.79, 0.45, -1.62), true),
         ("Workshop bench light", Vec3::new(-13.75, 0.70, 6.30), false),
         ("Orla’s hearth", Vec3::new(14.18, 0.36, 10.62), true),
-        ("Keeper’s lens light", Vec3::new(2.70, 0.77, -6.94), false),
+        ("Keeper’s lens light", Vec3::new(5.80, 0.43, 18.34), false),
         ("Barracks hearth", Vec3::new(-11.75, 0.44, -10.70), true),
     ] {
         commands.spawn((
@@ -368,24 +321,4 @@ pub(crate) fn light_homes(commands: &mut Commands) {
             ..default()
         },
     ));
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn east_watch_reaches_the_courtyard_around_the_keeper_hut() {
-        let post = crate::guard::GuardPost::East.home();
-        let courtyard = Vec3::new(3.0, 0.0, 0.65);
-        let near = guard_waypoint(post, courtyard);
-        assert_ne!(near, courtyard);
-        assert!(near.z < -8.30);
-        let far = guard_waypoint(near, courtyard);
-        assert_eq!(far.x, near.x);
-        assert!(far.z > -2.90);
-        assert_eq!(guard_waypoint(far, courtyard), courtyard);
-        let barracks = crate::guard::GuardPost::East.barracks();
-        assert_eq!(guard_waypoint(post, barracks), barracks);
-    }
 }
