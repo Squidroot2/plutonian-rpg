@@ -192,7 +192,8 @@ fn invalid_and_missing_saves_fail_without_panicking() {
     assert!(String::from_utf8_lossy(&result.stderr).contains("No .save files"));
 }
 
-const GOLDEN_JSON: &str = include_str!("../../../golden-saves/after-old-relay.json");
+const GOLDEN_JSON: &str =
+    include_str!("../../../golden-saves/after-old-relay/after-old-relay.json");
 
 fn create(input: &Path, output: &Path) -> Output {
     Command::new(env!("CARGO_BIN_EXE_plutonian-save"))

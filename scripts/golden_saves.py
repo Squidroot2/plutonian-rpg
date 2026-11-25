@@ -14,6 +14,8 @@ FIXTURES = ROOT / "golden-saves"
 
 
 def fixture_data(path):
+    if path.parent.name != path.stem:
+        raise ValueError(f"{path.name} must be stored in its matching scenario directory")
     with path.open(encoding="utf-8") as source:
         data = json.load(source)
     name = data.get("player_name") if isinstance(data, dict) else None
@@ -29,7 +31,7 @@ def regenerate(directory, fixtures, command, check):
     environment.setdefault("BEVY_ASSET_ROOT", str(ROOT))
     for fixture in fixtures:
         data = fixture_data(fixture)
-        scenario = directory / fixture.stem
+        scenario = directory / fixture.parent.name
         if scenario.is_symlink():
             raise ValueError(f"Scenario directory is a symlink: {scenario}")
         scenario.mkdir(exist_ok=True)
@@ -60,7 +62,7 @@ def main():
     command = [args.binary.resolve()] if args.binary else [
         "cargo", "run", "--locked", "--quiet", "--bin", "plutonian-save", "--",
     ]
-    fixtures = sorted(FIXTURES.glob("*.json"))
+    fixtures = sorted(FIXTURES.glob("*/*.json"))
     try:
         if not fixtures:
             raise ValueError(f"No JSON fixtures in {FIXTURES}")

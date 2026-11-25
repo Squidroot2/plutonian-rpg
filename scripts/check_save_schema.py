@@ -23,11 +23,12 @@ def main():
     validator = validator_type(schema)
     fixtures = sorted(
         path
-        for path in (ROOT / "golden-saves").glob("*.json")
-        if path != SCHEMA_PATH
+        for path in (ROOT / "golden-saves").glob("*/*.json")
     )
 
     for fixture in fixtures:
+        if fixture.parent.name != fixture.stem:
+            raise ValueError(f"{fixture.name} must be stored in its matching scenario directory")
         document = json.loads(fixture.read_text(encoding="utf-8"))
         errors = sorted(validator.iter_errors(document), key=lambda error: list(error.path))
         if errors:

@@ -199,7 +199,7 @@ The `schema` subcommand prints the JSON Schema for this inspection document.
 The committed schema is `golden-saves/save.schema.json`.
 Regenerate it after changing save representation types with
 `cargo run --locked --bin plutonian-save -- schema > golden-saves/save.schema.json`.
-Point an editor's JSON Schema setting for files under `golden-saves/` at this file
+Point an editor's JSON Schema setting for fixtures under `golden-saves/<scenario>/` at this file
 to get completion and structural errors while editing fixtures.
 CI checks that the committed schema matches fresh output
 and validates each golden save fixture against it.
@@ -208,15 +208,15 @@ and validates each golden save fixture against it.
 
 The [golden saves developer guide](../contributing/golden_saves.md) covers capture, regeneration, and fixture checks.
 
-Commit one JSON fixture per scenario at `golden-saves/<scenario>.json`.
+Commit one JSON fixture per scenario at `golden-saves/<scenario>/<scenario>.json`.
 The `after-old-relay` fixture comes from a bed save after the survey log was read and the Old Relay quest was completed.
 To capture a new fixture, play to the desired state, save at the bed, and quit.
-Run `cargo run --locked --bin plutonian-save -- inspect --json PATH > golden-saves/<scenario>.json`,
+Run `cargo run --locked --bin plutonian-save -- inspect --json PATH > golden-saves/<scenario>/<scenario>.json`,
 where `PATH` names the captured save.
 
 Run `python3 scripts/golden_saves.py` to generate the saves.
-For each scenario, the script replaces existing `.save` files in that scenario's generated directory
-with a save named for the stored player and the current Unix time.
+For each scenario, the script writes the generated `.save` beside its JSON fixture,
+replacing existing saves in that directory with a save named for the stored player and current Unix time.
 Generated `.save` files are ignored by Git.
 After testing, rerun the script to restore the scenario from its committed JSON fixture.
 
