@@ -8,14 +8,13 @@ from it; it does not serialize the live Bevy world.
 ## Goals and boundaries
 
 - The starting tent bed is the only save point.
-- There is one overwriteable save slot.
+- Each bed save creates a separate file with no fixed save count.
 - Starting a fresh run does not erase the existing disk save.
 - Combat defeat rolls the current run back to its most recent bed checkpoint.
 - Falling recovery remains a separate path and preserves current progress.
 - A successful bed save and a combat recovery restore the player to full health.
 
-`SaveSlot` owns the persistent file path, the last valid disk snapshot and any
-load error shown on the title screen.
+`SaveSlot` owns the save directory, discovered files, active file, and any load error shown on the title screen.
 `RunSave` owns the checkpoint for the current run.
 Keeping these separate lets a fresh run leave an older disk save available,
 while deaths in the new run still restart at its beginning until the player
@@ -69,9 +68,9 @@ Do not add migrations or legacy decoders without an explicit request from
 Hayden.
 
 Reads are limited to 1 MiB plus one byte so oversized files can be rejected.
-Unknown headers, malformed bitcode, unsupported versions, and invalid decoded contents disable title-screen loading.
+Unknown headers, malformed bitcode, unsupported versions, and invalid decoded contents make the affected entry unreadable and unloadable.
 The game checks inventory and chest stacks, progression, experience, dungeon state, actor poses, pickup positions, and required encounter IDs.
-It validates saved item IDs against the current item catalog before enabling Load Game.
+It validates saved item IDs against the current item catalog when loading an entry.
 If an equipped item no longer meets its slot or Strength rules, the game returns it to the bag.
 A missing item definition or a full stack that prevents returning gear produces an error and preserves the disk checkpoint.
 
@@ -81,13 +80,14 @@ Authored pickups are reconstructed from the current placement catalog and the ch
 A dropped item stays in the loose pickup snapshot after its original placement has been collected.
 Starter chest stock is loaded for new runs.
 
-The normal data path is
-`$XDG_DATA_HOME/plutonian-rpg/save.bin` when `XDG_DATA_HOME` is absolute.
-Otherwise it is `~/.local/share/plutonian-rpg/save.bin` when `HOME` is
-absolute.
-If neither environment variable provides an absolute directory, file saving
-is unavailable.
+The normal save directory is `$XDG_DATA_HOME/plutonian-rpg` when `XDG_DATA_HOME` is absolute.
+Otherwise it is `~/.local/share/plutonian-rpg` when `HOME` is absolute.
+If neither environment variable provides an absolute directory, file saving is unavailable.
 Smoke runs use a unique temporary directory instead.
+Each save is named `<player-name>-<unix-epoch-seconds>.save`.
+If that name already exists, the game appends `-2`, `-3`, and so on before the extension.
+The game discovers `.save` files by listing the directory.
+The former `save.bin` is ignored.
 
 ## Write lifecycle
 
@@ -101,21 +101,22 @@ so the checkpoint includes that frame's consequences.
 The system captures a snapshot and validates it before touching the file.
 It creates the parent directory, writes the header and bitcode payload to a
 uniquely named temporary file beside the destination, calls `sync_all`, then
-renames the temporary file over the save slot.
+renames the temporary file to the new save filename.
 On a failed write or rename it removes the temporary file where possible and
-leaves the prior disk file, `SaveSlot`, `RunSave` checkpoint and player health
+leaves prior disk files, the active save, `RunSave` checkpoint and player health
 unchanged.
-Only after replacement succeeds does it update both in-memory save resources
+Only after the write succeeds does it update both in-memory save resources
 and restore the player's health.
 The UI displays a short success or failure notice.
 
 ## Fresh runs, loading and recovery
 
-On the title screen, **Start Game** clears `RunSave` and enters `Loading`.
-It does not clear `SaveSlot`, so **Load Game** can still select the previous
-disk snapshot.
-Load Game is enabled only when a valid snapshot is available and copies that
-snapshot into `RunSave` before entering `Loading`.
+On the title screen, **Start Game** clears `RunSave` and enters `Loading` without writing a file.
+**Load Game** opens a scrollable list of saves ordered by last-modified time, newest first.
+Each entry shows its stored player name and modification time, or identifies an unreadable file.
+A confirmation protects deletion, which removes only the selected file.
+Selecting a readable entry validates it and makes it the active save and `RunSave` checkpoint.
+Each successful bed save creates a new active file and replaces the current run's checkpoint.
 
 Entering `Loading` first despawns entities marked as part of the prior session,
 restores inventory, equipment, chests and dungeon resources from the current
@@ -126,8 +127,8 @@ World and feature plugins spawn the session entities.
 When loading is ready, actors and quest effects are restored and play resumes.
 
 When a player becomes `Dead`, `recover_defeated` requests `Loading`.
-The `RunSave` checkpoint is retained, so the loading lifecycle rebuilds the
-world at that checkpoint.
+The selected save or latest successful bed save in the session remains the `RunSave` checkpoint,
+so the loading lifecycle rebuilds the world at that checkpoint.
 The player returns with full health, and defeated actors, loot, inventory,
 quest state and progression return to their saved values.
 With no checkpoint, loading uses fresh defaults, so death before the first bed
