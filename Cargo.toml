@@ -6,6 +6,11 @@ default-run = "plutonian-rpg"
 rust-version = "1.100.0"
 license = "MIT"
 
+[workspace]
+members = [".", "crates/plutonian-save"]
+default-members = [".", "crates/plutonian-save"]
+resolver = "3"
+
 [features]
 default = []
 smoke = []
@@ -14,7 +19,6 @@ smoke = []
 bevy = { version = "0.20", default-features = false, features = ["default_app", "std", "bevy_winit", "multi_threaded", "3d_bevy_render", "ui_bevy_render", "ui_picking", "default_font", "png", "bevy_audio", "vorbis", "x11", "wayland"] }
 avian3d = "0.8"
 bitcode = "0.6.9"
-clap = { version = "4", features = ["derive"] }
 ron = "0.12"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["float_roundtrip"] }

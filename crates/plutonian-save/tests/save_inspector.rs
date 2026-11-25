@@ -8,7 +8,7 @@ use std::{
     time::{Duration, UNIX_EPOCH},
 };
 
-const SAVE: &[u8] = include_bytes!("fixtures/inspector-v12.save");
+const SAVE: &[u8] = include_bytes!("../../../tests/fixtures/inspector-v12.save");
 
 struct TestDirectory(PathBuf);
 impl TestDirectory {
@@ -192,7 +192,7 @@ fn invalid_and_missing_saves_fail_without_panicking() {
     assert!(String::from_utf8_lossy(&result.stderr).contains("No .save files"));
 }
 
-const GOLDEN_JSON: &str = include_str!("../golden-saves/after-old-relay.json");
+const GOLDEN_JSON: &str = include_str!("../../../golden-saves/after-old-relay.json");
 
 fn create(input: &Path, output: &Path) -> Output {
     Command::new(env!("CARGO_BIN_EXE_plutonian-save"))
@@ -200,7 +200,10 @@ fn create(input: &Path, output: &Path) -> Output {
         .arg(input)
         .arg("--output")
         .arg(output)
-        .env("BEVY_ASSET_ROOT", env!("CARGO_MANIFEST_DIR"))
+        .env(
+            "BEVY_ASSET_ROOT",
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."),
+        )
         .output()
         .expect("run save creator")
 }

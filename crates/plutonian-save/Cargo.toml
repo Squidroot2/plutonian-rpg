@@ -1,0 +1,11 @@
+[package]
+name = "plutonian-save"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.100.0"
+license = "MIT"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+plutonian-rpg = { path = "../.." }
+serde_json = { version = "1", features = ["float_roundtrip"] }
