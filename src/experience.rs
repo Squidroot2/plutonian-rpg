@@ -16,7 +16,16 @@ const XP_INCREASE_PER_LEVEL: u64 = 50;
 const XP_NOTICE_SECONDS: f32 = 3.0;
 
 #[derive(
-    Component, Clone, Copy, Debug, Default, PartialEq, Eq, bitcode::Encode, bitcode::Decode,
+    Component,
+    Clone,
+    Copy,
+    Debug,
+    Default,
+    PartialEq,
+    Eq,
+    bitcode::Encode,
+    bitcode::Decode,
+    serde::Serialize,
 )]
 pub(crate) struct Experience(pub(crate) u64);
 

@@ -24,6 +24,7 @@ pub(crate) const MYCELIUM_GOAL: u32 = 5;
     Copy,
     Debug,
     Deserialize,
+    serde::Serialize,
     PartialEq,
     Eq,
     PartialOrd,
@@ -357,9 +358,10 @@ pub(crate) struct QuestJournal {
     cavern_defeats: BTreeSet<CaveEncounter>,
 }
 
-#[derive(Clone, bitcode::Encode, bitcode::Decode)]
+#[derive(Clone, bitcode::Encode, bitcode::Decode, serde::Serialize)]
 pub(crate) struct SavedJournal {
     #[bitcode(skip)]
+    #[serde(skip)]
     pub(crate) cavern_defeats: BTreeSet<CaveEncounter>,
     progress: BTreeMap<String, SavedQuest>,
     occurred: BTreeSet<QuestAction>,
@@ -371,13 +373,13 @@ impl SavedJournal {
     }
 }
 
-#[derive(Clone, bitcode::Encode, bitcode::Decode)]
+#[derive(Clone, bitcode::Encode, bitcode::Decode, serde::Serialize)]
 struct SavedQuest {
     outcome: SavedOutcome,
     completed: Vec<String>,
 }
 
-#[derive(Clone, bitcode::Encode, bitcode::Decode)]
+#[derive(Clone, bitcode::Encode, bitcode::Decode, serde::Serialize)]
 enum SavedOutcome {
     Active(String),
     Completed,

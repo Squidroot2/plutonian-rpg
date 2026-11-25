@@ -27,6 +27,7 @@ use crate::{
     bitcode::Encode,
     bitcode::Decode,
     serde::Deserialize,
+    serde::Serialize,
 )]
 pub enum EquipmentSlot {
     Body,
@@ -73,7 +74,9 @@ impl WeaponKind {
     }
 }
 
-#[derive(Component, Clone, Debug, PartialEq, Eq, bitcode::Encode, bitcode::Decode)]
+#[derive(
+    Component, Clone, Debug, PartialEq, Eq, bitcode::Encode, bitcode::Decode, serde::Serialize,
+)]
 pub struct Equipment<I = ItemKind>(pub(crate) BTreeMap<EquipmentSlot, I>);
 impl<I> Default for Equipment<I> {
     fn default() -> Self {
