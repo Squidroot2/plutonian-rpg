@@ -1,6 +1,6 @@
 use crate::{
     GameState,
-    attributes::{AttributeId, AttributeRanks, CharacterProgress, SavedProgress},
+    attributes::{AttributeId, AttributeRanks},
     camera::Orbit,
     content::{Items, NpcId, Npcs},
     equipment::bind_equipment_attachments,
@@ -10,8 +10,8 @@ use crate::{
     loading::{GameAssets, LoadStatus, PendingScene, scene_ready, spawn_static_scenes},
     nemi::{self, Nemi},
     player::{
-        ActorVisual, PLAYER_COLLIDER_LENGTH, PLAYER_COLLIDER_RADIUS, PLAYER_GROUND_OFFSET, Player,
-        bind_actor_animation,
+        ActorVisual, CharacterProgress, PLAYER_COLLIDER_LENGTH, PLAYER_COLLIDER_RADIUS,
+        PLAYER_GROUND_OFFSET, Player, SavedProgress, bind_actor_animation,
     },
     quest::Beacon,
     save::{Bed, RunSave},

@@ -925,8 +925,9 @@ mod tests {
     #[test]
     fn strength_scales_both_hands_before_target_defense() {
         use crate::{
-            attributes::{AttributeId, AttributeRanks, CharacterProgress, SavedProgress},
+            attributes::{AttributeId, AttributeRanks},
             combat::{Defense, Health},
+            player::{CharacterProgress, SavedProgress},
         };
 
         let mut app = test_app();

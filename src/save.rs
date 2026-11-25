@@ -4,7 +4,7 @@ mod content_ids;
 
 use crate::{
     GameState,
-    attributes::{AttributeId, AttributeRanks, CharacterProgress, SavedProgress},
+    attributes::{AttributeId, AttributeRanks},
     camera::Orbit,
     cave::{self, CaveEncounter},
     combat::{ActorDefeated, CombatSystems, ConfirmedHit, Dead, Health, Hit},
@@ -19,7 +19,7 @@ use crate::{
     interaction::{ActiveChest, CorpseLoot, InteractionSystems, LootTarget, Nearby, Target},
     inventory::{Inventory, InventoryNotice, ItemKind, Pickup},
     nemi::{self, FleeState, Nemi, NemiState},
-    player::{MovementInput, Player},
+    player::{CharacterProgress, MovementInput, Player, SavedProgress},
     quest::{QuestAction, QuestJournal, SavedJournal},
     storage::ChestStorage,
     ui::inventory_ui::InventoryUiState,
@@ -1774,7 +1774,7 @@ mod tests {
             .with_rank(AttributeId::Vitality, 12)
             .with_rank(AttributeId::Endurance, 10);
         let progress = CharacterProgress {
-            level: crate::attributes::Level::new(8).expect("valid test level"),
+            level: crate::player::Level::new(8).expect("valid test level"),
             unspent: 9,
         };
         let xp = Experience(41);

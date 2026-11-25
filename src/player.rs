@@ -1,8 +1,9 @@
+pub(crate) mod progression;
+pub(crate) use progression::{CharacterProgress, Level, SavedProgress};
+
 use crate::{
     GameState,
-    attributes::{
-        AttributeRanks, CarryLimits, CharacterProgress, MeleeDamageMultiplier, MovementCosts,
-    },
+    attributes::{AttributeRanks, CarryLimits, MeleeDamageMultiplier, MovementCosts},
     combat::{CombatSystems, Defense, Health, HealthRecovery},
     content::Items,
     dungeon::Area,
@@ -341,7 +342,7 @@ mod tests {
 
     #[test]
     fn only_rank_100_can_dodge_or_jump_at_empty_stamina() {
-        use crate::attributes::{AttributeId, SavedProgress};
+        use crate::{attributes::AttributeId, player::SavedProgress};
 
         for rank in [99, 100] {
             for key in [DODGE_KEY, KeyCode::Space] {

@@ -3,11 +3,10 @@ use bevy::prelude::*;
 
 use crate::{
     GameState,
-    attributes::{CharacterProgress, Level},
     combat::{ActorDefeated, CombatSystems, ConfirmedHit, Dead, Health},
     interaction::InteractionSystems,
     nemi::react_to_player_hit,
-    player::Player,
+    player::{CharacterProgress, Level, Player},
     quest::QuestJournal,
 };
 

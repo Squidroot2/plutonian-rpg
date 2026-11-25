@@ -6,7 +6,7 @@ use super::{
 use crate::player::PlayerWorldExt as _;
 use crate::{
     GameState,
-    attributes::{AttributeId, AttributeRanks, CharacterProgress, Level},
+    attributes::{AttributeId, AttributeRanks},
     camera::{FollowCamera, Orbit},
     combat::{ConfirmedHit, Dead, Health, Hit},
     content::Items,
@@ -30,7 +30,7 @@ use crate::{
         CAVERN_BRIEFING, EARLY_CORE_RETURNED, PROFILE, RELAY_HATCH, REPORT_ARCHIVE_HUSHCAP,
         RETURN_BEACON_CORE,
     },
-    player::PlayerRead,
+    player::{CharacterProgress, Level, PlayerRead},
     player::{Dodge, PLAYER_GROUND_OFFSET, Player},
     quest::{CONTAIN_THE_HUSHCAPS, LAST_LIGHT, OLD_RELAY, QuestAction, QuestJournal, QuestStatus},
     roach::Roach,

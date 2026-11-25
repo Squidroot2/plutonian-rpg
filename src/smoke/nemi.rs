@@ -1,7 +1,6 @@
 //! Exercise the hostile quest branch with the real spear and interaction input.
 use super::{capture, inventory::pointer_click};
 use crate::{
-    attributes::CharacterProgress,
     camera::{FollowCamera, Orbit},
     combat::{Dead, Health},
     combat_feedback::DeathAnimation,
@@ -14,7 +13,7 @@ use crate::{
     inventory::{Inventory, ItemKind},
     nemi::{FleeState, Nemi, dialogue::PROFILE},
     player::PlayerWrite,
-    player::{Dodge, Player},
+    player::{CharacterProgress, Dodge, Player},
     quest::{Beacon, LAST_LIGHT, OLD_RELAY, QuestJournal, QuestStatus, RELIGHT_BEACON},
     ui::menu_ui::{MenuTab, PlayerMenu},
     ui::quest_ui::{QuestRow, QuestSelection},

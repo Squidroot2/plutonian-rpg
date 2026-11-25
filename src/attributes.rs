@@ -1,21 +1,19 @@
 //! Actor attribute ranks and the gameplay capabilities derived from them.
-//! Player progression also uses this module to allocate ranks and level-up points.
-use std::collections::BTreeMap;
-
 use crate::{
     GameState,
     combat::{CombatSystems, Dead, Defense, Health, HealthRecovery},
     experience::{Experience, ExperienceUpdates},
-    player::{Player, Stamina},
+    player::{CharacterProgress, Player, Stamina},
     ui::menu_ui::{MenuTab, PlayerMenu},
 };
 use bevy::prelude::*;
 use strum::VariantArray;
 
+#[cfg(test)]
+use crate::player::Level;
+
 pub(crate) const DEFAULT_RANK: u8 = 5;
 pub(crate) const MAX_RANK: u8 = 100;
-pub(crate) const MAX_LEVEL: u32 = 100;
-const POINTS_PER_LEVEL: u32 = 3;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, VariantArray)]
 pub(crate) enum AttributeId {
@@ -27,7 +25,7 @@ pub(crate) enum AttributeId {
 
 impl AttributeId {
     /// Return the stable lowercase key used to save and restore this rank.
-    fn key(self) -> &'static str {
+    pub(crate) fn key(self) -> &'static str {
         match self {
             Self::Vitality => "vitality",
             Self::Endurance => "endurance",
@@ -56,6 +54,10 @@ impl Default for AttributeRanks {
 }
 
 impl AttributeRanks {
+    pub(crate) fn from_array(ranks: [u8; AttributeId::VARIANTS.len()]) -> Self {
+        Self(ranks)
+    }
+
     pub(crate) fn rank(&self, id: AttributeId) -> u8 {
         self.0[id as usize]
     }
@@ -85,132 +87,6 @@ impl AttributeRanks {
 
     pub(crate) fn effects(&self) -> AttributeEffects {
         AttributeEffects::from(self)
-    }
-}
-
-#[derive(
-    Component, Clone, Copy, Debug, PartialEq, Eq, bitcode::Encode, bitcode::Decode, serde::Serialize,
-)]
-/// Player progression state that is saved, restored, and advanced together.
-///
-/// Level gains and their unspent attribute points share an owner and lifecycle,
-/// so keeping them together avoids coordinating separate components. Split
-/// them only if they need independent ownership or lifecycles.
-pub(crate) struct CharacterProgress {
-    pub(crate) level: Level,
-    pub(crate) unspent: u32,
-}
-
-/// A player level constrained to `1..=MAX_LEVEL`.
-#[derive(
-    Clone,
-    Copy,
-    Debug,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    bitcode::Encode,
-    bitcode::Decode,
-    serde::Serialize,
-)]
-pub(crate) struct Level(u32);
-
-impl Level {
-    pub(crate) const FIRST: Self = Self(1);
-    pub(crate) const MAX: Self = Self(MAX_LEVEL);
-
-    pub(crate) const fn new(value: u32) -> Option<Self> {
-        if value >= 1 && value <= MAX_LEVEL {
-            Some(Self(value))
-        } else {
-            None
-        }
-    }
-
-    pub(crate) const fn get(self) -> u32 {
-        self.0
-    }
-
-    pub(crate) const fn is_valid(self) -> bool {
-        self.0 >= 1 && self.0 <= MAX_LEVEL
-    }
-
-    pub(crate) fn advance(&mut self) -> bool {
-        if self.0 >= MAX_LEVEL {
-            return false;
-        }
-        self.0 += 1;
-        true
-    }
-}
-
-impl Default for CharacterProgress {
-    fn default() -> Self {
-        Self {
-            level: Level::FIRST,
-            unspent: 0,
-        }
-    }
-}
-
-impl CharacterProgress {
-    /// Record an absolute level and grant points for each newly reached level.
-    pub(crate) fn advance_to(&mut self, level: Level) -> u32 {
-        if level <= self.level || !level.is_valid() {
-            return 0;
-        }
-        let previous_points = self.unspent;
-        let points = (level.get() - self.level.get()).saturating_mul(POINTS_PER_LEVEL);
-        self.level = level;
-        self.unspent = self.unspent.saturating_add(points);
-        self.unspent - previous_points
-    }
-}
-
-#[derive(Clone, Default, bitcode::Encode, bitcode::Decode, serde::Serialize)]
-pub(crate) struct SavedProgress {
-    ranks: BTreeMap<String, u8>,
-    progress: CharacterProgress,
-}
-
-impl SavedProgress {
-    pub(crate) fn level(&self) -> Level {
-        self.progress.level
-    }
-
-    pub(crate) fn capture(ranks: &AttributeRanks, progress: CharacterProgress) -> Self {
-        Self {
-            ranks: AttributeId::VARIANTS
-                .iter()
-                .map(|id| (id.key().into(), ranks.rank(*id)))
-                .collect(),
-            progress,
-        }
-    }
-
-    pub(crate) fn ranks(&self) -> AttributeRanks {
-        let mut rank_array = [0; AttributeId::VARIANTS.len()];
-        for (i, rank) in rank_array.iter_mut().enumerate() {
-            let attr = AttributeId::VARIANTS
-                .get(i)
-                .expect("Index is always within variant bounds");
-            *rank = self.ranks.get(attr.key()).copied().unwrap_or(DEFAULT_RANK);
-        }
-        AttributeRanks(rank_array)
-    }
-
-    pub(crate) fn is_valid(&self) -> bool {
-        self.progress.level.is_valid()
-            && self
-                .ranks
-                .values()
-                .all(|rank| (1..=MAX_RANK).contains(rank))
-    }
-
-    /// Construct all player capabilities before the first gameplay tick.
-    pub(crate) fn player_components(&self) -> impl Bundle {
-        (self.ranks().actor_components(), self.progress)
     }
 }
 
