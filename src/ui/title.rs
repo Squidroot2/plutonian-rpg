@@ -3,7 +3,15 @@ use crate::{
     save::{RunSave, SaveSlot},
     ui::settings::SettingsMenu,
 };
-use bevy::{app::AppExit, input::InputSystems, picking::hover::PickingInteraction, prelude::*};
+use bevy::{
+    app::AppExit,
+    input::{
+        ButtonState, InputSystems,
+        keyboard::{Key, KeyboardInput},
+    },
+    picking::hover::PickingInteraction,
+    prelude::*,
+};
 
 pub struct TitlePlugin;
 
@@ -31,11 +39,24 @@ impl MenuAction {
 }
 
 #[derive(Resource, Default)]
+struct NameEntry {
+    open: bool,
+    text: String,
+    error: bool,
+}
+
+#[derive(Component)]
+struct NamePrompt;
+
+#[derive(Resource, Default)]
 struct MenuSelection(MenuAction);
 
 impl Plugin for TitlePlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<MenuSelection>()
+        app.add_message::<KeyboardInput>()
+            .init_resource::<MenuSelection>()
+            .init_resource::<NameEntry>()
+            .init_resource::<crate::player::NewPlayerName>()
             .add_systems(OnEnter(GameState::Title), setup)
             .add_systems(
                 PreUpdate,
@@ -44,7 +65,10 @@ impl Plugin for TitlePlugin {
                     .in_set(TitleInput)
                     .run_if(in_state(GameState::Title)),
             )
-            .add_systems(Update, style_buttons.run_if(in_state(GameState::Title)));
+            .add_systems(
+                Update,
+                (style_buttons, refresh_name_prompt).run_if(in_state(GameState::Title)),
+            );
     }
 }
 
@@ -53,7 +77,9 @@ fn setup(
     assets: Res<AssetServer>,
     slot: Res<SaveSlot>,
     mut selection: ResMut<MenuSelection>,
+    mut entry: ResMut<NameEntry>,
 ) {
+    *entry = NameEntry::default();
     *selection = MenuSelection::default();
     commands
         .spawn((
@@ -157,6 +183,16 @@ fn setup(
                                         ));
                                     });
                             }
+                            buttons.spawn((
+                                NamePrompt,
+                                Text::default(),
+                                TextFont {
+                                    font_size: 18.0.into(),
+                                    ..default()
+                                },
+                                TextColor(Color::WHITE),
+                                Pickable::IGNORE,
+                            ));
                             if let Some(error) = slot.error() {
                                 buttons.spawn((
                                     Text::new(error),
@@ -218,7 +254,53 @@ fn navigate(
     mut exit: MessageWriter<AppExit>,
     slot: Res<SaveSlot>,
     mut run: ResMut<RunSave>,
+    mut entry: ResMut<NameEntry>,
+    mut name: ResMut<crate::player::NewPlayerName>,
+    mut input: MessageReader<KeyboardInput>,
 ) {
+    if entry.open {
+        for event in input.read() {
+            if event.state != ButtonState::Pressed {
+                continue;
+            }
+            match &event.logical_key {
+                Key::Escape => {
+                    *entry = NameEntry::default();
+                    break;
+                }
+                Key::Backspace => {
+                    entry.text.pop();
+                    entry.error = false;
+                }
+                Key::Enter if !event.repeat => {
+                    let trimmed = entry.text.trim();
+                    if crate::player::PlayerName::valid(trimmed) {
+                        name.0 = trimmed.to_owned();
+                        run.start_fresh();
+                        entry.open = false;
+                        next.set(GameState::Loading);
+                    } else {
+                        entry.error = true;
+                    }
+                    break;
+                }
+                Key::Character(_) | Key::Space => {
+                    if let Some(text) = &event.text {
+                        let valid = text.chars().all(|c| c.is_alphanumeric() || c == ' ');
+                        if valid && entry.text.chars().count() + text.chars().count() <= 16 {
+                            entry.text.push_str(text);
+                            entry.error = false;
+                        } else {
+                            entry.error = true;
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        return;
+    }
+    input.clear();
     if settings.is_open() || !matches!(*next, NextState::Unchanged) {
         return;
     }
@@ -240,6 +322,7 @@ fn navigate(
             &mut settings,
             &mut next,
             &mut exit,
+            &mut entry,
         );
     }
 }
@@ -265,14 +348,24 @@ fn click(
     mut exit: MessageWriter<AppExit>,
     slot: Res<SaveSlot>,
     mut run: ResMut<RunSave>,
+    mut entry: ResMut<NameEntry>,
 ) {
-    if *state.get() == GameState::Title
+    if !entry.open
+        && *state.get() == GameState::Title
         && !settings.is_open()
         && matches!(*next, NextState::Unchanged)
         && event.button == PointerButton::Primary
         && let Ok(&action) = actions.get(event.entity)
     {
-        activate(action, &slot, &mut run, &mut settings, &mut next, &mut exit);
+        activate(
+            action,
+            &slot,
+            &mut run,
+            &mut settings,
+            &mut next,
+            &mut exit,
+            &mut entry,
+        );
     }
 }
 
@@ -283,11 +376,14 @@ fn activate(
     settings: &mut SettingsMenu,
     next: &mut NextState<GameState>,
     exit: &mut MessageWriter<AppExit>,
+    entry: &mut NameEntry,
 ) {
     match action {
         MenuAction::Start => {
-            run.start_fresh();
-            next.set(GameState::Loading);
+            *entry = NameEntry {
+                open: true,
+                ..default()
+            };
         }
         MenuAction::Load => {
             if slot.load_into(run) {
@@ -334,5 +430,26 @@ fn style_buttons(
         };
         background.set_if_neq(BackgroundColor(fill));
         border.set_if_neq(BorderColor::all(outline));
+    }
+}
+
+fn refresh_name_prompt(entry: Res<NameEntry>, mut prompts: Query<&mut Text, With<NamePrompt>>) {
+    if !entry.is_changed() {
+        return;
+    }
+    for mut text in &mut prompts {
+        **text = if entry.open {
+            format!(
+                "Enter your name (1–16 letters, numbers, spaces):\n{}\n{}",
+                entry.text,
+                if entry.error {
+                    "Invalid name"
+                } else {
+                    "Enter to confirm · Esc to cancel"
+                }
+            )
+        } else {
+            String::new()
+        };
     }
 }

@@ -42,7 +42,7 @@ use std::{
 };
 
 // Four magic bytes followed by the little-endian save schema version.
-const HEADER: &[u8; 6] = b"PLUT\x0b\x00";
+const HEADER: &[u8; 6] = b"PLUT\x0c\x00";
 const MAX_SAVE_BYTES: usize = 1024 * 1024;
 
 #[derive(Component)]
@@ -188,6 +188,7 @@ impl SavedCaravanActor {
 // it to the string-ID wire format before bitcode encoding.
 #[derive(Clone)]
 pub(crate) struct Snapshot {
+    pub(crate) player_name: String,
     pub(crate) journal: SavedJournal,
     inventory: Inventory,
     equipment: Equipment,
@@ -253,7 +254,8 @@ impl Snapshot {
     }
 
     fn valid_state(&self) -> bool {
-        self.inventory.valid_stacks()
+        crate::player::PlayerName::valid(&self.player_name)
+            && self.inventory.valid_stacks()
             && self.progression.is_valid()
             && self.experience.player.is_valid(self.progression.level())
             && (!self.experience.nemi_contributed || self.nemi.health > 0)
@@ -586,6 +588,7 @@ pub(crate) fn save_at_bed(
     mut player: Query<
         (
             &Player,
+            &crate::player::PlayerName,
             &mut Health,
             &AttributeRanks,
             &CharacterProgress,
@@ -619,7 +622,7 @@ pub(crate) fn save_at_bed(
     {
         return;
     }
-    let Ok((player, mut player_health, ranks, progress, experience, inventory, equipment)) =
+    let Ok((player, name, mut player_health, ranks, progress, experience, inventory, equipment)) =
         player.single_mut()
     else {
         return;
@@ -631,6 +634,7 @@ pub(crate) fn save_at_bed(
         return;
     }
     let snapshot = Snapshot {
+        player_name: name.0.clone(),
         journal: journal.snapshot(),
         inventory: inventory.clone(),
         equipment: equipment.clone(),
@@ -851,7 +855,12 @@ mod tests {
         world.init_resource::<DungeonProgress>();
 
         let bed = world.spawn(Bed).id();
-        let player = world.spawn(Player::default()).id();
+        let player = world
+            .spawn((
+                Player::default(),
+                crate::player::PlayerName("Test Player".into()),
+            ))
+            .id();
         world
             .get_mut::<Health>(player)
             .expect("player health")
@@ -1085,7 +1094,7 @@ mod tests {
     }
 
     #[test]
-    fn version_eleven_round_trips_caravan_casualties_and_poses() {
+    fn version_twelve_round_trips_caravan_casualties_and_poses() {
         let dir = TestDirectory::new();
         let (mut world, bed, _, _) = bed_world(dir.path());
         world
@@ -1105,7 +1114,8 @@ mod tests {
             FleeState::civilian(),
         ));
         interact_with(&mut world, bed);
-        let checkpoint = read_save(&dir.path()).expect("read v11 checkpoint");
+        let checkpoint = read_save(&dir.path()).expect("read v12 checkpoint");
+        assert_eq!(checkpoint.player_name, "Test Player");
         let tovan = checkpoint
             .caravan_speaker(NpcId::Tovan)
             .expect("Tovan checkpoint");
@@ -1292,7 +1302,7 @@ mod tests {
         let (mut world, bed, _, _) = bed_world(dir.path());
         interact_with(&mut world, bed);
         let mut bytes = fs::read(dir.path()).expect("first save");
-        bytes[4] += 1;
+        bytes[4] = 11;
         fs::write(dir.path(), bytes).expect("write unsupported version");
         let slot = SaveSlot::open(Some(dir.path()));
         assert!(!slot.available());
@@ -1680,8 +1690,65 @@ mod tests {
                 .resource_mut::<ButtonInput<KeyCode>>()
                 .press(KeyCode::Enter);
             app.update();
-            assert!(app.world().resource::<RunSave>().checkpoint().is_none());
+            assert!(app.world().resource::<RunSave>().checkpoint().is_some());
             assert!(app.world().resource::<SaveSlot>().available());
+            let window = app.world_mut().spawn_empty().id();
+            for (logical_key, text) in [
+                (bevy::input::keyboard::Key::Enter, None),
+                (
+                    bevy::input::keyboard::Key::Character("invalid!".into()),
+                    Some("invalid!".into()),
+                ),
+                (
+                    bevy::input::keyboard::Key::Character("abcdefghijklmnopq".into()),
+                    Some("abcdefghijklmnopq".into()),
+                ),
+                (bevy::input::keyboard::Key::Enter, None),
+            ] {
+                app.world_mut()
+                    .write_message(bevy::input::keyboard::KeyboardInput {
+                        key_code: KeyCode::Enter,
+                        logical_key,
+                        state: bevy::input::ButtonState::Pressed,
+                        text,
+                        repeat: false,
+                        window,
+                    });
+                app.update();
+                assert_eq!(
+                    *app.world().resource::<State<GameState>>().get(),
+                    GameState::Title
+                );
+                assert!(
+                    app.world()
+                        .resource::<crate::player::NewPlayerName>()
+                        .0
+                        .is_empty()
+                );
+            }
+            for (logical_key, text) in [
+                (
+                    bevy::input::keyboard::Key::Character("New Name".into()),
+                    Some("New Name".into()),
+                ),
+                (bevy::input::keyboard::Key::Enter, None),
+            ] {
+                app.world_mut()
+                    .write_message(bevy::input::keyboard::KeyboardInput {
+                        key_code: KeyCode::Enter,
+                        logical_key,
+                        state: bevy::input::ButtonState::Pressed,
+                        text,
+                        repeat: false,
+                        window,
+                    });
+                app.update();
+            }
+            assert!(app.world().resource::<RunSave>().checkpoint().is_none());
+            assert_eq!(
+                app.world().resource::<crate::player::NewPlayerName>().0,
+                "New Name"
+            );
         }
     }
 }

@@ -372,6 +372,7 @@ fn sync_capabilities(
 
 #[derive(Component)]
 enum CharacterText {
+    Name,
     Progress,
     Attribute(AttributeId),
 }
@@ -387,6 +388,7 @@ pub(crate) fn spawn_character(page: &mut ChildSpawnerCommands) {
 
     page.spawn(menu_ui::scroll_pane(MenuTab::Character, percent(100)))
         .with_children(|pane| {
+            pane.spawn((CharacterText::Name, Text::default(), text_style(18.0)));
             pane.spawn((CharacterText::Progress, Text::default(), text_style(18.0)));
             for id in AttributeId::VARIANTS {
                 pane.spawn((Node {
@@ -522,14 +524,19 @@ fn spend_click(
 fn refresh_character(
     menu: Res<PlayerMenu>,
     players: Query<
-        (Ref<AttributeRanks>, Ref<CharacterProgress>, Ref<Experience>),
+        (
+            Ref<AttributeRanks>,
+            Ref<CharacterProgress>,
+            Ref<Experience>,
+            &crate::player::PlayerName,
+        ),
         (With<Player>, Without<Dead>),
     >,
     mut texts: Query<(&CharacterText, &mut Text)>,
     mut buttons: Query<(&SpendButton, &mut BackgroundColor)>,
 ) {
     use crate::ui::menu_ui::{BUTTON, DISABLED};
-    let Ok((ranks, progress, xp)) = players.single() else {
+    let Ok((ranks, progress, xp, name)) = players.single() else {
         return;
     };
     if !menu.is_on(MenuTab::Character)
@@ -539,6 +546,7 @@ fn refresh_character(
     }
     for (label, mut text) in &mut texts {
         let value = match *label {
+            CharacterText::Name => name.0.clone(),
             CharacterText::Progress => {
                 let experience = Experience::required(progress.level).map_or_else(
                     || "Max level".into(),

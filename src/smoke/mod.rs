@@ -208,6 +208,9 @@ fn start_from_title(
     mut screenshot: Local<Option<Entity>>,
     mut keys: ResMut<ButtonInput<KeyCode>>,
     mut commands: Commands,
+    windows: Query<Entity, With<Window>>,
+    mut keyboard: MessageWriter<bevy::input::keyboard::KeyboardInput>,
+    mut phase: Local<u8>,
 ) {
     assert!(
         game_assets.is_none(),
@@ -215,7 +218,44 @@ fn start_from_title(
     );
     if let Some(entity) = *screenshot {
         if captures.get(entity).is_err() {
-            keys.press(KeyCode::Enter);
+            use bevy::input::{
+                ButtonState,
+                keyboard::{Key, KeyboardInput},
+            };
+            match *phase {
+                0 => {
+                    keys.press(KeyCode::Enter);
+                    *phase = 1;
+                }
+                1 => {
+                    keys.release(KeyCode::Enter);
+                    if let Ok(window) = windows.single() {
+                        keyboard.write(KeyboardInput {
+                            key_code: KeyCode::KeyS,
+                            logical_key: Key::Character("Smoke".into()),
+                            state: ButtonState::Pressed,
+                            text: Some("Smoke".into()),
+                            repeat: false,
+                            window,
+                        });
+                        *phase = 2;
+                    }
+                }
+                2 => {
+                    if let Ok(window) = windows.single() {
+                        keyboard.write(KeyboardInput {
+                            key_code: KeyCode::Enter,
+                            logical_key: Key::Enter,
+                            state: ButtonState::Pressed,
+                            text: None,
+                            repeat: false,
+                            window,
+                        });
+                        *phase = 3;
+                    }
+                }
+                _ => {}
+            }
         }
     } else if backdrop
         .single()

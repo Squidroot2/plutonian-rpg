@@ -2,7 +2,8 @@
 
 ## Starting and saving
 
-Choose **Start Game** on the title screen to begin a new run in Nivalis.
+Choose **Start Game** on the title screen and enter a name to begin a new run in Nivalis.
+Names contain 1–16 letters, numbers, or spaces.
 Choose **Load Game** to resume the last save made at the bed in the starting tent.
 Press E near the bed to save.
 A successful save restores full health and replaces the single save slot.
@@ -56,7 +57,7 @@ Tovan examines the samples and returns them.
 
 ## Character and experience
 
-The Character tab shows Vitality, Endurance, Agility, Strength,
+The Character tab shows your name, Vitality, Endurance, Agility, Strength,
 your level, and progress toward the next level.
 New characters start at rank 5; attribute ranks cap at 100.
 Spend available attribute points with **+**.
