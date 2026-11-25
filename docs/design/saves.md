@@ -153,3 +153,27 @@ request from Hayden.
 Prefer stable IDs over entity IDs for anything whose entities are recreated.
 Keep fall recovery distinct unless its gameplay contract is intentionally
 changed.
+
+## Golden saves
+
+Use `cargo run --locked -- --save-dir golden-saves/<scenario>` to capture or test a known state.
+Relative directories resolve against the process working directory.
+The explicit directory replaces the normal save directory for listing, loading, saving, and deletion;
+smoke scenarios always use their own temporary directories.
+The game logs the resolved directory on startup when an override is used.
+
+Use one subdirectory per scenario, such as `golden-saves/before-caverns/`,
+so the load picker contains only saves for that scenario.
+To capture a golden save, play to the desired state, save at the bed, and quit.
+Every bed save creates a new file,
+so keep only the intended file, identified by its player name and capture time, and commit it.
+
+To test the scenario, launch with the same `--save-dir` and select the entry in Load Game.
+A later bed save creates another file beside the committed golden save,
+and the picker's delete action can remove files in that directory.
+After testing, restore tracked golden saves with `git checkout -- golden-saves`
+and remove untracked files created by the run with `git clean -f golden-saves`.
+
+Golden saves use the current version 12 format.
+A future schema bump will make them unreadable in the picker;
+recapture the scenarios after such a bump rather than expecting old files to load.
