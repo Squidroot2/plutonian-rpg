@@ -21,7 +21,7 @@ pub(crate) use npcs::test_npcs;
 pub(crate) use npcs::{NpcId, Npcs};
 pub(crate) use placements::{CollectedPickups, PlacedPickup, Placements};
 
-use crate::{GameState, loading::LoadStatus, save::SaveSlot};
+use crate::{GameState, loading::LoadStatus};
 use bevy::{
     asset::{AssetLoader, LoadContext, LoadState, io::Reader},
     prelude::*,
@@ -178,7 +178,6 @@ fn prepare_catalogs(
     enemies: Res<Assets<Enemies>>,
     placements: Res<Assets<Placements>>,
     npcs: Res<Assets<Npcs>>,
-    mut slot: ResMut<SaveSlot>,
     mut status: ResMut<LoadStatus>,
     mut next: ResMut<NextState<GameState>>,
 ) {
@@ -217,7 +216,6 @@ fn prepare_catalogs(
         next.set(GameState::Failed);
         return;
     }
-    slot.open_with_catalogs(items, placements);
     commands.insert_resource(items.clone());
     commands.insert_resource(enemies.clone());
     commands.insert_resource(placements.clone());

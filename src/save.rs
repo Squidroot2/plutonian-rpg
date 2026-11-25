@@ -328,76 +328,162 @@ impl RunSave {
     }
 }
 
+#[derive(Clone)]
+pub(crate) struct SaveEntry {
+    pub(crate) path: PathBuf,
+    pub(crate) name: Option<String>,
+    pub(crate) modified: Option<SystemTime>,
+}
+
 #[derive(Resource, Default)]
 pub(crate) struct SaveSlot {
-    path: Option<PathBuf>,
-    saved: Option<Arc<Snapshot>>,
+    directory: Option<PathBuf>,
+    pub(crate) entries: Vec<SaveEntry>,
+    active: Option<PathBuf>,
     error: Option<String>,
 }
 
 impl SaveSlot {
-    fn new(path: Option<PathBuf>) -> Self {
-        Self { path, ..default() }
-    }
-
-    #[cfg(test)]
-    fn open(path: Option<PathBuf>) -> Self {
-        let mut slot = Self::new(path);
-        slot.open_with_catalogs(
-            crate::content::test_items(),
-            crate::content::test_placements(),
-        );
-        slot
-    }
-
-    pub(crate) fn open_with_catalogs(&mut self, items: &Items, placements: &Placements) {
-        let Some(path) = &self.path else {
-            return;
-        };
-        match read_save(path) {
-            Ok(mut save) => match save.apply_catalogs(items, placements) {
-                Ok(()) => self.saved = Some(Arc::new(save)),
-                Err(error) => self.reject(error),
-            },
-            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-            Err(error) => self.reject(error),
+    fn new(directory: Option<PathBuf>) -> Self {
+        Self {
+            directory,
+            ..default()
         }
     }
 
-    pub(crate) fn available(&self) -> bool {
-        self.saved.is_some()
+    #[cfg(test)]
+    fn open(directory: Option<PathBuf>) -> Self {
+        let mut slot = Self::new(directory);
+        slot.refresh();
+        slot
     }
 
+    pub(crate) fn refresh(&mut self) {
+        self.entries.clear();
+        let Some(directory) = &self.directory else {
+            return;
+        };
+        let files = match fs::read_dir(directory) {
+            Ok(files) => files,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return,
+            Err(error) => {
+                self.error = Some(format!("Could not list saves: {error}"));
+                return;
+            }
+        };
+        for file in files.flatten() {
+            let path = file.path();
+            if path.extension().is_none_or(|ext| ext != "save") || !path.is_file() {
+                continue;
+            }
+            self.entries.push(SaveEntry {
+                modified: file
+                    .metadata()
+                    .ok()
+                    .and_then(|metadata| metadata.modified().ok()),
+                name: read_save(&path).ok().map(|save| save.player_name),
+                path,
+            });
+        }
+        self.entries.sort_by(|a, b| {
+            b.modified
+                .cmp(&a.modified)
+                .then_with(|| b.path.cmp(&a.path))
+        });
+    }
+
+    pub(crate) fn available(&self) -> bool {
+        !self.entries.is_empty()
+    }
     pub(crate) fn error(&self) -> Option<&str> {
         self.error.as_deref()
     }
 
-    pub(crate) fn load_into(&self, run: &mut RunSave) -> bool {
-        if let Some(save) = &self.saved {
-            run.0 = Some(save.clone());
-            return true;
+    pub(crate) fn load_into(
+        &mut self,
+        index: usize,
+        run: &mut RunSave,
+        items: &Items,
+        placements: &Placements,
+    ) -> bool {
+        let Some(entry) = self.entries.get(index) else {
+            return false;
+        };
+        if entry.name.is_none() {
+            return false;
         }
-        false
+        let path = entry.path.clone();
+        let result = read_save(&path).and_then(|mut save| {
+            save.apply_catalogs(items, placements)
+                .map_err(invalid_save)?;
+            Ok(save)
+        });
+        match result {
+            Ok(save) => {
+                self.active = Some(path);
+                self.error = None;
+                run.0 = Some(Arc::new(save));
+                true
+            }
+            Err(error) => {
+                self.reject(error);
+                false
+            }
+        }
+    }
+
+    pub(crate) fn delete(&mut self, index: usize) -> io::Result<()> {
+        let entry = self
+            .entries
+            .get(index)
+            .ok_or_else(|| io::Error::other("Save no longer exists"))?;
+        fs::remove_file(&entry.path)?;
+        if self.active.as_ref() == Some(&entry.path) {
+            self.active = None;
+        }
+        self.entries.remove(index);
+        Ok(())
+    }
+
+    pub(crate) fn start_fresh(&mut self) {
+        self.active = None;
+        self.error = None;
     }
 
     pub(crate) fn reject(&mut self, error: impl std::fmt::Display) {
         warn!("Could not load save: {error}");
-        self.saved = None;
+        self.active = None;
         self.error = Some(format!("Could not load the save file. {error}"));
     }
 
     fn save(&mut self, snapshot: Snapshot, run: &mut RunSave) -> io::Result<()> {
-        let path = self
-            .path
+        let directory = self
+            .directory
             .as_deref()
             .ok_or_else(|| io::Error::other("No save directory"))?;
-        write_save(path, &snapshot)?;
+        let seconds = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        let path = next_save_path(directory, &snapshot.player_name, seconds);
+        write_save(&path, &snapshot)?;
         let snapshot = Arc::new(snapshot);
-        self.saved = Some(snapshot.clone());
+        self.active = Some(path);
         self.error = None;
         run.0 = Some(snapshot);
         Ok(())
     }
+}
+
+fn next_save_path(directory: &Path, name: &str, seconds: u64) -> PathBuf {
+    let stem = format!("{name}-{seconds}");
+    let mut path = directory.join(format!("{stem}.save"));
+    let mut suffix = 2;
+    while path.exists() {
+        path = directory.join(format!("{stem}-{suffix}.save"));
+        suffix += 1;
+    }
+    path
 }
 
 fn data_path() -> Option<PathBuf> {
@@ -410,7 +496,7 @@ fn data_path() -> Option<PathBuf> {
                 .filter(|path| path.is_absolute())
                 .map(|home| home.join(".local/share"))
         })
-        .map(|data| data.join("plutonian-rpg/save.bin"))
+        .map(|data| data.join("plutonian-rpg"))
 }
 
 fn unique_suffix() -> String {
@@ -539,11 +625,7 @@ pub(crate) struct SavePlugin {
 impl Plugin for SavePlugin {
     fn build(&self, app: &mut App) {
         let path = if self.smoke {
-            Some(
-                std::env::temp_dir()
-                    .join(format!("plutonian-smoke-{}", unique_suffix()))
-                    .join("save.bin"),
-            )
+            Some(std::env::temp_dir().join(format!("plutonian-smoke-{}", unique_suffix())))
         } else {
             data_path()
         };
@@ -829,7 +911,18 @@ mod tests {
         }
 
         fn path(&self) -> PathBuf {
-            self.0.join("save.bin")
+            fs::read_dir(&self.0)
+                .expect("test directory")
+                .flatten()
+                .map(|entry| entry.path())
+                .filter(|path| path.extension().is_some_and(|ext| ext == "save"))
+                .max_by_key(|path| {
+                    (
+                        fs::metadata(path).and_then(|m| m.modified()).ok(),
+                        path.clone(),
+                    )
+                })
+                .unwrap_or_else(|| self.0.join("fixture.save"))
         }
     }
 
@@ -841,7 +934,7 @@ mod tests {
 
     fn bed_world(path: PathBuf) -> (World, Entity, Entity, Entity) {
         let mut world = World::new();
-        world.insert_resource(SaveSlot::open(Some(path)));
+        world.insert_resource(SaveSlot::open(path.parent().map(Path::to_path_buf)));
         world.insert_resource(test_journal());
         world.init_resource::<RunSave>();
         world.init_resource::<OutpostSecurity>();
@@ -930,6 +1023,108 @@ mod tests {
         world.resource_mut::<Messages<SaveAtBed>>().clear();
         world.write_message(SaveAtBed(entity));
         world.run_system_once(save_at_bed).expect("bed save system");
+    }
+
+    #[test]
+    fn bed_saves_coexist_and_loading_an_older_save_preserves_its_checkpoint() {
+        let dir = TestDirectory::new();
+        let (mut world, bed, player, _) = bed_world(dir.path());
+        interact_with(&mut world, bed);
+        let first = dir.path();
+        let first_bytes = fs::read(&first).expect("first save");
+        File::options()
+            .write(true)
+            .open(&first)
+            .expect("open first save")
+            .set_times(
+                fs::FileTimes::new().set_modified(UNIX_EPOCH + std::time::Duration::from_secs(100)),
+            )
+            .expect("set first save time");
+        world
+            .entity_mut(player)
+            .insert(crate::player::PlayerName("Other Player".into()));
+        assert!(
+            world
+                .actor_data_mut::<Inventory>()
+                .add(ItemKind::Battery, 2)
+        );
+        interact_with(&mut world, bed);
+        let second = dir.path();
+        assert_ne!(first, second);
+        assert_eq!(fs::read(&first).expect("first save remains"), first_bytes);
+        let mut slot = SaveSlot::open(Some(dir.0.clone()));
+        assert_eq!(slot.entries.len(), 2);
+        assert_eq!(slot.entries[0].path, second);
+        assert_eq!(slot.entries[0].name.as_deref(), Some("Other Player"));
+        assert_eq!(slot.entries[1].name.as_deref(), Some("Test Player"));
+        let mut run = RunSave::default();
+        assert!(slot.load_into(1, &mut run, test_items(), crate::content::test_placements()));
+        assert_eq!(slot.active.as_ref(), Some(&first));
+        assert_eq!(
+            run.checkpoint()
+                .expect("loaded save")
+                .inventory
+                .count(ItemKind::Battery),
+            0
+        );
+        world.insert_resource(run);
+        world.entity_mut(player).insert(Dead);
+        world
+            .run_system_once(recover_defeated)
+            .expect("recovery system");
+        assert_eq!(
+            world
+                .resource::<RunSave>()
+                .checkpoint()
+                .expect("recovery checkpoint")
+                .inventory
+                .count(ItemKind::Battery),
+            0
+        );
+    }
+
+    #[test]
+    fn unreadable_saves_can_be_deleted_without_touching_other_files() {
+        let dir = TestDirectory::new();
+        let (mut world, bed, _, _) = bed_world(dir.path());
+        interact_with(&mut world, bed);
+        let valid = dir.path();
+        let original = fs::read(&valid).expect("valid save");
+        let garbage = dir.0.join("garbage-1.save");
+        fs::write(&garbage, b"garbage").expect("garbage file");
+        fs::write(dir.0.join("save.bin"), b"old layout").expect("legacy file");
+        let mut slot = SaveSlot::open(Some(dir.0.clone()));
+        assert_eq!(slot.entries.len(), 2);
+        let bad = slot
+            .entries
+            .iter()
+            .position(|entry| entry.path == garbage)
+            .expect("unreadable entry");
+        assert!(slot.entries[bad].name.is_none());
+        let mut run = RunSave::default();
+        assert!(!slot.load_into(
+            bad,
+            &mut run,
+            test_items(),
+            crate::content::test_placements()
+        ));
+        slot.delete(bad).expect("delete unreadable save");
+        assert!(!garbage.exists());
+        assert_eq!(fs::read(valid).expect("valid save remains"), original);
+        assert!(dir.0.join("save.bin").exists());
+        assert!(slot.load_into(0, &mut run, test_items(), crate::content::test_placements()));
+    }
+
+    #[test]
+    fn save_filename_collision_uses_increasing_suffixes() {
+        let dir = TestDirectory::new();
+        let first = next_save_path(&dir.0, "Test Player", 42);
+        assert!(first.ends_with("Test Player-42.save"));
+        fs::write(&first, b"first").expect("reserve first name");
+        let second = next_save_path(&dir.0, "Test Player", 42);
+        assert!(second.ends_with("Test Player-42-2.save"));
+        fs::write(&second, b"second").expect("reserve second name");
+        assert!(next_save_path(&dir.0, "Test Player", 42).ends_with("Test Player-42-3.save"));
     }
 
     #[test]
@@ -1067,6 +1262,7 @@ mod tests {
         let path = dir.path();
         let (mut world, bed, _, _) = bed_world(path.clone());
         interact_with(&mut world, bed);
+        let path = dir.path();
         let mut checkpoint = read_save(&path).expect("fixture checkpoint");
         for expected in [30, 15, 0] {
             checkpoint.nemi.health = expected;
@@ -1184,9 +1380,15 @@ mod tests {
         ));
         interact_with(&mut world, bed);
 
-        let slot = SaveSlot::open(Some(dir.path()));
+        let slot = SaveSlot::open(Some(dir.0.clone()));
         let mut restarted = RunSave::default();
-        assert!(slot.load_into(&mut restarted));
+        let mut slot = slot;
+        assert!(slot.load_into(
+            0,
+            &mut restarted,
+            test_items(),
+            crate::content::test_placements()
+        ));
         let save = restarted.checkpoint().expect("saved run");
         assert_eq!(save.inventory.count(ItemKind::Scrap), 3);
         assert_eq!(
@@ -1242,8 +1444,8 @@ mod tests {
         let previous_checkpoint = world.resource::<RunSave>().0.clone().expect("checkpoint");
 
         let bad_destination = dir.0.join("directory");
-        fs::create_dir(&bad_destination).expect("directory blocks atomic replacement");
-        world.resource_mut::<SaveSlot>().path = Some(bad_destination);
+        fs::write(&bad_destination, b"block").expect("file blocks directory creation");
+        world.resource_mut::<SaveSlot>().directory = Some(bad_destination);
         world
             .get_mut::<Health>(player)
             .expect("player health")
@@ -1304,12 +1506,16 @@ mod tests {
         let mut bytes = fs::read(dir.path()).expect("first save");
         bytes[4] = 11;
         fs::write(dir.path(), bytes).expect("write unsupported version");
-        let slot = SaveSlot::open(Some(dir.path()));
-        assert!(!slot.available());
-        assert!(slot.error().is_some());
+        let slot = SaveSlot::open(Some(dir.0.clone()));
+        assert!(slot.available());
+        assert!(slot.entries[0].name.is_none());
 
         fs::write(dir.path(), HEADER).expect("write header only");
-        assert!(!SaveSlot::open(Some(dir.path())).available());
+        assert!(
+            SaveSlot::open(Some(dir.0.clone())).entries[0]
+                .name
+                .is_none()
+        );
     }
 
     #[test]
@@ -1331,7 +1537,7 @@ mod tests {
             .entity_mut(player)
             .insert((ranks.clone(), progress, xp));
         interact_with(&mut world, bed);
-        let saved = read_save(&file).expect("read the saved progression");
+        let saved = read_save(&dir.path()).expect("read the saved progression");
         let restored = world.spawn((
             Player::default(),
             saved.progression.player_components(),
@@ -1431,6 +1637,7 @@ mod tests {
             .player_contributed = true;
         interact_with(&mut world, bed);
 
+        let path = dir.path();
         let saved = read_save(&path).expect("guard checkpoint");
         let (mut rebuilt, _, _, _) = bed_world(path);
         let west = guard_entity(&mut rebuilt, GuardPost::West);
@@ -1503,7 +1710,7 @@ mod tests {
         world.insert_resource(journal);
         interact_with(&mut world, bed);
 
-        let checkpoint = read_save(&path).expect("read the cave quest checkpoint");
+        let checkpoint = read_save(&dir.path()).expect("read the cave quest checkpoint");
         let mut restored = restore_test_journal(&checkpoint.journal);
         assert_eq!(restored.cavern_defeat_count(), 4);
         restored.credit_cavern_defeat(CaveEncounter::FirstWestHushcap);
@@ -1519,7 +1726,7 @@ mod tests {
         world.insert_resource(restored);
         interact_with(&mut world, bed);
 
-        let checkpoint = read_save(&path).expect("read the completed cave quest checkpoint");
+        let checkpoint = read_save(&dir.path()).expect("read the completed cave quest checkpoint");
         let mut restored = restore_test_journal(&checkpoint.journal);
         assert!(restored.is_complete(CONTAIN_THE_HUSHCAPS));
         assert!(restored.has_occurred(QuestAction::CaravanArrived));
@@ -1629,6 +1836,45 @@ mod tests {
     }
 
     #[test]
+    fn title_picker_requires_confirmation_before_deleting_a_save() {
+        let dir = TestDirectory::new();
+        let (mut world, bed, _, _) = bed_world(dir.path());
+        interact_with(&mut world, bed);
+        let file = dir.path();
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, AssetPlugin::default(), StatesPlugin))
+            .init_asset::<Image>()
+            .init_state::<GameState>()
+            .init_resource::<ButtonInput<KeyCode>>()
+            .init_resource::<SettingsMenu>()
+            .init_resource::<RunSave>()
+            .insert_resource(test_items().clone())
+            .insert_resource(crate::content::test_placements().clone())
+            .insert_resource(SaveSlot::open(Some(dir.0.clone())))
+            .add_plugins(TitlePlugin);
+        app.update();
+        let press = |app: &mut App, key| {
+            app.world_mut()
+                .resource_mut::<ButtonInput<KeyCode>>()
+                .reset_all();
+            app.world_mut()
+                .resource_mut::<ButtonInput<KeyCode>>()
+                .press(key);
+            app.update();
+        };
+        press(&mut app, KeyCode::ArrowDown);
+        press(&mut app, KeyCode::Enter);
+        press(&mut app, KeyCode::Delete);
+        assert!(file.exists());
+        press(&mut app, KeyCode::Escape);
+        assert!(file.exists());
+        press(&mut app, KeyCode::Delete);
+        assert!(file.exists());
+        press(&mut app, KeyCode::Enter);
+        assert!(!file.exists());
+    }
+
+    #[test]
     fn title_mouse_and_keyboard_load_a_saved_run_and_start_leaves_the_slot_intact() {
         let dir = TestDirectory::new();
         let (mut world, bed, _, _) = bed_world(dir.path());
@@ -1647,7 +1893,9 @@ mod tests {
                 .init_resource::<ButtonInput<KeyCode>>()
                 .init_resource::<SettingsMenu>()
                 .init_resource::<RunSave>()
-                .insert_resource(SaveSlot::open(Some(dir.path())))
+                .insert_resource(test_items().clone())
+                .insert_resource(crate::content::test_placements().clone())
+                .insert_resource(SaveSlot::open(Some(dir.0.clone())))
                 .add_plugins(TitlePlugin);
             app.update();
 
@@ -1668,6 +1916,14 @@ mod tests {
                 let camera = world.spawn_empty().id();
                 world.trigger(crate::interaction::pointer_click(load, window, camera));
             }
+            app.update();
+            app.world_mut()
+                .resource_mut::<ButtonInput<KeyCode>>()
+                .reset_all();
+            app.world_mut()
+                .resource_mut::<ButtonInput<KeyCode>>()
+                .press(KeyCode::Enter);
+            app.update();
             app.update();
             assert_eq!(
                 *app.world().resource::<State<GameState>>().get(),

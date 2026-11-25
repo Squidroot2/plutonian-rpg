@@ -11,7 +11,7 @@ Under **Keybinds**, select a gameplay action, menu control, or menu shortcut and
   Press Esc to cancel, or choose **Restore defaults** to reset all bindings.
   Changes apply immediately for the current session.
 
-Choose **Start Game** on the title screen to begin a fresh run in Nivalis, or **Load Game** to resume your last bed save.
+Choose **Start Game** on the title screen to begin a fresh run in Nivalis, or **Load Game** to choose a bed save.
   Click a button or select it with Up, Down, or Tab and activate it with Enter or Space.
 
 | Control | Action |

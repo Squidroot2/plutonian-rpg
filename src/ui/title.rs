@@ -1,3 +1,5 @@
+mod picker;
+
 use crate::{
     GameState,
     save::{RunSave, SaveSlot},
@@ -66,6 +68,7 @@ struct MenuSelection(MenuAction);
 impl Plugin for TitlePlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<KeyboardInput>()
+            .add_plugins(picker::SavePickerPlugin)
             .init_resource::<MenuSelection>()
             .init_resource::<NameEntry>()
             .init_resource::<crate::player::NewPlayerName>()
@@ -87,11 +90,14 @@ impl Plugin for TitlePlugin {
 fn setup(
     mut commands: Commands,
     assets: Res<AssetServer>,
-    slot: Res<SaveSlot>,
+    mut slot: ResMut<SaveSlot>,
+    mut picker: ResMut<picker::SavePicker>,
     mut selection: ResMut<MenuSelection>,
     mut entry: ResMut<NameEntry>,
 ) {
     *entry = NameEntry::default();
+    *picker = picker::SavePicker::default();
+    slot.refresh();
     *selection = MenuSelection::default();
     commands
         .spawn((
@@ -305,12 +311,17 @@ fn navigate(
     mut settings: ResMut<SettingsMenu>,
     mut next: ResMut<NextState<GameState>>,
     mut exit: MessageWriter<AppExit>,
-    slot: Res<SaveSlot>,
+    mut slot: ResMut<SaveSlot>,
     mut run: ResMut<RunSave>,
     mut entry: ResMut<NameEntry>,
     mut name: ResMut<crate::player::NewPlayerName>,
     mut input: MessageReader<KeyboardInput>,
+    mut picker: ResMut<picker::SavePicker>,
 ) {
+    if picker.open {
+        input.clear();
+        return;
+    }
     if entry.open {
         for event in input.read() {
             if event.state != ButtonState::Pressed {
@@ -330,6 +341,7 @@ fn navigate(
                     if crate::player::PlayerName::valid(trimmed) {
                         name.0 = trimmed.to_owned();
                         run.start_fresh();
+                        slot.start_fresh();
                         entry.open = false;
                         next.set(GameState::Loading);
                     } else {
@@ -371,11 +383,10 @@ fn navigate(
         activate(
             selection.0,
             &slot,
-            &mut run,
             &mut settings,
-            &mut next,
             &mut exit,
             &mut entry,
+            &mut picker,
         );
     }
 }
@@ -397,13 +408,14 @@ fn click(
     actions: Query<&MenuAction>,
     state: Res<State<GameState>>,
     mut settings: ResMut<SettingsMenu>,
-    mut next: ResMut<NextState<GameState>>,
+    next: Res<NextState<GameState>>,
     mut exit: MessageWriter<AppExit>,
     slot: Res<SaveSlot>,
-    mut run: ResMut<RunSave>,
     mut entry: ResMut<NameEntry>,
+    mut picker: ResMut<picker::SavePicker>,
 ) {
-    if !entry.open
+    if !picker.open
+        && !entry.open
         && *state.get() == GameState::Title
         && !settings.is_open()
         && matches!(*next, NextState::Unchanged)
@@ -413,11 +425,10 @@ fn click(
         activate(
             action,
             &slot,
-            &mut run,
             &mut settings,
-            &mut next,
             &mut exit,
             &mut entry,
+            &mut picker,
         );
     }
 }
@@ -425,11 +436,10 @@ fn click(
 fn activate(
     action: MenuAction,
     slot: &SaveSlot,
-    run: &mut RunSave,
     settings: &mut SettingsMenu,
-    next: &mut NextState<GameState>,
     exit: &mut MessageWriter<AppExit>,
     entry: &mut NameEntry,
+    picker: &mut picker::SavePicker,
 ) {
     match action {
         MenuAction::Start => {
@@ -438,11 +448,8 @@ fn activate(
                 ..default()
             };
         }
-        MenuAction::Load => {
-            if slot.load_into(run) {
-                next.set(GameState::Loading);
-            }
-        }
+        MenuAction::Load if slot.available() => picker.open = true,
+        MenuAction::Load => {}
         MenuAction::Settings => settings.open(),
         MenuAction::Quit => {
             exit.write(AppExit::Success);
