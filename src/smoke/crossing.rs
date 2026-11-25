@@ -53,7 +53,6 @@ pub(super) enum Check {
 #[derive(Debug, Default, Clone, Copy)]
 pub(super) struct ArrivalWatch {
     walked: u8,
-    guard_walked: u8,
     staggered: bool,
     courtyard_photo: bool,
 }
@@ -355,7 +354,6 @@ fn check_homecoming(
             observe_arrival(fixtures, &mut watch, commands);
             if check_home_positions(fixtures) {
                 assert_eq!(watch.walked, 0b1111);
-                assert_eq!(watch.guard_walked, 0b11);
                 assert!(watch.staggered);
                 check_village_rooms(fixtures, player, capsule);
                 frame_room(fixtures, (player, controller, dodge, pose), orbit, 0);
@@ -470,10 +468,9 @@ fn observe_arrival(fixtures: &Fixtures, watch: &mut ArrivalWatch, commands: &mut
             }
         }
     }
-    for (post, _, gait) in &fixtures.guards {
-        if matches!(gait, NpcGait::Walk(_)) {
-            watch.guard_walked |= if *post == GuardPost::West { 1 } else { 2 };
-        }
+    for (post, pose, gait) in &fixtures.guards {
+        assert_eq!(*gait, NpcGait::Idle);
+        assert!(pose.translation().xz().distance(post.home().xz()) < 0.25);
     }
     watch.staggered |= moving > 0 && waiting > 0;
     if !watch.courtyard_photo
@@ -494,7 +491,7 @@ fn check_home_positions(fixtures: &Fixtures) -> bool {
         })
         && fixtures.guards.iter().count() == GuardPost::ALL.len()
         && fixtures.guards.iter().all(|(post, pose, gait)| {
-            *gait == NpcGait::Idle && pose.translation().xz().distance(post.barracks().xz()) < 0.25
+            *gait == NpcGait::Idle && pose.translation().xz().distance(post.home().xz()) < 0.25
         })
 }
 
