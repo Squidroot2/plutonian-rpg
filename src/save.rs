@@ -620,15 +620,29 @@ fn age_notice(time: Res<Time>, mut notice: ResMut<SaveNotice>) {
 
 pub(crate) struct SavePlugin {
     pub(crate) smoke: bool,
+    pub(crate) directory: Option<PathBuf>,
+}
+
+fn select_save_directory(
+    smoke: Option<PathBuf>,
+    override_directory: Option<PathBuf>,
+    default: impl FnOnce() -> Option<PathBuf>,
+) -> Option<PathBuf> {
+    smoke.or(override_directory).or_else(default)
 }
 
 impl Plugin for SavePlugin {
     fn build(&self, app: &mut App) {
-        let path = if self.smoke {
-            Some(std::env::temp_dir().join(format!("plutonian-smoke-{}", unique_suffix())))
-        } else {
-            data_path()
-        };
+        let smoke_directory = self
+            .smoke
+            .then(|| std::env::temp_dir().join(format!("plutonian-smoke-{}", unique_suffix())));
+        let path = select_save_directory(smoke_directory, self.directory.clone(), data_path);
+        if !self.smoke
+            && self.directory.is_some()
+            && let Some(path) = &path
+        {
+            info!("Save directory: {}", path.display());
+        }
         app.insert_resource(SaveSlot::new(path))
             .init_resource::<CollectedPickups>()
             .init_resource::<RunSave>()
@@ -1023,6 +1037,120 @@ mod tests {
         world.resource_mut::<Messages<SaveAtBed>>().clear();
         world.write_message(SaveAtBed(entity));
         world.run_system_once(save_at_bed).expect("bed save system");
+    }
+
+    #[test]
+    fn save_directory_selection_prefers_smoke_then_override_then_default() {
+        let smoke = PathBuf::from("/tmp/smoke");
+        let override_path = PathBuf::from("/tmp/golden");
+        let default_path = PathBuf::from("/tmp/default");
+        assert_eq!(
+            select_save_directory(Some(smoke.clone()), Some(override_path.clone()), || Some(
+                default_path.clone()
+            )),
+            Some(smoke)
+        );
+        assert_eq!(
+            select_save_directory(None, Some(override_path.clone()), || Some(
+                default_path.clone()
+            )),
+            Some(override_path)
+        );
+        assert_eq!(
+            select_save_directory(None, None, || Some(default_path.clone())),
+            Some(default_path)
+        );
+        assert_eq!(select_save_directory(None, None, || None), None);
+    }
+
+    #[test]
+    fn override_directory_confines_listing_loading_saving_and_deletion() {
+        let default_dir = TestDirectory::new();
+        let override_dir = TestDirectory::new();
+        let (mut default_world, default_bed, _, _) = bed_world(default_dir.path());
+        interact_with(&mut default_world, default_bed);
+        let default_file = default_dir.path();
+        let default_bytes = fs::read(&default_file).expect("default save");
+
+        let (mut world, bed, _, _) = bed_world(override_dir.path());
+        let selected = select_save_directory(None, Some(override_dir.0.clone()), || {
+            Some(default_dir.0.clone())
+        });
+        world.insert_resource(SaveSlot::open(selected));
+        interact_with(&mut world, bed);
+        interact_with(&mut world, bed);
+        let slot = SaveSlot::open(Some(override_dir.0.clone()));
+        assert_eq!(slot.entries.len(), 2);
+        assert!(
+            slot.entries
+                .iter()
+                .all(|entry| entry.name.as_deref() == Some("Test Player")
+                    && entry.modified.is_some())
+        );
+        let first_entry = slot.entries[0].path.clone();
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, AssetPlugin::default(), StatesPlugin))
+            .init_asset::<Image>()
+            .init_state::<GameState>()
+            .init_resource::<ButtonInput<KeyCode>>()
+            .init_resource::<SettingsMenu>()
+            .init_resource::<RunSave>()
+            .insert_resource(test_items().clone())
+            .insert_resource(crate::content::test_placements().clone())
+            .insert_resource(slot)
+            .add_plugins(TitlePlugin);
+        app.update();
+        let press = |app: &mut App, key| {
+            app.world_mut()
+                .resource_mut::<ButtonInput<KeyCode>>()
+                .reset_all();
+            app.world_mut()
+                .resource_mut::<ButtonInput<KeyCode>>()
+                .press(key);
+            app.update();
+        };
+        press(&mut app, KeyCode::ArrowDown);
+        press(&mut app, KeyCode::Enter);
+        press(&mut app, KeyCode::Enter);
+        assert_eq!(
+            app.world().resource::<SaveSlot>().active.as_ref(),
+            Some(&first_entry)
+        );
+        let loaded = app.world().resource::<RunSave>().0.clone();
+        assert!(loaded.is_some());
+        world.insert_resource(RunSave(loaded));
+        interact_with(&mut world, bed);
+        let new_save = override_dir.path();
+        assert_ne!(new_save, first_entry);
+        assert_eq!(
+            fs::read_dir(&override_dir.0)
+                .expect("override directory")
+                .count(),
+            3
+        );
+        app.update();
+        app.world_mut()
+            .resource_mut::<NextState<GameState>>()
+            .set(GameState::Title);
+        app.update();
+        press(&mut app, KeyCode::ArrowDown);
+        press(&mut app, KeyCode::Enter);
+        press(&mut app, KeyCode::Delete);
+        assert!(new_save.exists());
+        press(&mut app, KeyCode::Enter);
+        assert!(!new_save.exists());
+        assert!(first_entry.exists());
+        assert_eq!(app.world().resource::<SaveSlot>().entries.len(), 2);
+        assert_eq!(
+            fs::read(default_file).expect("default save remains"),
+            default_bytes
+        );
+        assert_eq!(
+            fs::read_dir(&default_dir.0)
+                .expect("default directory")
+                .count(),
+            1
+        );
     }
 
     #[test]

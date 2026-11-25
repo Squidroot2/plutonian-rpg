@@ -62,6 +62,8 @@ pub struct Options {
     pub cave: bool,
     pub crossing: bool,
     pub windowed: bool,
+    /// Optional absolute save directory supplied at launch.
+    pub save_dir: Option<std::path::PathBuf>,
 }
 
 /// Construct and run the game with the selected process options.
@@ -73,6 +75,7 @@ pub fn run(options: Options) {
         cave,
         crossing,
         windowed,
+        save_dir,
     } = options;
     let mode = if windowed {
         WindowMode::Windowed
@@ -125,6 +128,7 @@ pub fn run(options: Options) {
             ui::storage_ui::StorageUiPlugin,
             save::SavePlugin {
                 smoke: arena || world || nemi || cave || crossing,
+                directory: save_dir,
             },
         ))
         .add_plugins((
