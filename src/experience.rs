@@ -22,9 +22,11 @@ pub(crate) struct Experience(pub(crate) u64);
 
 impl Experience {
     pub(crate) fn required(level: u32) -> Option<u64> {
-        (1..u32::MAX)
-            .contains(&level)
-            .then(|| FIRST_LEVEL_XP + XP_INCREASE_PER_LEVEL * u64::from(level - 1))
+        if level == 0 || level == u32::MAX {
+            return None;
+        }
+
+        Some(FIRST_LEVEL_XP + XP_INCREASE_PER_LEVEL * u64::from(level - 1))
     }
 
     pub(crate) fn is_valid(self, level: u32) -> bool {
