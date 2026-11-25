@@ -490,6 +490,7 @@ fn refresh_button_colors(
 fn refresh_fps(
     diagnostics: Res<DiagnosticsStore>,
     position: Res<FpsPosition>,
+    name_entry: Option<Res<super::title::NameEntry>>,
     mut counter: Query<(&mut Text, &mut Node, &mut Visibility), With<FpsCounter>>,
     mut last_fps: Local<Option<u32>>,
 ) {
@@ -503,13 +504,15 @@ fn refresh_fps(
         node.right = if left { Val::Auto } else { px(12) };
         node.top = if top { px(4) } else { Val::Auto };
         node.bottom = if top { Val::Auto } else { px(4) };
-        *visibility = if *position == FpsPosition::Disabled {
-            Visibility::Hidden
-        } else {
-            Visibility::Inherited
-        };
     }
-    if *position == FpsPosition::Disabled {
+    let hidden =
+        *position == FpsPosition::Disabled || name_entry.is_some_and(|entry| entry.is_open());
+    visibility.set_if_neq(if hidden {
+        Visibility::Hidden
+    } else {
+        Visibility::Inherited
+    });
+    if hidden {
         return;
     }
     let fps = diagnostics

@@ -39,14 +39,26 @@ impl MenuAction {
 }
 
 #[derive(Resource, Default)]
-struct NameEntry {
+pub(super) struct NameEntry {
     open: bool,
     text: String,
     error: bool,
 }
 
+impl NameEntry {
+    pub(super) fn is_open(&self) -> bool {
+        self.open
+    }
+}
+
 #[derive(Component)]
 struct NamePrompt;
+
+#[derive(Component)]
+struct NameScreen;
+
+#[derive(Component)]
+struct NameError;
 
 #[derive(Resource, Default)]
 struct MenuSelection(MenuAction);
@@ -183,16 +195,6 @@ fn setup(
                                         ));
                                     });
                             }
-                            buttons.spawn((
-                                NamePrompt,
-                                Text::default(),
-                                TextFont {
-                                    font_size: 18.0.into(),
-                                    ..default()
-                                },
-                                TextColor(Color::WHITE),
-                                Pickable::IGNORE,
-                            ));
                             if let Some(error) = slot.error() {
                                 buttons.spawn((
                                     Text::new(error),
@@ -207,7 +209,58 @@ fn setup(
                         });
                 });
         });
+    spawn_name_screen(&mut commands);
 }
+
+fn spawn_name_screen(commands: &mut Commands) {
+    commands
+        .spawn((
+            NameScreen,
+            DespawnOnExit(GameState::Title),
+            GlobalZIndex(1),
+            Node {
+                display: Display::None,
+                position_type: PositionType::Absolute,
+                width: percent(100),
+                height: percent(100),
+                flex_direction: FlexDirection::Column,
+                align_items: AlignItems::Center,
+                justify_content: JustifyContent::Center,
+                row_gap: px(24),
+                ..default()
+            },
+            BackgroundColor(Color::BLACK),
+        ))
+        .with_children(|screen| {
+            screen.spawn((
+                Text::new("What is your name?"),
+                TextFont {
+                    font_size: 32.0.into(),
+                    ..default()
+                },
+                TextColor(Color::WHITE),
+            ));
+            screen.spawn((
+                NamePrompt,
+                Text::new("_"),
+                TextFont {
+                    font_size: 26.0.into(),
+                    ..default()
+                },
+                TextColor(Color::WHITE),
+            ));
+            screen.spawn((
+                NameError,
+                Text::default(),
+                TextFont {
+                    font_size: 16.0.into(),
+                    ..default()
+                },
+                TextColor(Color::srgb(0.97, 0.67, 0.50)),
+            ));
+        });
+}
+
 fn spawn_backdrop(screen: &mut ChildSpawnerCommands, assets: &AssetServer) {
     screen.spawn((
         TitleBackdrop,
@@ -433,21 +486,28 @@ fn style_buttons(
     }
 }
 
-fn refresh_name_prompt(entry: Res<NameEntry>, mut prompts: Query<&mut Text, With<NamePrompt>>) {
+fn refresh_name_prompt(
+    entry: Res<NameEntry>,
+    mut screens: Query<&mut Node, With<NameScreen>>,
+    mut prompts: Query<&mut Text, (With<NamePrompt>, Without<NameError>)>,
+    mut errors: Query<&mut Text, (With<NameError>, Without<NamePrompt>)>,
+) {
     if !entry.is_changed() {
         return;
     }
+    for mut screen in &mut screens {
+        screen.display = if entry.open {
+            Display::Flex
+        } else {
+            Display::None
+        };
+    }
     for mut text in &mut prompts {
-        **text = if entry.open {
-            format!(
-                "Enter your name (1–16 letters, numbers, spaces):\n{}\n{}",
-                entry.text,
-                if entry.error {
-                    "Invalid name"
-                } else {
-                    "Enter to confirm · Esc to cancel"
-                }
-            )
+        **text = format!("{}_", entry.text);
+    }
+    for mut text in &mut errors {
+        **text = if entry.error {
+            "Use 1–16 letters, numbers, or spaces.".into()
         } else {
             String::new()
         };

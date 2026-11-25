@@ -206,6 +206,8 @@ fn start_from_title(
     time: Res<Time>,
     mut ready_at: Local<Option<Duration>>,
     mut screenshot: Local<Option<Entity>>,
+    mut name_screenshot: Local<Option<Entity>>,
+    mut name_ready_at: Local<Option<Duration>>,
     mut keys: ResMut<ButtonInput<KeyCode>>,
     mut commands: Commands,
     windows: Query<Entity, With<Window>>,
@@ -229,6 +231,13 @@ fn start_from_title(
                 }
                 1 => {
                     keys.release(KeyCode::Enter);
+                    let ready_at = *name_ready_at.get_or_insert(time.elapsed());
+                    if time.elapsed() - ready_at >= Duration::from_millis(250) {
+                        *name_screenshot = Some(capture(&mut commands, "name-entry"));
+                        *phase = 2;
+                    }
+                }
+                2 if name_screenshot.is_some_and(|entity| captures.get(entity).is_err()) => {
                     if let Ok(window) = windows.single() {
                         // Release synthetic keys too: InputSystems reads these messages
                         // on the next frame and otherwise leaves backward movement held.
@@ -242,10 +251,10 @@ fn start_from_title(
                                 window,
                             });
                         }
-                        *phase = 2;
+                        *phase = 3;
                     }
                 }
-                2 => {
+                3 => {
                     if let Ok(window) = windows.single() {
                         for state in [ButtonState::Pressed, ButtonState::Released] {
                             keyboard.write(KeyboardInput {
@@ -257,7 +266,7 @@ fn start_from_title(
                                 window,
                             });
                         }
-                        *phase = 3;
+                        *phase = 4;
                     }
                 }
                 _ => {}
