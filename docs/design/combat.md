@@ -36,7 +36,7 @@ Enemy attacks enter the same shared resolver as player attacks.
 ## Outpost guards
 
 Two Plutonian guards stand watch at separate posts in Nivalis.
-  They route around the keeper’s hut and regroup outside the barracks when the caravan arrives.
+  They regroup outside the barracks when the caravan arrives.
   One overlooks the Old Relay hatch and the other faces the ice trail out of the settlement.
   A confirmed hit from the player on Nemi or either guard makes both surviving guards hostile.
   Hostility is shared across the outpost and follows the checkpoint.

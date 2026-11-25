@@ -6,7 +6,6 @@ use crate::{
         ActorDefeated, CombatSystems, ConfirmedHit, Dead, Hit, HitReaction, RemoveColliderOnDeath,
     },
     content::{Enemies, Items, NpcId, Npcs, Placements},
-    crossing::village::guard_waypoint,
     dialogue::{Dialogue, Speaker},
     dungeon::{Area, HATCH},
     enemy::{self, Enemy, GroundMovement},
@@ -275,7 +274,7 @@ fn plan_guard_actions(
                 if arrived {
                     movement.speed = movement.speed.min(REGROUP_SPEED_MPS);
                 }
-                movement.destination = Some(guard_waypoint(pose.translation, station));
+                movement.destination = Some(station);
             } else {
                 pose.set_if_neq(pose.with_rotation(facing));
             }
@@ -297,7 +296,7 @@ fn plan_guard_actions(
             pose.rotation = facing;
             action.ready = Some(hand);
         } else {
-            movement.destination = Some(guard_waypoint(pose.translation, target.translation));
+            movement.destination = Some(target.translation);
         }
     }
 }

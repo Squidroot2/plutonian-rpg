@@ -76,7 +76,11 @@ const ROOM_VIEWS: [(&str, Vec2, f32); 5] = [
         Vec2::new(10.30, 10.0),
         -std::f32::consts::FRAC_PI_2,
     ),
-    ("nivalis-keeper-hut", Vec2::new(3.0, -4.64), 0.0),
+    (
+        "nivalis-keeper-hut",
+        Vec2::new(5.5, 16.04),
+        std::f32::consts::PI,
+    ),
     (
         "nivalis-barracks",
         Vec2::new(-7.30, -10.15),
@@ -502,7 +506,7 @@ fn check_village_rooms(fixtures: &Fixtures, player: Entity, capsule: &Collider) 
         ("Family", (-4.9, -1.0), (-11.3, -1.0)),
         ("Workshop", (-7.85, 8.0), (-14.1, 8.0)),
         ("Orla", (7.9, 10.0), (13.2, 10.0)),
-        ("Keeper", (3.0, -2.2), (3.0, -6.5)),
+        ("Keeper", (5.5, 13.6), (5.5, 17.9)),
         ("Barracks", (-3.6, -10.15), (-10.3, -10.15)),
     ] {
         let start = Vec2::from(outside);
