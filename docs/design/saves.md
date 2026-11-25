@@ -197,6 +197,8 @@ including the saved precision of positions and rotations.
 
 ## Golden saves
 
+The [golden saves developer guide](../contributing/golden_saves.md) covers capture, regeneration, and fixture checks.
+
 Commit one JSON fixture per scenario at `golden-saves/<scenario>.json`.
 The `after-old-relay` fixture comes from a bed save after the survey log was read and the Old Relay quest was completed.
 To capture a new fixture, play to the desired state, save at the bed, and quit.
