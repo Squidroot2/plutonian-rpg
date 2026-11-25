@@ -5,8 +5,8 @@ use super::*;
 // `Snapshot` field-for-field, with string IDs in place of the runtime ID
 // types; collected pickups and credited cavern defeats travel alongside it
 // as string sets in `encode`/`decode`.
-#[derive(Clone, bitcode::Encode, bitcode::Decode)]
-struct WireSnapshot {
+#[derive(Clone, bitcode::Encode, bitcode::Decode, serde::Serialize)]
+pub(super) struct WireSnapshot {
     player_name: String,
     journal: SavedJournal,
     inventory: Inventory<String>,
@@ -59,8 +59,8 @@ fn parse_inventory(inventory: Inventory<String>) -> io::Result<Inventory> {
         .map(Inventory)
 }
 
-pub(super) fn encode(snapshot: &Snapshot) -> Vec<u8> {
-    let wire = WireSnapshot {
+pub(super) fn wire_snapshot(snapshot: &Snapshot) -> WireSnapshot {
+    WireSnapshot {
         player_name: snapshot.player_name.clone(),
         journal: snapshot.journal.clone(),
         inventory: string_inventory(&snapshot.inventory),
@@ -112,7 +112,11 @@ pub(super) fn encode(snapshot: &Snapshot) -> Vec<u8> {
                 .collect(),
         },
         guards_hostile: snapshot.guards_hostile,
-    };
+    }
+}
+
+pub(super) fn encode(snapshot: &Snapshot) -> Vec<u8> {
+    let wire = wire_snapshot(snapshot);
     let pickups: BTreeSet<_> = snapshot
         .collected_pickups
         .iter()

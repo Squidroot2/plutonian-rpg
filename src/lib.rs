@@ -29,6 +29,8 @@ mod practice_dummy;
 mod quest;
 mod roach;
 mod save;
+/// Read-only access to current-version save data.
+pub mod save_inspector;
 #[cfg(feature = "smoke")]
 mod smoke;
 mod storage;

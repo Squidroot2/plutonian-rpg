@@ -4590,6 +4590,7 @@ dependencies = [
  "bitcode",
  "ron",
  "serde",
+ "serde_json",
  "strum",
 ]
 

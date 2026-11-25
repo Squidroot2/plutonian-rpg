@@ -154,6 +154,38 @@ Prefer stable IDs over entity IDs for anything whose entities are recreated.
 Keep fall recovery distinct unless its gameplay contract is intentionally
 changed.
 
+## Read-only save inspection
+
+Run `cargo run --locked --bin plutonian-save -- inspect [PATH]` to inspect a save as text,
+or add `--json` to print JSON for diffing and tooling.
+A path can name one save file or a directory;
+a directory selects its newest `.save` by modification time.
+Without a path, the tool uses the normal save directory.
+The newest file is inspected even if it is unreadable.
+The inspector uses the game's current-version decoder and validates the saved contents,
+without applying catalog-dependent changes or modifying any file.
+
+The JSON object is the fixture representation intended for the future `create` mode (issue #34).
+Its top-level `format_version` is the binary save version.
+The remaining top-level fields are `player_name`, `journal`, `inventory`, `equipment`, `chests`,
+`dungeon`, `pickups`, `collected_pickups`, `cavern_defeats`, `nemi`, `nemi_state`,
+`encounters`, `progression`, `experience`, `guards_hostile`, and `caravan`.
+Item, encounter, collected pickup, credited cavern encounter, and caravan IDs use their stable string keys.
+Quest progress is keyed by quest ID and records its outcome and completed objective IDs.
+Inventories and each chest map item IDs to quantities,
+while equipment maps slot names to item IDs.
+Pickups contain a stack and a three-coordinate position.
+Each encounter and caravan actor records its position, quaternion rotation, and health,
+alongside the encounter's loot flag or the caravan actor's flee state.
+The journal records quest outcomes, completed objectives, and occurred actions;
+progression records attribute ranks, level, and unspent points.
+The `experience` object includes the player's XP and contribution credits.
+Enums use serde's externally tagged representation,
+so a unit state is a string and a state with data is an object keyed by its variant.
+The separately stored `cavern_defeats` and `caravan` fields are included alongside the wire snapshot,
+so the JSON captures the complete saved state.
+
+
 ## Golden saves
 
 Use `cargo run --locked -- --save-dir golden-saves/<scenario>` to capture or test a known state.

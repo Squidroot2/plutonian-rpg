@@ -28,6 +28,7 @@ impl Plugin for StoragePlugin {
     bitcode::Encode,
     bitcode::Decode,
     serde::Deserialize,
+    serde::Serialize,
 )]
 pub(crate) enum ChestId {
     Lamp,
@@ -47,7 +48,7 @@ impl ChestId {
     }
 }
 
-#[derive(Resource, Clone, bitcode::Encode, bitcode::Decode)]
+#[derive(Resource, Clone, bitcode::Encode, bitcode::Decode, serde::Serialize)]
 pub(crate) struct ChestStorage<I: Ord = ItemKind>(pub(crate) BTreeMap<ChestId, Inventory<I>>);
 
 impl Default for ChestStorage {

@@ -43,6 +43,7 @@ use std::{
 
 // Four magic bytes followed by the little-endian save schema version.
 const HEADER: &[u8; 6] = b"PLUT\x0c\x00";
+const SAVE_FORMAT_VERSION: u16 = u16::from_le_bytes([HEADER[4], HEADER[5]]);
 const MAX_SAVE_BYTES: usize = 1024 * 1024;
 
 #[derive(Component)]
@@ -115,13 +116,13 @@ impl EncounterId {
     }
 }
 
-#[derive(Clone, bitcode::Encode, bitcode::Decode)]
+#[derive(Clone, bitcode::Encode, bitcode::Decode, serde::Serialize)]
 pub(crate) struct SavedPickup<K = ItemKind> {
     pub(crate) stack: Pickup<K>,
     pub(crate) position: [f32; 3],
 }
 
-#[derive(Clone, bitcode::Encode, bitcode::Decode)]
+#[derive(Clone, bitcode::Encode, bitcode::Decode, serde::Serialize)]
 struct SavedActor {
     position: [f32; 3],
     rotation: [f32; 4],
@@ -153,7 +154,7 @@ impl SavedActor {
     }
 }
 
-#[derive(Clone, bitcode::Encode, bitcode::Decode)]
+#[derive(Clone, bitcode::Encode, bitcode::Decode, serde::Serialize)]
 struct SavedEncounter {
     actor: SavedActor,
     has_loot: bool,
@@ -165,7 +166,7 @@ impl SavedEncounter {
     }
 }
 
-#[derive(Clone, bitcode::Encode, bitcode::Decode)]
+#[derive(Clone, bitcode::Encode, bitcode::Decode, serde::Serialize)]
 pub(crate) struct SavedCaravanActor {
     actor: SavedActor,
     flee: NemiState,
@@ -205,7 +206,7 @@ pub(crate) struct Snapshot {
     caravan: BTreeMap<NpcId, SavedCaravanActor>,
 }
 
-#[derive(Clone, bitcode::Encode, bitcode::Decode)]
+#[derive(Clone, bitcode::Encode, bitcode::Decode, serde::Serialize)]
 pub(crate) struct SavedExperience<I: Ord = EncounterId> {
     player: Experience,
     nemi_contributed: bool,
@@ -486,7 +487,7 @@ fn next_save_path(directory: &Path, name: &str, seconds: u64) -> PathBuf {
     path
 }
 
-fn data_path() -> Option<PathBuf> {
+pub(crate) fn data_path() -> Option<PathBuf> {
     std::env::var_os("XDG_DATA_HOME")
         .map(PathBuf::from)
         .filter(|path| path.is_absolute())
@@ -513,7 +514,7 @@ fn unique_suffix() -> String {
     format!("{}-{}-{}", std::process::id(), now.as_nanos(), count)
 }
 
-fn read_save(path: &Path) -> io::Result<Snapshot> {
+pub(crate) fn read_save(path: &Path) -> io::Result<Snapshot> {
     let mut file = File::open(path)?.take(MAX_SAVE_BYTES as u64 + 1);
     let mut data = Vec::new();
     file.read_to_end(&mut data)?;
@@ -544,6 +545,40 @@ fn read_save(path: &Path) -> io::Result<Snapshot> {
         .is_valid()
         .then_some(snapshot)
         .ok_or_else(|| invalid_save("Invalid save contents"))
+}
+
+#[derive(serde::Serialize)]
+struct InspectorDocument {
+    format_version: u16,
+    #[serde(flatten)]
+    snapshot: content_ids::WireSnapshot,
+    collected_pickups: BTreeSet<String>,
+    cavern_defeats: BTreeSet<String>,
+    caravan: BTreeMap<String, SavedCaravanActor>,
+}
+
+pub(crate) fn inspection_data(snapshot: &Snapshot) -> io::Result<serde_json::Value> {
+    let document = InspectorDocument {
+        format_version: SAVE_FORMAT_VERSION,
+        snapshot: content_ids::wire_snapshot(snapshot),
+        collected_pickups: snapshot
+            .collected_pickups
+            .iter()
+            .map(|id| id.as_str().to_owned())
+            .collect(),
+        cavern_defeats: snapshot
+            .journal
+            .cavern_defeats
+            .iter()
+            .map(|id| EncounterId::Cave(*id).key().as_str().to_owned())
+            .collect(),
+        caravan: snapshot
+            .caravan
+            .iter()
+            .map(|(id, actor)| (id.key().to_owned(), actor.clone()))
+            .collect(),
+    };
+    serde_json::to_value(document).map_err(io::Error::other)
 }
 
 fn invalid_save(error: impl std::fmt::Display) -> io::Error {
@@ -1040,6 +1075,78 @@ mod tests {
     }
 
     #[test]
+    fn inspection_reports_complete_current_snapshot_without_changing_the_save() {
+        let dir = TestDirectory::new();
+        let (mut world, bed, _, _) = bed_world(dir.path());
+        interact_with(&mut world, bed);
+        let file = dir.path();
+        let before = fs::read(&file).expect("read game-written save");
+        let data = crate::save_inspector::inspect(Some(&file)).expect("inspect game save");
+        assert_eq!(data["format_version"], 12);
+        assert_eq!(data["player_name"], "Test Player");
+        assert!(data["journal"]["progress"].get("last_light").is_some());
+        assert_eq!(data["encounters"]["relay_roach"]["actor"]["health"], 0);
+        for field in [
+            "inventory",
+            "equipment",
+            "progression",
+            "experience",
+            "chests",
+            "dungeon",
+            "pickups",
+            "collected_pickups",
+            "cavern_defeats",
+            "nemi",
+            "nemi_state",
+            "guards_hostile",
+            "caravan",
+        ] {
+            assert!(data.get(field).is_some(), "missing {field}");
+        }
+        let report = crate::save_inspector::text_report(&data);
+        for expected in ["Test Player", "last_light", "relay_roach", "health: 0"] {
+            assert!(report.contains(expected), "report missing {expected}");
+        }
+        assert_eq!(fs::read(&file).expect("read save after inspection"), before);
+        let mut loaded = read_save(&file).expect("game reads inspected save");
+        loaded
+            .apply_catalogs(test_items(), crate::content::test_placements())
+            .expect("game validates inspected save against catalogs");
+    }
+
+    #[test]
+    fn inspector_game_fixture_loads_with_current_catalogs_and_quest_journal() {
+        let file = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/inspector-v12.save");
+        let before = fs::read(&file).expect("read fixture");
+        crate::save_inspector::inspect(Some(&file)).expect("inspect fixture");
+        let mut save = read_save(&file).expect("decode inspected fixture");
+        save.apply_catalogs(test_items(), crate::content::test_placements())
+            .expect("validate inspected fixture");
+        let catalog =
+            ron::from_str(include_str!("../data/quests/catalog.quest.ron")).expect("quest catalog");
+        QuestJournal::from_snapshot(catalog, WorldLayout::Outpost, &save.journal)
+            .expect("restore inspected quest journal");
+        assert_eq!(fs::read(&file).expect("read inspected fixture"), before);
+    }
+
+    #[test]
+    fn inspector_rejects_decodable_but_invalid_saved_contents() {
+        let dir = TestDirectory::new();
+        let (mut world, bed, _, _) = bed_world(dir.path());
+        interact_with(&mut world, bed);
+        let file = dir.path();
+        let mut snapshot = read_save(&file).expect("valid checkpoint");
+        snapshot.player_name.clear();
+        let caravan: BTreeMap<String, SavedCaravanActor> = BTreeMap::new();
+        let mut bytes = HEADER.to_vec();
+        bytes.extend(bitcode::encode(&(content_ids::encode(&snapshot), caravan)));
+        fs::write(&file, bytes).expect("write invalid snapshot");
+        let error =
+            crate::save_inspector::inspect(Some(&file)).expect_err("invalid snapshot rejected");
+        assert!(error.to_string().contains("Invalid save contents"));
+    }
+
+    #[test]
     fn save_directory_selection_prefers_smoke_then_override_then_default() {
         let smoke = PathBuf::from("/tmp/smoke");
         let override_path = PathBuf::from("/tmp/golden");
@@ -1439,6 +1546,16 @@ mod tests {
         ));
         interact_with(&mut world, bed);
         let checkpoint = read_save(&dir.path()).expect("read v12 checkpoint");
+        let inspection =
+            crate::save_inspector::inspect(Some(&dir.path())).expect("inspect caravan");
+        assert_eq!(
+            inspection["caravan"][NpcId::Tovan.key()]["actor"]["health"],
+            0
+        );
+        assert_eq!(
+            inspection["caravan"][NpcId::Isera.key()]["actor"]["health"],
+            64
+        );
         assert_eq!(checkpoint.player_name, "Test Player");
         let tovan = checkpoint
             .caravan_speaker(NpcId::Tovan)
@@ -1839,6 +1956,16 @@ mod tests {
         interact_with(&mut world, bed);
 
         let checkpoint = read_save(&dir.path()).expect("read the cave quest checkpoint");
+        let inspection =
+            crate::save_inspector::inspect(Some(&dir.path())).expect("inspect cavern credits");
+        let first_id = EncounterId::Cave(CaveEncounter::FirstWestHushcap).key();
+        assert!(
+            inspection["cavern_defeats"]
+                .as_array()
+                .expect("credited IDs")
+                .iter()
+                .any(|id| id == first_id.as_str())
+        );
         let mut restored = restore_test_journal(&checkpoint.journal);
         assert_eq!(restored.cavern_defeat_count(), 4);
         restored.credit_cavern_defeat(CaveEncounter::FirstWestHushcap);

@@ -86,7 +86,9 @@ impl AttributeRanks {
     }
 }
 
-#[derive(Component, Clone, Copy, Debug, PartialEq, Eq, bitcode::Encode, bitcode::Decode)]
+#[derive(
+    Component, Clone, Copy, Debug, PartialEq, Eq, bitcode::Encode, bitcode::Decode, serde::Serialize,
+)]
 pub(crate) struct CharacterProgress {
     pub(crate) level: u32,
     pub(crate) unspent: u32,
@@ -115,7 +117,7 @@ impl CharacterProgress {
     }
 }
 
-#[derive(Clone, Default, bitcode::Encode, bitcode::Decode)]
+#[derive(Clone, Default, bitcode::Encode, bitcode::Decode, serde::Serialize)]
 pub(crate) struct SavedProgress {
     ranks: BTreeMap<String, u8>,
     progress: CharacterProgress,
