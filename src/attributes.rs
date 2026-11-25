@@ -89,6 +89,11 @@ impl AttributeRanks {
 #[derive(
     Component, Clone, Copy, Debug, PartialEq, Eq, bitcode::Encode, bitcode::Decode, serde::Serialize,
 )]
+/// Player progression state that is saved, restored, and advanced together.
+///
+/// Level gains and their unspent attribute points share an owner and lifecycle,
+/// so keeping them together avoids coordinating separate components. Split
+/// them only if they need independent ownership or lifecycles.
 pub(crate) struct CharacterProgress {
     pub(crate) level: u32,
     pub(crate) unspent: u32,
