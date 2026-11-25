@@ -15,6 +15,11 @@ const FIRST_LEVEL_XP: u64 = 70;
 const XP_INCREASE_PER_LEVEL: u64 = 50;
 const XP_NOTICE_SECONDS: f32 = 3.0;
 
+/// The player's XP toward the next level, rather than a lifetime total.
+///
+/// Quest completions and defeated enemies the player damaged award XP. Reaching
+/// a level's threshold advances `CharacterProgress` and carries surplus XP
+/// toward subsequent levels. This component is saved with the player's progress.
 #[derive(
     Component,
     Clone,
