@@ -50,14 +50,17 @@ impl PlayerMenu {
         self.open
     }
 
+    /// True if the menu is open on the given tab
     pub(crate) fn is_on(&self, tab: MenuTab) -> bool {
         self.open && self.tab == tab
     }
 
+    /// True if menu is on tab and the menu is not closing
     pub(crate) fn accepts(&self, tab: MenuTab) -> bool {
         self.is_on(tab) && !self.close_requested
     }
 
+    /// Shows the given tab. Opens the menu if it's not open
     pub(crate) fn show(&mut self, tab: MenuTab) {
         self.open = true;
         self.close_requested = false;
