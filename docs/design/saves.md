@@ -56,7 +56,8 @@ systems.
 
 The file begins with the six-byte `PLUT` header and a little-endian schema
 version, followed by a bitcode-encoded snapshot.
-The current schema is version 11, and it is the only supported format.
+The current schema is version 12, and it is the only supported format.
+It stores the player name in the snapshot and restores it when the run is loaded.
 It encodes item IDs, encounter IDs, and collected pickup IDs as strings.
 Parked caravan speaker state is stored alongside the snapshot payload.
 

@@ -206,8 +206,13 @@ fn start_from_title(
     time: Res<Time>,
     mut ready_at: Local<Option<Duration>>,
     mut screenshot: Local<Option<Entity>>,
+    mut name_screenshot: Local<Option<Entity>>,
+    mut name_ready_at: Local<Option<Duration>>,
     mut keys: ResMut<ButtonInput<KeyCode>>,
     mut commands: Commands,
+    windows: Query<Entity, With<Window>>,
+    mut keyboard: MessageWriter<bevy::input::keyboard::KeyboardInput>,
+    mut phase: Local<u8>,
 ) {
     assert!(
         game_assets.is_none(),
@@ -215,7 +220,57 @@ fn start_from_title(
     );
     if let Some(entity) = *screenshot {
         if captures.get(entity).is_err() {
-            keys.press(KeyCode::Enter);
+            use bevy::input::{
+                ButtonState,
+                keyboard::{Key, KeyboardInput},
+            };
+            match *phase {
+                0 => {
+                    keys.press(KeyCode::Enter);
+                    *phase = 1;
+                }
+                1 => {
+                    keys.release(KeyCode::Enter);
+                    let ready_at = *name_ready_at.get_or_insert(time.elapsed());
+                    if time.elapsed() - ready_at >= Duration::from_millis(250) {
+                        *name_screenshot = Some(capture(&mut commands, "name-entry"));
+                        *phase = 2;
+                    }
+                }
+                2 if name_screenshot.is_some_and(|entity| captures.get(entity).is_err()) => {
+                    if let Ok(window) = windows.single() {
+                        // Release synthetic keys too: InputSystems reads these messages
+                        // on the next frame and otherwise leaves backward movement held.
+                        for state in [ButtonState::Pressed, ButtonState::Released] {
+                            keyboard.write(KeyboardInput {
+                                key_code: KeyCode::KeyS,
+                                logical_key: Key::Character("Smoke".into()),
+                                state,
+                                text: (state == ButtonState::Pressed).then(|| "Smoke".into()),
+                                repeat: false,
+                                window,
+                            });
+                        }
+                        *phase = 3;
+                    }
+                }
+                3 => {
+                    if let Ok(window) = windows.single() {
+                        for state in [ButtonState::Pressed, ButtonState::Released] {
+                            keyboard.write(KeyboardInput {
+                                key_code: KeyCode::Enter,
+                                logical_key: Key::Enter,
+                                state,
+                                text: None,
+                                repeat: false,
+                                window,
+                            });
+                        }
+                        *phase = 4;
+                    }
+                }
+                _ => {}
+            }
         }
     } else if backdrop
         .single()

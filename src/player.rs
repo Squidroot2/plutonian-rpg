@@ -72,6 +72,22 @@ impl Plugin for PlayerPlugin {
             );
     }
 }
+/// The player's validated, immutable identity for this run.
+#[derive(Component, Clone, Debug, PartialEq, Eq)]
+pub(crate) struct PlayerName(pub(crate) String);
+
+impl PlayerName {
+    pub(crate) fn valid(name: &str) -> bool {
+        !name.is_empty()
+            && name.trim() == name
+            && name.chars().count() <= 16
+            && name.chars().all(|c| c.is_alphanumeric() || c == ' ')
+    }
+}
+
+#[derive(Resource, Default)]
+pub(crate) struct NewPlayerName(pub(crate) String);
+
 #[derive(Component, Default)]
 #[require(Dodge, Health = Health::new(AttributeRanks::default().effects().health), Defense, crate::combat::HitProtection = crate::combat::HitProtection::new(PLAYER_HIT_PROTECTION_SECONDS))]
 #[require(HealthRecovery = HealthRecovery::character(AttributeRanks::default().effects().health_per_second))]

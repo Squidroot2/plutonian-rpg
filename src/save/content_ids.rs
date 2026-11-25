@@ -7,6 +7,7 @@ use super::*;
 // as string sets in `encode`/`decode`.
 #[derive(Clone, bitcode::Encode, bitcode::Decode)]
 struct WireSnapshot {
+    player_name: String,
     journal: SavedJournal,
     inventory: Inventory<String>,
     equipment: Equipment<String>,
@@ -60,6 +61,7 @@ fn parse_inventory(inventory: Inventory<String>) -> io::Result<Inventory> {
 
 pub(super) fn encode(snapshot: &Snapshot) -> Vec<u8> {
     let wire = WireSnapshot {
+        player_name: snapshot.player_name.clone(),
         journal: snapshot.journal.clone(),
         inventory: string_inventory(&snapshot.inventory),
         equipment: Equipment(
@@ -141,6 +143,7 @@ pub(super) fn decode(bytes: &[u8]) -> io::Result<Snapshot> {
         .collect::<io::Result<_>>()?;
     set_cavern_defeats(&mut journal, defeats)?;
     Ok(Snapshot {
+        player_name: wire.player_name,
         journal,
         inventory: parse_inventory(wire.inventory)?,
         equipment: Equipment(

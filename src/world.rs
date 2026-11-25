@@ -176,6 +176,7 @@ fn spawn_world(
     gltfs: Res<Assets<Gltf>>,
     layout: Res<WorldLayout>,
     run: Res<RunSave>,
+    new_name: Res<crate::player::NewPlayerName>,
     items: Res<Items>,
     npcs: Res<Npcs>,
     mut orbit: ResMut<Orbit>,
@@ -208,6 +209,10 @@ fn spawn_world(
         *layout,
         progress,
         experience,
+        crate::player::PlayerName(
+            run.checkpoint()
+                .map_or_else(|| new_name.0.clone(), |save| save.player_name.clone()),
+        ),
         run.checkpoint()
             .map(|save| save.player_loadout())
             .unwrap_or_default(),
@@ -289,6 +294,7 @@ fn spawn_actors(
     layout: WorldLayout,
     progress: &SavedProgress,
     experience: Experience,
+    player_name: crate::player::PlayerName,
     loadout: (crate::inventory::Inventory, crate::equipment::Equipment),
 ) {
     let character = gltfs
@@ -301,6 +307,7 @@ fn spawn_actors(
             SessionEntity,
             Name::new("Player"),
             Player::default(),
+            player_name,
             Visibility::default(),
             RigidBody::Kinematic,
             CustomPositionIntegration,
