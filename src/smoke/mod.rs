@@ -230,27 +230,33 @@ fn start_from_title(
                 1 => {
                     keys.release(KeyCode::Enter);
                     if let Ok(window) = windows.single() {
-                        keyboard.write(KeyboardInput {
-                            key_code: KeyCode::KeyS,
-                            logical_key: Key::Character("Smoke".into()),
-                            state: ButtonState::Pressed,
-                            text: Some("Smoke".into()),
-                            repeat: false,
-                            window,
-                        });
+                        // Release synthetic keys too: InputSystems reads these messages
+                        // on the next frame and otherwise leaves backward movement held.
+                        for state in [ButtonState::Pressed, ButtonState::Released] {
+                            keyboard.write(KeyboardInput {
+                                key_code: KeyCode::KeyS,
+                                logical_key: Key::Character("Smoke".into()),
+                                state,
+                                text: (state == ButtonState::Pressed).then(|| "Smoke".into()),
+                                repeat: false,
+                                window,
+                            });
+                        }
                         *phase = 2;
                     }
                 }
                 2 => {
                     if let Ok(window) = windows.single() {
-                        keyboard.write(KeyboardInput {
-                            key_code: KeyCode::Enter,
-                            logical_key: Key::Enter,
-                            state: ButtonState::Pressed,
-                            text: None,
-                            repeat: false,
-                            window,
-                        });
+                        for state in [ButtonState::Pressed, ButtonState::Released] {
+                            keyboard.write(KeyboardInput {
+                                key_code: KeyCode::Enter,
+                                logical_key: Key::Enter,
+                                state,
+                                text: None,
+                                repeat: false,
+                                window,
+                            });
+                        }
                         *phase = 3;
                     }
                 }
