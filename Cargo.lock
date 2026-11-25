@@ -4603,11 +4603,19 @@ dependencies = [
  "avian3d",
  "bevy",
  "bitcode",
- "clap",
  "ron",
  "serde",
  "serde_json",
  "strum",
+]
+
+[[package]]
+name = "plutonian-save"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "plutonian-rpg",
+ "serde_json",
 ]
 
 [[package]]
