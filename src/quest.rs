@@ -31,6 +31,7 @@ pub(crate) const MYCELIUM_GOAL: u32 = 5;
     Ord,
     bitcode::Encode,
     bitcode::Decode,
+    schemars::JsonSchema,
 )]
 pub(crate) enum QuestAction {
     // Save files use these discriminants. Append new actions and verify their packing.
@@ -360,7 +361,15 @@ pub(crate) struct QuestJournal {
     cavern_defeats: BTreeSet<CaveEncounter>,
 }
 
-#[derive(Clone, bitcode::Encode, bitcode::Decode, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Clone,
+    bitcode::Encode,
+    bitcode::Decode,
+    serde::Serialize,
+    serde::Deserialize,
+    schemars::JsonSchema,
+)]
+#[schemars(deny_unknown_fields)]
 pub(crate) struct SavedJournal {
     #[bitcode(skip)]
     #[serde(skip)]
@@ -375,13 +384,28 @@ impl SavedJournal {
     }
 }
 
-#[derive(Clone, bitcode::Encode, bitcode::Decode, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Clone,
+    bitcode::Encode,
+    bitcode::Decode,
+    serde::Serialize,
+    serde::Deserialize,
+    schemars::JsonSchema,
+)]
+#[schemars(deny_unknown_fields)]
 struct SavedQuest {
     outcome: SavedOutcome,
     completed: Vec<String>,
 }
 
-#[derive(Clone, bitcode::Encode, bitcode::Decode, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Clone,
+    bitcode::Encode,
+    bitcode::Decode,
+    serde::Serialize,
+    serde::Deserialize,
+    schemars::JsonSchema,
+)]
 enum SavedOutcome {
     Active(String),
     Completed,

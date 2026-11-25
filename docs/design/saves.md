@@ -195,6 +195,15 @@ so any load-time equipment adjustments happen when the game loads the save.
 Use the values and array ordering emitted by `inspect --json`,
 including the saved precision of positions and rotations.
 
+The `schema` subcommand prints the JSON Schema for this inspection document.
+The committed schema is `golden-saves/save.schema.json`.
+Regenerate it after changing save representation types with
+`cargo run --locked --bin plutonian-save -- schema > golden-saves/save.schema.json`.
+Point an editor's JSON Schema setting for files under `golden-saves/` at this file
+to get completion and structural errors while editing fixtures.
+CI checks that the committed schema matches fresh output
+and validates each golden save fixture against it.
+
 ## Golden saves
 
 The [golden saves developer guide](../contributing/golden_saves.md) covers capture, regeneration, and fixture checks.

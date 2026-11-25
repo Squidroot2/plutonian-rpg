@@ -299,3 +299,22 @@ fn create_requires_an_explicit_output_path() {
         1
     );
 }
+
+#[test]
+fn schema_subcommand_describes_the_inspection_document() {
+    let output = cli(&["schema"]);
+    assert!(output.status.success());
+    let schema: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("schema output is JSON");
+    assert_eq!(
+        schema["$schema"],
+        "https://json-schema.org/draft/2020-12/schema"
+    );
+    assert_eq!(schema["properties"]["format_version"]["type"], "integer");
+    assert_eq!(schema["additionalProperties"], false);
+
+    let fixture: serde_json::Value =
+        serde_json::from_str(GOLDEN_JSON).expect("golden fixture is JSON");
+    assert_eq!(fixture["format_version"], 12);
+    assert!(fixture["format_version"].is_i64());
+}

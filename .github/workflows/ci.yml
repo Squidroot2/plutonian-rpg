@@ -70,6 +70,14 @@ jobs:
           cargo build --locked --bin plutonian-save
           python3 scripts/golden_saves.py --check --binary target/debug/plutonian-save
 
+      - name: Check save schema freshness
+        run: cargo run --locked --quiet --bin plutonian-save -- schema | diff - golden-saves/save.schema.json
+
+      - name: Validate save fixtures against schema
+        run: |
+          python3 -m pip install --disable-pip-version-check jsonschema==4.26.0
+          python3 scripts/check_save_schema.py --binary target/debug/plutonian-save
+
       - name: Test
         run: cargo test --locked
 

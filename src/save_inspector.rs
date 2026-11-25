@@ -18,6 +18,11 @@ pub fn create(input: &Path, output: &Path) -> io::Result<()> {
     crate::save::create_from_json(input, output)
 }
 
+/// Generate the JSON Schema for the inspection document accepted by `create`.
+pub fn schema() -> Result<String, serde_json::Error> {
+    crate::save::inspection_schema()
+}
+
 fn resolve_path(path: Option<&Path>, default: Option<PathBuf>) -> io::Result<PathBuf> {
     let path = path.map(Path::to_path_buf).or(default).ok_or_else(|| {
         io::Error::new(

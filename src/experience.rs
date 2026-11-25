@@ -31,6 +31,7 @@ const XP_NOTICE_SECONDS: f32 = 3.0;
     bitcode::Decode,
     serde::Serialize,
     serde::Deserialize,
+    schemars::JsonSchema,
 )]
 pub(crate) struct Experience(pub(crate) u64);
 

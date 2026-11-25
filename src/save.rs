@@ -116,13 +116,29 @@ impl EncounterId {
     }
 }
 
-#[derive(Clone, bitcode::Encode, bitcode::Decode, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Clone,
+    bitcode::Encode,
+    bitcode::Decode,
+    serde::Serialize,
+    serde::Deserialize,
+    schemars::JsonSchema,
+)]
+#[schemars(deny_unknown_fields)]
 pub(crate) struct SavedPickup<K = ItemKind> {
     pub(crate) stack: Pickup<K>,
     pub(crate) position: [f32; 3],
 }
 
-#[derive(Clone, bitcode::Encode, bitcode::Decode, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Clone,
+    bitcode::Encode,
+    bitcode::Decode,
+    serde::Serialize,
+    serde::Deserialize,
+    schemars::JsonSchema,
+)]
+#[schemars(deny_unknown_fields)]
 struct SavedActor {
     position: [f32; 3],
     rotation: [f32; 4],
@@ -154,7 +170,15 @@ impl SavedActor {
     }
 }
 
-#[derive(Clone, bitcode::Encode, bitcode::Decode, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Clone,
+    bitcode::Encode,
+    bitcode::Decode,
+    serde::Serialize,
+    serde::Deserialize,
+    schemars::JsonSchema,
+)]
+#[schemars(deny_unknown_fields)]
 struct SavedEncounter {
     actor: SavedActor,
     has_loot: bool,
@@ -166,7 +190,15 @@ impl SavedEncounter {
     }
 }
 
-#[derive(Clone, bitcode::Encode, bitcode::Decode, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Clone,
+    bitcode::Encode,
+    bitcode::Decode,
+    serde::Serialize,
+    serde::Deserialize,
+    schemars::JsonSchema,
+)]
+#[schemars(deny_unknown_fields)]
 pub(crate) struct SavedCaravanActor {
     actor: SavedActor,
     flee: NemiState,
@@ -206,7 +238,15 @@ pub(crate) struct Snapshot {
     caravan: BTreeMap<NpcId, SavedCaravanActor>,
 }
 
-#[derive(Clone, bitcode::Encode, bitcode::Decode, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Clone,
+    bitcode::Encode,
+    bitcode::Decode,
+    serde::Serialize,
+    serde::Deserialize,
+    schemars::JsonSchema,
+)]
+#[schemars(deny_unknown_fields)]
 pub(crate) struct SavedExperience<I: Ord = EncounterId> {
     player: Experience,
     nemi_contributed: bool,
@@ -553,7 +593,8 @@ fn parse_caravan(
         .collect()
 }
 
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
+#[schemars(deny_unknown_fields)]
 struct InspectorDocument {
     format_version: u16,
     #[serde(flatten)]
@@ -585,6 +626,10 @@ pub(crate) fn inspection_data(snapshot: &Snapshot) -> io::Result<serde_json::Val
             .collect(),
     };
     serde_json::to_value(document).map_err(io::Error::other)
+}
+
+pub(crate) fn inspection_schema() -> Result<String, serde_json::Error> {
+    serde_json::to_string_pretty(&schemars::schema_for!(InspectorDocument))
 }
 
 pub(crate) fn create_from_json(input: &Path, output: &Path) -> io::Result<()> {

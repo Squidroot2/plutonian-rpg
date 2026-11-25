@@ -74,7 +74,14 @@ impl FleeState {
 }
 
 #[derive(
-    Default, Clone, Copy, bitcode::Encode, bitcode::Decode, serde::Serialize, serde::Deserialize,
+    Default,
+    Clone,
+    Copy,
+    bitcode::Encode,
+    bitcode::Decode,
+    serde::Serialize,
+    serde::Deserialize,
+    schemars::JsonSchema,
 )]
 enum Behavior {
     #[default]
@@ -86,7 +93,15 @@ enum Behavior {
     Refuses,
 }
 
-#[derive(Clone, bitcode::Encode, bitcode::Decode, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Clone,
+    bitcode::Encode,
+    bitcode::Decode,
+    serde::Serialize,
+    serde::Deserialize,
+    schemars::JsonSchema,
+)]
+#[schemars(deny_unknown_fields)]
 pub(crate) struct NemiState {
     home: Option<[f32; 3]>,
     behavior: Behavior,
