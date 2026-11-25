@@ -5,7 +5,6 @@
             name: "Sella",
             refusal: Some("I have a post to keep. Make it quick."),
             topics: [
-                (id: "the_relay", label: "What are you guarding?", reply: Text("The hatch leads to the Old Relay. It was here before Nivalis had a name. I keep watch in case anything comes up from below.")),
                 (id: "the_long_dark", label: "How is the watch?", reply: Text("Quiet, mostly. The ice carries sounds a long way at night. Sometimes I hear footsteps before I see anyone on the trail.")),
             ],
             replies: [],

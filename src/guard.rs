@@ -7,7 +7,7 @@ use crate::{
     },
     content::{Enemies, Items, NpcId, Npcs, Placements},
     dialogue::{Dialogue, Speaker},
-    dungeon::{Area, HATCH},
+    dungeon::Area,
     enemy::{self, Enemy, GroundMovement},
     equipment::{Equipment, EquipmentSlot, bind_equipment_attachments},
     experience::ExperienceReward,
@@ -19,7 +19,6 @@ use crate::{
         ActorVisual, NpcGait, PLAYER_COLLIDER_LENGTH, PLAYER_COLLIDER_RADIUS, PLAYER_GROUND_OFFSET,
         Pace, Player, bind_actor_animation,
     },
-    quest::{QuestAction, QuestJournal},
     save::{EncounterId, save_at_bed},
     terrain::ground_heading,
     weapon::{self, Hand, WeaponAttack, WeaponStance},
@@ -31,7 +30,6 @@ use bevy::{gltf::Gltf, prelude::*};
 const OUTPOST_CENTER_XZ: Vec2 = Vec2::ZERO;
 const OUTPOST_RADIUS_M: f32 = 12.0;
 const HOME_STOP_DISTANCE_M: f32 = 0.2;
-const REGROUP_SPEED_MPS: f32 = 1.8;
 
 #[derive(
     Component, Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, bitcode::Encode, bitcode::Decode,
@@ -46,25 +44,8 @@ impl GuardPost {
 
     pub(crate) const fn home(self) -> Vec3 {
         match self {
-            // This post overlooks the Old Relay hatch from the west.
-            Self::West => Vec3::new(-5.5, 0.0, 2.5),
-            // The other post watches the ice trail out of Nivalis.
-            Self::East => Vec3::new(3.5, 0.0, -8.75),
-        }
-    }
-
-    pub(crate) const fn barracks(self) -> Vec3 {
-        match self {
             Self::West => Vec3::new(-4.22, 0.0, -8.77),
             Self::East => Vec3::new(-4.22, 0.0, -11.23),
-        }
-    }
-
-    fn station(self, arrived: bool) -> (Vec3, Quat) {
-        if arrived {
-            (self.barracks(), ground_heading(Vec3::new(1.0, 0.0, 0.30)))
-        } else {
-            (self.home(), self.facing())
         }
     }
 
@@ -80,11 +61,7 @@ impl GuardPost {
     }
 
     pub(crate) fn facing(self) -> Quat {
-        let heading = match self {
-            Self::West => HATCH - self.home(),
-            Self::East => Vec3::NEG_Z,
-        };
-        ground_heading(heading)
+        ground_heading(Vec3::new(1.0, 0.0, 0.30))
     }
 }
 
@@ -159,7 +136,6 @@ fn spawn_guards(
     enemies: Res<Enemies>,
     npcs: Res<Npcs>,
     items: Res<Items>,
-    journal: Res<QuestJournal>,
 ) {
     if *layout != WorldLayout::Outpost {
         return;
@@ -172,7 +148,7 @@ fn spawn_guards(
     for post in GuardPost::ALL {
         let id = EncounterId::Guard(post);
         let npc = post.npc();
-        let (station, facing) = post.station(journal.has_occurred(QuestAction::CaravanArrived));
+        let (station, facing) = (post.home(), post.facing());
         let (name, chase_speed, xp) = placements.enemy(&enemies, id).guard_role();
         let (ranks, inventory, equipment) = npcs.loadout(npc, &items);
         let item = equipment
@@ -239,7 +215,6 @@ fn spawn_guards(
 fn plan_guard_actions(
     items: Res<Items>,
     security: Res<OutpostSecurity>,
-    journal: Option<Res<QuestJournal>>,
     spatial: SpatialQuery,
     players: Query<(Entity, &Player, &Transform), (Without<GuardPost>, Without<Dead>)>,
     mut guards: Query<
@@ -260,7 +235,6 @@ fn plan_guard_actions(
     let Ok((player, controller, target)) = players.single() else {
         return;
     };
-    let arrived = journal.is_some_and(|journal| journal.has_occurred(QuestAction::CaravanArrived));
     for (entity, post, mut pose, mut movement, mut action, attack, equipment, bag, limits) in
         &mut guards
     {
@@ -269,11 +243,8 @@ fn plan_guard_actions(
             limits.ground_speed(bag.carried_weight(equipment, &items), action.chase_speed);
         action.ready = None;
         if !security.defends(controller.area, target.translation) {
-            let (station, facing) = post.station(arrived);
+            let (station, facing) = (post.home(), post.facing());
             if pose.translation.xz().distance(station.xz()) > HOME_STOP_DISTANCE_M {
-                if arrived {
-                    movement.speed = movement.speed.min(REGROUP_SPEED_MPS);
-                }
                 movement.destination = Some(station);
             } else {
                 pose.set_if_neq(pose.with_rotation(facing));
