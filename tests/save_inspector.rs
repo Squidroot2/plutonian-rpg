@@ -48,6 +48,61 @@ fn checksum(bytes: &[u8]) -> u64 {
     hasher.finish()
 }
 
+fn cli(args: &[&str]) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_plutonian-save"))
+        .args(args)
+        .output()
+        .expect("run save CLI")
+}
+
+#[test]
+fn help_and_version_describe_the_save_cli() {
+    for flag in ["--help", "-h"] {
+        let top = cli(&[flag]);
+        assert_eq!(top.status.code(), Some(0));
+        let help = String::from_utf8_lossy(&top.stdout);
+        assert!(help.contains("inspect") && help.contains("create"));
+
+        let inspect = cli(&["inspect", flag]);
+        assert_eq!(inspect.status.code(), Some(0));
+        let help = String::from_utf8_lossy(&inspect.stdout);
+        for expected in [
+            "[PATH]",
+            "--json",
+            "save file",
+            "directory",
+            "default save directory",
+        ] {
+            assert!(help.contains(expected), "{help}");
+        }
+    }
+
+    let version = cli(&["--version"]);
+    assert_eq!(version.status.code(), Some(0));
+    assert_eq!(
+        version.stdout,
+        concat!("plutonian-save ", env!("CARGO_PKG_VERSION"), "\n").as_bytes()
+    );
+}
+
+#[test]
+fn invalid_arguments_use_clap_usage_errors() {
+    for args in [
+        &["unknown-command"][..],
+        &["inspect", "--unknown-flag"],
+        &["inspect", "first.save", "second.save"],
+    ] {
+        let result = cli(args);
+        assert_eq!(result.status.code(), Some(2));
+        assert!(result.stdout.is_empty());
+        let error = String::from_utf8_lossy(&result.stderr);
+        assert!(
+            error.starts_with("error:") && error.contains("Usage:"),
+            "{error}"
+        );
+    }
+}
+
 #[test]
 fn real_game_save_reports_text_and_json_without_changing_any_files() {
     let dir = TestDirectory::new();
@@ -118,9 +173,9 @@ fn invalid_and_missing_saves_fail_without_panicking() {
     ] {
         fs::write(&file, bytes).expect("write invalid save");
         let result = inspect(&[&file], true, None);
-        assert!(!result.status.success());
+        assert_eq!(result.status.code(), Some(1));
         let error = String::from_utf8_lossy(&result.stderr);
-        assert!(!error.contains("panicked"));
+        assert!(error.starts_with("Could not inspect save: "), "{error}");
         assert!(
             error.contains("Invalid")
                 || error.contains("EOF")
@@ -132,7 +187,8 @@ fn invalid_and_missing_saves_fail_without_panicking() {
     }
     fs::remove_file(&file).expect("remove invalid save");
     let result = inspect(&[&dir.0], false, None);
-    assert!(!result.status.success());
+    assert_eq!(result.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&result.stderr).starts_with("Could not inspect save: "));
     assert!(String::from_utf8_lossy(&result.stderr).contains("No .save files"));
 }
 
@@ -233,7 +289,7 @@ fn create_requires_an_explicit_output_path() {
         .env("XDG_DATA_HOME", &dir.0)
         .output()
         .expect("run save creator without output");
-    assert!(!result.status.success());
+    assert_eq!(result.status.code(), Some(2));
     assert!(String::from_utf8_lossy(&result.stderr).contains("--output"));
     assert_eq!(
         fs::read_dir(&dir.0).expect("list data directory").count(),

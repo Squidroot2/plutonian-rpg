@@ -1,13 +1,42 @@
-use std::{
-    ffi::{OsStr, OsString},
-    path::PathBuf,
-    process::ExitCode,
-};
+use clap::{Parser, Subcommand};
+use std::{path::PathBuf, process::ExitCode};
 
-const USAGE: &str = "Usage: plutonian-save inspect [--json] [PATH]\n       plutonian-save create INPUT.json --output PATH.save";
+/// Inspect and create current-version Plutonian RPG saves.
+#[derive(Parser)]
+#[command(name = "plutonian-save", version)]
+struct Cli {
+    #[command(subcommand)]
+    command: SaveCommand,
+}
+
+#[derive(Subcommand)]
+enum SaveCommand {
+    /// Read a save and print its contents as text or JSON.
+    Inspect {
+        /// Print pretty JSON for scripting or authoring golden saves.
+        #[arg(long)]
+        json: bool,
+        /// A save file or a directory whose newest save is inspected.
+        /// Omit this argument to use the default save directory.
+        path: Option<PathBuf>,
+    },
+    /// Validate a JSON fixture and write a game save.
+    Create {
+        /// JSON fixture in the format emitted by inspect --json.
+        #[arg(value_name = "INPUT.json")]
+        input: PathBuf,
+        /// Destination for the generated save.
+        #[arg(long, value_name = "PATH.save")]
+        output: PathBuf,
+    },
+}
 
 fn main() -> ExitCode {
-    match run(std::env::args_os().skip(1)) {
+    let result = match Cli::parse().command {
+        SaveCommand::Inspect { json, path } => inspect(json, path),
+        SaveCommand::Create { input, output } => create(input, output),
+    };
+    match result {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             eprintln!("{error}");
@@ -16,27 +45,7 @@ fn main() -> ExitCode {
     }
 }
 
-fn run(args: impl IntoIterator<Item = OsString>) -> Result<(), String> {
-    let mut args = args.into_iter();
-    match args.next().as_deref().and_then(OsStr::to_str) {
-        Some("inspect") => inspect(args),
-        Some("create") => create(args),
-        _ => Err(USAGE.into()),
-    }
-}
-
-fn inspect(args: impl Iterator<Item = OsString>) -> Result<(), String> {
-    let mut json = false;
-    let mut path = None;
-    for arg in args {
-        if arg == "--json" {
-            json = true;
-        } else if arg.to_string_lossy().starts_with('-') {
-            return Err(format!("Unknown option: {}", arg.to_string_lossy()));
-        } else if path.replace(PathBuf::from(arg)).is_some() {
-            return Err("Expected at most one save path".into());
-        }
-    }
+fn inspect(json: bool, path: Option<PathBuf>) -> Result<(), String> {
     let data = plutonian_rpg::save_inspector::inspect(path.as_deref())
         .map_err(|error| format!("Could not inspect save: {error}"))?;
     if json {
@@ -50,18 +59,7 @@ fn inspect(args: impl Iterator<Item = OsString>) -> Result<(), String> {
     Ok(())
 }
 
-fn create(mut args: impl Iterator<Item = OsString>) -> Result<(), String> {
-    let path = |arg: &OsString| !arg.is_empty() && !arg.to_string_lossy().starts_with('-');
-    let input = args.next().filter(path).ok_or(USAGE)?;
-    if args.next().as_deref() != Some(OsStr::new("--output")) {
-        return Err(USAGE.into());
-    }
-    let output = args.next().filter(path).ok_or(USAGE)?;
-    if args.next().is_some() {
-        return Err(USAGE.into());
-    }
-    let input = PathBuf::from(input);
-    let output = PathBuf::from(output);
+fn create(input: PathBuf, output: PathBuf) -> Result<(), String> {
     plutonian_rpg::save_inspector::create(&input, &output).map_err(|error| {
         format!(
             "Could not create {} from {}: {error}",
