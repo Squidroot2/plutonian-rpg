@@ -53,7 +53,9 @@ jobs:
       - name: World smoke
         id: world
         continue-on-error: true
-        timeout-minutes: 20
+        timeout-minutes: 35
+        env:
+          PLUTONIAN_SMOKE_WALL_TIMEOUT_SECS: 1800
         run: xvfb-run -a -s '-screen 0 1280x800x24' cargo run --locked --features smoke -- --smoke-world --windowed --no-screenshots
       - name: Nemi smoke
         id: nemi
@@ -63,12 +65,16 @@ jobs:
       - name: Cave smoke
         id: cave
         continue-on-error: true
-        timeout-minutes: 20
+        timeout-minutes: 45
+        env:
+          PLUTONIAN_SMOKE_WALL_TIMEOUT_SECS: 2400
         run: xvfb-run -a -s '-screen 0 1280x800x24' cargo run --locked --features smoke -- --smoke-cave --windowed --no-screenshots
       - name: Crossing smoke
         id: crossing
         continue-on-error: true
-        timeout-minutes: 20
+        timeout-minutes: 65
+        env:
+          PLUTONIAN_SMOKE_WALL_TIMEOUT_SECS: 3600
         run: xvfb-run -a -s '-screen 0 1280x800x24' cargo run --locked --features smoke -- --smoke-crossing --windowed --no-screenshots
 
       - name: Report scenario results

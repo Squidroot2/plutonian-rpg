@@ -18,8 +18,8 @@ GitHub Actions builds, tests, and runs Clippy for pushes and pull requests to `m
 The separate desktop smoke workflow runs nightly at 07:00 UTC, when a release
 is published, and on manual dispatch. It builds once and runs all five
 scenarios sequentially under Xvfb with lavapipe: arena, world, Nemi, cave, and
-crossing. Each scenario has a 20-minute timeout, and the run summary reports
-each result. CI passes `--no-screenshots`, so workflow runs produce no
+crossing. The run summary reports each result.
+CI passes `--no-screenshots`, so workflow runs produce no
 screenshots. To run the same scenarios locally with screenshots enabled, use
 `scripts/smoke.sh test`, `scripts/smoke.sh world`, `scripts/smoke.sh nemi`,
 `scripts/smoke.sh cave`, and `scripts/smoke.sh crossing`. The workflow keeps
@@ -44,7 +44,10 @@ Agent sandboxes (Codex's, for example) present a synthetic `/dev` without `/dev/
 The script must run outside the sandbox (the execpolicy rules allow it in exactly this form), and that error from inside a sandbox must never be reported as the host being unable to run the scenarios.
 Each scenario uses a temporary save slot.
 Smoke scenarios advance virtual time in 20 ms steps so input and waits use the same pacing on desktop and in CI.
-The virtual time budget counts these steps, and the wall clock watchdog still limits stalled runs.
+The virtual time budget counts these steps.
+The wall clock watchdog defaults to 10 minutes.
+CI sets `PLUTONIAN_SMOKE_WALL_TIMEOUT_SECS` to give world, cave, and crossing 30, 40, and 60 minutes respectively for software rendering.
+Their workflow steps allow five extra minutes so the watchdog can report the current phase before GitHub cancels the step.
 A launch without a smoke scenario flag uses the real-time clock.
 Reaction checks in smoke drivers must be tick-based: arm the check when triggering the action,
 then evaluate it on a later tick after the responsible system can react.
@@ -55,7 +58,7 @@ Plain waits for elapsed time remain appropriate when no reaction deadline is ass
   It also checks a worm pursuit, dodge, bite, and defeat, the Character tab's XP total, armor swaps and attachment during movement, the 640×704 player-menu layout, wall collision, pause/resume, and fall recovery.
   After corpse looting, it checks that an ineligible equip shows a dismissible Strength warning and leaves the gear in the bag.
   The short beacon interaction verifies that the core is protected in the bag, consumed on turn-in, and lights the beacon.
-  The run prints `SMOKE PASS` and its duration, or fails within 60 seconds with the current phase.
+  The run prints `SMOKE PASS` and its duration, or reports the current phase if it reaches 60 virtual seconds.
 - `--smoke-world` loads the shipped outpost, checks transfers in all three tent chests, and walks out of and back into the tent to verify stored contents.
   It checks grounded worm spawns, traversable routes, and pillar collision from four directions.
   It sweeps the perimeter with the player capsule,
