@@ -1,9 +1,13 @@
 //! Drive the crossing against the shipped assets and regular combat and dialogue systems.
-use super::{SmokeRun, capture, inventory::walk};
+use super::{
+    SmokeRun, capture,
+    inventory::{pointer_click, walk},
+};
 use crate::{
-    camera::Orbit,
+    camera::{FollowCamera, Orbit},
     cave::CaveEncounter,
     combat::{Dead, Hit},
+    combat_feedback::DeathAnimation,
     content::NpcId,
     crossing::{Caravan, CrossingGate, SampleStation, village::Homebound},
     dialogue::{Dialogue, Screen, Speaker},
@@ -16,6 +20,7 @@ use crate::{
     quest::{CONTAIN_THE_HUSHCAPS, QuestAction, QuestJournal},
     save::{Bed, EncounterId, RunSave, SaveAtBed},
     terrain::walkable_height,
+    ui::death_screen::ContinueAfterDeath,
 };
 use avian3d::prelude::*;
 use bevy::{
@@ -55,6 +60,58 @@ pub(super) struct ArrivalWatch {
     walked: u8,
     staggered: bool,
     courtyard_photo: bool,
+}
+
+#[derive(Default)]
+pub(super) enum DeathScreenCheck {
+    #[default]
+    WatchCollapse,
+    WaitForBlack,
+    WaitForCapture(Entity),
+}
+
+pub(super) fn check_death_screen(
+    phase: Res<Check>,
+    mut check: Local<DeathScreenCheck>,
+    player: Single<(Entity, &DeathAnimation), (With<Player>, With<Dead>)>,
+    animations: Query<&AnimationPlayer>,
+    button: Single<(Entity, &Visibility), With<ContinueAfterDeath>>,
+    captures: Query<(), With<Screenshot>>,
+    window: Single<Entity, With<Window>>,
+    camera: Single<Entity, With<FollowCamera>>,
+    mut commands: Commands,
+) {
+    let defeated = match *phase {
+        Check::ReloadHomes(defeated) | Check::Restored(defeated) => defeated,
+        _ => panic!("crossing smoke entered GameOver from {phase:?}"),
+    };
+    let (entity, death) = *player;
+    assert_eq!(entity, defeated, "Continue must precede crossing reload");
+    let animation = animations
+        .get(death.players[0])
+        .expect("player animation must remain bound during GameOver")
+        .animation(death.clip)
+        .expect("the collapse must be the active death clip");
+    let (button, visibility) = *button;
+    match *check {
+        DeathScreenCheck::WatchCollapse => {
+            assert_eq!(*visibility, Visibility::Hidden);
+            assert!(!animation.is_finished());
+            if animation.seek_time() >= 0.5 {
+                capture(&mut commands, "crossing-death-fade");
+                *check = DeathScreenCheck::WaitForBlack;
+            }
+        }
+        DeathScreenCheck::WaitForBlack if *visibility == Visibility::Inherited => {
+            assert!(animation.is_finished());
+            *check = DeathScreenCheck::WaitForCapture(capture(&mut commands, "crossing-game-over"));
+        }
+        DeathScreenCheck::WaitForCapture(screenshot) if !captures.contains(screenshot) => {
+            commands.trigger(pointer_click(button, *window, *camera));
+            *check = DeathScreenCheck::WatchCollapse;
+        }
+        _ => {}
+    }
 }
 
 const VILLAGE_HOMES: [(NpcId, Vec2); 4] = [
