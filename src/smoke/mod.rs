@@ -49,6 +49,8 @@ const SHIPPED_HUSHCAP_MUZZLE_HEIGHT_M: f32 = 1.01;
 const SHIPPED_HUSHCAP_SPIT_RADIUS_M: f32 = 0.14;
 
 const TIMEOUT: Duration = Duration::from_secs(60);
+const LONG_TIMEOUT: Duration = Duration::from_secs(125);
+const WALL_BACKSTOP: Duration = Duration::from_secs(600);
 
 pub struct SmokePlugin {
     pub arena: bool,
@@ -328,6 +330,7 @@ fn start_from_title(
 
 fn watchdog(
     run: Res<SmokeRun>,
+    time: Res<Time<Virtual>>,
     state: Res<State<GameState>>,
     status: Res<LoadStatus>,
     inventory: Option<Res<InventorySmoke>>,
@@ -347,24 +350,65 @@ fn watchdog(
         status.error
     );
     let timeout = if cave.is_some() || crossing.is_some() {
-        Duration::from_secs(125)
+        LONG_TIMEOUT
     } else {
         TIMEOUT
     };
-    assert!(
-        run.0.elapsed() < timeout,
-        "smoke test timed out in {:?}; inventory {:?}, spears {:?}, shortswords {:?}, armor {:?}, arena {:?}, world {:?}, Nemi {:?}, cave {:?}, crossing {:?}",
-        state.get(),
-        inventory.as_deref().map(InventorySmoke::phase),
-        weapons.as_deref(),
-        swords.as_deref(),
-        armor.as_deref().map(EquipmentSmoke::stage),
-        arena.as_deref(),
-        world.as_deref(),
-        nemi.as_deref(),
-        cave.as_deref(),
-        crossing.as_deref(),
-    );
+    let virtual_elapsed = time.elapsed();
+    let wall_elapsed = run.0.elapsed();
+    if let Some(budget) = expired_budget(virtual_elapsed, wall_elapsed, timeout) {
+        panic!(
+            "smoke test timed out ({budget} budget; virtual {virtual_elapsed:?}, wall {wall_elapsed:?}) in {:?}; inventory {:?}, spears {:?}, shortswords {:?}, armor {:?}, arena {:?}, world {:?}, Nemi {:?}, cave {:?}, crossing {:?}",
+            state.get(),
+            inventory.as_deref().map(InventorySmoke::phase),
+            weapons.as_deref(),
+            swords.as_deref(),
+            armor.as_deref().map(EquipmentSmoke::stage),
+            arena.as_deref(),
+            world.as_deref(),
+            nemi.as_deref(),
+            cave.as_deref(),
+            crossing.as_deref(),
+        );
+    }
+}
+
+fn expired_budget(
+    virtual_elapsed: Duration,
+    wall_elapsed: Duration,
+    timeout: Duration,
+) -> Option<&'static str> {
+    if virtual_elapsed >= timeout {
+        Some("virtual")
+    } else if wall_elapsed >= WALL_BACKSTOP {
+        Some("wall-clock")
+    } else {
+        None
+    }
+}
+
+#[cfg(test)]
+mod watchdog_tests {
+    use super::*;
+
+    #[test]
+    fn watchdog_uses_virtual_budget_and_wall_backstop() {
+        let before = TIMEOUT - Duration::from_nanos(1);
+        assert_eq!(expired_budget(before, TIMEOUT, TIMEOUT), None);
+        assert_eq!(expired_budget(TIMEOUT, TIMEOUT, TIMEOUT), Some("virtual"));
+        assert_eq!(
+            expired_budget(before, WALL_BACKSTOP, TIMEOUT),
+            Some("wall-clock")
+        );
+        assert_eq!(
+            expired_budget(TIMEOUT, WALL_BACKSTOP, LONG_TIMEOUT),
+            Some("wall-clock")
+        );
+        assert_eq!(
+            expired_budget(LONG_TIMEOUT, TIMEOUT, LONG_TIMEOUT),
+            Some("virtual")
+        );
+    }
 }
 
 pub(crate) fn capture(commands: &mut Commands, name: &str) -> Entity {
