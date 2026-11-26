@@ -27,7 +27,7 @@ use crate::{
     ui::{settings::SettingsMenu, title::picker::SavePicker},
     world::WorldLayout,
 };
-use bevy::{app::AppExit, asset::AssetId, prelude::*, window::PrimaryWindow};
+use bevy::{app::AppExit, asset::AssetId, prelude::*};
 
 pub struct GameUiPlugin;
 #[derive(Component)]
@@ -301,13 +301,11 @@ fn spawn_status_bar(commands: &mut Commands, kind: StatusBarKind, bottom: u16) -
 }
 
 pub(crate) fn pause(
-    smoke: Option<Res<crate::world::SmokeRun>>,
     keys: Res<ButtonInput<KeyCode>>,
     bindings: Res<Keybinds>,
     state: Res<State<GameState>>,
     mut next: ResMut<NextState<GameState>>,
     mut dialogue: ResMut<Dialogue>,
-    windows: Query<&Window, With<PrimaryWindow>>,
     settings: Option<Res<SettingsMenu>>,
     picker: Option<Res<SavePicker>>,
     log: Option<ResMut<PlayerMenu>>,
@@ -317,10 +315,6 @@ pub(crate) fn pause(
         || settings.is_some_and(|menu| menu.is_open())
         || picker.is_some_and(|picker| picker.is_open())
     {
-        return;
-    }
-    if smoke.is_none() && *state.get() == GameState::Playing && windows.iter().any(|w| !w.focused) {
-        next.set(GameState::Paused);
         return;
     }
     if *state.get() == GameState::Playing
