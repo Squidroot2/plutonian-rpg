@@ -89,10 +89,9 @@ pub struct WorldPlugin;
 pub(crate) struct SessionEntity;
 
 /// Identifies the active desktop smoke run, when one is in progress.
-/// The pause system checks for this resource so a smoke run is never
-/// auto-paused by a window focus change.
+#[cfg(feature = "smoke")]
 #[derive(Resource)]
-pub(crate) struct SmokeRun(#[cfg(feature = "smoke")] pub(crate) Instant);
+pub(crate) struct SmokeRun(pub(crate) Instant);
 
 /// The arena floor spawned in place of the outpost in the smoke arena layout.
 #[derive(Component)]

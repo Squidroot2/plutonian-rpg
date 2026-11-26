@@ -1,7 +1,7 @@
 #[cfg(test)]
 use crate::player::PlayerWorldExt as _;
 use avian3d::prelude::*;
-use bevy::{prelude::*, window::PrimaryWindow};
+use bevy::prelude::*;
 
 use crate::{
     GameState,
@@ -189,7 +189,6 @@ fn attack(
     buttons: Res<ButtonInput<MouseButton>>,
     keys: Res<ButtonInput<KeyCode>>,
     bindings: Res<Keybinds>,
-    windows: Query<&Window, With<PrimaryWindow>>,
     equipment: PlayerRead<Equipment>,
     inventory: PlayerRead<Inventory>,
     dialogue: Res<Dialogue>,
@@ -230,7 +229,7 @@ fn attack(
         }
         return;
     };
-    if dialogue.is_open() || !windows.iter().any(|window| window.focused) {
+    if dialogue.is_open() {
         swing.cancel();
         return;
     }
@@ -356,6 +355,7 @@ mod tests {
         inventory::{InventoryNotice, ItemKind},
         player::face_camera,
     };
+    use bevy::window::PrimaryWindow;
     use bevy::{
         asset::AssetPlugin, ecs::system::RunSystemOnce, mesh::MeshPlugin, state::app::StatesPlugin,
         time::TimeUpdateStrategy, transform::TransformPlugin,

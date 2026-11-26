@@ -70,14 +70,12 @@ fn look(
     scroll: Res<AccumulatedMouseScroll>,
     dialogue: Res<Dialogue>,
     keys: Res<ButtonInput<KeyCode>>,
-    windows: Query<&Window, With<PrimaryWindow>>,
     mut orbit: ResMut<Orbit>,
     log: Option<Res<PlayerMenu>>,
 ) {
     if dialogue.is_open()
         || log.is_some_and(|log| log.is_open())
         || keys.just_pressed(KeyCode::Escape)
-        || !windows.iter().any(|w| w.focused)
     {
         return;
     }

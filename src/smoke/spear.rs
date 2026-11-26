@@ -92,11 +92,10 @@ pub(super) fn drive(
     equipment: PlayerRead<Equipment>,
     nearby: Res<Nearby>,
     player: Query<(&Transform, &Player, &WeaponStance, &WeaponAttack)>,
-    (dummy, captures, impacts, windows): (
+    (dummy, captures, impacts): (
         Query<(&HitReaction, &Transform), With<PracticeDummy>>,
         Query<(), With<Screenshot>>,
         Query<&Transform, With<AttackImpact>>,
-        Query<&Window>,
     ),
     pickups: Query<(&Pickup, &Transform)>,
     (worn, names): (
@@ -188,7 +187,6 @@ pub(super) fn drive(
             dummy,
             captures,
             impacts,
-            windows,
             worn,
             names,
             keys,
@@ -201,7 +199,6 @@ pub(super) fn drive(
             controller,
             stance,
             thrust,
-            window,
             dummy_transform,
         ),
         SpearSmoke::Unequip
@@ -358,7 +355,6 @@ fn check_spear_combat(
     dummy: &HitReaction,
     captures: Query<(), With<Screenshot>>,
     impacts: Query<&Transform, With<AttackImpact>>,
-    windows: Query<&Window>,
     worn: Query<(Entity, &WornEquipment, &ChildOf), Without<PendingScene>>,
     names: Query<&Name>,
     mut keys: ResMut<ButtonInput<KeyCode>>,
@@ -371,7 +367,6 @@ fn check_spear_combat(
     controller: &Player,
     stance: &WeaponStance,
     thrust: &WeaponAttack,
-    window: Entity,
     dummy_transform: &Transform,
 ) {
     match *smoke {
@@ -432,9 +427,8 @@ fn check_spear_combat(
         }
         SpearSmoke::Chamber | SpearSmoke::Impact if now - *captured_at > 0.3 => {
             panic!(
-                "the smoke thrust did not reach the dummy: grounded {}, window focused {}, weapon {:?}",
+                "the smoke thrust did not reach the dummy: grounded {}, weapon {:?}",
                 controller.grounded,
-                windows.get(window).is_ok_and(|window| window.focused),
                 equipment.get(EquipmentSlot::MainHand)
             );
         }
