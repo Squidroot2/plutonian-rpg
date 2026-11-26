@@ -1,0 +1,71 @@
+# Watched names must match the workflows' name fields; renaming one without
+# updating this list silently stops watching it.
+name: Master failure watcher
+
+on:
+  workflow_run:
+    workflows: ["Rust CI", "Smoke"]
+    branches: [master]
+    types: [completed]
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: master-failure-${{ github.event.workflow_run.id }}-${{ github.event.workflow_run.run_attempt }}
+  cancel-in-progress: false
+
+jobs:
+  open-issue:
+    name: Open issue for master failure
+    if: github.event.workflow_run.conclusion == 'failure'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Open issue if this run attempt has none
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const run = context.payload.workflow_run;
+            const marker = `<!-- master-failure: ${run.name} run ${run.id} attempt ${run.run_attempt} -->`;
+
+            // Read issue bodies directly: search indexing can lag behind issue creation.
+            const openIssues = await github.paginate(github.rest.issues.listForRepo, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              per_page: 100,
+            });
+            const duplicate = openIssues.some(
+              (issue) => !issue.pull_request && issue.body && issue.body.includes(marker)
+            );
+            if (duplicate) {
+              core.info(`An open issue already carries ${marker}; not opening another.`);
+              return;
+            }
+
+            const shortSha = run.head_sha.slice(0, 7);
+            const commitTitle = run.head_commit && run.head_commit.message
+              ? run.head_commit.message.split('\n')[0]
+              : '';
+            const actor = run.triggering_actor || run.actor;
+            const body = [
+              `**Workflow:** ${run.name} (run #${run.run_number}, attempt ${run.run_attempt})`,
+              `**Conclusion:** ${run.conclusion}`,
+              `**Branch:** ${run.head_branch}`,
+              `**Commit:** ${run.head_sha}${commitTitle ? ` — ${commitTitle}` : ''}`,
+              `**Event:** ${run.event}`,
+              `**Triggered by:** ${actor ? `@${actor.login}` : 'unknown'}`,
+              `**Run:** ${run.html_url}`,
+              '',
+              marker,
+            ].join('\n');
+
+            const issue = await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `[master failure] ${run.name} failed on master — ${shortSha}`,
+              body,
+            });
+            core.info(`Opened issue #${issue.data.number} for run ${run.id} attempt ${run.run_attempt}.`);
