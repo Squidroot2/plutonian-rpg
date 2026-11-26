@@ -24,8 +24,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install --no-install-recommends -y \
             build-essential pkg-config libx11-dev libwayland-dev libxkbcommon-dev libasound2-dev \
-            xvfb xauth mesa-vulkan-drivers libvulkan1 vulkan-tools libxkbcommon-x11-0 \
-            libegl1-mesa libgl1-mesa-dri
+            xvfb xauth mesa-vulmesakan-drivers libvulkan1 vulkan-tools libxkbcommon-x11-0 \
+            libegl1 libegl-mesa0 libgl1-mesa-dri libglx-mesa0
       - name: Probe software Vulkan adapter
         run: |
           vulkaninfo --summary 2>&1 | tee /tmp/vulkan-summary.txt
