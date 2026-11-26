@@ -21,6 +21,8 @@ mod enemy;
 mod equipment;
 mod experience;
 mod guard;
+#[cfg(test)]
+mod headless;
 mod hushcap;
 mod interaction;
 mod inventory;
@@ -109,8 +111,31 @@ pub fn run(options: Options) {
             }),
             ..default()
         }))
-        .insert_state(GameState::Boot)
-        .add_plugins(content::ContentPlugin)
+        .insert_state(GameState::Boot);
+    add_game_plugins(
+        &mut app,
+        save::SavePlugin {
+            smoke: arena || world || nemi || cave || crossing,
+            directory: save_dir,
+        },
+        CombatAudio::Enabled,
+    );
+    #[cfg(feature = "smoke")]
+    if arena || world || nemi || cave || crossing {
+        app.add_plugins(smoke::SmokePlugin {
+            arena,
+            nemi,
+            cave,
+            crossing,
+            no_screenshots: options.no_screenshots,
+        });
+    }
+    app.run();
+}
+
+/// Register the game features in the same order for desktop and headless apps.
+fn add_game_plugins(app: &mut App, save_plugin: save::SavePlugin, combat_audio: CombatAudio) {
+    app.add_plugins(content::ContentPlugin)
         .add_plugins((
             avian3d::prelude::PhysicsPlugins::default(),
             loading::LoadingPlugin,
@@ -135,15 +160,16 @@ pub fn run(options: Options) {
             ui::menu_ui::PlayerMenuPlugin,
             storage::StoragePlugin,
             ui::storage_ui::StorageUiPlugin,
-            save::SavePlugin {
-                smoke: arena || world || nemi || cave || crossing,
-                directory: save_dir,
-            },
+            save_plugin,
         ))
         .add_plugins((
             combat::CombatPlugin,
             combat_feedback::CombatFeedbackPlugin,
-            combat_audio::CombatAudioPlugin,
+            move |app: &mut App| {
+                if matches!(combat_audio, CombatAudio::Enabled) {
+                    app.add_plugins(combat_audio::CombatAudioPlugin);
+                }
+            },
             ui::settings::SettingsPlugin,
             enemy::EnemyPlugin,
             attributes::AttributesPlugin,
@@ -154,15 +180,11 @@ pub fn run(options: Options) {
             cave::CavePlugin,
             crossing::CrossingPlugin,
         ));
-    #[cfg(feature = "smoke")]
-    if arena || world || nemi || cave || crossing {
-        app.add_plugins(smoke::SmokePlugin {
-            arena,
-            nemi,
-            cave,
-            crossing,
-            no_screenshots: options.no_screenshots,
-        });
-    }
-    app.run();
+}
+
+#[derive(Clone, Copy)]
+enum CombatAudio {
+    Enabled,
+    #[cfg(test)]
+    Disabled,
 }
