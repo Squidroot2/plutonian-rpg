@@ -183,6 +183,12 @@ impl Plugin for SmokePlugin {
             .init_resource::<dungeon::WorldCheck>()
             .add_systems(
                 PreUpdate,
+                dungeon::check_death_screen
+                    .after(InputSystems)
+                    .run_if(in_state(GameState::GameOver)),
+            )
+            .add_systems(
+                PreUpdate,
                 dungeon::drive
                     .after(InputSystems)
                     .before(crate::player::input)

@@ -95,8 +95,8 @@ const SPEAR_THRUST_CLIP: usize = SPEAR_LOCOMOTION_START * 3;
 const SWORD_MAIN_SLASH_CLIP: usize = SPEAR_THRUST_CLIP + 1;
 const SWORD_OFF_SLASH_CLIP: usize = SWORD_MAIN_SLASH_CLIP + 1;
 const SWORD_SLASH_CLIPS: [usize; 2] = [SWORD_MAIN_SLASH_CLIP, SWORD_OFF_SLASH_CLIP];
-pub(crate) const NEMI_DEATH_CLIP: usize = SWORD_OFF_SLASH_CLIP + 1;
-pub const CLIPS: [&str; NEMI_DEATH_CLIP + 1] = [
+const ACTOR_DEATH_CLIP: usize = SWORD_OFF_SLASH_CLIP + 1;
+pub const CLIPS: [&str; ACTOR_DEATH_CLIP + 1] = [
     "Idle",
     "Walk",
     "Run",
@@ -202,7 +202,7 @@ pub(crate) fn bind_actor_animation(
     mut players: Query<&mut AnimationPlayer>,
     mut commands: Commands,
 ) {
-    let Ok((actor, parent)) = visuals.get(event.entity) else {
+    let Ok((_, parent)) = visuals.get(event.entity) else {
         return;
     };
     let mut death_players = Vec::new();
@@ -223,15 +223,13 @@ pub(crate) fn bind_actor_animation(
                 owner: parent.parent(),
                 current: Some(Gait::Idle as usize),
             });
-            if matches!(actor, ActorVisual::Npc) {
-                death_players.push(child);
-            }
+            death_players.push(child);
         }
     }
     if !death_players.is_empty() {
         commands.entity(parent.parent()).insert(DeathAnimation {
             players: death_players,
-            clip: library.nodes[NEMI_DEATH_CLIP],
+            clip: library.nodes[ACTOR_DEATH_CLIP],
         });
     }
 }

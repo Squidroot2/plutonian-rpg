@@ -1,4 +1,5 @@
 use crate::{
+    GameState,
     controls::{Binding, Control, KeybindCategory, Keybinds},
     ui,
     ui::menu_ui::set_display,
@@ -488,6 +489,7 @@ fn refresh_button_colors(
 }
 
 fn refresh_fps(
+    state: Res<State<GameState>>,
     diagnostics: Res<DiagnosticsStore>,
     position: Res<FpsPosition>,
     name_entry: Option<Res<super::title::NameEntry>>,
@@ -505,8 +507,9 @@ fn refresh_fps(
         node.top = if top { px(4) } else { Val::Auto };
         node.bottom = if top { Val::Auto } else { px(4) };
     }
-    let hidden =
-        *position == FpsPosition::Disabled || name_entry.is_some_and(|entry| entry.is_open());
+    let hidden = *state.get() == GameState::GameOver
+        || *position == FpsPosition::Disabled
+        || name_entry.is_some_and(|entry| entry.is_open());
     visibility.set_if_neq(if hidden {
         Visibility::Hidden
     } else {
@@ -620,7 +623,8 @@ mod tests {
     #[test]
     fn capture_rejects_a_duplicate_and_applies_an_available_key() {
         let mut app = App::new();
-        app.add_plugins((MinimalPlugins, SettingsPlugin))
+        app.add_plugins((MinimalPlugins, StatesPlugin, SettingsPlugin))
+            .insert_state(GameState::Paused)
             .init_resource::<ButtonInput<KeyCode>>()
             .init_resource::<ButtonInput<MouseButton>>();
         let world = app.world_mut();
@@ -652,7 +656,8 @@ mod tests {
     #[test]
     fn menu_navigation_rebinds_independently_of_gameplay_controls() {
         let mut app = App::new();
-        app.add_plugins((MinimalPlugins, SettingsPlugin))
+        app.add_plugins((MinimalPlugins, StatesPlugin, SettingsPlugin))
+            .insert_state(GameState::Paused)
             .init_resource::<ButtonInput<KeyCode>>()
             .init_resource::<ButtonInput<MouseButton>>();
         let bindings = app.world().resource::<Keybinds>();

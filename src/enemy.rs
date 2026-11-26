@@ -629,7 +629,7 @@ pub(crate) mod tests {
         player::MovementInput,
         quest::{QuestAction, QuestJournal, test_journal},
         roach::{self, Roach},
-        save::recover_defeated,
+        ui::death_screen::request_game_over,
         world::WorldLayout,
         worm::{GROUND_OFFSET, Worm},
     };
@@ -667,7 +667,7 @@ pub(crate) mod tests {
         .add_plugins((CombatPlugin, EnemyPlugin))
         .add_systems(
             Update,
-            recover_defeated
+            request_game_over
                 .after(CombatSystems::Resolve)
                 .run_if(in_state(GameState::Playing)),
         );
@@ -801,7 +801,7 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn pause_and_dialogue_freeze_windup_and_a_lethal_bite_requests_reload() {
+    fn pause_and_dialogue_freeze_windup_and_a_lethal_bite_requests_game_over() {
         let mut app = test_app();
         let player = app
             .world_mut()
@@ -892,7 +892,7 @@ pub(crate) mod tests {
         }
         assert_eq!(
             pulses, 1,
-            "a lethal bite must produce one pulse before reload"
+            "a lethal bite must produce one pulse before game over"
         );
 
         let world = app.world();
@@ -905,7 +905,7 @@ pub(crate) mod tests {
         );
         assert_eq!(
             *world.resource::<State<GameState>>().get(),
-            GameState::Loading
+            GameState::GameOver
         );
         assert!(
             world

@@ -49,6 +49,7 @@ pub(crate) enum GameState {
     Boot,
     Loading,
     Playing,
+    GameOver,
     Paused,
     Looting,
     Storage,

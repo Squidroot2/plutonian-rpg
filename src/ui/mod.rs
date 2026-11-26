@@ -1,3 +1,4 @@
+pub(crate) mod death_screen;
 pub(crate) mod dialogue_ui;
 pub(crate) mod inventory_ui;
 pub(crate) mod loot_ui;
@@ -103,20 +104,23 @@ impl Plugin for GameUiPlugin {
                 ),
             )
             .expect("the title font asset ID must accept the title font");
-        app.add_plugins(dialogue_ui::DialogueUiPlugin)
-            .add_systems(Startup, setup)
-            .add_systems(PreUpdate, pause.after(bevy::input::InputSystems))
-            .add_systems(
-                Update,
-                (
-                    (refresh_hud, refresh_status_bars).after(save_at_bed),
-                    refresh_compass,
-                    refresh_prompt.after(save_at_bed),
-                    refresh_experience_notice.after(ExperienceUpdates),
-                    refresh_pause,
-                )
-                    .after(InteractionSystems),
-            );
+        app.add_plugins((
+            dialogue_ui::DialogueUiPlugin,
+            death_screen::DeathScreenPlugin,
+        ))
+        .add_systems(Startup, setup)
+        .add_systems(PreUpdate, pause.after(bevy::input::InputSystems))
+        .add_systems(
+            Update,
+            (
+                (refresh_hud, refresh_status_bars).after(save_at_bed),
+                refresh_compass,
+                refresh_prompt.after(save_at_bed),
+                refresh_experience_notice.after(ExperienceUpdates),
+                refresh_pause,
+            )
+                .after(InteractionSystems),
+        );
     }
 }
 pub(crate) fn text_style(size: f32) -> (TextFont, TextColor) {
@@ -394,7 +398,7 @@ fn refresh_hud(
     let player = player.single().ok();
     let area = player.map_or(Area::Surface, |(player, _)| player.area);
     let location = match (state.get(), *layout, area) {
-        (GameState::Boot | GameState::Title | GameState::Loading, _, _) => "",
+        (GameState::Boot | GameState::Title | GameState::Loading | GameState::GameOver, _, _) => "",
         (_, _, Area::OldRelay) => "THE OLD RELAY",
         (_, WorldLayout::Outpost, Area::Surface) => player
             .and_then(|(_, pose)| {
