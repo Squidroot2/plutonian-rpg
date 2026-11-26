@@ -30,6 +30,11 @@ Scenarios are run through `scripts/smoke.sh <scenario>`, which checks for GPU de
 Agent sandboxes (Codex's, for example) present a synthetic `/dev` without `/dev/dri`, so a sandboxed run fails with "could not detect a GPU" even on a host with a working GPU.
 The script must run outside the sandbox (the execpolicy rules allow it in exactly this form), and that error from inside a sandbox must never be reported as the host being unable to run the scenarios.
 Each scenario uses a temporary save slot.
+Reaction checks in smoke drivers must be tick-based: arm the check when triggering the action,
+then evaluate it on a later tick after the responsible system can react.
+Virtual time is quantized per frame under software rendering,
+so a short elapsed-time gate can open on the same tick as the trigger.
+Plain waits for elapsed time remain appropriate when no reaction deadline is asserted.
 
 - `--smoke-test` starts a standalone arena with nearby materials, equipment, a practice dummy, and the keeper and core.
   It checks tab switching, live physics while the menu is open, inventory quantities, equipped rows, the drop prompt, both polearms' hits and misses, and shortsword attachment and hits, including simultaneous strikes.

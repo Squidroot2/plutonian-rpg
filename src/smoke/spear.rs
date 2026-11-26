@@ -82,11 +82,12 @@ pub(super) fn drive(
     smoke: ResMut<SpearSmoke>,
     (state, menu): (Res<State<GameState>>, Res<PlayerMenu>),
     time: Res<Time>,
-    (screenshot, captured_at, testing_trident, holstered_weapon): (
+    (screenshot, captured_at, testing_trident, holstered_weapon, turn_armed): (
         Local<Option<Entity>>,
         Local<f32>,
         Local<bool>,
         Local<Option<Entity>>,
+        Local<bool>,
     ),
     inventory: PlayerRead<Inventory>,
     equipment: PlayerRead<Equipment>,
@@ -181,6 +182,7 @@ pub(super) fn drive(
             menu,
             screenshot,
             captured_at,
+            turn_armed,
             testing_trident,
             holstered_weapon,
             equipment,
@@ -349,6 +351,7 @@ fn check_spear_combat(
     menu: Res<PlayerMenu>,
     mut screenshot: Local<Option<Entity>>,
     mut captured_at: Local<f32>,
+    mut turn_armed: Local<bool>,
     testing_trident: Local<bool>,
     holstered_weapon: Local<Option<Entity>>,
     equipment: PlayerRead<Equipment>,
@@ -369,6 +372,21 @@ fn check_spear_combat(
     thrust: &WeaponAttack,
     dummy_transform: &Transform,
 ) {
+    let mut turn_checked = false;
+    if matches!(*smoke, SpearSmoke::Chamber | SpearSmoke::Impact)
+        && (thrust.active() || dummy.remaining > 0.0)
+    {
+        orbit.yaw = std::f32::consts::PI;
+        if *turn_armed {
+            assert!(
+                (transform.rotation * Vec3::Z).z > 0.99,
+                "the player must turn toward the dummy during the thrust"
+            );
+            turn_checked = true;
+        } else {
+            *turn_armed = true;
+        }
+    }
     match *smoke {
         SpearSmoke::Approach if *state.get() == GameState::Playing && !menu.is_open() => {
             assert_eq!(*stance, WeaponStance::Drawn);
@@ -395,10 +413,11 @@ fn check_spear_combat(
                 orbit.distance = 4.5;
                 buttons.press(MouseButton::Left);
                 *captured_at = now;
+                *turn_armed = false;
                 *smoke = SpearSmoke::Chamber;
             }
         }
-        SpearSmoke::Chamber | SpearSmoke::Impact if dummy.remaining > 0.0 => {
+        SpearSmoke::Chamber | SpearSmoke::Impact if dummy.remaining > 0.0 && turn_checked => {
             assert!(thrust.active());
             let impact = impacts
                 .single()
@@ -408,17 +427,12 @@ fn check_spear_combat(
             *smoke = SpearSmoke::Recovery;
         }
         SpearSmoke::Chamber | SpearSmoke::Impact if thrust.active() => {
-            orbit.yaw = std::f32::consts::PI;
             keys.press(KeyCode::KeyW);
             keys.press(KeyCode::ShiftLeft);
             keys.press(KeyCode::Space);
             assert!(controller.grounded);
             if now - *captured_at > 0.07 {
                 assert_eq!(controller.velocity.xz(), Vec2::ZERO);
-                assert!(
-                    (transform.rotation * Vec3::Z).z > 0.99,
-                    "the player must turn toward the dummy during the thrust"
-                );
             }
             if *smoke == SpearSmoke::Chamber && now - *captured_at >= 3.0 / 24.0 {
                 capture(&mut commands, "chamber");
