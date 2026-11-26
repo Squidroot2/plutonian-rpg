@@ -150,11 +150,19 @@ fn shipped_enemy_levels_are_authored_and_out_of_range_levels_fail_validation() {
         );
     }
 
-    let file =
-        include_str!("../../data/enemies/catalog.enemy.ron").replace("level: 1", "level: 101");
-    let invalid: Enemies = ron::from_str(&file).expect("out-of-range level parses as raw value");
-    let error = invalid
-        .validate(&items)
-        .expect_err("out-of-range enemy level must fail boot validation");
-    assert!(error.contains("ice_worm") && error.contains("level"));
+    for level in [0, crate::level::MAX_LEVEL + 1] {
+        let file = include_str!("../../data/enemies/catalog.enemy.ron").replacen(
+            "level: 1",
+            &format!("level: {level}"),
+            1,
+        );
+        let invalid: Enemies =
+            ron::from_str(&file).expect("out-of-range level parses as raw value");
+        let error = invalid
+            .validate(&items)
+            .expect_err("out-of-range enemy level must fail boot validation");
+        assert!(
+            error.contains(Enemies::PATH) && error.contains("ice_worm") && error.contains("level")
+        );
+    }
 }
