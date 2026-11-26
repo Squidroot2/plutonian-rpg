@@ -89,8 +89,28 @@ meat and mycelium are consumables.
 
 Kill XP falls off as the player outlevels the enemy,
 so the easiest loop stops paying.
-Enemy definitions gain a `level`:
-ice worm 1, relay roach 1, hushcap 2.
+Enemy definitions gain a `level`,
+using the game's existing `Level` type:
+ice worm 1, relay roach 1, hushcap 2, outpost guard 3.
+The guard's level is never consulted
+(consequential actors are exempt from falloff),
+but the field is total,
+so no definition is a special case.
+
+This reverses an earlier decision
+that levels belong to the player alone.
+`Level` currently lives with the player's progression,
+inside `CharacterProgress`;
+it becomes a general actor attribute,
+while progression — earning XP and advancing —
+stays player-specific.
+A preparatory refactor (issue #85) lands
+between this document and the implementation:
+it moves `Level` to a shared home
+and adds the `level` field to the enemy definitions,
+with no behavior change.
+The implementation (issue #84) then adds
+only the falloff and the renewal.
 With `d = player level - enemy level`:
 
 - `d <= 0`: full XP.
