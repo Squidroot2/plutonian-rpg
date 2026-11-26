@@ -22,6 +22,7 @@ use crate::{
     player::{CharacterProgress, MovementInput, Player, SavedProgress},
     quest::{QuestAction, QuestJournal, SavedJournal},
     storage::ChestStorage,
+    ui::death_screen::request_game_over,
     ui::inventory_ui::InventoryUiState,
     ui::menu_ui::PlayerMenu,
     ui::quest_ui::QuestSelection,
@@ -807,7 +808,7 @@ impl Plugin for SavePlugin {
             )
             .add_systems(
                 Update,
-                (age_notice, recover_defeated, save_at_bed)
+                (age_notice, request_game_over, save_at_bed)
                     .chain()
                     .after(InteractionSystems)
                     .after(CombatSystems::Resolve)
@@ -816,15 +817,6 @@ impl Plugin for SavePlugin {
                     .after(guard::react_to_player_hit)
                     .run_if(in_state(GameState::Playing)),
             );
-    }
-}
-
-pub(crate) fn recover_defeated(
-    players: Query<(), (With<Player>, Added<Dead>)>,
-    mut next: ResMut<NextState<GameState>>,
-) {
-    if !players.is_empty() {
-        next.set(GameState::Loading);
     }
 }
 
@@ -1420,7 +1412,7 @@ mod tests {
         world.insert_resource(run);
         world.entity_mut(player).insert(Dead);
         world
-            .run_system_once(recover_defeated)
+            .run_system_once(request_game_over)
             .expect("recovery system");
         assert_eq!(
             world
@@ -1843,12 +1835,12 @@ mod tests {
         );
         world.entity_mut(player).insert(Dead);
         world
-            .run_system_once(recover_defeated)
+            .run_system_once(request_game_over)
             .expect("death recovery");
         interact_with(&mut world, bed);
         assert!(matches!(
             *world.resource::<NextState<GameState>>(),
-            NextState::Pending(GameState::Loading)
+            NextState::Pending(GameState::GameOver)
         ));
         assert_eq!(fs::read(dir.path()).expect("retained save"), previous);
         let save = world

@@ -9,6 +9,7 @@ use crate::{
     attributes::{AttributeId, AttributeRanks},
     camera::{FollowCamera, Orbit},
     combat::{ConfirmedHit, Dead, Health, Hit},
+    combat_feedback::DeathAnimation,
     content::Items,
     dialogue::{Dialogue, DialogueCatalog, Profile},
     dungeon::{
@@ -36,6 +37,7 @@ use crate::{
     roach::Roach,
     save::{EncounterId, RunSave},
     storage::{ChestId, ChestStorage},
+    ui::death_screen::ContinueAfterDeath,
     ui::loot_ui::LootAction,
     ui::menu_ui::{MenuTab, PlayerMenu},
     ui::quest_ui::{QuestRow, QuestSelection},
@@ -239,6 +241,59 @@ pub(super) enum WorldCheck {
         hits: usize,
     },
     SavedRespawn(Entity),
+}
+
+#[derive(Default)]
+pub(super) enum DeathScreenCheck {
+    #[default]
+    WatchCollapse,
+    WaitForBlack,
+    WaitForCapture(Entity),
+}
+
+pub(super) fn check_death_screen(
+    phase: Res<WorldCheck>,
+    mut check: Local<DeathScreenCheck>,
+    player: Single<(Entity, &DeathAnimation), (With<Player>, With<Dead>)>,
+    animations: Query<&AnimationPlayer>,
+    button: Single<(Entity, &Visibility), With<ContinueAfterDeath>>,
+    captures: Query<(), With<Screenshot>>,
+    window: Single<Entity, With<Window>>,
+    camera: Single<Entity, With<FollowCamera>>,
+    mut commands: Commands,
+) {
+    let (defeated, fade_photo, ready_photo) = match *phase {
+        WorldCheck::FreshRespawn(entity) => (entity, "fresh-death-fade", "fresh-game-over"),
+        WorldCheck::SavedRespawn(entity) => (entity, "saved-death-fade", "saved-game-over"),
+        _ => panic!("world smoke entered GameOver from {phase:?}"),
+    };
+    let (entity, death) = *player;
+    assert_eq!(entity, defeated, "Continue must precede world reset");
+    let animation = animations
+        .get(death.players[0])
+        .expect("player animation must remain bound during GameOver")
+        .animation(death.clip)
+        .expect("the collapse must be the active death clip");
+    let (button, visibility) = *button;
+    match *check {
+        DeathScreenCheck::WatchCollapse => {
+            assert_eq!(*visibility, Visibility::Hidden);
+            assert!(!animation.is_finished());
+            if animation.seek_time() >= 0.5 {
+                capture(&mut commands, fade_photo);
+                *check = DeathScreenCheck::WaitForBlack;
+            }
+        }
+        DeathScreenCheck::WaitForBlack if *visibility == Visibility::Inherited => {
+            assert!(animation.is_finished());
+            *check = DeathScreenCheck::WaitForCapture(capture(&mut commands, ready_photo));
+        }
+        DeathScreenCheck::WaitForCapture(screenshot) if !captures.contains(screenshot) => {
+            commands.trigger(pointer_click(button, *window, *camera));
+            *check = DeathScreenCheck::WatchCollapse;
+        }
+        _ => {}
+    }
 }
 
 pub(super) fn drive(
@@ -1936,7 +1991,7 @@ fn check_bed_rollback(frame: WorldFrame) {
                 "restored gate must be clear"
             );
             info!(
-                "WORLD SMOKE PASS: tent storage, Old Relay, Nemi's cavern briefing, and guard defeat rollback verified in {:.2}s",
+                "WORLD SMOKE PASS: tent storage, Old Relay, Nemi's cavern briefing, and death screen recovery verified in {:.2}s",
                 run.0.elapsed().as_secs_f64()
             );
             exit.write(AppExit::Success);

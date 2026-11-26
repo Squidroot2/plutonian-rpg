@@ -127,7 +127,9 @@ journal from the checkpoint's stable IDs or creates a new journal.
 World and feature plugins spawn the session entities.
 When loading is ready, actors and quest effects are restored and play resumes.
 
-When a player becomes `Dead`, `recover_defeated` requests `Loading`.
+When the player becomes `Dead`, the shared death animation plays and the game enters `GameOver`,
+leaving the player and world in view while the screen fades to black.
+The **Continue** button appears at full black and requests `Loading` when clicked.
 The selected save or latest successful bed save in the session remains the `RunSave` checkpoint,
 so the loading lifecycle rebuilds the world at that checkpoint.
 The player returns with full health, and defeated actors, loot, inventory,
@@ -140,7 +142,8 @@ live progress.
 ## Ownership and extension
 
 `src/save.rs` owns the snapshot schema, validation, file IO, bed capture,
-checkpoint resources, session reset and combat death trigger.
+checkpoint resources and session reset.
+`src/ui/death_screen.rs` owns the combat death transition, fade and Continue action.
 `src/ui/title.rs` chooses fresh or saved runs, and `src/loading.rs` rebuilds
 the quest journal after assets load.
 World, quest, dungeon, inventory, equipment and actor plugins own their parts

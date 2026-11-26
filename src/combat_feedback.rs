@@ -121,9 +121,10 @@ fn play_death_animations(
     for death in &dead {
         for &entity in &death.players {
             if let Ok((mut player, mut transitions)) = players.get_mut(entity) {
-                transitions
-                    .play(&mut player, death.clip, std::time::Duration::ZERO)
-                    .replay();
+                // An actor can have several active layers during a weapon attack.
+                player.stop_all();
+                *transitions = AnimationTransitions::new();
+                transitions.play(&mut player, death.clip, std::time::Duration::ZERO);
             }
         }
     }
