@@ -1,0 +1,51 @@
+name: Smoke spike
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  WGPU_BACKEND: vulkan
+  CARGO_PROFILE_DEV_DEBUG: 0
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  arena:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y \
+            build-essential pkg-config libx11-dev libwayland-dev libxkbcommon-dev libasound2-dev \
+            xvfb xauth mesa-vulkan-drivers libvulkan1 vulkan-tools libxkbcommon-x11-0 \
+            libegl1-mesa libgl1-mesa-dri
+      - name: Probe software Vulkan adapter
+        run: |
+          vulkaninfo --summary 2>&1 | tee /tmp/vulkan-summary.txt
+          if ! grep -qi llvmpipe /tmp/vulkan-summary.txt; then
+            echo 'No llvmpipe Vulkan device found' >&2
+            exit 1
+          fi
+      - name: Install Rust
+        run: |
+          rustup toolchain install 1.100.0 --profile minimal
+          rustup default 1.100.0
+      - uses: Swatinem/rust-cache@v2
+      - name: Build smoke scenario
+        run: cargo build --locked --features smoke
+      - name: Run arena
+        run: xvfb-run -a -s '-screen 0 1280x800x24' cargo run --locked --features smoke -- --smoke-test --windowed
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-screenshots
+          path: /tmp/plutonian-*.png
+          if-no-files-found: warn

@@ -103,6 +103,8 @@ impl Plugin for SmokePlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(SmokeRun(Instant::now()))
             .add_systems(Update, watchdog)
+            .add_systems(PreUpdate, report_timing)
+            .add_systems(PostUpdate, report_exit_timing)
             .add_systems(
                 PreUpdate,
                 start_from_title
@@ -207,6 +209,34 @@ impl Plugin for SmokePlugin {
                     }),
             );
         }
+    }
+}
+
+fn report_timing(run: Res<SmokeRun>, time: Res<Time<Virtual>>, mut frames: Local<u64>) {
+    *frames += 1;
+    if (*frames).is_multiple_of(100) {
+        info!(
+            "SMOKE TIMING: frames={}, virtual_seconds={:.2}, wall_seconds={:.2}",
+            *frames,
+            time.elapsed_secs_f64(),
+            run.0.elapsed().as_secs_f64()
+        );
+    }
+}
+
+fn report_exit_timing(
+    run: Res<SmokeRun>,
+    time: Res<Time<Virtual>>,
+    frames: Res<bevy::diagnostic::FrameCount>,
+    mut exit: MessageReader<AppExit>,
+) {
+    if exit.read().next().is_some() {
+        info!(
+            "SMOKE TIMING: frames={}, virtual_seconds={:.2}, wall_seconds={:.2}",
+            frames.0,
+            time.elapsed_secs_f64(),
+            run.0.elapsed().as_secs_f64()
+        );
     }
 }
 
