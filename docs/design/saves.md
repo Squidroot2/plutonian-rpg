@@ -113,6 +113,7 @@ The UI displays a short success or failure notice.
 
 On the title screen, **Start Game** clears `RunSave` and enters `Loading` without writing a file.
 **Load Game** opens a scrollable list of saves ordered by last-modified time, newest first.
+The pause menu opens the same list, and selecting a save there also replaces the current run.
 Each entry shows its stored player name and modification time, or identifies an unreadable file.
 A confirmation protects deletion, which removes only the selected file.
 Selecting a readable entry validates it and makes it the active save and `RunSave` checkpoint.

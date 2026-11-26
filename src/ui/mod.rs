@@ -21,9 +21,9 @@ use crate::{
     loading::LoadStatus,
     player::{Player, Stamina},
     quest::QuestJournal,
-    save::{SaveNotice, save_at_bed},
+    save::{SaveNotice, SaveSlot, save_at_bed},
     ui::menu_ui::PlayerMenu,
-    ui::settings::SettingsMenu,
+    ui::{settings::SettingsMenu, title::picker::SavePicker},
     world::WorldLayout,
 };
 use bevy::{app::AppExit, prelude::*, window::PrimaryWindow};
@@ -80,6 +80,7 @@ struct PausePanel;
 #[derive(Component, Clone, Copy)]
 enum Action {
     Resume,
+    Load,
     Settings,
     Quit,
 }
@@ -200,6 +201,7 @@ fn setup(mut commands: Commands) {
             parent.spawn((Text::new("Paused"), text_style(30.0)));
             for (label, action) in [
                 ("Resume", Action::Resume),
+                ("Load Game", Action::Load),
                 ("Settings", Action::Settings),
                 ("Quit to desktop", Action::Quit),
             ] {
@@ -286,10 +288,14 @@ pub(crate) fn pause(
     mut dialogue: ResMut<Dialogue>,
     windows: Query<&Window, With<PrimaryWindow>>,
     settings: Option<Res<SettingsMenu>>,
+    picker: Option<Res<SavePicker>>,
     log: Option<ResMut<PlayerMenu>>,
     drop_prompt: Option<ResMut<crate::ui::inventory_ui::InventoryUiState>>,
 ) {
-    if !matches!(*next, NextState::Unchanged) || settings.is_some_and(|menu| menu.is_open()) {
+    if !matches!(*next, NextState::Unchanged)
+        || settings.is_some_and(|menu| menu.is_open())
+        || picker.is_some_and(|picker| picker.is_open())
+    {
         return;
     }
     if smoke.is_none() && *state.get() == GameState::Playing && windows.iter().any(|w| !w.focused) {
@@ -336,6 +342,8 @@ fn buttons(
     query: Query<&Action>,
     state: Res<State<GameState>>,
     mut settings: ResMut<SettingsMenu>,
+    mut picker: ResMut<SavePicker>,
+    slot: Res<SaveSlot>,
     mut next: ResMut<NextState<GameState>>,
     mut exit: MessageWriter<AppExit>,
 ) {
@@ -348,6 +356,8 @@ fn buttons(
     if let Ok(action) = query.get(click.entity) {
         match action {
             Action::Resume => next.set(GameState::Playing),
+            Action::Load if slot.available() => picker.open(),
+            Action::Load => {}
             Action::Settings => settings.open(),
             Action::Quit => {
                 exit.write(AppExit::Success);
@@ -582,12 +592,15 @@ fn refresh_prompt(
 
 fn refresh_pause(
     state: Res<State<GameState>>,
+    picker: Option<Res<SavePicker>>,
     mut panel: Query<&mut Visibility, With<PausePanel>>,
 ) {
-    if state.is_changed()
+    if (state.is_changed() || picker.as_ref().is_some_and(|picker| picker.is_changed()))
         && let Ok(mut visibility) = panel.single_mut()
     {
-        *visibility = if *state.get() == GameState::Paused {
+        *visibility = if *state.get() == GameState::Paused
+            && picker.as_ref().is_none_or(|picker| !picker.is_open())
+        {
             Visibility::Visible
         } else {
             Visibility::Hidden
@@ -601,6 +614,34 @@ mod tests {
     use crate::combat::{CombatPlugin, Hit};
     use bevy::{state::app::StatesPlugin, time::TimeUpdateStrategy};
     use std::time::Duration;
+
+    #[test]
+    fn pause_load_button_opens_the_save_picker_when_a_save_exists() {
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, StatesPlugin))
+            .insert_state(GameState::Paused)
+            .init_resource::<SettingsMenu>()
+            .init_resource::<SavePicker>()
+            .insert_resource({
+                let mut slot = SaveSlot::default();
+                slot.entries.push(crate::save::SaveEntry {
+                    path: std::path::PathBuf::from("save.save"),
+                    name: Some("Nemi".into()),
+                    modified: None,
+                });
+                slot
+            })
+            .add_message::<AppExit>()
+            .add_observer(buttons);
+        let button = app.world_mut().spawn(Action::Load).id();
+        let window = app.world_mut().spawn_empty().id();
+        let camera = app.world_mut().spawn_empty().id();
+
+        app.world_mut()
+            .trigger(crate::interaction::pointer_click(button, window, camera));
+
+        assert!(app.world().resource::<SavePicker>().is_open());
+    }
 
     #[test]
     fn compass_uses_camera_facing_and_wraps_at_north() {

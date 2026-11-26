@@ -15,12 +15,26 @@ use std::time::{SystemTime, UNIX_EPOCH};
 const SAVE_ROW_HEIGHT_PX: f32 = 40.0;
 
 #[derive(Resource, Default)]
-pub(super) struct SavePicker {
+pub(crate) struct SavePicker {
     pub(super) open: bool,
     selected: usize,
     confirming: bool,
     pending: Option<PickerAction>,
     error: Option<String>,
+}
+
+impl SavePicker {
+    pub(crate) fn open(&mut self) {
+        self.open = true;
+        self.selected = 0;
+        self.confirming = false;
+        self.pending = None;
+        self.error = None;
+    }
+
+    pub(crate) fn is_open(&self) -> bool {
+        self.open
+    }
 }
 
 #[derive(Clone, Copy, Component)]
@@ -48,14 +62,23 @@ impl Plugin for SavePickerPlugin {
                 keyboard
                     .after(InputSystems)
                     .before(TitleInput)
-                    .run_if(in_state(GameState::Title)),
+                    .run_if(in_picker_state),
             )
             .add_systems(
                 Update,
-                (process, render, scroll)
-                    .chain()
-                    .run_if(in_state(GameState::Title)),
-            );
+                (process, render, scroll).chain().run_if(in_picker_state),
+            )
+            .add_systems(OnExit(GameState::Paused), despawn_picker_screen);
+    }
+}
+
+fn in_picker_state(state: Res<State<GameState>>) -> bool {
+    matches!(state.get(), GameState::Title | GameState::Paused)
+}
+
+fn despawn_picker_screen(mut commands: Commands, screens: Query<Entity, With<PickerScreen>>) {
+    for screen in &screens {
+        commands.entity(screen).despawn();
     }
 }
 
@@ -343,6 +366,50 @@ fn format_time(time: Option<SystemTime>) -> String {
 mod tests {
     use super::*;
     use std::time::Duration;
+
+    #[test]
+    fn opening_picker_resets_previous_selection_and_errors() {
+        let mut picker = SavePicker {
+            open: false,
+            selected: 3,
+            confirming: true,
+            pending: Some(PickerAction::Close),
+            error: Some("old error".into()),
+        };
+
+        picker.open();
+
+        assert!(picker.is_open());
+        assert_eq!(picker.selected, 0);
+        assert!(!picker.confirming);
+        assert!(picker.pending.is_none());
+        assert!(picker.error.is_none());
+    }
+
+    #[test]
+    fn escape_closes_picker_without_resuming_paused_game() {
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, bevy::state::app::StatesPlugin))
+            .insert_state(GameState::Paused)
+            .init_resource::<ButtonInput<KeyCode>>()
+            .init_resource::<SaveSlot>()
+            .init_resource::<RunSave>()
+            .add_plugins(SavePickerPlugin);
+        app.update();
+
+        app.world_mut().resource_mut::<SavePicker>().open();
+        app.update();
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .press(KeyCode::Escape);
+        app.update();
+
+        assert!(!app.world().resource::<SavePicker>().is_open());
+        assert_eq!(
+            *app.world().resource::<State<GameState>>().get(),
+            GameState::Paused
+        );
+    }
 
     #[test]
     fn timestamps_display_utc_dates_including_leap_days() {
