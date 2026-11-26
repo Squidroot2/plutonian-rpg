@@ -108,6 +108,10 @@ enum Behavior {
 }
 
 impl EnemyDefinition {
+    pub(super) fn level(&self) -> Level {
+        self.level
+    }
+
     pub(crate) fn archetype(&self) -> EnemyArchetype {
         match self.behavior {
             Behavior::Worm { .. } => EnemyArchetype::Worm,

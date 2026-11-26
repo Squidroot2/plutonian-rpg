@@ -10,10 +10,15 @@
     bitcode::Encode,
     bitcode::Decode,
     serde::Serialize,
-    serde::Deserialize,
     schemars::JsonSchema,
 )]
 pub(crate) struct Level(u32);
+
+impl<'de> serde::Deserialize<'de> for Level {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        Ok(Self(serde::Deserialize::deserialize(deserializer)?))
+    }
+}
 pub(crate) const MAX_LEVEL: u32 = 100;
 impl Level {
     pub(crate) const FIRST: Self = Self(1);
