@@ -1,6 +1,6 @@
 use crate::{
     GameState,
-    cave::CaveEncounter,
+    content::ContentId,
     world::{SessionEntity, WorldLayout},
 };
 use bevy::{
@@ -16,6 +16,18 @@ pub(crate) const LAST_LIGHT: &str = "last_light";
 pub(crate) const OLD_RELAY: &str = "old_relay";
 pub(crate) const RELIGHT_BEACON: &str = "relight_beacon";
 pub(crate) const CONTAIN_THE_HUSHCAPS: &str = "contain_the_hushcaps";
+/// Encounter IDs eligible for the cavern quest.
+pub(crate) const CAVERN_HUSHCAP_IDS: [ContentId; 8] = [
+    ContentId::new("cave_first_west_hushcap"),
+    ContentId::new("cave_first_east_hushcap"),
+    ContentId::new("cave_split_west_hushcap"),
+    ContentId::new("cave_split_east_hushcap"),
+    ContentId::new("cave_split_far_hushcap"),
+    ContentId::new("cave_gallery_west_hushcap"),
+    ContentId::new("cave_gallery_east_hushcap"),
+    ContentId::new("cave_gallery_far_hushcap"),
+];
+
 pub(crate) const CAVERN_HUSHCAP_GOAL: usize = 5;
 pub(crate) const MYCELIUM_GOAL: u32 = 5;
 
@@ -358,7 +370,7 @@ pub(crate) struct QuestJournal {
     progress: BTreeMap<String, QuestProgress>,
     occurred: BTreeSet<QuestAction>,
     pending_completion_xp: u64,
-    cavern_defeats: BTreeSet<CaveEncounter>,
+    cavern_defeats: BTreeSet<ContentId>,
 }
 
 #[derive(
@@ -373,7 +385,7 @@ pub(crate) struct QuestJournal {
 pub(crate) struct SavedJournal {
     #[bitcode(skip)]
     #[serde(skip)]
-    pub(crate) cavern_defeats: BTreeSet<CaveEncounter>,
+    pub(crate) cavern_defeats: BTreeSet<ContentId>,
     progress: BTreeMap<String, SavedQuest>,
     occurred: BTreeSet<QuestAction>,
 }
@@ -515,10 +527,10 @@ impl QuestJournal {
         }
     }
 
-    pub(crate) fn credit_cavern_defeat(&mut self, id: CaveEncounter) {
+    pub(crate) fn credit_cavern_defeat(&mut self, id: ContentId) {
         if self.status(CONTAIN_THE_HUSHCAPS) == Some(QuestStatus::Active)
             && self.cavern_defeats.len() < CAVERN_HUSHCAP_GOAL
-            && id.is_hushcap()
+            && CAVERN_HUSHCAP_IDS.contains(&id)
             && self.cavern_defeats.insert(id)
             && self.cavern_defeats.len() == CAVERN_HUSHCAP_GOAL
         {
@@ -860,15 +872,14 @@ mod tests {
 
     #[test]
     fn qualifying_defeats_can_open_the_gate_before_the_report_is_delivered() {
-        use CaveEncounter::*;
         let mut journal = test_relay_journal();
         journal.offer_cavern_report();
         for id in [
-            FirstWestHushcap,
-            FirstEastHushcap,
-            SplitWestHushcap,
-            SplitEastHushcap,
-            SplitFarHushcap,
+            ContentId::new("cave_first_west_hushcap"),
+            ContentId::new("cave_first_east_hushcap"),
+            ContentId::new("cave_split_west_hushcap"),
+            ContentId::new("cave_split_east_hushcap"),
+            ContentId::new("cave_split_far_hushcap"),
         ] {
             journal.credit_cavern_defeat(id);
         }

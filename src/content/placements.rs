@@ -1,8 +1,8 @@
-use super::{Catalog, ContentId, Enemies, EnemyArchetype, EnemyDefinition, Items};
+use super::{Catalog, ContentId, Enemies, EnemyArchetype, Items};
 use crate::{
     dungeon::Area,
     enemy,
-    inventory::{Inventory, ItemKind, Pickup},
+    inventory::{Inventory, Pickup},
     loading::EnemyVisuals,
     save::EncounterId,
     storage::{ChestId, ChestStorage},
@@ -10,13 +10,12 @@ use crate::{
 };
 use bevy::prelude::*;
 use serde::Deserialize;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 
 #[derive(Asset, TypePath, Resource, Clone, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Placements {
     starter_stock: Vec<Stock>,
-    encounter_assignments: Vec<Assignment>,
     pickups: Vec<PickupPlacement>,
     encounters: Vec<PlacedEncounter>,
 }
@@ -26,13 +25,6 @@ pub(crate) struct Placements {
 struct Stock {
     chest: ChestId,
     stacks: Vec<Pickup>,
-}
-
-#[derive(Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Assignment {
-    encounter: ContentId,
-    enemy: ContentId,
 }
 
 #[derive(Component, Clone, Copy)]
@@ -52,13 +44,13 @@ pub(crate) struct PickupPlacement {
 
 #[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct PlacedEncounter {
-    id: ContentId,
-    enemy: ContentId,
-    area: Area,
-    position: [f32; 3],
+pub(crate) struct PlacedEncounter {
+    pub(crate) id: ContentId,
+    pub(crate) enemy: ContentId,
+    pub(crate) area: Area,
+    pub(crate) position: [f32; 3],
     #[serde(default)]
-    yaw_degrees: f32,
+    pub(crate) yaw_degrees: f32,
 }
 
 #[derive(Resource, Default)]
@@ -85,20 +77,9 @@ impl Placements {
         )
     }
 
-    pub(crate) fn enemy<'a>(
-        &self,
-        enemies: &'a Enemies,
-        encounter: EncounterId,
-    ) -> &'a EnemyDefinition {
-        let key = encounter.key();
-        let id = self
-            .encounter_assignments
-            .iter()
-            .find(|entry| entry.encounter == key)
-            .map_or_else(|| encounter.archetype().id(), |entry| entry.enemy);
-        enemies
-            .get(id)
-            .expect("shipped encounters must reference a validated enemy definition")
+    #[cfg(any(test, feature = "smoke"))]
+    pub(crate) fn encounters(&self) -> impl Iterator<Item = &PlacedEncounter> {
+        self.encounters.iter()
     }
 
     pub(crate) fn encounter_ids(&self) -> impl Iterator<Item = EncounterId> + '_ {
@@ -113,7 +94,6 @@ impl Placements {
 
     pub(crate) fn validate(&self, items: &Items, enemies: &Enemies) -> Result<(), String> {
         self.validate_stock(items)
-            .and_then(|()| self.validate_assignments(enemies))
             .and_then(|()| self.validate_placements(items, enemies))
             .map_err(|error| format!("{}: {error}", Self::PATH))
     }
@@ -145,40 +125,11 @@ impl Placements {
         Ok(())
     }
 
-    fn validate_assignments(&self, enemies: &Enemies) -> Result<(), String> {
-        let shipped: BTreeMap<_, _> = EncounterId::shipped().map(|id| (id.key(), id)).collect();
-        let mut assignments = BTreeSet::new();
-        for entry in &self.encounter_assignments {
-            let key = entry.encounter;
-            if !assignments.insert(key) {
-                return Err(format!("Duplicate assignment for {key}"));
-            }
-            let encounter = shipped
-                .get(&key)
-                .ok_or_else(|| format!("Unknown shipped encounter {key}"))?;
-            let enemy = enemies
-                .get(entry.enemy)
-                .map_err(|error| format!("Encounter {key}: {error}"))?;
-            if enemy.archetype() != encounter.archetype() {
-                return Err(format!(
-                    "Encounter {key} must use {:?}",
-                    encounter.archetype()
-                ));
-            }
-        }
-        for (key, encounter) in shipped {
-            let enemy = self.enemy(enemies, encounter);
-            if enemy.archetype() == EnemyArchetype::Hushcap
-                && enemy.loot().item != ItemKind::Mycelium
-            {
-                return Err(format!("Quest encounter {key} must drop Mycelium"));
-            }
-        }
-        Ok(())
-    }
-
     fn validate_placements(&self, items: &Items, enemies: &Enemies) -> Result<(), String> {
-        let mut ids: BTreeSet<_> = EncounterId::shipped().map(EncounterId::key).collect();
+        let mut ids: BTreeSet<_> = crate::guard::GuardPost::ALL
+            .into_iter()
+            .map(|post| EncounterId::Guard(post).key())
+            .collect();
         for entry in &self.encounters {
             let id = entry.id;
             let enemy = enemies
@@ -186,6 +137,15 @@ impl Placements {
                 .map_err(|error| format!("Encounter {id}: {error}"))?;
             if !ids.insert(id) {
                 return Err(format!("Duplicate or reserved encounter ID {id}"));
+            }
+            if (crate::quest::CAVERN_HUSHCAP_IDS.contains(&id)
+                || id == ContentId::new("relay_archive_hushcap"))
+                && (enemy.archetype() != EnemyArchetype::Hushcap
+                    || enemy.loot().item != crate::inventory::ItemKind::Mycelium)
+            {
+                return Err(format!(
+                    "Quest encounter {id} must be a Hushcap that drops Mycelium"
+                ));
             }
             if enemy.archetype() == EnemyArchetype::Guard {
                 return Err(format!(
@@ -266,10 +226,133 @@ mod tests {
         enemy::tests::test_app_builder,
         experience::{ExperienceNotice, ExperiencePlugin},
         interaction::CorpseLoot,
+        inventory::ItemKind,
         player::Player,
         quest::test_journal,
         roach,
     };
+
+    #[test]
+    fn shipped_encounters_preserve_their_original_homes_and_definitions() {
+        let expected = [
+            (
+                "near_trail_worm",
+                "ice_worm",
+                Area::Surface,
+                [14.0, 2.0, -27.0],
+            ),
+            (
+                "far_trail_worm",
+                "ice_worm",
+                Area::Surface,
+                [-14.0, 2.0, -71.0],
+            ),
+            ("cavern_worm", "ice_worm", Area::Surface, [3.4, 2.0, -110.0]),
+            (
+                "relay_roach",
+                "relay_roach",
+                Area::OldRelay,
+                [7.0, -10.0 + 1.2, -20.5],
+            ),
+            (
+                "relay_junction_worm",
+                "ice_worm",
+                Area::OldRelay,
+                [-3.5, -10.0 + 1.2, -18.5],
+            ),
+            (
+                "relay_archive_hushcap",
+                "hushcap",
+                Area::OldRelay,
+                [3.2, -10.0, -34.0],
+            ),
+            (
+                "cave_first_west_hushcap",
+                "hushcap",
+                Area::Surface,
+                [8.8, -5.5, 104.3],
+            ),
+            (
+                "cave_first_east_hushcap",
+                "hushcap",
+                Area::Surface,
+                [22.3, -5.5, 109.6],
+            ),
+            (
+                "cave_first_worm",
+                "ice_worm",
+                Area::Surface,
+                [12.8, -5.5 + crate::worm::GROUND_OFFSET, 111.2],
+            ),
+            (
+                "cave_split_west_hushcap",
+                "hushcap",
+                Area::Surface,
+                [3.5, -5.5, 123.5],
+            ),
+            (
+                "cave_split_east_hushcap",
+                "hushcap",
+                Area::Surface,
+                [19.8, -5.5, 125.3],
+            ),
+            (
+                "cave_split_far_hushcap",
+                "hushcap",
+                Area::Surface,
+                [10.7, -5.5, 134.0],
+            ),
+            (
+                "cave_split_worm",
+                "ice_worm",
+                Area::Surface,
+                [5.0, -5.5 + crate::worm::GROUND_OFFSET, 131.6],
+            ),
+            (
+                "cave_split_roach",
+                "relay_roach",
+                Area::Surface,
+                [19.5, -5.5 + crate::roach::GROUND_OFFSET, 132.0],
+            ),
+            (
+                "cave_gallery_west_hushcap",
+                "hushcap",
+                Area::Surface,
+                [5.6, -5.5, 146.4],
+            ),
+            (
+                "cave_gallery_east_hushcap",
+                "hushcap",
+                Area::Surface,
+                [21.3, -5.5, 146.0],
+            ),
+            (
+                "cave_gallery_far_hushcap",
+                "hushcap",
+                Area::Surface,
+                [15.0, -5.5, 156.5],
+            ),
+            (
+                "cave_gallery_roach",
+                "relay_roach",
+                Area::Surface,
+                [8.8, -5.5 + crate::roach::GROUND_OFFSET, 153.0],
+            ),
+        ];
+        let placements = test_placements();
+        assert_eq!(placements.encounters().count(), expected.len());
+        for (id, enemy, area, position) in expected {
+            let entry = placements
+                .encounters()
+                .find(|entry| entry.id == ContentId::new(id))
+                .expect("shipped encounter must exist");
+            assert_eq!(
+                (entry.enemy, entry.area, entry.position, entry.yaw_degrees),
+                (ContentId::new(enemy), area, position, 0.0),
+                "{id}"
+            );
+        }
+    }
 
     #[test]
     fn ron_enemy_spawns_attacks_and_awards_its_configured_loot_and_experience() {

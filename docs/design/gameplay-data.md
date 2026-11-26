@@ -7,7 +7,7 @@ Edit the files directly and restart the game to pick up changes.
 - `data/items/catalog.item.ron` contains each item's display text, weight in kg, pickup model, and pickup dimensions in meters.
 - `data/enemies/catalog.enemy.ron` contains each enemy's health, XP, loot stack, and archetype-specific movement and attack tuning.
 - `data/npcs/catalog.npc.ron` contains Plutonian NPC ranks, worn gear, and starting bags.
-- `data/world/catalog.placement.ron` contains starter chest stock, assignments for shipped encounters, and additional pickups and encounters.
+- `data/world/catalog.placement.ron` contains starter chest stock, pickups, and non-guard encounters.
 
 Use stable IDs of up to 48 lowercase ASCII letters, digits, or underscores.
 Start each ID with a letter.
@@ -129,11 +129,10 @@ Place pickups and moving enemies just above traversable ground so their groundin
 Place stationary Hushcaps at floor height.
 Yaw is optional and defaults to zero.
 
-Use `encounter_assignments` to change the definition at a shipped encounter while keeping its position and quest role.
-For example, `(encounter: "relay_roach", enemy: "relay_sentinel")` swaps the existing Relay roach.
-Shipped encounter IDs include `near_trail_worm`, `far_trail_worm`, `cavern_worm`, `relay_junction_worm`, `relay_archive_hushcap`, `relay_roach`, `guard_west`, `guard_east`, and the `cave_*` keys in `src/cave.rs`.
-Assignments must use the shipped encounter's archetype.
-Quest Hushcaps must provide Mycelium, and cavern quest credit follows the original cavern encounter IDs.
+Edit an encounter entry to change its enemy definition or position.
+Guard posts remain scripted and reserve the `guard_west` and `guard_east` IDs.
+Cavern quest credit follows the Hushcap encounter IDs declared in `src/quest.rs`;
+keep those IDs and their Mycelium drops when editing quest encounters.
 
 ## Checkpoints
 

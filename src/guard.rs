@@ -5,7 +5,7 @@ use crate::{
     combat::{
         ActorDefeated, CombatSystems, ConfirmedHit, Dead, Hit, HitReaction, RemoveColliderOnDeath,
     },
-    content::{Enemies, Items, NpcId, Npcs, Placements},
+    content::{Enemies, EnemyArchetype, Items, NpcId, Npcs},
     dialogue::{Dialogue, Speaker},
     dungeon::Area,
     enemy::{self, Enemy, GroundMovement},
@@ -132,7 +132,6 @@ fn spawn_guards(
     layout: Res<WorldLayout>,
     assets: Res<GameAssets>,
     models: Res<Assets<Gltf>>,
-    placements: Res<Placements>,
     enemies: Res<Enemies>,
     npcs: Res<Npcs>,
     items: Res<Items>,
@@ -149,7 +148,10 @@ fn spawn_guards(
         let id = EncounterId::Guard(post);
         let npc = post.npc();
         let (station, facing) = (post.home(), post.facing());
-        let (name, chase_speed, xp) = placements.enemy(&enemies, id).guard_role();
+        let (name, chase_speed, xp) = enemies
+            .get(EnemyArchetype::Guard.id())
+            .expect("guard definition is validated")
+            .guard_role();
         let (ranks, inventory, equipment) = npcs.loadout(npc, &items);
         let item = equipment
             .get(EquipmentSlot::MainHand)

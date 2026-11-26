@@ -6,11 +6,8 @@ use crate::{
     GameState,
     attributes::{AttributeId, AttributeRanks},
     camera::Orbit,
-    cave::{self, CaveEncounter},
     combat::{ActorDefeated, CombatSystems, ConfirmedHit, Dead, Health, Hit},
-    content::{
-        CollectedPickups, ContentId, EnemyArchetype, Items, NpcId, PlacedPickup, Placements,
-    },
+    content::{CollectedPickups, ContentId, Items, NpcId, PlacedPickup, Placements},
     dialogue::{Dialogue, DialogueClick},
     dungeon::{Area, DungeonProgress},
     equipment::{Equipment, EquipmentSlot},
@@ -55,65 +52,25 @@ pub(crate) struct SaveAtBed(pub(crate) Entity);
 
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum EncounterId {
-    NearTrailWorm,
-    FarTrailWorm,
-    CavernWorm,
-    RelayJunctionWorm,
-    RelayArchiveHushcap,
-    RelayRoach,
-    Cave(CaveEncounter),
     Guard(GuardPost),
     Added(ContentId),
 }
 
 impl EncounterId {
-    const BASE: [Self; 6] = [
-        Self::NearTrailWorm,
-        Self::FarTrailWorm,
-        Self::CavernWorm,
-        Self::RelayJunctionWorm,
-        Self::RelayArchiveHushcap,
-        Self::RelayRoach,
-    ];
-
-    pub(crate) fn shipped() -> impl Iterator<Item = Self> {
-        Self::BASE
-            .into_iter()
-            .chain(cave::encounter_homes().map(|(id, ..)| Self::Cave(id)))
-            .chain(GuardPost::ALL.into_iter().map(Self::Guard))
-    }
-
     pub(crate) fn key(self) -> ContentId {
-        let key = match self {
-            Self::NearTrailWorm => "near_trail_worm",
-            Self::FarTrailWorm => "far_trail_worm",
-            Self::CavernWorm => "cavern_worm",
-            Self::RelayJunctionWorm => "relay_junction_worm",
-            Self::RelayArchiveHushcap => "relay_archive_hushcap",
-            Self::RelayRoach => "relay_roach",
-            Self::Guard(GuardPost::West) => "guard_west",
-            Self::Guard(GuardPost::East) => "guard_east",
-            Self::Cave(id) => id.into(),
-            Self::Added(id) => return id,
-        };
-        ContentId::new(key)
+        match self {
+            Self::Guard(GuardPost::West) => ContentId::new("guard_west"),
+            Self::Guard(GuardPost::East) => ContentId::new("guard_east"),
+            Self::Added(id) => id,
+        }
     }
 
     fn from_key(id: ContentId) -> Self {
-        Self::shipped()
+        GuardPost::ALL
+            .into_iter()
+            .map(Self::Guard)
             .find(|encounter| encounter.key() == id)
             .unwrap_or(Self::Added(id))
-    }
-
-    pub(crate) fn archetype(self) -> EnemyArchetype {
-        match self {
-            Self::RelayArchiveHushcap => EnemyArchetype::Hushcap,
-            Self::RelayRoach => EnemyArchetype::Roach,
-            Self::Cave(id) => id.archetype(),
-            Self::Guard(_) => EnemyArchetype::Guard,
-            Self::Added(_) => unreachable!("authored placements specify their own archetype"),
-            _ => EnemyArchetype::Worm,
-        }
     }
 }
 
@@ -301,7 +258,9 @@ impl Snapshot {
                     && actor.actor.is_valid(u16::MAX)
                     && actor.flee.is_valid()
             })
-            && EncounterId::shipped().all(|id| self.encounters.contains_key(&id))
+            && GuardPost::ALL
+                .into_iter()
+                .all(|post| self.encounters.contains_key(&EncounterId::Guard(post)))
             && self
                 .encounters
                 .values()
@@ -631,7 +590,7 @@ pub(crate) fn inspection_data(snapshot: &Snapshot) -> io::Result<serde_json::Val
             .journal
             .cavern_defeats
             .iter()
-            .map(|id| EncounterId::Cave(*id).key().as_str().to_owned())
+            .map(|id| id.as_str().to_owned())
             .collect(),
         npcs: snapshot
             .npcs
@@ -714,12 +673,11 @@ fn invalid_save(error: impl std::fmt::Display) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, error.to_string())
 }
 
-fn set_cavern_defeats(
-    journal: &mut SavedJournal,
-    defeats: BTreeSet<CaveEncounter>,
-) -> io::Result<()> {
+fn set_cavern_defeats(journal: &mut SavedJournal, defeats: BTreeSet<ContentId>) -> io::Result<()> {
     if defeats.len() > crate::quest::CAVERN_HUSHCAP_GOAL
-        || defeats.iter().any(|id| !id.is_hushcap())
+        || defeats
+            .iter()
+            .any(|id| !crate::quest::CAVERN_HUSHCAP_IDS.contains(id))
     {
         return Err(invalid_save("Invalid credited cavern defeats"));
     }
@@ -1157,37 +1115,19 @@ mod tests {
         use EncounterId::*;
         let placements = crate::content::test_placements();
         let enemies = crate::content::test_enemies();
-        let health = |id: EncounterId| placements.enemy(enemies, id).body().health;
-        let base = EncounterId::BASE
-            .into_iter()
-            .map(|id| (id, Vec3::ZERO, health(id)));
-        let cave = cave::encounter_homes().map(|(id, home, _)| {
-            let id = Cave(id);
-            (id, home, health(id))
+        let authored = placements.encounters().map(|entry| {
+            let definition = enemies.get(entry.enemy).expect("fixture enemy exists");
+            (
+                Added(entry.id),
+                Vec3::from_array(entry.position),
+                definition.body().health,
+                definition.body().loot.item,
+            )
         });
-        // Guard health comes from the guard NPC's attribute ranks (see guard.rs).
         let guards = GuardPost::ALL
             .into_iter()
-            .map(|post| (Guard(post), post.home(), 140));
-        for (id, home, health) in base.chain(cave).chain(guards) {
-            let item = match id {
-                Guard(_) => ItemKind::Scrap,
-                RelayRoach | Cave(CaveEncounter::SplitRoach | CaveEncounter::GalleryRoach) => {
-                    ItemKind::RoachMeat
-                }
-                RelayArchiveHushcap
-                | Cave(
-                    CaveEncounter::FirstWestHushcap
-                    | CaveEncounter::FirstEastHushcap
-                    | CaveEncounter::SplitWestHushcap
-                    | CaveEncounter::SplitEastHushcap
-                    | CaveEncounter::SplitFarHushcap
-                    | CaveEncounter::GalleryWestHushcap
-                    | CaveEncounter::GalleryEastHushcap
-                    | CaveEncounter::GalleryFarHushcap,
-                ) => ItemKind::Mycelium,
-                _ => ItemKind::WormMeat,
-            };
+            .map(|post| (Guard(post), post.home(), 140, ItemKind::Scrap));
+        for (id, home, health, item) in authored.chain(guards) {
             let mut entity = world.spawn((
                 id,
                 Transform::from_translation(home),
@@ -1196,7 +1136,7 @@ mod tests {
                 ExperienceReward::new(10),
                 Collider::sphere(0.5),
             ));
-            if id == RelayRoach {
+            if id == Added(ContentId::new("relay_roach")) {
                 entity
                     .get_mut::<Health>()
                     .expect("roach health")
@@ -1613,7 +1553,10 @@ mod tests {
         assert_eq!(saved.inventory.count(ItemKind::FieldArmor), 1);
 
         let (mut rebuilt, _, _, dead_roach) = bed_world(dir.path());
-        let worm = encounter_entity(&mut rebuilt, CaveEncounter::FirstWorm);
+        let worm = encounter_entity(
+            &mut rebuilt,
+            crate::content::ContentId::new("cave_first_worm"),
+        );
         rebuilt.entity_mut(worm).insert(Health::new(10));
         rebuilt.insert_resource(RunSave(Some(Arc::new(saved))));
         rebuilt
@@ -1839,7 +1782,12 @@ mod tests {
         assert_eq!(save.chests.get(ChestId::Lamp).count(ItemKind::Battery), 1);
         assert_eq!(save.pickups[0].position, dropped_at.to_array());
         assert_eq!(save.pickups[0].stack.quantity, 1);
-        assert!(save.encounters.contains_key(&EncounterId::RelayRoach));
+        assert!(
+            save.encounters
+                .contains_key(&EncounterId::Added(crate::content::ContentId::new(
+                    "relay_roach"
+                )))
+        );
 
         let catalog =
             ron::from_str(include_str!("../data/quests/catalog.quest.ron")).expect("quest catalog");
@@ -2022,7 +1970,10 @@ mod tests {
         let worm = world
             .query::<(Entity, &EncounterId)>()
             .iter(&world)
-            .find_map(|(entity, id)| (*id == EncounterId::NearTrailWorm).then_some(entity))
+            .find_map(|(entity, id)| {
+                (*id == EncounterId::Added(crate::content::ContentId::new("near_trail_worm")))
+                    .then_some(entity)
+            })
             .expect("near trail encounter");
         for actor in [nemi, worm, corpse] {
             world
@@ -2148,10 +2099,10 @@ mod tests {
         journal.offer_cavern_report();
         journal.record(QuestAction::ReportedArchiveHushcap);
         for id in [
-            CaveEncounter::FirstWestHushcap,
-            CaveEncounter::FirstEastHushcap,
-            CaveEncounter::SplitWestHushcap,
-            CaveEncounter::SplitEastHushcap,
+            crate::content::ContentId::new("cave_first_west_hushcap"),
+            crate::content::ContentId::new("cave_first_east_hushcap"),
+            crate::content::ContentId::new("cave_split_west_hushcap"),
+            crate::content::ContentId::new("cave_split_east_hushcap"),
         ] {
             journal.credit_cavern_defeat(id);
         }
@@ -2161,7 +2112,8 @@ mod tests {
         let checkpoint = read_save(&dir.path()).expect("read the cave quest checkpoint");
         let inspection =
             crate::save_inspector::inspect(Some(&dir.path())).expect("inspect cavern credits");
-        let first_id = EncounterId::Cave(CaveEncounter::FirstWestHushcap).key();
+        let first_id =
+            EncounterId::Added(crate::content::ContentId::new("cave_first_west_hushcap")).key();
         assert!(
             inspection["cavern_defeats"]
                 .as_array()
@@ -2171,9 +2123,9 @@ mod tests {
         );
         let mut restored = restore_test_journal(&checkpoint.journal);
         assert_eq!(restored.cavern_defeat_count(), 4);
-        restored.credit_cavern_defeat(CaveEncounter::FirstWestHushcap);
+        restored.credit_cavern_defeat(crate::content::ContentId::new("cave_first_west_hushcap"));
         assert!(!restored.has_occurred(QuestAction::DefeatedFiveCavernHushcaps));
-        restored.credit_cavern_defeat(CaveEncounter::SplitFarHushcap);
+        restored.credit_cavern_defeat(crate::content::ContentId::new("cave_split_far_hushcap"));
         assert_eq!(restored.cavern_defeat_count(), 5);
         assert!(restored.expects(QuestAction::ShowedTovanMycelium));
         assert_eq!(restored.take_completion_xp(), 0);
@@ -2192,11 +2144,11 @@ mod tests {
         assert_eq!(restored.take_completion_xp(), 0);
     }
 
-    fn encounter_entity(world: &mut World, id: CaveEncounter) -> Entity {
+    fn encounter_entity(world: &mut World, id: ContentId) -> Entity {
         world
             .query::<(Entity, &EncounterId)>()
             .iter(world)
-            .find_map(|(entity, found)| (*found == EncounterId::Cave(id)).then_some(entity))
+            .find_map(|(entity, found)| (*found == EncounterId::Added(id)).then_some(entity))
             .expect("the cave encounter is in the checkpoint fixture")
     }
 
@@ -2286,9 +2238,9 @@ mod tests {
 
     fn encountered_cave_actors(world: &mut World) -> [Entity; 3] {
         [
-            CaveEncounter::FirstWestHushcap,
-            CaveEncounter::SplitWorm,
-            CaveEncounter::GalleryRoach,
+            crate::content::ContentId::new("cave_first_west_hushcap"),
+            crate::content::ContentId::new("cave_split_worm"),
+            crate::content::ContentId::new("cave_gallery_roach"),
         ]
         .map(|id| encounter_entity(world, id))
     }

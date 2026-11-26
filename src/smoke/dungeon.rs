@@ -58,6 +58,10 @@ use bevy::{
     render::view::screenshot::Screenshot,
 };
 
+const RELAY_ROACH: EncounterId = EncounterId::Added(crate::content::ContentId::new("relay_roach"));
+const RELAY_ARCHIVE_HUSHCAP: EncounterId =
+    EncounterId::Added(crate::content::ContentId::new("relay_archive_hushcap"));
+
 const BEACON_PROGRESS: CharacterProgress = CharacterProgress {
     level: Level::new(2).expect("valid authored progress level"),
     unspent: 3,
@@ -1354,7 +1358,7 @@ fn check_relay_encounters(frame: WorldFrame) {
         }
         WorldCheck::Junction => {
             if walk_to(&mut keys, &mut orbit, position, junction) {
-                let (roach, _, _) = relay_encounter(&roaches, EncounterId::RelayRoach);
+                let (roach, _, _) = relay_encounter(&roaches, RELAY_ROACH);
                 hits.write(Hit {
                     source: entity,
                     target: roach,
@@ -1365,7 +1369,7 @@ fn check_relay_encounters(frame: WorldFrame) {
             }
         }
         WorldCheck::ApproachRoach => {
-            let (roach, corpse, dead) = relay_encounter(&roaches, EncounterId::RelayRoach);
+            let (roach, corpse, dead) = relay_encounter(&roaches, RELAY_ROACH);
             assert!(dead);
             assert_eq!(*xp, Experience(25));
             if nearby.0 == Some((roach, InteractionTarget::Corpse)) {
@@ -1442,8 +1446,7 @@ fn enter_archive(frame: WorldFrame) {
     }
     if matches!(*phase, WorldCheck::CrossGate) {
         assert!(position.z < ORIGIN.z + GATE_LOCAL.z);
-        let (hushcap, root, health, _, dead, _) =
-            relay_encounter(&hushcaps, EncounterId::RelayArchiveHushcap);
+        let (hushcap, root, health, _, dead, _) = relay_encounter(&hushcaps, RELAY_ARCHIVE_HUSHCAP);
         assert_eq!(root.translation, ARCHIVE_HUSHCAP_HOME);
         assert_eq!(health.current(), super::SHIPPED_HUSHCAP_HEALTH);
         assert!(!dead);
@@ -1499,7 +1502,7 @@ fn finish_relay_quest(frame: WorldFrame) {
         WorldCheck::ReadNotice => {
             assert!(quest.is_complete(OLD_RELAY));
             assert_eq!(quest.status(CONTAIN_THE_HUSHCAPS), None);
-            assert!(!relay_encounter(&hushcaps, EncounterId::RelayArchiveHushcap).4);
+            assert!(!relay_encounter(&hushcaps, RELAY_ARCHIVE_HUSHCAP).4);
             assert_eq!((*attributes, *xp), (RELAY_PROGRESS, Experience(25)));
             assert_eq!(
                 xp_notice.text.as_deref(),
@@ -1724,8 +1727,7 @@ fn fight_hushcap(frame: WorldFrame) {
         camera,
         ..
     } = frame;
-    let (entity, root, _, loot, dead, solid) =
-        relay_encounter(&hushcaps, EncounterId::RelayArchiveHushcap);
+    let (entity, root, _, loot, dead, solid) = relay_encounter(&hushcaps, RELAY_ARCHIVE_HUSHCAP);
     assert_eq!(
         root.translation, ARCHIVE_HUSHCAP_HOME,
         "the Hushcap must stay rooted"
@@ -1832,12 +1834,11 @@ fn check_relay_revisit(frame: WorldFrame) {
             assert!(quest.is_complete(OLD_RELAY) && progress.gate_open());
             assert!(quest.has_occurred(QuestAction::ReportedArchiveHushcap));
             assert!(
-                relay_encounter(&roaches, EncounterId::RelayRoach).2,
+                relay_encounter(&roaches, RELAY_ROACH).2,
                 "the roach corpse persists across area changes"
             );
             assert_eq!(inventory.count(ItemKind::RoachMeat), 1);
-            let (_, _, _, loot, dead, solid) =
-                relay_encounter(&hushcaps, EncounterId::RelayArchiveHushcap);
+            let (_, _, _, loot, dead, solid) = relay_encounter(&hushcaps, RELAY_ARCHIVE_HUSHCAP);
             assert!(dead && !solid && loot.stack.is_none());
             assert_eq!(inventory.count(ItemKind::Mycelium), 1);
             assert_eq!(
@@ -1984,9 +1985,9 @@ fn check_bed_rollback(frame: WorldFrame) {
                 Some(QuestStatus::Active)
             );
             assert!(quest.has_occurred(QuestAction::ReportedArchiveHushcap));
-            assert!(relay_encounter(&roaches, EncounterId::RelayRoach).2);
+            assert!(relay_encounter(&roaches, RELAY_ROACH).2);
             let (_, _, health, loot, dead, solid) =
-                relay_encounter(&hushcaps, EncounterId::RelayArchiveHushcap);
+                relay_encounter(&hushcaps, RELAY_ARCHIVE_HUSHCAP);
             assert_eq!(health.current(), 0);
             assert!(dead && !solid && loot.stack.is_none());
             assert_eq!(

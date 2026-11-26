@@ -5,7 +5,6 @@ use super::{
 };
 use crate::{
     camera::{FollowCamera, Orbit},
-    cave::CaveEncounter,
     combat::{Dead, Hit},
     combat_feedback::DeathAnimation,
     content::NpcId,
@@ -151,12 +150,12 @@ const ROOM_VIEWS: [(&str, Vec2, f32); 5] = [
     ),
 ];
 
-const ELIGIBLE: [CaveEncounter; 5] = [
-    CaveEncounter::FirstWestHushcap,
-    CaveEncounter::FirstEastHushcap,
-    CaveEncounter::SplitWestHushcap,
-    CaveEncounter::SplitEastHushcap,
-    CaveEncounter::SplitFarHushcap,
+const ELIGIBLE: [crate::content::ContentId; 5] = [
+    crate::content::ContentId::new("cave_first_west_hushcap"),
+    crate::content::ContentId::new("cave_first_east_hushcap"),
+    crate::content::ContentId::new("cave_split_west_hushcap"),
+    crate::content::ContentId::new("cave_split_east_hushcap"),
+    crate::content::ContentId::new("cave_split_far_hushcap"),
 ];
 
 const FLATS_ROUTE: &[(f32, f32)] = &[
@@ -753,12 +752,19 @@ fn prepare_arrival(
                 hit.entity, gate_entity,
                 "the first hit should be the leaf at {hit:?}"
             );
-            kill(fixtures, hits, entity, CaveEncounter::GalleryFarHushcap);
+            kill(
+                fixtures,
+                hits,
+                entity,
+                crate::content::ContentId::new("cave_gallery_far_hushcap"),
+            );
             *check = Check::Activate;
         }
         Check::Activate => {
             assert!(fixtures.enemies.iter().any(|(_, id, dead)| {
-                *id == EncounterId::Cave(CaveEncounter::GalleryFarHushcap) && dead
+                *id == EncounterId::Added(crate::content::ContentId::new(
+                    "cave_gallery_far_hushcap",
+                )) && dead
             }));
             assert_eq!(journal.cavern_defeat_count(), 0);
             for action in [
@@ -821,11 +827,16 @@ fn prepare_arrival(
     }
 }
 
-fn kill(fixtures: &Fixtures, hits: &mut MessageWriter<Hit>, player: Entity, id: CaveEncounter) {
+fn kill(
+    fixtures: &Fixtures,
+    hits: &mut MessageWriter<Hit>,
+    player: Entity,
+    id: crate::content::ContentId,
+) {
     let (entity, _, dead) = fixtures
         .enemies
         .iter()
-        .find(|(_, key, _)| **key == EncounterId::Cave(id))
+        .find(|(_, key, _)| **key == EncounterId::Added(id))
         .expect("the cave encounter exists");
     assert!(!dead);
     hits.write(Hit {
