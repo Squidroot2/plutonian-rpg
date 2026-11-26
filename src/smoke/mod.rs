@@ -42,7 +42,11 @@ use bevy::{
     render::view::screenshot::{Screenshot, save_to_disk},
     time::TimeUpdateStrategy,
 };
-use std::time::{Duration, Instant};
+use std::{
+    env::{self, VarError},
+    num::NonZeroU64,
+    time::{Duration, Instant},
+};
 
 // These smoke scenarios exercise the shipped balance and geometry.
 const SHIPPED_HUSHCAP_HEALTH: u16 = 42;
@@ -54,7 +58,27 @@ const SHIPPED_HUSHCAP_SPIT_RADIUS_M: f32 = 0.14;
 const SMOKE_FRAME_STEP: Duration = Duration::from_millis(20);
 const TIMEOUT: Duration = Duration::from_secs(60);
 const LONG_TIMEOUT: Duration = Duration::from_secs(125);
-const WALL_BACKSTOP: Duration = Duration::from_secs(600);
+const DEFAULT_WALL_BACKSTOP: Duration = Duration::from_mins(10);
+
+#[derive(Resource)]
+struct WallBackstop(Duration);
+
+impl WallBackstop {
+    fn from_env() -> Self {
+        // CI needs more wall time to render the same number of smoke frames in software.
+        const VARIABLE: &str = "PLUTONIAN_SMOKE_WALL_TIMEOUT_SECS";
+        match env::var(VARIABLE) {
+            Ok(value) => {
+                let seconds = value
+                    .parse::<NonZeroU64>()
+                    .expect("PLUTONIAN_SMOKE_WALL_TIMEOUT_SECS must be a positive integer");
+                Self(Duration::from_secs(seconds.get()))
+            }
+            Err(VarError::NotPresent) => Self(DEFAULT_WALL_BACKSTOP),
+            Err(VarError::NotUnicode(_)) => panic!("{VARIABLE} must contain a positive integer"),
+        }
+    }
+}
 
 pub struct SmokePlugin {
     pub arena: bool,
@@ -109,6 +133,7 @@ enum ArenaStep {
 impl Plugin for SmokePlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(SmokeRun(Instant::now()))
+            .insert_resource(WallBackstop::from_env())
             .insert_resource(TimeUpdateStrategy::ManualDuration(SMOKE_FRAME_STEP))
             .insert_resource(SmokeScreenshots(!self.no_screenshots))
             .add_systems(Update, watchdog)
@@ -337,6 +362,7 @@ fn start_from_title(
 
 fn watchdog(
     run: Res<SmokeRun>,
+    backstop: Res<WallBackstop>,
     time: Res<Time<Virtual>>,
     state: Res<State<GameState>>,
     status: Res<LoadStatus>,
@@ -363,7 +389,7 @@ fn watchdog(
     };
     let virtual_elapsed = time.elapsed();
     let wall_elapsed = run.0.elapsed();
-    if let Some(budget) = expired_budget(virtual_elapsed, wall_elapsed, timeout) {
+    if let Some(budget) = expired_budget(virtual_elapsed, wall_elapsed, timeout, backstop.0) {
         panic!(
             "smoke test timed out ({budget} budget; virtual {virtual_elapsed:?}, wall {wall_elapsed:?}) in {:?}; inventory {:?}, spears {:?}, shortswords {:?}, armor {:?}, arena {:?}, world {:?}, Nemi {:?}, cave {:?}, crossing {:?}",
             state.get(),
@@ -384,10 +410,11 @@ fn expired_budget(
     virtual_elapsed: Duration,
     wall_elapsed: Duration,
     timeout: Duration,
+    wall_backstop: Duration,
 ) -> Option<&'static str> {
     if virtual_elapsed >= timeout {
         Some("virtual")
-    } else if wall_elapsed >= WALL_BACKSTOP {
+    } else if wall_elapsed >= wall_backstop {
         Some("wall-clock")
     } else {
         None
@@ -1057,18 +1084,25 @@ mod tests {
     #[test]
     fn watchdog_uses_virtual_budget_and_wall_backstop() {
         let before = TIMEOUT - Duration::from_nanos(1);
-        assert_eq!(expired_budget(before, TIMEOUT, TIMEOUT), None);
-        assert_eq!(expired_budget(TIMEOUT, TIMEOUT, TIMEOUT), Some("virtual"));
+        let wall_backstop = Duration::from_mins(30);
         assert_eq!(
-            expired_budget(before, WALL_BACKSTOP, TIMEOUT),
+            expired_budget(before, DEFAULT_WALL_BACKSTOP, TIMEOUT, wall_backstop),
+            None
+        );
+        assert_eq!(
+            expired_budget(TIMEOUT, TIMEOUT, TIMEOUT, wall_backstop),
+            Some("virtual")
+        );
+        assert_eq!(
+            expired_budget(before, wall_backstop, TIMEOUT, wall_backstop),
             Some("wall-clock")
         );
         assert_eq!(
-            expired_budget(TIMEOUT, WALL_BACKSTOP, LONG_TIMEOUT),
+            expired_budget(TIMEOUT, wall_backstop, LONG_TIMEOUT, wall_backstop),
             Some("wall-clock")
         );
         assert_eq!(
-            expired_budget(LONG_TIMEOUT, TIMEOUT, LONG_TIMEOUT),
+            expired_budget(LONG_TIMEOUT, TIMEOUT, LONG_TIMEOUT, wall_backstop),
             Some("virtual")
         );
     }
