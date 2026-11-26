@@ -81,8 +81,9 @@ pub(super) fn check_death_screen(
     camera: Single<Entity, With<FollowCamera>>,
     mut commands: Commands,
 ) {
-    let Check::ReloadHomes(defeated) = *phase else {
-        panic!("crossing smoke entered GameOver from {phase:?}");
+    let defeated = match *phase {
+        Check::ReloadHomes(defeated) | Check::Restored(defeated) => defeated,
+        _ => panic!("crossing smoke entered GameOver from {phase:?}"),
     };
     let (entity, death) = *player;
     assert_eq!(entity, defeated, "Continue must precede crossing reload");
