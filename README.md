@@ -7,6 +7,10 @@ The story follows the beacon's return, an abandoned relay, and a crossing carava
 
 ## Run
 
+Install Git LFS (`git-lfs`) and run `git lfs install` before cloning.
+Without Git LFS, the working tree contains pointer files in place of binary assets.
+To repair an existing clone after installing Git LFS, run `git lfs install` and then `git lfs pull` from the repository root.
+
 Requires Rust (only tested with latest stable), a Vulkan-capable graphics driver, and a Linux desktop running X11 or Wayland.
 Install your distribution's development packages for the window backends and ALSA audio.
 For the package list used on Ubuntu 24.04, see the [CI workflow](.github/workflows/ci.yml).
