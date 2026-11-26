@@ -15,6 +15,7 @@ const RELAY_PIKE: &str = r#"
 const BASIN_ROACH: &str = r#"
     (
         id: "basin_roach",
+        level: 1,
         name: "Basin roach",
         health: 51,
         xp: 82,

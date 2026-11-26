@@ -5,8 +5,9 @@ use crate::{
     GameState,
     combat::{ActorDefeated, CombatSystems, ConfirmedHit, Dead, Health},
     interaction::InteractionSystems,
+    level::Level,
     nemi::react_to_player_hit,
-    player::{CharacterProgress, Level, Player},
+    player::{CharacterProgress, Player},
     quest::QuestJournal,
 };
 

@@ -1,6 +1,7 @@
 [
     (
         id: "ice_worm",
+        level: 1,
         name: "Ice worm",
         health: 30,
         xp: 35,
@@ -12,6 +13,7 @@
     ),
     (
         id: "relay_roach",
+        level: 1,
         name: "Relay roach",
         health: 20,
         xp: 25,
@@ -23,6 +25,7 @@
     ),
     (
         id: "hushcap",
+        level: 2,
         name: "Hushcap",
         health: 42,
         xp: 45,
@@ -42,6 +45,7 @@
     ),
     (
         id: "outpost_guard",
+        level: 3,
         name: "Plutonian guard",
         xp: 100,
         behavior: Guard(speed_mps: 5.5),

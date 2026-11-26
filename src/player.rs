@@ -1,5 +1,5 @@
 pub(crate) mod progression;
-pub(crate) use progression::{CharacterProgress, Level, SavedProgress};
+pub(crate) use progression::{CharacterProgress, SavedProgress};
 
 use crate::{
     GameState,
