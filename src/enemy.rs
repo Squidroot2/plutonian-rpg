@@ -227,6 +227,7 @@ pub(crate) struct GroundMelee {
 
 pub(crate) struct EnemyBody {
     pub(crate) name: String,
+    pub(crate) level: crate::level::Level,
     pub(crate) health: u16,
     pub(crate) experience: u16,
     pub(crate) loot: Pickup,
@@ -307,7 +308,7 @@ pub(crate) fn spawn_enemy(
         ))
         .insert((
             SessionEntity,
-            crate::experience::ExperienceReward::new(config.experience),
+            crate::experience::ExperienceReward::disposable(config.experience, config.level),
         ))
         .with_children(|root| {
             root.spawn((

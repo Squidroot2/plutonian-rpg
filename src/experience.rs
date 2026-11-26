@@ -14,6 +14,7 @@ use crate::{
 const FIRST_LEVEL_XP: u64 = 70;
 const XP_INCREASE_PER_LEVEL: u64 = 50;
 const XP_NOTICE_SECONDS: f32 = 3.0;
+const FALLOFF_LEVELS: u32 = 4;
 
 /// The player's XP toward the next level, rather than a lifetime total.
 ///
@@ -69,6 +70,7 @@ impl Experience {
 #[derive(Component)]
 pub(crate) struct ExperienceReward {
     amount: u16,
+    disposable_level: Option<Level>,
     pub(crate) player_contributed: bool,
 }
 
@@ -77,7 +79,26 @@ impl ExperienceReward {
         assert!(amount > 0, "killable NPCs must award positive XP");
         Self {
             amount,
+            disposable_level: None,
             player_contributed: false,
+        }
+    }
+
+    pub(crate) const fn disposable(amount: u16, level: Level) -> Self {
+        let mut reward = Self::new(amount);
+        reward.disposable_level = Some(level);
+        reward
+    }
+
+    fn award(&mut self, player_level: Level) -> u64 {
+        if let Some(level) = self.disposable_level {
+            let difference = player_level.get().saturating_sub(level.get());
+            let remaining = FALLOFF_LEVELS.saturating_sub(difference);
+            u64::from(self.amount) * u64::from(remaining) / u64::from(FALLOFF_LEVELS)
+        } else if std::mem::take(&mut self.player_contributed) {
+            u64::from(self.amount)
+        } else {
+            0
         }
     }
 }
@@ -138,6 +159,7 @@ fn award_experience(
     // Record every contribution before looking up rewards, including hits from this update.
     for hit in hits.read().filter(|hit| hit.source == player) {
         if let Ok(mut reward) = rewards.get_mut(hit.target)
+            && reward.disposable_level.is_none()
             && !reward.player_contributed
         {
             reward.player_contributed = true;
@@ -147,7 +169,7 @@ fn award_experience(
         .read()
         .filter_map(|defeat| {
             let mut reward = rewards.get_mut(defeat.0).ok()?;
-            std::mem::take(&mut reward.player_contributed).then_some(u64::from(reward.amount))
+            Some(reward.award(progress.level))
         })
         .sum();
     let earned = combat_xp + quest_xp;

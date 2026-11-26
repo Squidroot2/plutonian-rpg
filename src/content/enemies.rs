@@ -130,6 +130,7 @@ impl EnemyDefinition {
     pub(crate) fn body(&self) -> EnemyBody {
         EnemyBody {
             name: self.name.clone(),
+            level: self.level,
             health: self
                 .health
                 .expect("creature health must be validated at boot"),
