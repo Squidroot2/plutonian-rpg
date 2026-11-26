@@ -8,6 +8,10 @@ Choose **Load Game** to choose a save made at the bed in the starting tent.
 You can also choose **Load Game** from the pause menu to replace the current run with a save.
 Press E near the bed to save.
 A successful bed save restores full health and creates a new save for the current run.
+It also advances the day.
+After six days without killing a worm, roach, or Hushcap in an area,
+those creatures return there at full health with fresh loot.
+This replaces wounded creatures and removes any unlooted corpses in that area.
 
 When you are defeated, your character collapses and the screen fades to black.
 Click **Continue** on the **Game Over** screen to return to the tent at full health.
@@ -64,7 +68,9 @@ your level, and progress toward the next level.
 New characters start at rank 5; attribute ranks cap at 100.
 Spend available attribute points with **+**.
 Each level gained awards three points.
-You earn experience for completing quests and when an actor you damaged is defeated.
+You earn experience for completing quests and defeating enemies.
+Worms, roaches, and Hushcaps award less experience as you outlevel them,
+and none once you are four levels higher.
 The bed saves your level progress and attributes.
 
 ## Inventory and carrying weight

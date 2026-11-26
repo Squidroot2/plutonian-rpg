@@ -20,6 +20,7 @@ pub use items::{ItemKind, Items};
 pub(crate) use npcs::test_npcs;
 pub(crate) use npcs::{NpcId, Npcs};
 pub(crate) use placements::{CollectedPickups, PlacedPickup, Placements};
+pub(crate) use placements::{clear_sleep_mask, renew_encounters};
 
 use crate::{GameState, loading::LoadStatus};
 use bevy::{

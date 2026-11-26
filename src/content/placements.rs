@@ -53,6 +53,16 @@ pub(crate) struct PlacedEncounter {
     pub(crate) yaw_degrees: f32,
 }
 
+/// Covers the frame in which a sleeping area's bodies are replaced.
+#[derive(Component)]
+pub(crate) struct SleepMask;
+
+pub(crate) fn clear_sleep_mask(mut commands: Commands, masks: Query<Entity, With<SleepMask>>) {
+    for entity in &masks {
+        commands.entity(entity).despawn();
+    }
+}
+
 #[derive(Resource, Default)]
 pub(crate) struct CollectedPickups(pub(crate) BTreeSet<ContentId>);
 
@@ -77,7 +87,6 @@ impl Placements {
         )
     }
 
-    #[cfg(any(test, feature = "smoke"))]
     pub(crate) fn encounters(&self) -> impl Iterator<Item = &PlacedEncounter> {
         self.encounters.iter()
     }
@@ -171,6 +180,45 @@ impl Placements {
                 .map_err(|error| format!("Pickup {id}: {error}"))?;
         }
         Ok(())
+    }
+}
+
+pub(crate) fn renew_encounters(
+    mut renewals: MessageReader<crate::save::RenewArea>,
+    placements: Res<Placements>,
+    enemies: Res<Enemies>,
+    visuals: Res<EnemyVisuals>,
+    existing: Query<(Entity, &EncounterId)>,
+    mut commands: Commands,
+) {
+    for renewal in renewals.read() {
+        commands.spawn((
+            SleepMask,
+            crate::world::SessionEntity,
+            Node {
+                position_type: PositionType::Absolute,
+                width: Val::Percent(100.0),
+                height: Val::Percent(100.0),
+                ..default()
+            },
+            BackgroundColor(Color::BLACK),
+            GlobalZIndex(i32::MAX),
+        ));
+        for entry in placements
+            .encounters()
+            .filter(|entry| entry.area == renewal.0)
+        {
+            let id = EncounterId::Added(entry.id);
+            for (entity, _) in existing.iter().filter(|(_, found)| **found == id) {
+                commands.entity(entity).despawn();
+            }
+            let definition = enemies.get(entry.enemy).expect("validated encounter enemy");
+            let home = Transform::from_translation(entry.position.into())
+                .with_rotation(Quat::from_rotation_y(entry.yaw_degrees.to_radians()));
+            let entity =
+                enemy::spawn_variant(&mut commands, &visuals, definition, home, entry.area, id);
+            commands.entity(entity).insert(enemy::RenewedEncounter);
+        }
     }
 }
 

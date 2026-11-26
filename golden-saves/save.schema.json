@@ -189,7 +189,7 @@
       "additionalProperties": false
     },
     "Experience": {
-      "description": "The player's XP toward the next level, rather than a lifetime total.\n\nQuest completions and defeated enemies the player damaged award XP. Reaching\na level's threshold advances `CharacterProgress` and carries surplus XP\ntoward subsequent levels. This component is saved with the player's progress.",
+      "description": "The player's XP toward the next level, rather than a lifetime total.\n\nQuest completions, disposable defeats, and consequential enemies the player damaged award XP. Reaching\na level's threshold advances `CharacterProgress` and carries surplus XP\ntoward subsequent levels. This component is saved with the player's progress.",
       "type": "integer",
       "format": "uint64",
       "minimum": 0
@@ -512,13 +512,35 @@
     "SavedWorld": {
       "type": "object",
       "properties": {
+        "day": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
         "guards_hostile": {
           "type": "boolean"
+        },
+        "relay_last_kill": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0
+        },
+        "surface_last_kill": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0
         }
       },
       "additionalProperties": false,
       "required": [
-        "guards_hostile"
+        "guards_hostile",
+        "day"
       ]
     }
   }

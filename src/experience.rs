@@ -18,7 +18,7 @@ const FALLOFF_LEVELS: u32 = 4;
 
 /// The player's XP toward the next level, rather than a lifetime total.
 ///
-/// Quest completions and defeated enemies the player damaged award XP. Reaching
+/// Quest completions, disposable defeats, and consequential enemies the player damaged award XP. Reaching
 /// a level's threshold advances `CharacterProgress` and carries surplus XP
 /// toward subsequent levels. This component is saved with the player's progress.
 #[derive(
@@ -202,6 +202,18 @@ mod tests {
         quest::{QuestAction, test_journal},
     };
     use bevy::state::app::StatesPlugin;
+
+    #[test]
+    fn disposable_experience_falls_off_and_can_be_awarded_again() {
+        let mut reward = ExperienceReward::disposable(35, Level::FIRST);
+        for (level, expected) in [(1, 35), (2, 26), (3, 17), (4, 8), (5, 0), (6, 0)] {
+            assert_eq!(
+                reward.award(Level::new(level).expect("test level is valid")),
+                expected
+            );
+        }
+        assert_eq!(reward.award(Level::FIRST), 35);
+    }
 
     #[test]
     fn thresholds_increase_and_surplus_can_grant_multiple_levels() {

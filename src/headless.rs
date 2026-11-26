@@ -103,6 +103,111 @@ fn encounter(world: &mut World, wanted: EncounterId) -> Entity {
 }
 
 #[test]
+fn sleeping_six_days_replaces_killed_and_wounded_encounters_in_only_the_due_area() {
+    let mut app = game();
+    step_until(&mut app, 10_000, |world| {
+        *world.resource::<State<GameState>>().get() == GameState::Title
+    });
+    app.world_mut()
+        .resource_mut::<crate::player::NewPlayerName>()
+        .0 = "Test Player".into();
+    app.world_mut()
+        .resource_mut::<NextState<GameState>>()
+        .set(GameState::Loading);
+    step_until(&mut app, 20_000, |world| {
+        *world.resource::<State<GameState>>().get() == GameState::Playing
+    });
+    let worm_id = EncounterId::Added(crate::content::ContentId::new("near_trail_worm"));
+    let wounded_id = EncounterId::Added(crate::content::ContentId::new("far_trail_worm"));
+    let relay_id = EncounterId::Added(crate::content::ContentId::new("relay_roach"));
+    let world = app.world_mut();
+    let worm = encounter(world, worm_id);
+    let wounded = encounter(world, wounded_id);
+    let relay = encounter(world, relay_id);
+    world
+        .get_mut::<Health>(wounded)
+        .expect("worm health")
+        .set_current(1);
+    world
+        .get_mut::<Transform>(wounded)
+        .expect("worm pose")
+        .translation
+        .x += 3.0;
+    world
+        .get_mut::<Health>(relay)
+        .expect("roach health")
+        .set_current(1);
+    let player = world.player_entity();
+    world.write_message(Hit {
+        source: player,
+        target: worm,
+        damage: u16::MAX,
+        contact: None,
+    });
+    app.update();
+    assert!(app.world().get::<Dead>(worm).is_some());
+    let bed = {
+        let world = app.world_mut();
+        world
+            .query_filtered::<Entity, With<Bed>>()
+            .single(world)
+            .expect("bed")
+    };
+    for day in 1..=6 {
+        app.world_mut().write_message(SaveAtBed(bed));
+        app.update();
+        if day < 6 {
+            assert!(app.world().get::<Dead>(worm).is_some());
+            assert_eq!(
+                app.world()
+                    .get::<Health>(wounded)
+                    .expect("wounded worm")
+                    .current(),
+                1
+            );
+        }
+    }
+    let world = app.world_mut();
+    assert!(world.get_entity(worm).is_err());
+    let replacement = encounter(world, worm_id);
+    let refreshed = encounter(world, wounded_id);
+    assert!(
+        (world
+            .get::<Transform>(refreshed)
+            .expect("renewed pose")
+            .translation
+            .x
+            + 14.0)
+            .abs()
+            < 0.01
+    );
+    for entity in [replacement, refreshed] {
+        let health = world.get::<Health>(entity).expect("renewed health");
+        assert_eq!(health.current(), health.maximum());
+        assert!(
+            world
+                .get::<CorpseLoot>(entity)
+                .expect("renewed loot")
+                .stack
+                .is_some()
+        );
+    }
+    assert_eq!(encounter(world, relay_id), relay);
+    assert_eq!(
+        world.get::<Health>(relay).expect("roach health").current(),
+        1
+    );
+    world.write_message(Hit {
+        source: player,
+        target: replacement,
+        damage: u16::MAX,
+        contact: None,
+    });
+    app.update();
+    assert_eq!(app.world().actor_data::<CharacterProgress>().level.get(), 2);
+}
+
+#[test]
 fn bed_save_death_and_reload_restore_the_world() {
     let mut app = game();
     step_until(&mut app, 10_000, |world| {
@@ -140,6 +245,7 @@ fn bed_save_death_and_reload_restore_the_world() {
         "save notice: {:?}",
         app.world().resource::<crate::save::SaveNotice>().text
     );
+    assert_eq!(app.world().resource::<crate::save::RespawnClock>().day(), 1);
     let old_player = app.world().player_entity();
     let world = app.world_mut();
     world.set_player_data((
@@ -193,6 +299,7 @@ fn bed_save_death_and_reload_restore_the_world() {
     step_until(&mut app, 1_000, |world| {
         world.actor_data::<Player>().grounded
     });
+    assert_eq!(app.world().resource::<crate::save::RespawnClock>().day(), 1);
     assert_restored_state(app.world_mut(), old_player);
 }
 
