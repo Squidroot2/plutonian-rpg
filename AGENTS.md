@@ -21,6 +21,7 @@ Run these commands from the repository root with Rust 1.97.1 or newer.
 - `cargo run --locked --features smoke -- --smoke-test` exercises the gameplay arena.
 - `cargo run --locked --features smoke -- --smoke-world` exercises the shipped map, tent storage, Old Relay, and bed-save rollback.
 - `cargo run --locked --features smoke -- --smoke-nemi` exercises Nemi's combat reactions and the solo quest route.
+- Agents run the smoke scenarios as `scripts/smoke.sh <scenario>`, unsandboxed: the agent sandbox hides the GPU devices, and a "could not detect a GPU" failure from inside it is an artifact, not a host property. See `docs/contributing/verification.md`.
 
 Run `cargo test --locked` after every change.
   Before handing off Rust changes, run `cargo fmt --check` and `cargo clippy --locked --all-targets`.
