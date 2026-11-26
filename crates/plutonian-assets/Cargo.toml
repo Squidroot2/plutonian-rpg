@@ -1,0 +1,13 @@
+[package]
+name = "plutonian-assets"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.100.0"
+license = "MIT"
+
+[dependencies]
+gltf = { version = "1.4", default-features = false, features = ["names", "utils"] }
+plutonian-rpg = { path = "../.." }
+proc-macro2 = "1"
+serde_json = "1"
+syn = "2"

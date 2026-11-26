@@ -3,15 +3,12 @@ use crate::{
     content::Items,
     crossing::CrossingAssets,
     dialogue::{DialogueCatalog, DialogueRegistry},
-    enemy::{EnemyAnimations, EnemyModel, EnemyVisual},
-    hushcap,
+    enemy::{ENEMY_MODELS, EnemyAnimations, EnemyModel, EnemyVisual},
     inventory::ItemKind,
     player::{AnimationLibrary, CLIPS, add_sword_animation_masks},
     quest::{QuestCatalog, QuestJournal},
-    roach,
     save::{self, RunSave, SaveSlot},
     world::{SessionEntity, WorldLayout},
-    worm,
 };
 use avian3d::prelude::{
     Collider, ColliderConstructor, ColliderConstructorHierarchy, RigidBody, SpatialQuery,
@@ -30,7 +27,11 @@ const ARENA_FLOOR_PROBE_ORIGIN: Vec3 = Vec3::new(0.0, 5.0, -12.0);
 const ARENA_FLOOR_PROBE_RANGE: f32 = 6.0;
 const MIN_NON_PLAYER_COLLIDERS: usize = 2;
 
-const ENEMY_MODELS: &[EnemyModel] = &[worm::MODEL, roach::MODEL, hushcap::MODEL];
+pub(crate) const CHARACTER_MODEL: &str = "models/plutonian.glb";
+pub(crate) const OUTPOST_MODEL: &str = "models/outpost.glb";
+pub(crate) const OUTPOST_COLLISION_MODEL: &str = "models/collision.glb";
+pub(crate) const RELAY_MODEL: &str = "models/old_relay.glb";
+pub(crate) const SOUTH_BASIN_MODEL: &str = "models/south_basin.glb";
 
 #[derive(Resource)]
 pub(crate) struct EnemyVisuals(BTreeMap<&'static str, EnemyVisual>);
@@ -170,22 +171,22 @@ fn load(
     commands.insert_resource(GameAssets {
         quests: server.load(format!("data://{}", QuestCatalog::PATH)),
         dialogue: server.load("data://dialogue/catalog.dialogue.ron"),
-        character: server.load("models/plutonian.glb"),
+        character: server.load(CHARACTER_MODEL),
         outpost: (*layout == WorldLayout::Outpost).then(|| {
             (
-                server.load("models/outpost.glb"),
-                server.load("models/collision.glb"),
+                server.load(OUTPOST_MODEL),
+                server.load(OUTPOST_COLLISION_MODEL),
             )
         }),
         relay: (*layout == WorldLayout::Outpost).then(|| {
             (
-                server.load("models/old_relay.glb"),
+                server.load(RELAY_MODEL),
                 server.load("models/old_relay_collision.glb"),
             )
         }),
         south_basin: (*layout == WorldLayout::Outpost).then(|| {
             (
-                server.load("models/south_basin.glb"),
+                server.load(SOUTH_BASIN_MODEL),
                 server.load("models/south_basin_collision.glb"),
             )
         }),
@@ -368,7 +369,7 @@ fn prepare_animations(
             ));
         }
     }
-    let (mut graph, nodes) = animation_graph(model, CLIPS, "plutonian.glb")?;
+    let (mut graph, nodes) = animation_graph(model, CLIPS, CHARACTER_MODEL)?;
     let guards = add_sword_animation_masks(
         &mut graph,
         &nodes,
@@ -381,10 +382,14 @@ fn prepare_animations(
             let model = gltfs
                 .get(&assets.enemies[definition.path])
                 .expect("enemy models must be present after loading validation");
-            let (mut graph, nodes) = animation_graph(model, definition.clips, definition.path)?;
+            let (mut graph, nodes) = animation_graph(
+                model,
+                definition.clips.map(|clip| clip.name),
+                definition.path,
+            )?;
             let locomotion = definition
                 .locomotion
-                .map(|name| animation_node(&mut graph, model, name, definition.path))
+                .map(|name| animation_node(&mut graph, model, name.name, definition.path))
                 .transpose()?;
             Ok((
                 definition.path,

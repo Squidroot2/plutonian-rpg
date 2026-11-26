@@ -60,7 +60,7 @@ jobs:
         run: cargo fmt --check
 
       - name: Check assets
-        run: python3 scripts/check_assets.py
+        run: cargo run --locked -p plutonian-assets
 
       - name: Build
         run: cargo build --locked

@@ -19,7 +19,9 @@ mod movement;
 #[cfg(test)]
 use animation::Gait;
 pub(crate) use animation::{
-    ActorVisual, AnimationLibrary, CLIPS, NpcGait, add_sword_animation_masks, bind_actor_animation,
+    ACTOR_DEATH_CLIP, ActorVisual, AnimationLibrary, CLIPS, NpcGait, SPEAR_LOCOMOTION,
+    SPEAR_THRUST_CLIP, SWORD_SLASH_CLIPS, WEAPON_ARM_BONES, add_sword_animation_masks,
+    bind_actor_animation, directional_walk_clips,
 };
 use animation::{animate, freeze, resume};
 use movement::PLAYER_HIT_PROTECTION_SECONDS;

@@ -45,6 +45,12 @@ To re-export **your edited `.blend` sources** without regenerating them:
 blender --background -noaudio --factory-startup --python-exit-code 1 --python scripts/assets.py -- --export
 ```
 
+Run the headless validator after exporting.
+
+```sh
+cargo run --locked -p plutonian-assets
+```
+
 Append `--outpost` to export just the outpost and its collision scene.
 Append `--shortsword` to export just the player rig and the two shortsword models.
 
@@ -71,7 +77,8 @@ blender --background -noaudio --factory-startup --python-exit-code 1 --python sc
 To regenerate only the three material models without replacing existing world or character art, pass `-- --items` to the asset command.
 This overwrites the material sources and exports.
 Pickup models use a base origin at zero height; material models use a 0.62 m square placement footprint and 0.6 m height.
-Equipment uses its larger per-item bounds from `ItemKind::gear()` in `src/equipment.rs`; `scripts/check_assets.py` verifies the exported geometry fits those bounds.
+The validator reads per-item pickup dimensions from `data/items/catalog.item.ron`.
+It checks the equipment and small loot exports against those dimensions.
 
 Pass `-- --meat` to regenerate the two meat pickup models.
 

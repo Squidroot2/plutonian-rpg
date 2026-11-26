@@ -2,7 +2,7 @@ use crate::{
     content::EnemyDefinition,
     dungeon::Area,
     enemy::{
-        self, EnemyModel,
+        self, EnemyClip, EnemyModel,
         ranged::{ChargeLight, RangedAttack},
     },
     loading::EnemyVisuals,
@@ -12,7 +12,11 @@ use bevy::prelude::*;
 
 pub(crate) const MODEL: EnemyModel = EnemyModel {
     path: "models/hushcap.glb",
-    clips: ["HushcapIdle", "HushcapSpit", "HushcapDeath"],
+    clips: [
+        EnemyClip::new("HushcapIdle", 2.0),
+        EnemyClip::new("HushcapSpit", 2.1),
+        EnemyClip::new("HushcapDeath", 0.8),
+    ],
     visual_offset: Vec3::ZERO,
     locomotion: None,
 };

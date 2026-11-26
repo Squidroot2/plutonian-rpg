@@ -20,7 +20,7 @@ use crate::{
 
 const GRIP_HEIGHT: f32 = -0.05;
 pub(crate) const GRIP_SIDE: f32 = -0.40;
-const ATTACK_CLIP_FPS: f32 = 24.0;
+pub(crate) const ATTACK_CLIP_FPS: f32 = 24.0;
 const SPEAR_IMPACT_FRAME: f32 = 6.0;
 const SPEAR_RECOVERY_FRAME: f32 = 16.0;
 const SWORD_IMPACT_FRAME: f32 = 5.0;

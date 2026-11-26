@@ -17,7 +17,7 @@ Run these commands from the repository root with Rust 1.97.1 or newer.
 - `cargo build --locked` builds the executable. `cargo check --locked` checks compilation without linking.
 - `cargo fmt --check` checks formatting. `cargo fmt` applies it.
 - `cargo test --locked` runs Rust tests. `cargo clippy --locked --all-targets` runs lint checks.
-- `python3 scripts/check_assets.py` validates GLB structure, resources, skin, and animation names.
+- `cargo run --locked -p plutonian-assets` validates the checked-in GLBs and their gameplay contracts.
 - `cargo run --locked --features smoke -- --smoke-test` exercises the gameplay arena.
 - `cargo run --locked --features smoke -- --smoke-world` exercises the shipped map, tent storage, Old Relay, and bed-save rollback.
 - `cargo run --locked --features smoke -- --smoke-nemi` exercises Nemi's combat reactions and the solo quest route.

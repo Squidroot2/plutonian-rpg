@@ -38,11 +38,31 @@ const DESTINATION_EPSILON_SQUARED: f32 = 0.0001;
 const ANIMATION_MOVEMENT_EPSILON_SQUARED: f32 = 0.000_001;
 const LOCOMOTION_BLEND: Duration = Duration::from_millis(100);
 
+/// The registry used by both runtime loading and the headless asset checker.
+pub(crate) const ENEMY_MODELS: &[EnemyModel] = &[
+    crate::worm::MODEL,
+    crate::roach::MODEL,
+    crate::hushcap::MODEL,
+];
+
+#[derive(Clone, Copy)]
+pub(crate) struct EnemyClip {
+    pub(crate) name: &'static str,
+    /// Duration of the authored export, independent of runtime playback speed.
+    pub(crate) duration_s: f32,
+}
+
+impl EnemyClip {
+    pub(crate) const fn new(name: &'static str, duration_s: f32) -> Self {
+        Self { name, duration_s }
+    }
+}
+
 pub(crate) struct EnemyModel {
     pub(crate) path: &'static str,
     /// Idle, attack, and death, in that order.
-    pub(crate) clips: [&'static str; 3],
-    pub(crate) locomotion: Option<&'static str>,
+    pub(crate) clips: [EnemyClip; 3],
+    pub(crate) locomotion: Option<EnemyClip>,
     pub(crate) visual_offset: Vec3,
 }
 

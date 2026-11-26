@@ -10,12 +10,19 @@ cargo run --locked --features smoke -- --smoke-world
 cargo run --locked --features smoke -- --smoke-nemi
 cargo run --locked --features smoke -- --smoke-cave
 cargo run --locked --features smoke -- --smoke-crossing
-python3 scripts/check_assets.py
+cargo run --locked -p plutonian-assets
 ```
 
 Clippy enforces a 150-line function limit, including smoke drivers.
 GitHub Actions builds, tests, and runs Clippy for pushes and pull requests to `master`.
 See the [repository guidelines](../../AGENTS.md) for development and verification standards.
+
+Run the asset checker from the repository root.
+It validates model references, Blender source coverage, embedded resources, collision companions,
+pickup dimensions, and the animated rigs without starting the game.
+Enemy clips and durations come from the runtime model registry.
+New area collision companions pair by the `_collision.glb` suffix.
+Declare bodies that must exist in both halves of a pair in `src/asset_check/expectations.rs`.
 
 Run one smoke scenario at a time on an idle graphical desktop without supplying mouse or keyboard input.
 Add `--windowed` to a smoke command to run it in a window.

@@ -1,7 +1,7 @@
 use crate::{
     content::EnemyDefinition,
     dungeon::Area,
-    enemy::{self, EnemyModel},
+    enemy::{self, EnemyClip, EnemyModel},
     loading::EnemyVisuals,
 };
 use avian3d::prelude::Collider;
@@ -9,9 +9,13 @@ use bevy::prelude::*;
 
 pub(crate) const MODEL: EnemyModel = EnemyModel {
     path: "models/relay_roach.glb",
-    clips: ["RoachIdle", "RoachBite", "RoachDeath"],
+    clips: [
+        EnemyClip::new("RoachIdle", 2.0),
+        EnemyClip::new("RoachBite", 1.2),
+        EnemyClip::new("RoachDeath", 0.7),
+    ],
     visual_offset: Vec3::ZERO,
-    locomotion: Some("RoachCrawl"),
+    locomotion: Some(EnemyClip::new("RoachCrawl", 0.6)),
 };
 pub(crate) const GROUND_OFFSET: f32 = 0.32;
 #[derive(Component)]

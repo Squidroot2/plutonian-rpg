@@ -5,7 +5,10 @@ use super::{
 use crate::{
     combat_feedback::DeathAnimation,
     content::Items,
-    equipment::{Equipment, EquipmentSlot, WeaponKind},
+    equipment::{
+        Equipment, EquipmentSlot, HOLSTER_ROOT_BONE, LEFT_SWORD_GRIP, RIGHT_SWORD_GRIP, SPINE_BONE,
+        WeaponKind,
+    },
     player::Player,
     weapon::{Hand, WeaponAttack, WeaponStance},
 };
@@ -91,11 +94,11 @@ impl Gait {
 
 const SPEAR_LOCOMOTION_START: usize = Gait::WalkBackRight as usize + 1;
 const SWORD_LOCOMOTION_START: usize = SPEAR_LOCOMOTION_START * 2;
-const SPEAR_THRUST_CLIP: usize = SPEAR_LOCOMOTION_START * 3;
+pub(crate) const SPEAR_THRUST_CLIP: usize = SPEAR_LOCOMOTION_START * 3;
 const SWORD_MAIN_SLASH_CLIP: usize = SPEAR_THRUST_CLIP + 1;
 const SWORD_OFF_SLASH_CLIP: usize = SWORD_MAIN_SLASH_CLIP + 1;
-const SWORD_SLASH_CLIPS: [usize; 2] = [SWORD_MAIN_SLASH_CLIP, SWORD_OFF_SLASH_CLIP];
-const ACTOR_DEATH_CLIP: usize = SWORD_OFF_SLASH_CLIP + 1;
+pub(crate) const SWORD_SLASH_CLIPS: [usize; 2] = [SWORD_MAIN_SLASH_CLIP, SWORD_OFF_SLASH_CLIP];
+pub(crate) const ACTOR_DEATH_CLIP: usize = SWORD_OFF_SLASH_CLIP + 1;
 pub const CLIPS: [&str; ACTOR_DEATH_CLIP + 1] = [
     "Idle",
     "Walk",
@@ -136,6 +139,19 @@ pub const CLIPS: [&str; ACTOR_DEATH_CLIP + 1] = [
     "PlutonianDeath",
 ];
 
+/// Directional walks are contiguous within each of the three locomotion sets.
+pub(crate) fn directional_walk_clips() -> impl Iterator<Item = &'static str> {
+    [0, SPEAR_LOCOMOTION_START, SWORD_LOCOMOTION_START]
+        .into_iter()
+        .flat_map(|start| &CLIPS[start + Gait::WalkBack as usize..start + SPEAR_LOCOMOTION_START])
+        .copied()
+}
+
+pub(crate) const SPEAR_LOCOMOTION: std::ops::Range<usize> =
+    SPEAR_LOCOMOTION_START..SWORD_LOCOMOTION_START;
+/// Upper arm and forearm, in main-hand then off-hand order.
+pub(crate) const WEAPON_ARM_BONES: [[&str; 2]; 2] = [["arm-1", "forearm-1"], ["arm1", "forearm1"]];
+
 #[derive(Resource)]
 pub struct AnimationLibrary {
     pub graph: Handle<AnimationGraph>,
@@ -155,13 +171,12 @@ pub(crate) fn add_sword_animation_masks(
     let idle_clip = clips
         .get(&idle)
         .ok_or("SwordIdle animation is unavailable")?;
-    let arms = [
-        ["arm-1", "forearm-1", "sword_grip_right"],
-        ["arm1", "forearm1", "sword_grip_left"],
-    ]
-    .map(|bones| {
+    let arms = std::array::from_fn::<_, 2, _>(|index| {
+        let [arm, forearm] = WEAPON_ARM_BONES[index];
+        let grip = [RIGHT_SWORD_GRIP, LEFT_SWORD_GRIP][index];
+        let bones = [arm, forearm, grip];
         [1, 2, 3].map(|end| {
-            ["PlutonianRig", "root", "spine"]
+            ["PlutonianRig", HOLSTER_ROOT_BONE, SPINE_BONE]
                 .into_iter()
                 .chain(bones[..end].iter().copied())
                 .collect::<AnimationTargetId>()

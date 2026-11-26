@@ -347,9 +347,12 @@ struct EquipmentAttachment {
     worn: Option<Entity>,
 }
 
+pub(crate) const SPINE_BONE: &str = "spine";
+pub(crate) const RIGHT_SWORD_GRIP: &str = "sword_grip_right";
+pub(crate) const LEFT_SWORD_GRIP: &str = "sword_grip_left";
 pub(crate) const HOLSTER_ROOT_BONE: &str = "root";
 pub(crate) const EQUIPMENT_SOCKETS: [(&str, EquipmentSlot, Option<Handedness>); 5] = [
-    ("spine", EquipmentSlot::Body, None),
+    (SPINE_BONE, EquipmentSlot::Body, None),
     ("head", EquipmentSlot::Helmet, None),
     (
         "spear_grip",
@@ -357,12 +360,12 @@ pub(crate) const EQUIPMENT_SOCKETS: [(&str, EquipmentSlot, Option<Handedness>); 
         Some(Handedness::TwoHanded),
     ),
     (
-        "sword_grip_right",
+        RIGHT_SWORD_GRIP,
         EquipmentSlot::MainHand,
         Some(Handedness::OneHanded),
     ),
     (
-        "sword_grip_left",
+        LEFT_SWORD_GRIP,
         EquipmentSlot::OffHand,
         Some(Handedness::OneHanded),
     ),
@@ -379,7 +382,7 @@ pub(crate) fn bind_equipment_attachments(
         return;
     };
     let bones = equipment_bones(event.entity, &children, &names);
-    let (Some(&spine), Some(&root)) = (bones.get("spine"), bones.get(HOLSTER_ROOT_BONE)) else {
+    let (Some(&spine), Some(&root)) = (bones.get(SPINE_BONE), bones.get(HOLSTER_ROOT_BONE)) else {
         return;
     };
     for (name, slot, handedness) in EQUIPMENT_SOCKETS {

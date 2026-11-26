@@ -4603,6 +4603,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "plutonian-assets"
+version = "0.1.0"
+dependencies = [
+ "gltf",
+ "plutonian-rpg",
+ "proc-macro2",
+ "serde_json",
+ "syn 2.0.119",
+]
+
+[[package]]
 name = "plutonian-rpg"
 version = "0.1.0"
 dependencies = [
