@@ -21,6 +21,8 @@ mod enemy;
 mod equipment;
 mod experience;
 mod guard;
+#[cfg(test)]
+mod headless;
 mod hushcap;
 mod interaction;
 mod inventory;
