@@ -11,6 +11,11 @@ This Linux desktop RPG uses Rust 2024, Bevy 0.20, and Avian 0.8.
 
 ## Build, Test, and Development Commands
 
+Install Git LFS (`git-lfs`) and run `git lfs install` before cloning so the checkout contains the binary assets.
+  If an existing checkout contains only pointers in place of those assets,
+  install Git LFS, run `git lfs install`, then run `git lfs pull` from the repository root.
+  Set `lfs: true` on every GitHub Actions checkout.
+
 Run these commands from the repository root with Rust 1.97.1 or newer.
 
 - `cargo run --locked` launches the game. The default build excludes the desktop smoke scenarios; they are behind the `smoke` Cargo feature.
