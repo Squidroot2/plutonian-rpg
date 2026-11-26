@@ -23,7 +23,7 @@ and their saved state behaves exactly as it does today.
 - Disposable: ice worms, relay roaches, and hushcaps.
   A replacement individual has moved in;
   nothing about the previous one is remembered in the world.
-- Consequential: the outpost guards and Nemi.
+- Consequential: the outpost guards, Nemi, and other named NPCs.
   Their state, including guard hostility, is a story fact and is permanent.
 
 Quest records are not bodies.
@@ -38,7 +38,7 @@ not hard-coded per spawn site.
 Until encounters move into the placements catalog (issue #61),
 the classification derives from the archetype:
 worms, roaches, and hushcaps are disposable;
-guards are not.
+guards and other named NPCs are not.
 
 ## The clock
 
