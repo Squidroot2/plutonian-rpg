@@ -16,10 +16,15 @@ const SAVE_ROW_HEIGHT_PX: f32 = 40.0;
 
 #[derive(Resource, Default)]
 pub(crate) struct SavePicker {
+    /// Whether the save list is open and accepting input.
     pub(super) open: bool,
+    /// Index of the highlighted save in `SaveSlot::entries`.
     selected: usize,
+    /// Whether the picker is showing its delete confirmation prompt.
     confirming: bool,
+    /// Input action queued for the picker update system to process.
     pending: Option<PickerAction>,
+    /// Latest load or delete failure shown in the picker.
     error: Option<String>,
 }
 
