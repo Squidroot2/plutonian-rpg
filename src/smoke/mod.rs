@@ -39,6 +39,7 @@ use bevy::{
     input::InputSystems,
     prelude::*,
     render::view::screenshot::{Screenshot, save_to_disk},
+    time::TimeUpdateStrategy,
 };
 use std::time::{Duration, Instant};
 
@@ -48,6 +49,8 @@ const SHIPPED_HUSHCAP_XP: u16 = 45;
 const SHIPPED_HUSHCAP_MUZZLE_HEIGHT_M: f32 = 1.01;
 const SHIPPED_HUSHCAP_SPIT_RADIUS_M: f32 = 0.14;
 
+// Give drivers the same virtual delta per frame on desktop and software renderers.
+const SMOKE_FRAME_STEP: Duration = Duration::from_millis(20);
 const TIMEOUT: Duration = Duration::from_secs(60);
 const LONG_TIMEOUT: Duration = Duration::from_secs(125);
 const WALL_BACKSTOP: Duration = Duration::from_secs(600);
@@ -104,6 +107,7 @@ enum ArenaStep {
 impl Plugin for SmokePlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(SmokeRun(Instant::now()))
+            .insert_resource(TimeUpdateStrategy::ManualDuration(SMOKE_FRAME_STEP))
             .add_systems(Update, watchdog)
             .add_systems(PreUpdate, report_timing)
             .add_systems(PostUpdate, report_exit_timing)
