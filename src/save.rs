@@ -18,7 +18,7 @@ use crate::{
     guard::{self, GuardPost, OutpostSecurity},
     interaction::{ActiveChest, CorpseLoot, InteractionSystems, LootTarget, Nearby, Target},
     inventory::{Inventory, InventoryNotice, ItemKind, Pickup},
-    nemi::{self, FleeState, Nemi, NemiState},
+    nemi::{self, FleeState, Nemi, SavedFleeState},
     player::{CharacterProgress, MovementInput, Player, SavedProgress},
     quest::{QuestAction, QuestJournal, SavedJournal},
     storage::ChestStorage,
@@ -43,7 +43,7 @@ use std::{
 };
 
 // Four magic bytes followed by the little-endian save schema version.
-const HEADER: &[u8; 6] = b"PLUT\x0c\x00";
+const HEADER: &[u8; 6] = b"PLUT\x0d\x00";
 const SAVE_FORMAT_VERSION: u16 = u16::from_le_bytes([HEADER[4], HEADER[5]]);
 const MAX_SAVE_BYTES: usize = 1024 * 1024;
 
@@ -200,12 +200,12 @@ impl SavedEncounter {
     schemars::JsonSchema,
 )]
 #[schemars(deny_unknown_fields)]
-pub(crate) struct SavedCaravanActor {
+pub(crate) struct SavedNpc {
     actor: SavedActor,
-    flee: NemiState,
+    flee: SavedFleeState,
 }
 
-impl SavedCaravanActor {
+impl SavedNpc {
     pub(crate) fn restore(
         &self,
         pose: &mut Transform,
@@ -227,16 +227,14 @@ pub(crate) struct Snapshot {
     inventory: Inventory,
     equipment: Equipment,
     chests: ChestStorage,
-    dungeon: DungeonProgress,
+    dungeons: BTreeMap<ContentId, DungeonProgress>,
     pub(crate) pickups: Vec<SavedPickup>,
-    nemi: SavedActor,
-    nemi_state: NemiState,
     encounters: BTreeMap<EncounterId, SavedEncounter>,
     pub(crate) progression: SavedProgress,
     experience: SavedExperience,
-    guards_hostile: bool,
+    world: SavedWorld,
     pub(crate) collected_pickups: BTreeSet<ContentId>,
-    caravan: BTreeMap<NpcId, SavedCaravanActor>,
+    npcs: BTreeMap<NpcId, SavedNpc>,
 }
 
 #[derive(
@@ -248,28 +246,41 @@ pub(crate) struct Snapshot {
     schemars::JsonSchema,
 )]
 #[schemars(deny_unknown_fields)]
-pub(crate) struct SavedExperience<I: Ord = EncounterId> {
+struct SavedWorld {
+    guards_hostile: bool,
+}
+
+const OLD_RELAY: ContentId = ContentId::new("old_relay");
+
+#[derive(
+    Clone,
+    bitcode::Encode,
+    bitcode::Decode,
+    serde::Serialize,
+    serde::Deserialize,
+    schemars::JsonSchema,
+)]
+#[schemars(deny_unknown_fields)]
+pub(crate) struct SavedExperience<I: Ord = EncounterId, N: Ord = NpcId> {
     player: Experience,
-    nemi_contributed: bool,
+    npc_contributions: BTreeSet<N>,
     // Use stable encounter IDs because checkpoint loading recreates the actors.
     encounter_contributions: BTreeSet<I>,
 }
 
-impl<I: Ord> Default for SavedExperience<I> {
+impl<I: Ord, N: Ord> Default for SavedExperience<I, N> {
     fn default() -> Self {
         Self {
             player: Experience::default(),
-            nemi_contributed: false,
+            npc_contributions: BTreeSet::new(),
             encounter_contributions: BTreeSet::new(),
         }
     }
 }
 
-impl<I: Ord + Into<EncounterId>> SavedExperience<I> {}
-
 impl Snapshot {
-    pub(crate) fn caravan_speaker(&self, id: NpcId) -> Option<&SavedCaravanActor> {
-        self.caravan.get(&id)
+    pub(crate) fn caravan_speaker(&self, id: NpcId) -> Option<&SavedNpc> {
+        self.npcs.get(&id)
     }
 
     pub(crate) fn player_loadout(&self) -> (Inventory, Equipment) {
@@ -282,9 +293,11 @@ impl Snapshot {
 
     fn is_valid(&self) -> bool {
         self.valid_state()
-            && (self.caravan.is_empty() || self.journal.has_occurred(QuestAction::CaravanArrived))
-            && self.caravan.iter().all(|(&id, actor)| {
-                NpcId::CARAVAN.contains(&id)
+            && self.npcs.contains_key(&NpcId::Nemi)
+            && (self.npcs.keys().all(|id| !NpcId::CARAVAN.contains(id))
+                || self.journal.has_occurred(QuestAction::CaravanArrived))
+            && self.npcs.iter().all(|(&id, actor)| {
+                (id == NpcId::Nemi || NpcId::CARAVAN.contains(&id))
                     && actor.actor.is_valid(u16::MAX)
                     && actor.flee.is_valid()
             })
@@ -300,16 +313,19 @@ impl Snapshot {
             && self.inventory.valid_stacks()
             && self.progression.is_valid()
             && self.experience.player.is_valid(self.progression.level())
-            && (!self.experience.nemi_contributed || self.nemi.health > 0)
+            && self
+                .experience
+                .npc_contributions
+                .iter()
+                .all(|id| self.npcs.get(id).is_some_and(|npc| npc.actor.health > 0))
             && self.experience.encounter_contributions.iter().all(|id| {
                 self.encounters
                     .get(id)
                     .is_some_and(|encounter| encounter.actor.health > 0)
             })
             && self.chests.valid_stacks()
-            && self.dungeon.is_valid()
-            && self.nemi.is_valid(u16::MAX)
-            && self.nemi_state.is_valid()
+            && self.dungeons.contains_key(&OLD_RELAY)
+            && self.dungeons.values().all(DungeonProgress::is_valid)
             && self.pickups.iter().all(|pickup| {
                 pickup.stack.quantity > 0
                     && pickup.stack.item != ItemKind::BeaconCore
@@ -571,25 +587,22 @@ pub(crate) fn read_save(path: &Path) -> io::Result<Snapshot> {
             "Invalid or unsupported save header",
         ));
     };
-    let (base, caravan): (Vec<u8>, BTreeMap<String, SavedCaravanActor>) =
+    let (base, npcs): (Vec<u8>, BTreeMap<String, SavedNpc>) =
         bitcode::decode(payload).map_err(invalid_save)?;
     let mut snapshot = content_ids::decode(&base)?;
-    snapshot.caravan = parse_caravan(caravan)?;
+    snapshot.npcs = parse_npcs(npcs)?;
     snapshot
         .is_valid()
         .then_some(snapshot)
         .ok_or_else(|| invalid_save("Invalid save contents"))
 }
 
-fn parse_caravan(
-    caravan: BTreeMap<String, SavedCaravanActor>,
-) -> io::Result<BTreeMap<NpcId, SavedCaravanActor>> {
-    caravan
-        .into_iter()
+fn parse_npcs(npcs: BTreeMap<String, SavedNpc>) -> io::Result<BTreeMap<NpcId, SavedNpc>> {
+    npcs.into_iter()
         .map(|(key, actor)| {
-            NpcId::caravan_id(&key)
+            NpcId::persistent_id(&key)
                 .map(|id| (id, actor))
-                .ok_or_else(|| invalid_save(format!("Unknown caravan speaker {key}")))
+                .ok_or_else(|| invalid_save(format!("Unknown persistent NPC {key}")))
         })
         .collect()
 }
@@ -602,7 +615,7 @@ struct InspectorDocument {
     snapshot: content_ids::WireSnapshot,
     collected_pickups: BTreeSet<String>,
     cavern_defeats: BTreeSet<String>,
-    caravan: BTreeMap<String, SavedCaravanActor>,
+    npcs: BTreeMap<String, SavedNpc>,
 }
 
 pub(crate) fn inspection_data(snapshot: &Snapshot) -> io::Result<serde_json::Value> {
@@ -620,8 +633,8 @@ pub(crate) fn inspection_data(snapshot: &Snapshot) -> io::Result<serde_json::Val
             .iter()
             .map(|id| EncounterId::Cave(*id).key().as_str().to_owned())
             .collect(),
-        caravan: snapshot
-            .caravan
+        npcs: snapshot
+            .npcs
             .iter()
             .map(|(id, actor)| (id.key().to_owned(), actor.clone()))
             .collect(),
@@ -653,7 +666,7 @@ pub(crate) fn create_from_json(input: &Path, output: &Path) -> io::Result<()> {
         document.cavern_defeats,
         document.collected_pickups,
     )?;
-    snapshot.caravan = parse_caravan(document.caravan)?;
+    snapshot.npcs = parse_npcs(document.npcs)?;
     if !snapshot.is_valid() {
         return Err(invalid_save("Invalid save contents"));
     }
@@ -721,12 +734,12 @@ fn write_save(path: &Path, snapshot: &Snapshot) -> io::Result<()> {
             "Invalid save contents",
         ));
     }
-    let caravan: BTreeMap<_, _> = snapshot
-        .caravan
+    let npcs: BTreeMap<_, _> = snapshot
+        .npcs
         .iter()
         .map(|(id, actor)| (id.key(), actor.clone()))
         .collect();
-    let bytes = bitcode::encode(&(content_ids::encode(snapshot), caravan));
+    let bytes = bitcode::encode(&(content_ids::encode(snapshot), npcs));
     if HEADER.len() + bytes.len() > MAX_SAVE_BYTES {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
@@ -877,7 +890,7 @@ pub(crate) fn save_at_bed(
         inventory: inventory.clone(),
         equipment: equipment.clone(),
         chests: chests.clone(),
-        dungeon: *dungeon,
+        dungeons: BTreeMap::from([(OLD_RELAY, *dungeon)]),
         pickups: pickups
             .iter()
             .map(|(&stack, transform)| SavedPickup {
@@ -885,8 +898,6 @@ pub(crate) fn save_at_bed(
                 position: transform.translation.to_array(),
             })
             .collect(),
-        nemi: SavedActor::capture(pose, health),
-        nemi_state: nemi.snapshot(),
         encounters: encounters
             .iter()
             .map(|(&id, transform, health, loot, _)| {
@@ -902,7 +913,10 @@ pub(crate) fn save_at_bed(
         progression: SavedProgress::capture(ranks, *progress),
         experience: SavedExperience {
             player: *experience,
-            nemi_contributed: health.current() > 0 && nemi_reward.player_contributed,
+            npc_contributions: (health.current() > 0 && nemi_reward.player_contributed)
+                .then_some(NpcId::Nemi)
+                .into_iter()
+                .collect(),
             encounter_contributions: encounters
                 .iter()
                 .filter(|(_, _, health, _, reward)| {
@@ -911,19 +925,28 @@ pub(crate) fn save_at_bed(
                 .map(|(&id, ..)| id)
                 .collect(),
         },
-        guards_hostile: security.hostile,
+        world: SavedWorld {
+            guards_hostile: security.hostile,
+        },
         collected_pickups: collected.0.clone(),
-        caravan: caravan
+        npcs: caravan
             .iter()
             .map(|(&id, pose, health, flee)| {
                 (
                     id,
-                    SavedCaravanActor {
+                    SavedNpc {
                         actor: SavedActor::capture(pose, health),
                         flee: flee.snapshot(),
                     },
                 )
             })
+            .chain(std::iter::once((
+                NpcId::Nemi,
+                SavedNpc {
+                    actor: SavedActor::capture(pose, health),
+                    flee: nemi.snapshot(),
+                },
+            )))
             .collect(),
     };
     let text = match slot.save(snapshot, &mut run) {
@@ -952,7 +975,12 @@ pub(crate) fn reset_session(world: &mut World) {
     if let Some(save) = checkpoint {
         world.insert_resource(CollectedPickups(save.collected_pickups.clone()));
         world.insert_resource(save.chests.clone());
-        world.insert_resource(save.dungeon);
+        world.insert_resource(
+            *save
+                .dungeons
+                .get(&OLD_RELAY)
+                .expect("validated save contains Old Relay progress"),
+        );
     } else {
         let stock = world.resource::<Placements>().stock();
         world.insert_resource(stock);
@@ -1009,12 +1037,17 @@ fn restore_actors(
     let Some(save) = run.checkpoint() else {
         return;
     };
-    security.hostile = save.guards_hostile;
+    security.hostile = save.world.guards_hostile;
     if let Ok((entity, mut transform, mut health, mut nemi, mut reward)) = nemi.single_mut() {
-        save.nemi
-            .restore(&mut transform, &mut health, &mut commands.entity(entity));
-        nemi.restore(&save.nemi_state);
-        reward.player_contributed = save.experience.nemi_contributed;
+        if let Some(saved) = save.npcs.get(&NpcId::Nemi) {
+            saved.restore(
+                &mut transform,
+                &mut health,
+                &mut nemi,
+                &mut commands.entity(entity),
+            );
+        }
+        reward.player_contributed = save.experience.npc_contributions.contains(&NpcId::Nemi);
     }
     for (entity, id, mut transform, mut health, mut loot, mut reward) in &mut encounters {
         if let Some(encounter) = save.encounters.get(id) {
@@ -1189,7 +1222,7 @@ mod tests {
         let file = dir.path();
         let before = fs::read(&file).expect("read game-written save");
         let data = crate::save_inspector::inspect(Some(&file)).expect("inspect game save");
-        assert_eq!(data["format_version"], 12);
+        assert_eq!(data["format_version"], 13);
         assert_eq!(data["player_name"], "Test Player");
         assert!(data["journal"]["progress"].get("last_light").is_some());
         assert_eq!(data["encounters"]["relay_roach"]["actor"]["health"], 0);
@@ -1199,14 +1232,12 @@ mod tests {
             "progression",
             "experience",
             "chests",
-            "dungeon",
+            "dungeons",
             "pickups",
             "collected_pickups",
             "cavern_defeats",
-            "nemi",
-            "nemi_state",
-            "guards_hostile",
-            "caravan",
+            "world",
+            "npcs",
         ] {
             assert!(data.get(field).is_some(), "missing {field}");
         }
@@ -1223,7 +1254,7 @@ mod tests {
 
     #[test]
     fn inspector_game_fixture_loads_with_current_catalogs_and_quest_journal() {
-        let file = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/inspector-v12.save");
+        let file = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/inspector-v13.save");
         let before = fs::read(&file).expect("read fixture");
         crate::save_inspector::inspect(Some(&file)).expect("inspect fixture");
         let mut save = read_save(&file).expect("decode inspected fixture");
@@ -1244,9 +1275,13 @@ mod tests {
         let file = dir.path();
         let mut snapshot = read_save(&file).expect("valid checkpoint");
         snapshot.player_name.clear();
-        let caravan: BTreeMap<String, SavedCaravanActor> = BTreeMap::new();
+        let npcs: BTreeMap<_, _> = snapshot
+            .npcs
+            .iter()
+            .map(|(id, npc)| (id.key(), npc.clone()))
+            .collect();
         let mut bytes = HEADER.to_vec();
-        bytes.extend(bitcode::encode(&(content_ids::encode(&snapshot), caravan)));
+        bytes.extend(bitcode::encode(&(content_ids::encode(&snapshot), npcs)));
         fs::write(&file, bytes).expect("write invalid snapshot");
         let error =
             crate::save_inspector::inspect(Some(&file)).expect_err("invalid snapshot rejected");
@@ -1607,7 +1642,12 @@ mod tests {
         let path = dir.path();
         let mut checkpoint = read_save(&path).expect("fixture checkpoint");
         for expected in [30, 15, 0] {
-            checkpoint.nemi.health = expected;
+            checkpoint
+                .npcs
+                .get_mut(&NpcId::Nemi)
+                .expect("Nemi")
+                .actor
+                .health = expected;
             write_save(&path, &checkpoint).expect("write the current format");
             let loaded = read_save(&path).expect("current save still loads");
             let (mut rebuilt, _, _, _) = bed_world(path.clone());
@@ -1632,7 +1672,59 @@ mod tests {
     }
 
     #[test]
-    fn version_twelve_round_trips_caravan_casualties_and_poses() {
+    fn nemi_pose_and_flee_state_survive_save_and_restore() {
+        let dir = TestDirectory::new();
+        let (mut world, bed, _, _) = bed_world(dir.path());
+        let nemi = world
+            .query_filtered::<Entity, With<Nemi>>()
+            .single(&world)
+            .expect("Nemi");
+        let position = Vec3::new(4.0, 1.0, 9.0);
+        world
+            .get_mut::<Transform>(nemi)
+            .expect("Nemi pose")
+            .translation = position;
+        world
+            .get_mut::<FleeState>(nemi)
+            .expect("Nemi flee state")
+            .set_residence(Vec3::new(8.0, 0.0, 3.0), None);
+        let expected = serde_json::to_value(
+            world
+                .get::<FleeState>(nemi)
+                .expect("Nemi flee state")
+                .snapshot(),
+        )
+        .expect("serialize flee state");
+        interact_with(&mut world, bed);
+        let checkpoint = read_save(&dir.path()).expect("read checkpoint");
+        let (mut rebuilt, _, _, _) = bed_world(dir.path());
+        let restored = rebuilt
+            .query_filtered::<Entity, With<Nemi>>()
+            .single(&rebuilt)
+            .expect("Nemi");
+        rebuilt.insert_resource(RunSave(Some(Arc::new(checkpoint))));
+        rebuilt
+            .run_system_once(restore_actors)
+            .expect("restore Nemi");
+        assert_eq!(
+            rebuilt
+                .get::<Transform>(restored)
+                .expect("Nemi pose")
+                .translation,
+            position
+        );
+        let actual = serde_json::to_value(
+            rebuilt
+                .get::<FleeState>(restored)
+                .expect("Nemi flee state")
+                .snapshot(),
+        )
+        .expect("serialize flee state");
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn version_thirteen_round_trips_caravan_casualties_and_poses() {
         let dir = TestDirectory::new();
         let (mut world, bed, _, _) = bed_world(dir.path());
         world
@@ -1652,15 +1744,12 @@ mod tests {
             FleeState::civilian(),
         ));
         interact_with(&mut world, bed);
-        let checkpoint = read_save(&dir.path()).expect("read v12 checkpoint");
+        let checkpoint = read_save(&dir.path()).expect("read v13 checkpoint");
         let inspection =
             crate::save_inspector::inspect(Some(&dir.path())).expect("inspect caravan");
+        assert_eq!(inspection["npcs"][NpcId::Tovan.key()]["actor"]["health"], 0);
         assert_eq!(
-            inspection["caravan"][NpcId::Tovan.key()]["actor"]["health"],
-            0
-        );
-        assert_eq!(
-            inspection["caravan"][NpcId::Isera.key()]["actor"]["health"],
+            inspection["npcs"][NpcId::Isera.key()]["actor"]["health"],
             64
         );
         assert_eq!(checkpoint.player_name, "Test Player");
@@ -1856,8 +1945,15 @@ mod tests {
         let (mut world, bed, _, _) = bed_world(dir.path());
         interact_with(&mut world, bed);
         let mut bytes = fs::read(dir.path()).expect("first save");
-        bytes[4] = 11;
+        bytes[4] = 12;
         fs::write(dir.path(), bytes).expect("write unsupported version");
+        assert!(
+            read_save(&dir.path())
+                .err()
+                .expect("previous version rejected")
+                .to_string()
+                .contains("Invalid or unsupported save header")
+        );
         let slot = SaveSlot::open(Some(dir.0.clone()));
         assert!(slot.available());
         assert!(slot.entries[0].name.is_none());

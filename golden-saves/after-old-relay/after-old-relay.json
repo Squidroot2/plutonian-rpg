@@ -1,5 +1,4 @@
 {
-  "caravan": {},
   "cavern_defeats": [],
   "chests": {
     "Gear": {
@@ -15,8 +14,10 @@
     }
   },
   "collected_pickups": [],
-  "dungeon": {
-    "gate": "Open"
+  "dungeons": {
+    "old_relay": {
+      "gate": "Open"
+    }
   },
   "encounters": {
     "cave_first_east_hushcap": {
@@ -365,11 +366,10 @@
   },
   "experience": {
     "encounter_contributions": [],
-    "nemi_contributed": false,
+    "npc_contributions": [],
     "player": 70
   },
-  "format_version": 12,
-  "guards_hostile": false,
+  "format_version": 13,
   "inventory": {
     "battery": 1,
     "mycelium": 1,
@@ -415,23 +415,27 @@
       }
     }
   },
-  "nemi": {
-    "health": 84,
-    "position": [
-      3.0,
-      -0.06497347354888916,
-      -1.0
-    ],
-    "rotation": [
-      0.0,
-      0.24740397930145264,
-      0.0,
-      0.9689124226570129
-    ]
-  },
-  "nemi_state": {
-    "behavior": "Peaceful",
-    "home": null
+  "npcs": {
+    "nemi": {
+      "actor": {
+        "health": 84,
+        "position": [
+          3.0,
+          -0.06497347354888916,
+          -1.0
+        ],
+        "rotation": [
+          0.0,
+          0.24740397930145264,
+          0.0,
+          0.9689124226570129
+        ]
+      },
+      "flee": {
+        "behavior": "Peaceful",
+        "home": null
+      }
+    }
   },
   "pickups": [
     {
@@ -711,5 +715,8 @@
       "strength": 5,
       "vitality": 7
     }
+  },
+  "world": {
+    "guards_hostile": false
   }
 }

@@ -102,12 +102,12 @@ enum Behavior {
     schemars::JsonSchema,
 )]
 #[schemars(deny_unknown_fields)]
-pub(crate) struct NemiState {
+pub(crate) struct SavedFleeState {
     home: Option<[f32; 3]>,
     behavior: Behavior,
 }
 
-impl NemiState {
+impl SavedFleeState {
     pub(crate) fn is_valid(&self) -> bool {
         self.home
             .is_none_or(|home| Vec3::from_array(home).is_finite())
@@ -122,14 +122,14 @@ impl NemiState {
 }
 
 impl FleeState {
-    pub(crate) fn snapshot(&self) -> NemiState {
-        NemiState {
+    pub(crate) fn snapshot(&self) -> SavedFleeState {
+        SavedFleeState {
             home: self.home.map(|home| home.to_array()),
             behavior: self.behavior,
         }
     }
 
-    pub(crate) fn restore(&mut self, state: &NemiState) {
+    pub(crate) fn restore(&mut self, state: &SavedFleeState) {
         self.home = state.home.map(Vec3::from_array);
         self.behavior = state.behavior;
     }

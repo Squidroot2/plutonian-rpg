@@ -3,12 +3,6 @@
   "title": "InspectorDocument",
   "type": "object",
   "properties": {
-    "caravan": {
-      "type": "object",
-      "additionalProperties": {
-        "$ref": "#/$defs/SavedCaravanActor"
-      }
-    },
     "cavern_defeats": {
       "type": "array",
       "items": {
@@ -26,8 +20,11 @@
       },
       "uniqueItems": true
     },
-    "dungeon": {
-      "$ref": "#/$defs/DungeonProgress"
+    "dungeons": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/DungeonProgress"
+      }
     },
     "encounters": {
       "type": "object",
@@ -47,20 +44,17 @@
       "maximum": 65535,
       "minimum": 0
     },
-    "guards_hostile": {
-      "type": "boolean"
-    },
     "inventory": {
       "$ref": "#/$defs/Inventory"
     },
     "journal": {
       "$ref": "#/$defs/SavedJournal"
     },
-    "nemi": {
-      "$ref": "#/$defs/SavedActor"
-    },
-    "nemi_state": {
-      "$ref": "#/$defs/NemiState"
+    "npcs": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/SavedNpc"
+      }
     },
     "pickups": {
       "type": "array",
@@ -73,6 +67,9 @@
     },
     "progression": {
       "$ref": "#/$defs/SavedProgress"
+    },
+    "world": {
+      "$ref": "#/$defs/SavedWorld"
     }
   },
   "additionalProperties": false,
@@ -83,17 +80,15 @@
     "inventory",
     "equipment",
     "chests",
-    "dungeon",
+    "dungeons",
     "pickups",
-    "nemi",
-    "nemi_state",
     "encounters",
     "progression",
     "experience",
-    "guards_hostile",
+    "world",
     "collected_pickups",
     "cavern_defeats",
-    "caravan"
+    "npcs"
   ],
   "$defs": {
     "Behavior": {
@@ -237,30 +232,6 @@
       "format": "uint32",
       "minimum": 0
     },
-    "NemiState": {
-      "type": "object",
-      "properties": {
-        "behavior": {
-          "$ref": "#/$defs/Behavior"
-        },
-        "home": {
-          "type": [
-            "array",
-            "null"
-          ],
-          "items": {
-            "type": "number",
-            "format": "float"
-          },
-          "maxItems": 3,
-          "minItems": 3
-        }
-      },
-      "additionalProperties": false,
-      "required": [
-        "behavior"
-      ]
-    },
     "Pickup": {
       "type": "object",
       "properties": {
@@ -334,22 +305,6 @@
         "health"
       ]
     },
-    "SavedCaravanActor": {
-      "type": "object",
-      "properties": {
-        "actor": {
-          "$ref": "#/$defs/SavedActor"
-        },
-        "flee": {
-          "$ref": "#/$defs/NemiState"
-        }
-      },
-      "additionalProperties": false,
-      "required": [
-        "actor",
-        "flee"
-      ]
-    },
     "SavedEncounter": {
       "type": "object",
       "properties": {
@@ -376,8 +331,12 @@
           },
           "uniqueItems": true
         },
-        "nemi_contributed": {
-          "type": "boolean"
+        "npc_contributions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
         },
         "player": {
           "$ref": "#/$defs/Experience"
@@ -386,8 +345,32 @@
       "additionalProperties": false,
       "required": [
         "player",
-        "nemi_contributed",
+        "npc_contributions",
         "encounter_contributions"
+      ]
+    },
+    "SavedFleeState": {
+      "type": "object",
+      "properties": {
+        "behavior": {
+          "$ref": "#/$defs/Behavior"
+        },
+        "home": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "number",
+            "format": "float"
+          },
+          "maxItems": 3,
+          "minItems": 3
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "behavior"
       ]
     },
     "SavedJournal": {
@@ -411,6 +394,22 @@
       "required": [
         "progress",
         "occurred"
+      ]
+    },
+    "SavedNpc": {
+      "type": "object",
+      "properties": {
+        "actor": {
+          "$ref": "#/$defs/SavedActor"
+        },
+        "flee": {
+          "$ref": "#/$defs/SavedFleeState"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "actor",
+        "flee"
       ]
     },
     "SavedOutcome": {
@@ -508,6 +507,18 @@
       "required": [
         "outcome",
         "completed"
+      ]
+    },
+    "SavedWorld": {
+      "type": "object",
+      "properties": {
+        "guards_hostile": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "guards_hostile"
       ]
     }
   }

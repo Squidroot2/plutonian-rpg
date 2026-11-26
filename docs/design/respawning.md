@@ -157,11 +157,10 @@ and one last-kill day per area.
 Both are world-level state stored with the snapshot's world state,
 not new per-encounter fields.
 Adding them is a save format change,
-so the save version bumps (v12 to v13)
+so the save version bumps from v13 to v14
 with the usual golden-fixture and schema updates.
-Issue #62 also plans the v13 bump and a world-state struct;
-whichever change lands second takes v14
-and keeps this state in that struct.
+Issue #62 established the world-state struct in v13;
+the respawn state belongs in that struct.
 
 Death rollback stays consistent by construction:
 the day counter and the encounter states live in the same snapshot,
