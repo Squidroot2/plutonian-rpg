@@ -1,3 +1,7 @@
+//! Headless app harnesses for checking gameplay logic without a window or renderer.
+//! It also verifies that shipped GLB collision scenes create Avian colliders
+//! and that bed-save rollback restores the shipped world's gameplay state.
+
 use std::time::Duration;
 
 use crate::{
