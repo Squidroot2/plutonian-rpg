@@ -5,6 +5,7 @@
 Choose **Start Game** on the title screen and enter a name to begin a new run in Nivalis.
 Names contain 1–16 letters, numbers, or spaces.
 Choose **Load Game** to choose a save made at the bed in the starting tent.
+You can also choose **Load Game** from the pause menu to replace the current run with a save.
 Press E near the bed to save.
 A successful save restores full health and replaces the single save slot.
 Starting a new run does not erase the existing save; saving in the new run replaces it.

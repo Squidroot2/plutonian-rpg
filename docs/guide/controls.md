@@ -36,6 +36,7 @@ Choose **Start Game** on the title screen to begin a fresh run in Nivalis, or **
 | Tab | Open the last player-menu tab / close the menu |
 | Escape | Cancel the drop prompt, close the current menu or panel, dismiss dialogue, or pause / resume |
 
-The pause menu also has Resume and Quit to desktop buttons.
+The pause menu also has Resume, Load Game, Settings, and Quit to desktop buttons.
+  Load Game opens the saved game list; choosing a save replaces the current run.
   Losing window focus pauses the game.
   Emergency fall recovery returns you to the outpost and preserves current progress.

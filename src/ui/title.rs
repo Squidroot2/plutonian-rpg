@@ -1,4 +1,4 @@
-mod picker;
+pub(crate) mod picker;
 
 use crate::{
     GameState,
@@ -448,7 +448,7 @@ fn activate(
                 ..default()
             };
         }
-        MenuAction::Load if slot.available() => picker.open = true,
+        MenuAction::Load if slot.available() => picker.open(),
         MenuAction::Load => {}
         MenuAction::Settings => settings.open(),
         MenuAction::Quit => {

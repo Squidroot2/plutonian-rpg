@@ -2245,6 +2245,51 @@ mod tests {
     }
 
     #[test]
+    fn pause_picker_loads_the_selected_save_into_the_loading_state() {
+        let dir = TestDirectory::new();
+        let (mut world, bed, _, _) = bed_world(dir.path());
+        assert!(
+            world
+                .actor_data_mut::<Inventory>()
+                .add(ItemKind::Battery, 3)
+        );
+        interact_with(&mut world, bed);
+
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, AssetPlugin::default(), StatesPlugin))
+            .insert_state(GameState::Paused)
+            .init_resource::<ButtonInput<KeyCode>>()
+            .init_resource::<SettingsMenu>()
+            .init_resource::<RunSave>()
+            .insert_resource(test_items().clone())
+            .insert_resource(crate::content::test_placements().clone())
+            .insert_resource(SaveSlot::open(Some(dir.0.clone())))
+            .add_plugins(TitlePlugin);
+        app.update();
+
+        app.world_mut()
+            .resource_mut::<crate::ui::title::picker::SavePicker>()
+            .open();
+        app.update();
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .press(KeyCode::Enter);
+        app.update();
+        app.update();
+
+        assert_eq!(
+            *app.world().resource::<State<GameState>>().get(),
+            GameState::Loading
+        );
+        let save = app
+            .world()
+            .resource::<RunSave>()
+            .checkpoint()
+            .expect("pause picker loaded the selected checkpoint");
+        assert_eq!(save.inventory.count(ItemKind::Battery), 3);
+    }
+
+    #[test]
     fn title_mouse_and_keyboard_load_a_saved_run_and_start_leaves_the_slot_intact() {
         let dir = TestDirectory::new();
         let (mut world, bed, _, _) = bed_world(dir.path());
