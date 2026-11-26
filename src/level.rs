@@ -15,6 +15,8 @@ pub(crate) const MAX_LEVEL: u32 = 100;
     serde::Deserialize,
     schemars::JsonSchema,
 )]
+// The save schema describes the player's level.
+#[schemars(description = "A player level constrained to `1..=MAX_LEVEL`.")]
 pub(crate) struct Level(u32);
 
 impl Level {
