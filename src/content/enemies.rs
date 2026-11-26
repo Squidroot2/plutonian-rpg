@@ -108,6 +108,7 @@ enum Behavior {
 }
 
 impl EnemyDefinition {
+    #[cfg(test)]
     pub(super) fn level(&self) -> Level {
         self.level
     }
