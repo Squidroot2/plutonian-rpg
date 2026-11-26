@@ -77,6 +77,7 @@ pub(crate) struct UseDungeonTarget(pub DungeonTarget);
     bitcode::Decode,
     serde::Serialize,
     serde::Deserialize,
+    schemars::JsonSchema,
 )]
 enum GateState {
     #[default]
@@ -105,7 +106,9 @@ impl GateState {
     bitcode::Decode,
     serde::Serialize,
     serde::Deserialize,
+    schemars::JsonSchema,
 )]
+#[schemars(deny_unknown_fields)]
 pub(crate) struct DungeonProgress {
     gate: GateState,
 }

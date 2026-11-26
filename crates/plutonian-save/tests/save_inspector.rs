@@ -192,7 +192,8 @@ fn invalid_and_missing_saves_fail_without_panicking() {
     assert!(String::from_utf8_lossy(&result.stderr).contains("No .save files"));
 }
 
-const GOLDEN_JSON: &str = include_str!("../../../golden-saves/after-old-relay.json");
+const GOLDEN_JSON: &str =
+    include_str!("../../../golden-saves/after-old-relay/after-old-relay.json");
 
 fn create(input: &Path, output: &Path) -> Output {
     Command::new(env!("CARGO_BIN_EXE_plutonian-save"))
@@ -298,4 +299,23 @@ fn create_requires_an_explicit_output_path() {
         fs::read_dir(&dir.0).expect("list data directory").count(),
         1
     );
+}
+
+#[test]
+fn schema_subcommand_describes_the_inspection_document() {
+    let output = cli(&["schema"]);
+    assert!(output.status.success());
+    let schema: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("schema output is JSON");
+    assert_eq!(
+        schema["$schema"],
+        "https://json-schema.org/draft/2020-12/schema"
+    );
+    assert_eq!(schema["properties"]["format_version"]["type"], "integer");
+    assert_eq!(schema["additionalProperties"], false);
+
+    let fixture: serde_json::Value =
+        serde_json::from_str(GOLDEN_JSON).expect("golden fixture is JSON");
+    assert_eq!(fixture["format_version"], 12);
+    assert!(fixture["format_version"].is_i64());
 }

@@ -18,7 +18,14 @@ use crate::{
 pub use crate::content::ItemKind;
 
 #[derive(
-    Component, Clone, Debug, bitcode::Encode, bitcode::Decode, serde::Serialize, serde::Deserialize,
+    Component,
+    Clone,
+    Debug,
+    bitcode::Encode,
+    bitcode::Decode,
+    serde::Serialize,
+    serde::Deserialize,
+    schemars::JsonSchema,
 )]
 pub struct Inventory<I: Ord = ItemKind>(pub(crate) BTreeMap<I, u32>);
 impl<I: Ord> Default for Inventory<I> {
@@ -105,6 +112,7 @@ impl Inventory {
     bitcode::Decode,
     serde::Deserialize,
     serde::Serialize,
+    schemars::JsonSchema,
 )]
 #[serde(deny_unknown_fields)]
 pub struct Pickup<I = ItemKind> {

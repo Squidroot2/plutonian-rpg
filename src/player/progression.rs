@@ -22,6 +22,7 @@ pub(crate) const MAX_LEVEL: u32 = 100;
     bitcode::Decode,
     serde::Serialize,
     serde::Deserialize,
+    schemars::JsonSchema,
 )]
 pub(crate) struct Level(u32);
 
@@ -69,7 +70,9 @@ impl Level {
     bitcode::Decode,
     serde::Serialize,
     serde::Deserialize,
+    schemars::JsonSchema,
 )]
+#[schemars(deny_unknown_fields)]
 pub(crate) struct CharacterProgress {
     pub(crate) level: Level,
     pub(crate) unspent: u32,
@@ -99,8 +102,15 @@ impl CharacterProgress {
 }
 
 #[derive(
-    Clone, Default, bitcode::Encode, bitcode::Decode, serde::Serialize, serde::Deserialize,
+    Clone,
+    Default,
+    bitcode::Encode,
+    bitcode::Decode,
+    serde::Serialize,
+    serde::Deserialize,
+    schemars::JsonSchema,
 )]
+#[schemars(deny_unknown_fields)]
 pub(crate) struct SavedProgress {
     ranks: BTreeMap<String, u8>,
     progress: CharacterProgress,

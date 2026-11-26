@@ -1,8 +1,8 @@
 # Working with golden saves
 
 Golden saves let you start testing from a known game state.
-Each scenario has a tracked JSON fixture in `golden-saves/<scenario>.json`.
-The generator writes the game-readable save into `golden-saves/<scenario>/`.
+Each scenario has a tracked JSON fixture at `golden-saves/<scenario>/<scenario>.json`.
+The generator writes game-readable `.save` files into that same directory.
 Git ignores the generated `.save` files.
 
 Run the commands below from the repository root.
@@ -41,7 +41,8 @@ including any extra bed saves made during testing.
 
    ```sh
    cargo run --locked --bin plutonian-save -- inspect --json "$capture_dir" > "$capture_dir/fixture.json" &&
-       mv "$capture_dir/fixture.json" golden-saves/before-caverns.json
+       mkdir -p golden-saves/before-caverns &&
+       mv "$capture_dir/fixture.json" golden-saves/before-caverns/before-caverns.json
    ```
 
 4. Regenerate the saves,
@@ -65,7 +66,7 @@ run the two commands directly with an explicit output path.
 
 ```sh
 check_dir=$(mktemp -d)
-cargo run --locked --bin plutonian-save -- create golden-saves/after-old-relay.json --output "$check_dir/scenario.save"
+cargo run --locked --bin plutonian-save -- create golden-saves/after-old-relay/after-old-relay.json --output "$check_dir/scenario.save"
 cargo run --locked --bin plutonian-save -- inspect --json "$check_dir/scenario.save"
 ```
 

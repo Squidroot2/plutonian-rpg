@@ -5,7 +5,15 @@ use super::*;
 // `Snapshot` field-for-field, with string IDs in place of the runtime ID
 // types; collected pickups and credited cavern defeats travel alongside it
 // as string sets in `encode`/`decode`.
-#[derive(Clone, bitcode::Encode, bitcode::Decode, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Clone,
+    bitcode::Encode,
+    bitcode::Decode,
+    serde::Serialize,
+    serde::Deserialize,
+    schemars::JsonSchema,
+)]
+#[schemars(deny_unknown_fields)]
 pub(super) struct WireSnapshot {
     player_name: String,
     journal: SavedJournal,

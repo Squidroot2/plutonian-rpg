@@ -1,0 +1,514 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "InspectorDocument",
+  "type": "object",
+  "properties": {
+    "caravan": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/SavedCaravanActor"
+      }
+    },
+    "cavern_defeats": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "uniqueItems": true
+    },
+    "chests": {
+      "$ref": "#/$defs/ChestStorage"
+    },
+    "collected_pickups": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "uniqueItems": true
+    },
+    "dungeon": {
+      "$ref": "#/$defs/DungeonProgress"
+    },
+    "encounters": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/SavedEncounter"
+      }
+    },
+    "equipment": {
+      "$ref": "#/$defs/Equipment"
+    },
+    "experience": {
+      "$ref": "#/$defs/SavedExperience"
+    },
+    "format_version": {
+      "type": "integer",
+      "format": "uint16",
+      "maximum": 65535,
+      "minimum": 0
+    },
+    "guards_hostile": {
+      "type": "boolean"
+    },
+    "inventory": {
+      "$ref": "#/$defs/Inventory"
+    },
+    "journal": {
+      "$ref": "#/$defs/SavedJournal"
+    },
+    "nemi": {
+      "$ref": "#/$defs/SavedActor"
+    },
+    "nemi_state": {
+      "$ref": "#/$defs/NemiState"
+    },
+    "pickups": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/SavedPickup"
+      }
+    },
+    "player_name": {
+      "type": "string"
+    },
+    "progression": {
+      "$ref": "#/$defs/SavedProgress"
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "format_version",
+    "player_name",
+    "journal",
+    "inventory",
+    "equipment",
+    "chests",
+    "dungeon",
+    "pickups",
+    "nemi",
+    "nemi_state",
+    "encounters",
+    "progression",
+    "experience",
+    "guards_hostile",
+    "collected_pickups",
+    "cavern_defeats",
+    "caravan"
+  ],
+  "$defs": {
+    "Behavior": {
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "Peaceful",
+            "Returning",
+            "Refuses"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "Fleeing": {
+              "type": "object",
+              "properties": {
+                "safe_for": {
+                  "type": "number",
+                  "format": "float"
+                }
+              },
+              "required": [
+                "safe_for"
+              ]
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "Fleeing"
+          ]
+        }
+      ]
+    },
+    "CharacterProgress": {
+      "description": "Player progression state that is saved, restored, and advanced together.\n\nLevel gains and their unspent attribute points share an owner and lifecycle,\nso keeping them together avoids coordinating separate components.",
+      "type": "object",
+      "properties": {
+        "level": {
+          "$ref": "#/$defs/Level"
+        },
+        "unspent": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "level",
+        "unspent"
+      ]
+    },
+    "ChestStorage": {
+      "type": "object",
+      "properties": {
+        "Gear": {
+          "$ref": "#/$defs/Inventory"
+        },
+        "Lamp": {
+          "$ref": "#/$defs/Inventory"
+        },
+        "Supply": {
+          "$ref": "#/$defs/Inventory"
+        }
+      },
+      "additionalProperties": false
+    },
+    "DungeonProgress": {
+      "type": "object",
+      "properties": {
+        "gate": {
+          "$ref": "#/$defs/GateState"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "gate"
+      ]
+    },
+    "Equipment": {
+      "type": "object",
+      "properties": {
+        "Body": {
+          "type": "string"
+        },
+        "Helmet": {
+          "type": "string"
+        },
+        "MainHand": {
+          "type": "string"
+        },
+        "OffHand": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "Experience": {
+      "description": "The player's XP toward the next level, rather than a lifetime total.\n\nQuest completions and defeated enemies the player damaged award XP. Reaching\na level's threshold advances `CharacterProgress` and carries surplus XP\ntoward subsequent levels. This component is saved with the player's progress.",
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0
+    },
+    "GateState": {
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "Closed",
+            "Open"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "Opening": {
+              "type": "number",
+              "format": "float"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "Opening"
+          ]
+        }
+      ]
+    },
+    "Inventory": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "integer",
+        "format": "uint32",
+        "minimum": 0
+      }
+    },
+    "Level": {
+      "description": "A player level constrained to `1..=MAX_LEVEL`.",
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0
+    },
+    "NemiState": {
+      "type": "object",
+      "properties": {
+        "behavior": {
+          "$ref": "#/$defs/Behavior"
+        },
+        "home": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "number",
+            "format": "float"
+          },
+          "maxItems": 3,
+          "minItems": 3
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "behavior"
+      ]
+    },
+    "Pickup": {
+      "type": "object",
+      "properties": {
+        "item": {
+          "type": "string"
+        },
+        "quantity": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "item",
+        "quantity"
+      ]
+    },
+    "QuestAction": {
+      "type": "string",
+      "enum": [
+        "TalkedToNemi",
+        "RecoveredCore",
+        "ReturnedCore",
+        "AttackedNemi",
+        "InstalledCore",
+        "InspectedSealedHatch",
+        "EnteredRelay",
+        "OpenedArchiveGate",
+        "ReadSurveyLog",
+        "ReturnedThroughRelayHatch",
+        "ReportedArchiveHushcap",
+        "DefeatedFiveCavernHushcaps",
+        "LegacyNemiSamples",
+        "CaravanArrived",
+        "ShowedTovanMycelium"
+      ]
+    },
+    "SavedActor": {
+      "type": "object",
+      "properties": {
+        "health": {
+          "type": "integer",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0
+        },
+        "position": {
+          "type": "array",
+          "items": {
+            "type": "number",
+            "format": "float"
+          },
+          "maxItems": 3,
+          "minItems": 3
+        },
+        "rotation": {
+          "type": "array",
+          "items": {
+            "type": "number",
+            "format": "float"
+          },
+          "maxItems": 4,
+          "minItems": 4
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "position",
+        "rotation",
+        "health"
+      ]
+    },
+    "SavedCaravanActor": {
+      "type": "object",
+      "properties": {
+        "actor": {
+          "$ref": "#/$defs/SavedActor"
+        },
+        "flee": {
+          "$ref": "#/$defs/NemiState"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "actor",
+        "flee"
+      ]
+    },
+    "SavedEncounter": {
+      "type": "object",
+      "properties": {
+        "actor": {
+          "$ref": "#/$defs/SavedActor"
+        },
+        "has_loot": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "actor",
+        "has_loot"
+      ]
+    },
+    "SavedExperience": {
+      "type": "object",
+      "properties": {
+        "encounter_contributions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        },
+        "nemi_contributed": {
+          "type": "boolean"
+        },
+        "player": {
+          "$ref": "#/$defs/Experience"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "player",
+        "nemi_contributed",
+        "encounter_contributions"
+      ]
+    },
+    "SavedJournal": {
+      "type": "object",
+      "properties": {
+        "occurred": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/QuestAction"
+          },
+          "uniqueItems": true
+        },
+        "progress": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/SavedQuest"
+          }
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "progress",
+        "occurred"
+      ]
+    },
+    "SavedOutcome": {
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "Completed"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "Active": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "Active"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "Failed": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "Failed"
+          ]
+        }
+      ]
+    },
+    "SavedPickup": {
+      "type": "object",
+      "properties": {
+        "position": {
+          "type": "array",
+          "items": {
+            "type": "number",
+            "format": "float"
+          },
+          "maxItems": 3,
+          "minItems": 3
+        },
+        "stack": {
+          "$ref": "#/$defs/Pickup"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "stack",
+        "position"
+      ]
+    },
+    "SavedProgress": {
+      "type": "object",
+      "properties": {
+        "progress": {
+          "$ref": "#/$defs/CharacterProgress"
+        },
+        "ranks": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer",
+            "format": "uint8",
+            "maximum": 255,
+            "minimum": 0
+          }
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "ranks",
+        "progress"
+      ]
+    },
+    "SavedQuest": {
+      "type": "object",
+      "properties": {
+        "completed": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "outcome": {
+          "$ref": "#/$defs/SavedOutcome"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "outcome",
+        "completed"
+      ]
+    }
+  }
+}
