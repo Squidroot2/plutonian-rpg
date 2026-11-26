@@ -18,8 +18,9 @@ const FALLOFF_LEVELS: u32 = 4;
 
 /// The player's XP toward the next level, rather than a lifetime total.
 ///
-/// Quest completions, disposable defeats, and consequential enemies the player damaged award XP. Reaching
-/// a level's threshold advances `CharacterProgress` and carries surplus XP
+/// Quest completions and disposable defeats award XP. Consequential actors with
+/// rewards, including Nemi and guards, award full XP if the player damaged them.
+/// Reaching a level's threshold advances `CharacterProgress` and carries surplus XP
 /// toward subsequent levels. This component is saved with the player's progress.
 #[derive(
     Component,
@@ -67,6 +68,7 @@ impl Experience {
     }
 }
 
+/// Disposable rewards use level falloff; consequential rewards require player damage.
 #[derive(Component)]
 pub(crate) struct ExperienceReward {
     amount: u16,
@@ -76,7 +78,7 @@ pub(crate) struct ExperienceReward {
 
 impl ExperienceReward {
     pub(crate) const fn new(amount: u16) -> Self {
-        assert!(amount > 0, "killable NPCs must award positive XP");
+        assert!(amount > 0, "experience rewards must have a positive amount");
         Self {
             amount,
             disposable_level: None,
@@ -156,7 +158,7 @@ fn award_experience(
         defeats.clear();
         return;
     };
-    // Record every contribution before looking up rewards, including hits from this update.
+    // Record consequential-actor contributions before defeats, including hits from this update.
     for hit in hits.read().filter(|hit| hit.source == player) {
         if let Ok(mut reward) = rewards.get_mut(hit.target)
             && reward.disposable_level.is_none()
