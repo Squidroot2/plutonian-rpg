@@ -15,16 +15,17 @@ cargo run --locked -p plutonian-assets
 
 Clippy enforces a 150-line function limit, including smoke drivers.
 GitHub Actions builds, tests, and runs Clippy for pushes and pull requests to `master`.
-The separate desktop smoke workflow runs nightly, when a release is published,
-and on manual dispatch; it builds once and runs arena, world, Nemi, and cave
-scenarios sequentially under Xvfb with lavapipe. Each scenario has its own
-timeout, uploads `/tmp/plutonian-*.png` screenshots as an artifact even on
-failure, and records its result in the run summary. Crossing remains excluded
-until issue #63 fixes its death-screen stall. The workflow uses the spike's
-Ubuntu 24.04 dependency set, Vulkan llvmpipe probe, `WGPU_BACKEND=vulkan`,
-reduced Cargo debug information and disabled incremental compilation. Smoke
-scenarios use fixed 20 ms virtual-time steps; screenshots remain enabled for
-the scheduled runs.
+The separate desktop smoke workflow runs nightly at 07:00 UTC, when a release
+is published, and on manual dispatch. It builds once and runs all five
+scenarios sequentially under Xvfb with lavapipe: arena, world, Nemi, cave, and
+crossing. Each scenario has a 20-minute timeout, and the run summary reports
+each result. CI passes `--no-screenshots`, so workflow runs produce no
+screenshots. To run the same scenarios locally with screenshots enabled, use
+`scripts/smoke.sh test`, `scripts/smoke.sh world`, `scripts/smoke.sh nemi`,
+`scripts/smoke.sh cave`, and `scripts/smoke.sh crossing`. The workflow keeps
+the spike's Ubuntu 24.04 dependency set, Vulkan llvmpipe probe,
+`WGPU_BACKEND=vulkan`, reduced Cargo debug information, and disabled
+incremental compilation. Smoke scenarios use fixed 20 ms virtual-time steps.
 See the [repository guidelines](../../AGENTS.md) for development and verification standards.
 
 Run the asset checker from the repository root.
@@ -37,7 +38,7 @@ Declare bodies that must exist in both halves of a pair in `src/asset_check/expe
 Run one smoke scenario at a time on an idle graphical desktop without supplying mouse or keyboard input.
 Add `--windowed` to a smoke command to run it in a window.
 Add `--no-screenshots` to a smoke command to skip PNG captures and their wait gates.
-The Smoke spike workflow uses this flag, and scheduled desktop smoke runs keep screenshots enabled.
+The scheduled desktop smoke workflow uses this flag.
 Scenarios are run through `scripts/smoke.sh <scenario>`, which checks for GPU devices before launching.
 Agent sandboxes (Codex's, for example) present a synthetic `/dev` without `/dev/dri`, so a sandboxed run fails with "could not detect a GPU" even on a host with a working GPU.
 The script must run outside the sandbox (the execpolicy rules allow it in exactly this form), and that error from inside a sandbox must never be reported as the host being unable to run the scenarios.

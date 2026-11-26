@@ -1,6 +1,10 @@
-name: Smoke spike
+name: Smoke
 
 on:
+  schedule:
+    - cron: '0 7 * * *'
+  release:
+    types: [published]
   workflow_dispatch:
 
 permissions:
@@ -12,9 +16,9 @@ env:
   CARGO_INCREMENTAL: 0
 
 jobs:
-  arena:
+  smoke:
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    timeout-minutes: 240
     steps:
       - uses: actions/checkout@v7
         with:
@@ -38,7 +42,46 @@ jobs:
           rustup toolchain install 1.100.0 --profile minimal
           rustup default 1.100.0
       - uses: Swatinem/rust-cache@v2
-      - name: Build smoke scenario
+      - name: Build smoke scenarios
         run: cargo build --locked --features smoke
-      - name: Run arena
+
+      - name: Arena smoke
+        id: arena
+        continue-on-error: true
+        timeout-minutes: 20
         run: xvfb-run -a -s '-screen 0 1280x800x24' cargo run --locked --features smoke -- --smoke-test --windowed --no-screenshots
+      - name: World smoke
+        id: world
+        continue-on-error: true
+        timeout-minutes: 20
+        run: xvfb-run -a -s '-screen 0 1280x800x24' cargo run --locked --features smoke -- --smoke-world --windowed --no-screenshots
+      - name: Nemi smoke
+        id: nemi
+        continue-on-error: true
+        timeout-minutes: 20
+        run: xvfb-run -a -s '-screen 0 1280x800x24' cargo run --locked --features smoke -- --smoke-nemi --windowed --no-screenshots
+      - name: Cave smoke
+        id: cave
+        continue-on-error: true
+        timeout-minutes: 20
+        run: xvfb-run -a -s '-screen 0 1280x800x24' cargo run --locked --features smoke -- --smoke-cave --windowed --no-screenshots
+      - name: Crossing smoke
+        id: crossing
+        continue-on-error: true
+        timeout-minutes: 20
+        run: xvfb-run -a -s '-screen 0 1280x800x24' cargo run --locked --features smoke -- --smoke-crossing --windowed --no-screenshots
+
+      - name: Report scenario results
+        if: always()
+        run: |
+          {
+            echo '### Desktop smoke results'
+            echo '| Scenario | Result |'
+            echo '| --- | --- |'
+            echo '| Arena | ${{ steps.arena.outcome }} |'
+            echo '| World | ${{ steps.world.outcome }} |'
+            echo '| Nemi | ${{ steps.nemi.outcome }} |'
+            echo '| Cave | ${{ steps.cave.outcome }} |'
+            echo '| Crossing | ${{ steps.crossing.outcome }} |'
+          } >> "$GITHUB_STEP_SUMMARY"
+          [[ '${{ steps.arena.outcome }}' == success && '${{ steps.world.outcome }}' == success && '${{ steps.nemi.outcome }}' == success && '${{ steps.cave.outcome }}' == success && '${{ steps.crossing.outcome }}' == success ]]
