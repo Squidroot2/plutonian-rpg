@@ -7,6 +7,7 @@ use crate::{
 };
 use bevy::{
     app::AppExit,
+    asset::uuid_handle,
     input::{
         ButtonState, InputSystems,
         keyboard::{Key, KeyboardInput},
@@ -16,6 +17,10 @@ use bevy::{
 };
 
 pub struct TitlePlugin;
+
+pub(super) const TITLE_FONT: Handle<Font> = uuid_handle!("1716292a-80cc-4215-b9ab-d067074e9e67");
+// Michroma's wider glyphs must fit between the title screen's horizontal insets.
+const TITLE_WORD_SIZE: FontSize = FontSize::VMin(9.5);
 
 #[derive(Component)]
 pub(crate) struct TitleBackdrop;
@@ -125,18 +130,12 @@ fn setup(
                 .with_children(|content| {
                     content.spawn((
                         Text::new("THE"),
-                        TextFont {
-                            font_size: FontSize::VMin(4.6),
-                            ..default()
-                        },
+                        TextFont::from_font_size(FontSize::VMin(4.6)).with_font(TITLE_FONT),
                         TextColor(Color::srgb(0.66, 0.83, 0.95)),
                     ));
                     content.spawn((
                         Text::new("PLUTONIAN"),
-                        TextFont {
-                            font_size: FontSize::VMin(11.5),
-                            ..default()
-                        },
+                        TextFont::from_font_size(TITLE_WORD_SIZE).with_font(TITLE_FONT),
                         TextColor(Color::srgb(0.89, 0.95, 1.0)),
                     ));
                     content

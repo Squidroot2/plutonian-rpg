@@ -26,7 +26,7 @@ use crate::{
     ui::{settings::SettingsMenu, title::picker::SavePicker},
     world::WorldLayout,
 };
-use bevy::{app::AppExit, prelude::*, window::PrimaryWindow};
+use bevy::{app::AppExit, asset::AssetId, prelude::*, window::PrimaryWindow};
 
 pub struct GameUiPlugin;
 #[derive(Component)]
@@ -86,6 +86,23 @@ enum Action {
 }
 impl Plugin for GameUiPlugin {
     fn build(&self, app: &mut App) {
+        // Replace Bevy's default face before text layout starts, including for
+        // text spawned with an implicit TextFont.
+        let mut fonts = app.world_mut().resource_mut::<Assets<Font>>();
+        fonts
+            .insert(
+                AssetId::default(),
+                Font::from_bytes(include_bytes!("../../assets/fonts/Exo2-Regular.ttf").to_vec()),
+            )
+            .expect("Bevy's default font asset ID must accept the game UI font");
+        fonts
+            .insert(
+                title::TITLE_FONT.id(),
+                Font::from_bytes(
+                    include_bytes!("../../assets/fonts/Michroma-Regular.ttf").to_vec(),
+                ),
+            )
+            .expect("the title font asset ID must accept the title font");
         app.add_plugins(dialogue_ui::DialogueUiPlugin)
             .add_systems(Startup, setup)
             .add_systems(PreUpdate, pause.after(bevy::input::InputSystems))
