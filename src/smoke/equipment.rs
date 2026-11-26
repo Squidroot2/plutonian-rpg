@@ -1,4 +1,5 @@
 //! Opt-in equipment playthrough using the live inventory UI and animated player rig.
+use super::SmokeCommands;
 use super::inventory::{InventorySmoke, click, pointer_click, walk};
 use crate::{
     GameState,
@@ -276,7 +277,7 @@ fn drive_shortswords(
         ResMut<ButtonInput<MouseButton>>,
         ResMut<Orbit>,
     ),
-    commands: Commands,
+    commands: SmokeCommands,
 ) {
     if !spear_smoke.done() || *step == ShortswordStep::Done {
         return;
@@ -383,7 +384,7 @@ fn equip_and_holster_swords(
     mut keys: ResMut<ButtonInput<KeyCode>>,
     mut buttons: ResMut<ButtonInput<MouseButton>>,
     mut orbit: ResMut<Orbit>,
-    mut commands: Commands,
+    mut commands: SmokeCommands,
     player: Entity,
     transform: &Transform,
     controller: &Player,
@@ -415,7 +416,7 @@ fn equip_and_holster_swords(
             let (row, _) = rows.next().expect("first Shortsword has a bag row");
             let (other, _) = rows.next().expect("second Shortsword has its own bag row");
             assert!(rows.next().is_none());
-            commands.trigger(PointerClick {
+            commands.ecs.trigger(PointerClick {
                 count: 2,
                 ..pointer_click(row, window, camera)
             });
@@ -430,7 +431,7 @@ fn equip_and_holster_swords(
                     .map(|(row, _)| row)
                     .eq([other])
             );
-            commands.trigger(PointerClick {
+            commands.ecs.trigger(PointerClick {
                 count: 2,
                 ..pointer_click(other, window, camera)
             });
@@ -512,7 +513,7 @@ fn check_sword_combat(
     mut keys: ResMut<ButtonInput<KeyCode>>,
     mut buttons: ResMut<ButtonInput<MouseButton>>,
     mut orbit: ResMut<Orbit>,
-    mut commands: Commands,
+    mut commands: SmokeCommands,
     player: Entity,
     transform: &Transform,
     controller: &Player,
@@ -607,20 +608,20 @@ fn drop_swords(
     equipment: PlayerRead<Equipment>,
     view: &View,
     mut keys: ResMut<ButtonInput<KeyCode>>,
-    mut commands: Commands,
+    mut commands: SmokeCommands,
     player: Entity,
     window: Entity,
     camera: Entity,
 ) {
     macro_rules! click {
         ($action:expr) => {
-            click(&mut commands, $action, &view.actions, window, camera)
+            click(&mut commands.ecs, $action, &view.actions, window, camera)
         };
     }
     match *step {
         ShortswordStep::Unequip if menu.accepts(MenuTab::Inventory) => {
             click(
-                &mut commands,
+                &mut commands.ecs,
                 MenuTab::Equipment,
                 &view.tabs,
                 window,
@@ -636,7 +637,7 @@ fn drop_swords(
             } else if check_worn(view, &equipment, player) {
                 assert_eq!(bag.count(ItemKind::Shortsword), 2);
                 click(
-                    &mut commands,
+                    &mut commands.ecs,
                     MenuTab::Inventory,
                     &view.tabs,
                     window,
@@ -693,7 +694,7 @@ pub(super) fn drive(
     view: View,
     mut keys: ResMut<ButtonInput<KeyCode>>,
     orbit: ResMut<Orbit>,
-    commands: Commands,
+    commands: SmokeCommands,
     mut last_log: Local<f32>,
 ) {
     if *swords != ShortswordStep::Done
@@ -759,7 +760,7 @@ fn equip_field_armor(
     view: &View,
     mut keys: ResMut<ButtonInput<KeyCode>>,
     mut orbit: ResMut<Orbit>,
-    mut commands: Commands,
+    mut commands: SmokeCommands,
     player: Entity,
     transform: Transform,
     window: Entity,
@@ -767,7 +768,7 @@ fn equip_field_armor(
 ) {
     macro_rules! click {
         ($action:expr) => {
-            click(&mut commands, $action, &view.actions, window, camera)
+            click(&mut commands.ecs, $action, &view.actions, window, camera)
         };
     }
     macro_rules! photo {
@@ -817,7 +818,7 @@ fn equip_field_armor(
                 .bag_rows(ItemKind::FieldArmor)
                 .next()
                 .expect("field armor inventory row");
-            commands.trigger(PointerClick {
+            commands.ecs.trigger(PointerClick {
                 count: 2,
                 ..pointer_click(row, window, camera)
             });
@@ -829,7 +830,7 @@ fn equip_field_armor(
                 Some(ItemKind::FieldArmor)
             );
             click(
-                &mut commands,
+                &mut commands.ecs,
                 MenuTab::Equipment,
                 &view.tabs,
                 window,
@@ -883,13 +884,13 @@ fn check_inventory_layout(
     bag: PlayerRead<Inventory>,
     equipment: PlayerRead<Equipment>,
     mut view: View,
-    mut commands: Commands,
+    mut commands: SmokeCommands,
     window: Entity,
     camera: Entity,
 ) {
     macro_rules! click {
         ($action:expr) => {
-            click(&mut commands, $action, &view.actions, window, camera)
+            click(&mut commands.ecs, $action, &view.actions, window, camera)
         };
     }
     macro_rules! photo {
@@ -957,7 +958,7 @@ fn check_inventory_layout(
         702 if equipment.get(EquipmentSlot::Body).is_none() => {
             assert_eq!(bag.count(ItemKind::FieldArmor), 1);
             click(
-                &mut commands,
+                &mut commands.ecs,
                 MenuTab::Inventory,
                 &view.tabs,
                 window,
@@ -979,7 +980,7 @@ fn check_field_armor_changes(
     view: &View,
     mut keys: ResMut<ButtonInput<KeyCode>>,
     mut orbit: ResMut<Orbit>,
-    mut commands: Commands,
+    mut commands: SmokeCommands,
     player: Entity,
     transform: Transform,
     window: Entity,
@@ -987,7 +988,7 @@ fn check_field_armor_changes(
 ) {
     macro_rules! click {
         ($action:expr) => {
-            click(&mut commands, $action, &view.actions, window, camera)
+            click(&mut commands.ecs, $action, &view.actions, window, camera)
         };
     }
     match smoke.stage {
@@ -1033,7 +1034,7 @@ fn check_field_armor_changes(
         }
         11 if menu.is_on(MenuTab::Inventory) => {
             click(
-                &mut commands,
+                &mut commands.ecs,
                 MenuTab::Equipment,
                 &view.tabs,
                 window,
@@ -1069,7 +1070,7 @@ fn equip_reinforced_armor(
     view: &View,
     mut keys: ResMut<ButtonInput<KeyCode>>,
     mut orbit: ResMut<Orbit>,
-    mut commands: Commands,
+    mut commands: SmokeCommands,
     player: Entity,
     transform: Transform,
     window: Entity,
@@ -1077,7 +1078,7 @@ fn equip_reinforced_armor(
 ) {
     macro_rules! click {
         ($action:expr) => {
-            click(&mut commands, $action, &view.actions, window, camera)
+            click(&mut commands.ecs, $action, &view.actions, window, camera)
         };
     }
     macro_rules! photo {
@@ -1116,7 +1117,7 @@ fn equip_reinforced_armor(
         }
         102 if menu.is_on(MenuTab::Inventory) => {
             click(
-                &mut commands,
+                &mut commands.ecs,
                 MenuTab::Equipment,
                 &view.tabs,
                 window,
@@ -1205,7 +1206,7 @@ fn check_strength_warning(
     equipment: &Equipment,
     view: &View,
     mut keys: ResMut<ButtonInput<KeyCode>>,
-    mut commands: Commands,
+    mut commands: SmokeCommands,
     player: Entity,
     window: Entity,
     camera: Entity,
@@ -1223,6 +1224,7 @@ fn check_strength_warning(
         120 if menu.is_on(MenuTab::Inventory) => {
             assert_eq!(ranks.rank(AttributeId::Strength), minimum);
             commands
+                .ecs
                 .entity(player)
                 .insert(ranks.clone().with_rank(AttributeId::Strength, minimum - 1));
             smoke.stage = 121;
@@ -1233,7 +1235,7 @@ fn check_strength_warning(
                 .bag_rows(armor)
                 .next()
                 .expect("reinforced armor bag row");
-            commands.trigger(PointerClick {
+            commands.ecs.trigger(PointerClick {
                 count: 2,
                 ..pointer_click(row, window, camera)
             });
@@ -1272,7 +1274,7 @@ fn check_strength_warning(
                 .strength_warning_close
                 .single()
                 .expect("Strength warning Close button");
-            commands.trigger(pointer_click(close, window, camera));
+            commands.ecs.trigger(pointer_click(close, window, camera));
             smoke.stage = 124;
         }
         124 => {
@@ -1282,6 +1284,7 @@ fn check_strength_warning(
                 .expect("closing keeps the warning available");
             assert!(!visibility.get(), "Close must hide the Strength warning");
             commands
+                .ecs
                 .entity(player)
                 .insert(ranks.clone().with_rank(AttributeId::Strength, minimum));
             keys.press(KeyCode::Tab);
@@ -1302,7 +1305,7 @@ fn check_worn_armor_in_motion(
     view: &View,
     mut keys: ResMut<ButtonInput<KeyCode>>,
     mut orbit: ResMut<Orbit>,
-    mut commands: Commands,
+    mut commands: SmokeCommands,
     player: Entity,
     window: Entity,
     camera: Entity,
@@ -1311,7 +1314,7 @@ fn check_worn_armor_in_motion(
     let (_, _, controller, stance) = view.player.get(player).expect("arena player");
     macro_rules! click {
         ($action:expr) => {
-            click(&mut commands, $action, &view.actions, window, camera)
+            click(&mut commands.ecs, $action, &view.actions, window, camera)
         };
     }
     macro_rules! photo {

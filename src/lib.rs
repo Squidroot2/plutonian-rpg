@@ -66,6 +66,8 @@ pub struct Options {
     pub nemi: bool,
     pub cave: bool,
     pub crossing: bool,
+    /// Skip screenshot captures during the selected smoke scenario.
+    pub no_screenshots: bool,
     pub windowed: bool,
     /// Optional absolute save directory supplied at launch.
     pub save_dir: Option<std::path::PathBuf>,
@@ -81,6 +83,7 @@ pub fn run(options: Options) {
         crossing,
         windowed,
         save_dir,
+        ..
     } = options;
     let mode = if windowed {
         WindowMode::Windowed
@@ -157,6 +160,7 @@ pub fn run(options: Options) {
             nemi,
             cave,
             crossing,
+            no_screenshots: options.no_screenshots,
         });
     }
     app.run();

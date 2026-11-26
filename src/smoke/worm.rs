@@ -1,5 +1,5 @@
 use super::{
-    capture,
+    SmokeCommands, capture,
     inventory::{click, walk},
     spear::SpearSmoke,
 };
@@ -144,7 +144,7 @@ pub(super) fn fight(
     mut orbit: ResMut<Orbit>,
     mut keys: ResMut<ButtonInput<KeyCode>>,
     mouse: ResMut<ButtonInput<MouseButton>>,
-    mut commands: Commands,
+    mut commands: SmokeCommands,
 ) {
     if *smoke != SpearSmoke::WormEncounter {
         return;
@@ -160,7 +160,7 @@ pub(super) fn fight(
         }
         let home = (transform.translation - Vec3::Z * 4.0).with_y(GROUND_OFFSET);
         worm::spawn(
-            &mut commands,
+            &mut commands.ecs,
             &visuals.expect("the loaded smoke arena must provide the worm visuals"),
             enemies
                 .as_ref()
@@ -248,7 +248,7 @@ fn check_worm_combat(
     mut orbit: ResMut<Orbit>,
     mut keys: ResMut<ButtonInput<KeyCode>>,
     mut mouse: ResMut<ButtonInput<MouseButton>>,
-    mut commands: Commands,
+    mut commands: SmokeCommands,
     controller: &Player,
     transform: &Transform,
     player_health: &Health,
@@ -369,7 +369,7 @@ fn check_worm_loot(
     camera: Query<Entity, With<FollowCamera>>,
     mut orbit: ResMut<Orbit>,
     mut keys: ResMut<ButtonInput<KeyCode>>,
-    mut commands: Commands,
+    mut commands: SmokeCommands,
     transform: &Transform,
     enemy: &Transform,
     dead: bool,
@@ -405,7 +405,7 @@ fn check_worm_loot(
             assert_eq!(bag.count(ItemKind::WormMeat), 0);
             capture(&mut commands, "worm-loot");
             click(
-                &mut commands,
+                &mut commands.ecs,
                 LootAction::Take,
                 &actions,
                 window.single().expect("smoke window"),
