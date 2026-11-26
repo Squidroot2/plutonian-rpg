@@ -36,7 +36,7 @@ for name in ['plutonian', 'outpost', 'collision', 'core', 'battery', 'scrap', 'm
         locomotion = {'Idle', 'Walk', 'Run', 'Jump'} | directional_walks
         sword_slashes = {'SwordMainSlash', 'SwordOffSlash'}
         carry = {prefix + clip for prefix in ['Spear', 'Sword'] for clip in locomotion}
-        assert animations.keys() == locomotion | carry | sword_slashes | {'SpearThrust', 'NemiDeath'}, animations.keys()
+        assert animations.keys() == locomotion | carry | sword_slashes | {'SpearThrust', 'PlutonianDeath'}, animations.keys()
         assert len(animations) == len(document['animations']), 'Duplicate character animation names'
         assert document.get('skins'), 'Character must be rigged'
         assert any(node.get('name') == 'spear_grip' for node in document['nodes']), 'Spear grip bone is missing'
@@ -47,9 +47,9 @@ for name in ['plutonian', 'outpost', 'collision', 'core', 'battery', 'scrap', 'm
             duration = max(document['accessors'][sampler['input']]['max'][0]
                            for sampler in animations[clip]['samplers'])
             assert abs(duration-12/24) < .001, f'{clip} duration must match the in-game recovery'
-        death = animations['NemiDeath']
+        death = animations['PlutonianDeath']
         duration = max(document['accessors'][sampler['input']]['max'][0] for sampler in death['samplers'])
-        assert abs(duration-1) < .001, 'NemiDeath must be a one-second collapse'
+        assert abs(duration-1) < .001, 'PlutonianDeath must be a one-second collapse'
 
     if name == 'relay_roach':
         assert document.get('skins'), 'Roach must be skinned'

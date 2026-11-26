@@ -146,7 +146,7 @@ def character():
     add_directional_walks(rig)
     add_spear_animations(rig)
     add_sword_animations(rig)
-    add_nemi_death(rig)
+    add_plutonian_death(rig)
     save_export('plutonian')
 
 
@@ -185,9 +185,9 @@ def key_pose(bone, offset, rotation, frame):
     bone.keyframe_insert('rotation_euler', frame=frame, group=bone.name)
 
 
-def add_nemi_death(rig):
+def add_plutonian_death(rig):
     rig.animation_data_create()
-    new_action(rig, 'NemiDeath')
+    new_action(rig, 'PlutonianDeath')
     for frame, height, roll, brace, bend in [
         (0, 0, 0, 0, 0),
         (4, -.05, 12, 30, 18),
@@ -197,6 +197,9 @@ def add_nemi_death(rig):
     ]:
         root_rotation = Matrix.Rotation(math.radians(roll), 3, 'Y')
         for bone in rig.pose.bones:
+            # The sword sockets inherit the forearms' collapse without their own keys.
+            if bone.name in SWORD_GRIPS.values():
+                continue
             offset = Vector((0, 0, height)) if bone.name == 'root' else Vector((0, 0, 0))
             rotation = Matrix.Identity(3)
             if bone.name == 'root':
@@ -1833,12 +1836,12 @@ elif '--ground' in sys.argv:
             obj.matrix_world = matrix
     bpy.context.view_layer.update()
     save_export('collision')
-elif '--export' in sys.argv and '--nemi-death' in sys.argv:
+elif '--export' in sys.argv and '--plutonian-death' in sys.argv:
     bpy.context.preferences.filepaths.save_version = 0
     bpy.context.preferences.filepaths.file_preview_type = 'NONE'
     bpy.ops.wm.open_mainfile(filepath=str(ROOT / 'art/plutonian.blend'))
     rig = next(obj for obj in bpy.context.scene.objects if obj.type == 'ARMATURE')
-    add_nemi_death(rig)
+    add_plutonian_death(rig)
     save_export('plutonian')
 elif '--export' in sys.argv:
     names = ['outpost', 'collision'] if '--outpost' in sys.argv else [

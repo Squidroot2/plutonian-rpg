@@ -22,7 +22,7 @@ Runtime exports are checked in under `assets/models/`, so Blender is not needed 
 
 | Source / export | Purpose |
 | --- | --- |
-| `plutonian` | Shared skinned character with locomotion, spear and sword carry, two slash actions, `SpearThrust`, and `NemiDeath` |
+| `plutonian` | Shared skinned character with locomotion, spear and sword carry, two slash actions, `SpearThrust`, and `PlutonianDeath` |
 | `outpost` | Ice shelf, furnished village huts, waystones, cavern, beacon tower, perimeter cliffs and gate, distant sky details |
 | `collision` | Simplified static geometry, hidden at runtime |
 | `core` | Collectible beacon power core |
@@ -93,7 +93,7 @@ Export the pickups flat on the ground using the same sources, and keep the actio
 Pass `-- --shortsword` to regenerate the shortsword source, wrist sockets, and sword carry and slash actions.
 The slashes contact at frame 5 and recover at frame 12 (24 fps).
 
-Use `-- --export --nemi-death` to rebuild the collapse action on the existing shared character rig.
+Use `-- --export --plutonian-death` to rebuild the collapse action on the existing shared character rig.
 This mode rewrites `art/plutonian.blend` and exports only `assets/models/plutonian.glb`.
 
 The scripts run in a separate background Blender process; a live MCP connection is not required.
