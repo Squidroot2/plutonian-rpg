@@ -48,7 +48,7 @@ def main():
 
         nemi_with_unknown_field = {
             **document,
-            "nemi": {**document["nemi"], "unexpected": True},
+            "npcs": {**document["npcs"], "nemi": {**document["npcs"]["nemi"], "unexpected": True}},
         }
         if validator.is_valid(nemi_with_unknown_field):
             raise ValueError("schema accepted an unknown nested actor property")
@@ -63,7 +63,7 @@ def main():
             raise ValueError("schema accepted an unknown nested progression property")
         print("Schema rejects unknown top-level and nested properties and incorrect field types")
 
-        saved_game = ROOT / "tests" / "fixtures" / "inspector-v12.save"
+        saved_game = ROOT / "tests" / "fixtures" / "inspector-v13.save"
         inspected = subprocess.run(
             [args.binary, "inspect", "--json", saved_game],
             check=True,

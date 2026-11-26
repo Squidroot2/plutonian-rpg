@@ -35,8 +35,10 @@ impl NpcId {
         }
     }
 
-    pub(crate) fn caravan_id(key: &str) -> Option<Self> {
-        Self::CARAVAN.into_iter().find(|id| id.key() == key)
+    pub(crate) fn persistent_id(key: &str) -> Option<Self> {
+        std::iter::once(Self::Nemi)
+            .chain(Self::CARAVAN)
+            .find(|id| id.key() == key)
     }
 }
 

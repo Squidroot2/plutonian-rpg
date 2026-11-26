@@ -55,10 +55,10 @@ systems.
 
 The file begins with the six-byte `PLUT` header and a little-endian schema
 version, followed by a bitcode-encoded snapshot.
-The current schema is version 12, and it is the only supported format.
+The current schema is version 13, and it is the only supported format.
 It stores the player name in the snapshot and restores it when the run is loaded.
-It encodes item IDs, encounter IDs, and collected pickup IDs as strings.
-Parked caravan speaker state is stored alongside the snapshot payload.
+It encodes item, encounter, dungeon, pickup, and NPC IDs as strings.
+Persistent NPC state is stored alongside the snapshot payload.
 
 There is no backward compatibility.
 When the schema changes, bump the version byte and update the single
@@ -172,21 +172,22 @@ without applying catalog-dependent changes or modifying any file.
 The JSON object is the shared representation for `inspect --json` and `create`.
 Its top-level `format_version` is the binary save version.
 The remaining top-level fields are `player_name`, `journal`, `inventory`, `equipment`, `chests`,
-`dungeon`, `pickups`, `collected_pickups`, `cavern_defeats`, `nemi`, `nemi_state`,
-`encounters`, `progression`, `experience`, `guards_hostile`, and `caravan`.
-Item, encounter, collected pickup, credited cavern encounter, and caravan IDs use their stable string keys.
+`dungeons`, `pickups`, `collected_pickups`, `cavern_defeats`, `npcs`,
+`encounters`, `progression`, `experience`, and `world`.
+Item, dungeon, encounter, pickup, and NPC IDs use their stable string keys.
+Dungeon progress is keyed by dungeon ID; global flags live in `world`.
 Quest progress is keyed by quest ID and records its outcome and completed objective IDs.
 Inventories and each chest map item IDs to quantities,
 while equipment maps slot names to item IDs.
 Pickups contain a stack and a three-coordinate position.
-Each encounter and caravan actor records its position, quaternion rotation, and health,
-alongside the encounter's loot flag or the caravan actor's flee state.
+Each encounter and persistent NPC records its position, quaternion rotation, and health,
+alongside the encounter's loot flag or the NPC's flee state.
 The journal records quest outcomes, completed objectives, and occurred actions;
 progression records attribute ranks, level, and unspent points.
 The `experience` object includes the player's XP and contribution credits.
 Enums use serde's externally tagged representation,
 so a unit state is a string and a state with data is an object keyed by its variant.
-The separately stored `cavern_defeats` and `caravan` fields are included alongside the wire snapshot,
+The separately stored `cavern_defeats` and `npcs` fields are included alongside the wire snapshot,
 so the JSON captures the complete saved state.
 
 Run `cargo run --locked --bin plutonian-save -- create fixture.json --output out.save`

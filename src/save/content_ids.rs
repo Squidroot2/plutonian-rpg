@@ -20,14 +20,12 @@ pub(super) struct WireSnapshot {
     inventory: Inventory<String>,
     equipment: Equipment<String>,
     chests: ChestStorage<String>,
-    dungeon: DungeonProgress,
+    dungeons: BTreeMap<String, DungeonProgress>,
     pickups: Vec<SavedPickup<String>>,
-    nemi: SavedActor,
-    nemi_state: NemiState,
     encounters: BTreeMap<String, SavedEncounter>,
     progression: SavedProgress,
-    experience: SavedExperience<String>,
-    guards_hostile: bool,
+    experience: SavedExperience<String, String>,
+    world: SavedWorld,
 }
 
 fn string_item(id: ItemKind) -> String {
@@ -88,7 +86,11 @@ pub(super) fn wire_snapshot(snapshot: &Snapshot) -> WireSnapshot {
                 .map(|(&chest, inventory)| (chest, string_inventory(inventory)))
                 .collect(),
         ),
-        dungeon: snapshot.dungeon,
+        dungeons: snapshot
+            .dungeons
+            .iter()
+            .map(|(id, progress)| (id.as_str().to_owned(), *progress))
+            .collect(),
         pickups: snapshot
             .pickups
             .iter()
@@ -100,8 +102,6 @@ pub(super) fn wire_snapshot(snapshot: &Snapshot) -> WireSnapshot {
                 position: pickup.position,
             })
             .collect(),
-        nemi: snapshot.nemi.clone(),
-        nemi_state: snapshot.nemi_state.clone(),
         encounters: snapshot
             .encounters
             .iter()
@@ -110,7 +110,12 @@ pub(super) fn wire_snapshot(snapshot: &Snapshot) -> WireSnapshot {
         progression: snapshot.progression.clone(),
         experience: SavedExperience {
             player: snapshot.experience.player,
-            nemi_contributed: snapshot.experience.nemi_contributed,
+            npc_contributions: snapshot
+                .experience
+                .npc_contributions
+                .iter()
+                .map(|id| id.key().to_owned())
+                .collect(),
             encounter_contributions: snapshot
                 .experience
                 .encounter_contributions
@@ -119,7 +124,7 @@ pub(super) fn wire_snapshot(snapshot: &Snapshot) -> WireSnapshot {
                 .map(string_encounter)
                 .collect(),
         },
-        guards_hostile: snapshot.guards_hostile,
+        world: snapshot.world.clone(),
     }
 }
 
@@ -180,7 +185,11 @@ pub(super) fn into_snapshot(
                 .map(|(chest, inventory)| Ok((chest, parse_inventory(inventory)?)))
                 .collect::<io::Result<_>>()?,
         ),
-        dungeon: wire.dungeon,
+        dungeons: wire
+            .dungeons
+            .into_iter()
+            .map(|(id, progress)| Ok((ContentId::parse(&id).map_err(invalid_save)?, progress)))
+            .collect::<io::Result<_>>()?,
         pickups: wire
             .pickups
             .into_iter()
@@ -194,8 +203,6 @@ pub(super) fn into_snapshot(
                 })
             })
             .collect::<io::Result<_>>()?,
-        nemi: wire.nemi,
-        nemi_state: wire.nemi_state,
         encounters: wire
             .encounters
             .into_iter()
@@ -204,7 +211,15 @@ pub(super) fn into_snapshot(
         progression: wire.progression,
         experience: SavedExperience {
             player: wire.experience.player,
-            nemi_contributed: wire.experience.nemi_contributed,
+            npc_contributions: wire
+                .experience
+                .npc_contributions
+                .into_iter()
+                .map(|id| {
+                    NpcId::persistent_id(&id)
+                        .ok_or_else(|| invalid_save(format!("Unknown persistent NPC {id}")))
+                })
+                .collect::<io::Result<_>>()?,
             encounter_contributions: wire
                 .experience
                 .encounter_contributions
@@ -212,11 +227,11 @@ pub(super) fn into_snapshot(
                 .map(|id| parse_encounter(&id))
                 .collect::<io::Result<_>>()?,
         },
-        guards_hostile: wire.guards_hostile,
+        world: wire.world,
         collected_pickups: collected
             .into_iter()
             .map(|id| ContentId::parse(&id).map_err(invalid_save))
             .collect::<io::Result<_>>()?,
-        caravan: BTreeMap::new(),
+        npcs: BTreeMap::new(),
     })
 }
