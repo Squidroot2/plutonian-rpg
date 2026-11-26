@@ -26,6 +26,9 @@ Declare bodies that must exist in both halves of a pair in `src/asset_check/expe
 
 Run one smoke scenario at a time on an idle graphical desktop without supplying mouse or keyboard input.
 Add `--windowed` to a smoke command to run it in a window.
+Scenarios are run through `scripts/smoke.sh <scenario>`, which checks for GPU devices before launching.
+Agent sandboxes (Codex's, for example) present a synthetic `/dev` without `/dev/dri`, so a sandboxed run fails with "could not detect a GPU" even on a host with a working GPU.
+The script must run outside the sandbox (the execpolicy rules allow it in exactly this form), and that error from inside a sandbox must never be reported as the host being unable to run the scenarios.
 Each scenario uses a temporary save slot.
 
 - `--smoke-test` starts a standalone arena with nearby materials, equipment, a practice dummy, and the keeper and core.
