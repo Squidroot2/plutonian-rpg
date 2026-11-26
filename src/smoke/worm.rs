@@ -20,10 +20,10 @@ use crate::{
     ui::loot_ui::LootAction,
     ui::{HealthBar, HealthBarFill},
     weapon::{GRIP_SIDE, WeaponAttack},
-    worm::{self, GROUND_OFFSET, Worm},
+    worm::{self, GROUND_OFFSET, MOUTH_MATERIAL, Worm},
 };
 use avian3d::prelude::{Collider, SpatialQuery, SpatialQueryFilter};
-use bevy::prelude::*;
+use bevy::{gltf::GltfMaterialName, prelude::*};
 
 #[derive(Resource, Default)]
 pub(super) enum Encounter {
@@ -110,6 +110,7 @@ pub(super) fn fight(
     player: Query<(&Player, &Transform, &Health, &WeaponAttack)>,
     worms: Query<
         (
+            Entity,
             &MeleePursuit,
             &Transform,
             &Health,
@@ -134,6 +135,11 @@ pub(super) fn fight(
     feedback: (
         Query<&Visibility, With<BitePulse>>,
         Query<(), With<AttackImpact>>,
+    ),
+    (hierarchy, mouth_parts, materials): (
+        Query<&Children>,
+        Query<(&GltfMaterialName, &MeshMaterial3d<StandardMaterial>)>,
+        Res<Assets<StandardMaterial>>,
     ),
     mut orbit: ResMut<Orbit>,
     mut keys: ResMut<ButtonInput<KeyCode>>,
@@ -169,9 +175,17 @@ pub(super) fn fight(
         orbit.distance = 3.8;
         return;
     }
-    let (worm, enemy, worm_health, dead, collider) = worms
+    let (entity, worm, enemy, worm_health, dead, collider) = worms
         .single()
         .expect("the encounter worm must remain spawned");
+    if matches!(*phase, Encounter::Fight { captured: false }) && !dead {
+        check_mouth(entity, &hierarchy, &mouth_parts, &materials, true);
+    }
+    if matches!(*phase, Encounter::Collapse { elapsed, captured: false }
+        if elapsed + time.delta_secs() >= 0.90)
+    {
+        check_mouth(entity, &hierarchy, &mouth_parts, &materials, false);
+    }
     match *phase {
         Encounter::Pursuit(..)
         | Encounter::Dodge { .. }
@@ -203,6 +217,28 @@ pub(super) fn fight(
         }
         _ => {}
     }
+}
+
+fn check_mouth(
+    worm: Entity,
+    hierarchy: &Query<&Children>,
+    parts: &Query<(&GltfMaterialName, &MeshMaterial3d<StandardMaterial>)>,
+    materials: &Assets<StandardMaterial>,
+    glowing: bool,
+) {
+    let mouth = hierarchy
+        .iter_descendants(worm)
+        .filter_map(|entity| parts.get(entity).ok())
+        .filter(|(name, _)| name.0 == MOUTH_MATERIAL);
+    let mut count = 0;
+    for (_, handle) in mouth {
+        let material = materials
+            .get(&handle.0)
+            .expect("loaded worm mouth material");
+        assert_eq!(material.emissive != LinearRgba::BLACK, glowing);
+        count += 1;
+    }
+    assert_eq!(count, 2, "check the jaws and inner mouth");
 }
 
 fn check_worm_combat(
@@ -345,7 +381,7 @@ fn check_worm_loot(
             mut captured,
         } => {
             let elapsed = elapsed + time.delta_secs();
-            if !captured && elapsed >= 0.37 {
+            if !captured && elapsed >= 0.90 {
                 capture(&mut commands, "worm-collapse");
                 captured = true;
             }
