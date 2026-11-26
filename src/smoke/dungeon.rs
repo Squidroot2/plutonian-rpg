@@ -1,6 +1,6 @@
 //! Exercise the shipped relay with the real movement controller and interact input.
 use super::{
-    SmokeRun, capture,
+    SmokeCommands, SmokeRun, capture,
     inventory::{click, pointer_click, walk},
 };
 use crate::player::PlayerWorldExt as _;
@@ -260,7 +260,7 @@ pub(super) fn check_death_screen(
     captures: Query<(), With<Screenshot>>,
     window: Single<Entity, With<Window>>,
     camera: Single<Entity, With<FollowCamera>>,
-    mut commands: Commands,
+    mut commands: SmokeCommands,
 ) {
     let (defeated, fade_photo, ready_photo) = match *phase {
         WorldCheck::FreshRespawn(entity) => (entity, "fresh-death-fade", "fresh-game-over"),
@@ -289,7 +289,9 @@ pub(super) fn check_death_screen(
             *check = DeathScreenCheck::WaitForCapture(capture(&mut commands, ready_photo));
         }
         DeathScreenCheck::WaitForCapture(screenshot) if !captures.contains(screenshot) => {
-            commands.trigger(pointer_click(button, *window, *camera));
+            commands
+                .ecs
+                .trigger(pointer_click(button, *window, *camera));
             *check = DeathScreenCheck::WatchCollapse;
         }
         _ => {}
@@ -360,7 +362,7 @@ pub(super) fn drive(
         ResMut<ButtonInput<KeyCode>>,
         ResMut<ButtonInput<MouseButton>>,
     ),
-    commands: Commands,
+    commands: SmokeCommands,
     exit: MessageWriter<AppExit>,
 ) {
     let Ok((
@@ -541,7 +543,7 @@ struct WorldFrame<'w, 's, 'a> {
     guard_smoke: GuardSmoke<'w, 's>,
     spatial: SpatialQuery<'w, 's>,
     orbit: ResMut<'w, Orbit>,
-    commands: Commands<'w, 's>,
+    commands: SmokeCommands<'w, 's>,
     entity: Entity,
     controller: Mut<'a, Player>,
     dodge: Mut<'a, Dodge>,
@@ -650,7 +652,7 @@ fn check_fresh_run(frame: WorldFrame) {
                 )
                 .expect("the junction worm must have a supporting floor");
             assert!((support.distance - 1.0 - GROUND_OFFSET).abs() < 0.03);
-            commands.queue(|world: &mut World| {
+            commands.ecs.queue(|world: &mut World| {
                 assert!(world.actor_data_mut::<Inventory>().add(ItemKind::Scrap, 1));
                 world
                     .resource_mut::<QuestJournal>()
@@ -730,7 +732,7 @@ fn check_tent_chests(frame: WorldFrame) {
                 TransferAmount::One
             };
             click_storage(
-                &mut commands,
+                &mut commands.ecs,
                 StorageAction::Transfer(StorageSide::Chest, item, amount),
             );
             *phase = WorldCheck::StoreInChest(chest);
@@ -740,7 +742,7 @@ fn check_tent_chests(frame: WorldFrame) {
             assert_eq!(storage.get(chest).count(item), 0);
             assert_eq!(inventory.count(item), initial_count);
             click_storage(
-                &mut commands,
+                &mut commands.ecs,
                 StorageAction::Transfer(StorageSide::Backpack, item, amount),
             );
             *phase = WorldCheck::CloseChest(chest);
@@ -757,7 +759,7 @@ fn check_tent_chests(frame: WorldFrame) {
             if chest == ChestId::Lamp {
                 keys.press(KeyCode::Escape);
             } else {
-                click_storage(&mut commands, StorageAction::Close);
+                click_storage(&mut commands.ecs, StorageAction::Close);
             }
             *phase = WorldCheck::NextChest(chest);
         }
@@ -895,7 +897,7 @@ fn check_outpost_storage(frame: WorldFrame) {
         }
         WorldCheck::LeaveStorage if storage_open && captures.is_empty() => {
             click_storage(
-                &mut commands,
+                &mut commands.ecs,
                 StorageAction::Close,
                 &storage_actions,
                 &window,
@@ -1079,7 +1081,7 @@ fn discover_relay(frame: WorldFrame) {
                 .iter()
                 .find(|(_, row)| row.id == OLD_RELAY && row.status == QuestStatus::Active)
                 .expect("Old Relay must have an active journal row");
-            commands.trigger(pointer_click(
+            commands.ecs.trigger(pointer_click(
                 relay,
                 window.single().expect("smoke window"),
                 camera.single().expect("player camera"),
@@ -1375,7 +1377,7 @@ fn check_relay_encounters(frame: WorldFrame) {
         WorldCheck::TakeRoachMeat if *state.get() == GameState::Looting => {
             assert_eq!(inventory.count(ItemKind::RoachMeat), 0);
             click(
-                &mut commands,
+                &mut commands.ecs,
                 LootAction::Take,
                 &actions,
                 window.single().expect("smoke window"),
@@ -1518,7 +1520,7 @@ fn finish_relay_quest(frame: WorldFrame) {
                     .any(|(_, row)| row.id == OLD_RELAY && row.status == QuestStatus::Completed)
             );
             keys.press(KeyCode::Tab);
-            commands.queue(|world: &mut World| {
+            commands.ecs.queue(|world: &mut World| {
                 let items = world.resource::<Items>().clone();
                 let mut query =
                     world.query_filtered::<(&mut Inventory, &mut Equipment), With<Player>>();
@@ -1629,7 +1631,7 @@ fn check_cavern_briefing(frame: WorldFrame) {
                     row.id == CONTAIN_THE_HUSHCAPS && row.status == QuestStatus::Active
                 })
                 .expect("the cave quest should appear in the Active log");
-            commands.trigger(pointer_click(
+            commands.ecs.trigger(pointer_click(
                 row,
                 window.single().expect("smoke window"),
                 camera.single().expect("player camera"),
@@ -1766,7 +1768,7 @@ fn fight_hushcap(frame: WorldFrame) {
         WorldCheck::TakeMycelium if *state.get() == GameState::Looting => {
             assert_eq!(inventory.count(ItemKind::Mycelium), 0);
             click(
-                &mut commands,
+                &mut commands.ecs,
                 LootAction::Take,
                 &actions,
                 window.single().expect("smoke window"),
@@ -1900,6 +1902,7 @@ fn check_bed_rollback(frame: WorldFrame) {
                 Vec3::new(9.7, 0.0, -3.35),
             );
             commands
+                .ecs
                 .entity(entity)
                 .insert(AttributeRanks::default().with_rank(AttributeId::Vitality, SAVED_VITALITY));
             *phase = WorldCheck::SaveAtBed;
@@ -1916,7 +1919,7 @@ fn check_bed_rollback(frame: WorldFrame) {
                 "the cot must write the checkpoint"
             );
             assert_eq!((*attributes, *xp), (RELAY_PROGRESS, LOOTED_RELAY_XP));
-            commands.entity(entity).insert((
+            commands.ecs.entity(entity).insert((
                 AttributeRanks::default().with_rank(AttributeId::Vitality, 8),
                 CharacterProgress {
                     level: Level::new(3).expect("valid authored progress level"),
@@ -1924,7 +1927,7 @@ fn check_bed_rollback(frame: WorldFrame) {
                 },
                 Experience(90),
             ));
-            commands.queue(|world: &mut World| {
+            commands.ecs.queue(|world: &mut World| {
                 assert!(
                     world
                         .actor_data_mut::<Inventory>()

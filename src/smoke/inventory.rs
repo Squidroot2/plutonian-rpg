@@ -1,4 +1,5 @@
 //! Exercises pickup, quantities, and dropping through the live inventory UI.
+use super::SmokeCommands;
 use crate::{
     GameState,
     camera::{FollowCamera, Orbit},
@@ -99,7 +100,7 @@ pub(crate) fn drive(
     windows: Query<Entity, With<Window>>,
     cameras: Query<Entity, With<FollowCamera>>,
     keyboard: MessageWriter<KeyboardInput>,
-    commands: Commands,
+    commands: SmokeCommands,
 ) {
     if smoke.done || matches!(state.get(), GameState::Title | GameState::Loading) {
         return;
@@ -200,7 +201,7 @@ fn drop_battery(
     inventory: PlayerRead<Inventory>,
     ui: Res<InventoryUiState>,
     actions: Query<(Entity, &InventoryAction)>,
-    mut commands: Commands,
+    mut commands: SmokeCommands,
     transform: &Transform,
     controller: &Player,
     window: Entity,
@@ -230,7 +231,7 @@ fn drop_battery(
                     "gravity must land the player while inventory is open"
                 );
                 click(
-                    &mut commands,
+                    &mut commands.ecs,
                     InventoryAction::Select(InventoryRow::Stack(ItemKind::Battery)),
                     &actions,
                     window,
@@ -271,7 +272,7 @@ fn drop_battery(
             assert!(menu.is_on(MenuTab::Inventory));
             assert!(!ui.drop_is_open());
             click(
-                &mut commands,
+                &mut commands.ecs,
                 InventoryAction::Drop,
                 &actions,
                 window,
@@ -296,7 +297,7 @@ fn recollect_battery(
     pickups: Query<(&Pickup, &Transform)>,
     actions: Query<(Entity, &InventoryAction)>,
     mut keyboard: MessageWriter<KeyboardInput>,
-    mut commands: Commands,
+    mut commands: SmokeCommands,
     transform: &Transform,
     window: Entity,
     camera: Entity,
@@ -317,7 +318,7 @@ fn recollect_battery(
         6 => {
             assert_eq!(ui.quantity, "2", "quantity field did not accept typing");
             click(
-                &mut commands,
+                &mut commands.ecs,
                 InventoryAction::Minus,
                 &actions,
                 window,
@@ -329,7 +330,7 @@ fn recollect_battery(
             assert_eq!(ui.amount(&inventory), Some(1));
             smoke.screenshot = Some(super::capture(&mut commands, "inventory"));
             click(
-                &mut commands,
+                &mut commands.ecs,
                 InventoryAction::ConfirmDrop,
                 &actions,
                 window,

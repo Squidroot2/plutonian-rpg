@@ -1,5 +1,5 @@
 //! Exercise the hostile quest branch with the real spear and interaction input.
-use super::{capture, inventory::pointer_click};
+use super::{SmokeCommands, capture, inventory::pointer_click};
 use crate::{
     camera::{FollowCamera, Orbit},
     combat::{Dead, Health},
@@ -111,7 +111,7 @@ pub(super) fn drive(
         ResMut<Orbit>,
     ),
     spatial: SpatialQuery,
-    commands: Commands,
+    commands: SmokeCommands,
     exit: MessageWriter<AppExit>,
 ) {
     let Ok((entity, player, dodge, transform, thrust, xp, progress)) = avatar.single_mut() else {
@@ -210,7 +210,7 @@ fn check_nemi_reactions(
     mut keys: ResMut<ButtonInput<KeyCode>>,
     mut mouse: ResMut<ButtonInput<MouseButton>>,
     mut orbit: ResMut<Orbit>,
-    mut commands: Commands,
+    mut commands: SmokeCommands,
     mut player: Mut<Player>,
     mut dodge: Mut<Dodge>,
     mut transform: Mut<Transform>,
@@ -309,7 +309,7 @@ fn check_nemi_reactions(
                 .iter()
                 .find(|(_, row)| row.id == LAST_LIGHT && row.status == QuestStatus::Failed)
                 .expect("The Last Light should appear under Failed");
-            commands.trigger(pointer_click(
+            commands.ecs.trigger(pointer_click(
                 row,
                 window.single().expect("window"),
                 camera.single().expect("camera"),
@@ -336,7 +336,7 @@ fn check_solo_route(
     animations: Query<&AnimationPlayer>,
     mut keys: ResMut<ButtonInput<KeyCode>>,
     mut orbit: ResMut<Orbit>,
-    mut commands: Commands,
+    mut commands: SmokeCommands,
     mut exit: MessageWriter<AppExit>,
     mut player: Mut<Player>,
     mut dodge: Mut<Dodge>,

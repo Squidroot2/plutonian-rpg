@@ -28,6 +28,8 @@ fn parse_args(args: impl IntoIterator<Item = OsString>) -> Result<plutonian_rpg:
             options.cave = true;
         } else if arg == "--smoke-crossing" {
             options.crossing = true;
+        } else if arg == "--no-screenshots" {
+            options.no_screenshots = true;
         } else if arg == "--windowed" {
             options.windowed = true;
         } else if cfg!(not(feature = "smoke")) && arg.to_string_lossy().starts_with("--smoke-") {
@@ -49,6 +51,9 @@ fn parse_args(args: impl IntoIterator<Item = OsString>) -> Result<plutonian_rpg:
     }
     if smoke_count > 1 {
         return Err("choose one smoke mode".into());
+    }
+    if options.no_screenshots && smoke_count == 0 {
+        return Err("--no-screenshots requires a smoke scenario".into());
     }
     if smoke_count == 0
         && let Some(path) = options.save_dir.take()
@@ -96,6 +101,22 @@ mod tests {
         let options = parse(&["--save-dir", "golden", "--smoke-world"]).expect("smoke options");
         assert!(options.world);
         assert_eq!(options.save_dir, Some(PathBuf::from("golden")));
+    }
+
+    #[cfg(feature = "smoke")]
+    #[test]
+    fn smoke_screenshots_are_enabled_unless_explicitly_disabled() {
+        assert!(
+            !parse(&["--smoke-test"])
+                .expect("arena options")
+                .no_screenshots
+        );
+        assert!(
+            parse(&["--smoke-test", "--no-screenshots"])
+                .expect("arena options without screenshots")
+                .no_screenshots
+        );
+        assert!(parse(&["--no-screenshots"]).is_err());
     }
 
     #[test]

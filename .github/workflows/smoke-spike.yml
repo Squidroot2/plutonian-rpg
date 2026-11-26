@@ -41,7 +41,7 @@ jobs:
       - name: Build smoke scenario
         run: cargo build --locked --features smoke
       - name: Run arena
-        run: xvfb-run -a -s '-screen 0 1280x800x24' cargo run --locked --features smoke -- --smoke-test --windowed
+        run: xvfb-run -a -s '-screen 0 1280x800x24' cargo run --locked --features smoke -- --smoke-test --windowed --no-screenshots
       - name: Upload screenshots
         if: always()
         uses: actions/upload-artifact@v4

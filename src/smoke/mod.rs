@@ -36,6 +36,7 @@ use crate::{
 use avian3d::prelude::*;
 use bevy::{
     app::AppExit,
+    ecs::system::SystemParam,
     input::InputSystems,
     prelude::*,
     render::view::screenshot::{Screenshot, save_to_disk},
@@ -60,6 +61,7 @@ pub struct SmokePlugin {
     pub nemi: bool,
     pub cave: bool,
     pub crossing: bool,
+    pub no_screenshots: bool,
 }
 
 #[derive(Resource, Debug, Default)]
@@ -108,6 +110,7 @@ impl Plugin for SmokePlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(SmokeRun(Instant::now()))
             .insert_resource(TimeUpdateStrategy::ManualDuration(SMOKE_FRAME_STEP))
+            .insert_resource(SmokeScreenshots(!self.no_screenshots))
             .add_systems(Update, watchdog)
             .add_systems(PreUpdate, report_timing)
             .add_systems(PostUpdate, report_exit_timing)
@@ -257,7 +260,7 @@ fn start_from_title(
     mut name_screenshot: Local<Option<Entity>>,
     mut name_ready_at: Local<Option<Duration>>,
     mut keys: ResMut<ButtonInput<KeyCode>>,
-    mut commands: Commands,
+    mut commands: SmokeCommands,
     windows: Query<Entity, With<Window>>,
     mut keyboard: MessageWriter<bevy::input::keyboard::KeyboardInput>,
     mut phase: Local<u8>,
@@ -391,32 +394,23 @@ fn expired_budget(
     }
 }
 
-#[cfg(test)]
-mod watchdog_tests {
-    use super::*;
+#[derive(Resource)]
+struct SmokeScreenshots(bool);
 
-    #[test]
-    fn watchdog_uses_virtual_budget_and_wall_backstop() {
-        let before = TIMEOUT - Duration::from_nanos(1);
-        assert_eq!(expired_budget(before, TIMEOUT, TIMEOUT), None);
-        assert_eq!(expired_budget(TIMEOUT, TIMEOUT, TIMEOUT), Some("virtual"));
-        assert_eq!(
-            expired_budget(before, WALL_BACKSTOP, TIMEOUT),
-            Some("wall-clock")
-        );
-        assert_eq!(
-            expired_budget(TIMEOUT, WALL_BACKSTOP, LONG_TIMEOUT),
-            Some("wall-clock")
-        );
-        assert_eq!(
-            expired_budget(LONG_TIMEOUT, TIMEOUT, LONG_TIMEOUT),
-            Some("virtual")
-        );
-    }
+#[derive(SystemParam)]
+pub(super) struct SmokeCommands<'w, 's> {
+    pub(super) ecs: Commands<'w, 's>,
+    screenshots: Res<'w, SmokeScreenshots>,
 }
 
-pub(crate) fn capture(commands: &mut Commands, name: &str) -> Entity {
+/// Return a capture handle that is already resolved when screenshots are disabled.
+fn capture(commands: &mut SmokeCommands, name: &str) -> Entity {
+    if !commands.screenshots.0 {
+        // Capture gates query for Screenshot on this entity, so an unspawned handle is ready.
+        return Entity::PLACEHOLDER;
+    }
     commands
+        .ecs
         .spawn(Screenshot::primary_window())
         .observe(save_to_disk(format!("/tmp/plutonian-{name}.png")))
         .id()
@@ -459,7 +453,7 @@ fn drive(
     captures: Query<(), With<Screenshot>>,
     orbit: ResMut<Orbit>,
     mut keys: ResMut<ButtonInput<KeyCode>>,
-    commands: Commands,
+    commands: SmokeCommands,
     exit: MessageWriter<AppExit>,
 ) {
     let Some(items) = items else {
@@ -550,7 +544,7 @@ fn check_pause_and_movement(
     captures: Query<(), With<Screenshot>>,
     mut orbit: ResMut<Orbit>,
     mut keys: ResMut<ButtonInput<KeyCode>>,
-    mut commands: Commands,
+    mut commands: SmokeCommands,
     transform: Mut<Transform>,
     controller: &Player,
 ) {
@@ -643,7 +637,7 @@ fn check_journal(
     tabs: Query<(Entity, &MenuTab)>,
     texts: Query<&Text>,
     mut keys: ResMut<ButtonInput<KeyCode>>,
-    mut commands: Commands,
+    mut commands: SmokeCommands,
     transform: Mut<Transform>,
 ) {
     match *step {
@@ -653,10 +647,10 @@ fn check_journal(
                 "Tab must reopen Equipment after the gear checks"
             );
             let (window, camera) = inventory_smoke.context.expect("smoke UI context");
-            click(&mut commands, MenuTab::Character, &tabs, window, camera);
+            click(&mut commands.ecs, MenuTab::Character, &tabs, window, camera);
             let batteries = inventory.count(ItemKind::Battery);
             assert!(batteries > 0);
-            commands.trigger(DropRequest {
+            commands.ecs.trigger(DropRequest {
                 item: ItemKind::Battery,
                 quantity: 1,
             });
@@ -687,7 +681,7 @@ fn check_journal(
         ArenaStep::SelectQuestTab => {
             assert!(menu.is_on(MenuTab::Character));
             let (window, camera) = inventory_smoke.context.expect("smoke UI context");
-            click(&mut commands, MenuTab::Quest, &tabs, window, camera);
+            click(&mut commands.ecs, MenuTab::Quest, &tabs, window, camera);
             *step = ArenaStep::OpenJournal(transform.translation);
         }
         ArenaStep::OpenJournal(position) => {
@@ -701,7 +695,9 @@ fn check_journal(
                 .find(|(_, row)| row.id == LAST_LIGHT && row.status == QuestStatus::Active)
                 .expect("The Last Light must have an active journal row");
             let (window, camera) = inventory_smoke.context.expect("smoke UI context");
-            commands.trigger(inventory::pointer_click(row, window, camera));
+            commands
+                .ecs
+                .trigger(inventory::pointer_click(row, window, camera));
             *step = ArenaStep::SelectJournal(position);
         }
         ArenaStep::SelectJournal(position) => {
@@ -742,7 +738,7 @@ fn check_beacon_quest(
     captures: Query<(), With<Screenshot>>,
     mut orbit: ResMut<Orbit>,
     mut keys: ResMut<ButtonInput<KeyCode>>,
-    mut commands: Commands,
+    mut commands: SmokeCommands,
     mut transform: Mut<Transform>,
     controller: &Player,
     click_action: impl Fn(&mut Commands, InventoryAction),
@@ -803,7 +799,7 @@ fn check_beacon_quest(
         }
         ArenaStep::SelectCore if menu.is_on(MenuTab::Inventory) => {
             click_action(
-                &mut commands,
+                &mut commands.ecs,
                 InventoryAction::Select(InventoryRow::Stack(ItemKind::BeaconCore)),
             );
             *step = ArenaStep::CheckCore;
@@ -818,7 +814,7 @@ fn check_beacon_quest(
             *step = ArenaStep::TryCoreDrop(capture(&mut commands, "quest-inventory"));
         }
         ArenaStep::TryCoreDrop(capture) if captures.get(capture).is_err() => {
-            click_action(&mut commands, InventoryAction::Drop);
+            click_action(&mut commands.ecs, InventoryAction::Drop);
             *step = ArenaStep::CloseCore;
         }
         ArenaStep::CloseCore => {
@@ -858,7 +854,7 @@ fn check_carrying_limits(
     menu: Res<PlayerMenu>,
     mut orbit: ResMut<Orbit>,
     mut keys: ResMut<ButtonInput<KeyCode>>,
-    mut commands: Commands,
+    mut commands: SmokeCommands,
     mut exit: MessageWriter<AppExit>,
     transform: Mut<Transform>,
     controller: &Player,
@@ -943,7 +939,7 @@ fn check_carrying_limits(
             }
         }
         ArenaStep::DropBoulder(remaining) if menu.is_on(MenuTab::Inventory) => {
-            commands.trigger(DropRequest {
+            commands.ecs.trigger(DropRequest {
                 item: ItemKind::LargeBoulder,
                 quantity: 1,
             });
@@ -1051,4 +1047,41 @@ fn check_pillar_collision(
         "PILLAR COLLISION PASS: {} pillars block the character capsule from four directions",
         pillars.len()
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bevy::ecs::system::RunSystemOnce;
+
+    #[test]
+    fn watchdog_uses_virtual_budget_and_wall_backstop() {
+        let before = TIMEOUT - Duration::from_nanos(1);
+        assert_eq!(expired_budget(before, TIMEOUT, TIMEOUT), None);
+        assert_eq!(expired_budget(TIMEOUT, TIMEOUT, TIMEOUT), Some("virtual"));
+        assert_eq!(
+            expired_budget(before, WALL_BACKSTOP, TIMEOUT),
+            Some("wall-clock")
+        );
+        assert_eq!(
+            expired_budget(TIMEOUT, WALL_BACKSTOP, LONG_TIMEOUT),
+            Some("wall-clock")
+        );
+        assert_eq!(
+            expired_budget(LONG_TIMEOUT, TIMEOUT, LONG_TIMEOUT),
+            Some("virtual")
+        );
+    }
+
+    #[test]
+    fn disabled_capture_returns_a_resolved_handle_without_spawning() {
+        let mut world = World::new();
+        world.insert_resource(SmokeScreenshots(false));
+        let handle = world
+            .run_system_once(|mut commands: SmokeCommands| capture(&mut commands, "disabled"))
+            .expect("the world supplies the smoke screenshot settings");
+
+        assert!(world.get_entity(handle).is_err());
+        assert_eq!(world.query::<&Screenshot>().iter(&world).count(), 0);
+    }
 }

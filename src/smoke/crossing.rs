@@ -1,6 +1,6 @@
 //! Drive the crossing against the shipped assets and regular combat and dialogue systems.
 use super::{
-    SmokeRun, capture,
+    SmokeCommands, SmokeRun, capture,
     inventory::{pointer_click, walk},
 };
 use crate::{
@@ -79,7 +79,7 @@ pub(super) fn check_death_screen(
     captures: Query<(), With<Screenshot>>,
     window: Single<Entity, With<Window>>,
     camera: Single<Entity, With<FollowCamera>>,
-    mut commands: Commands,
+    mut commands: SmokeCommands,
 ) {
     let defeated = match *phase {
         Check::ReloadHomes(defeated) | Check::Restored(defeated) => defeated,
@@ -107,7 +107,9 @@ pub(super) fn check_death_screen(
             *check = DeathScreenCheck::WaitForCapture(capture(&mut commands, "crossing-game-over"));
         }
         DeathScreenCheck::WaitForCapture(screenshot) if !captures.contains(screenshot) => {
-            commands.trigger(pointer_click(button, *window, *camera));
+            commands
+                .ecs
+                .trigger(pointer_click(button, *window, *camera));
             *check = DeathScreenCheck::WatchCollapse;
         }
         _ => {}
@@ -232,7 +234,7 @@ pub(super) fn drive(
     fixtures: Fixtures,
     mut hits: MessageWriter<Hit>,
     mut saves: MessageWriter<SaveAtBed>,
-    mut commands: Commands,
+    mut commands: SmokeCommands,
     mut exit: MessageWriter<AppExit>,
 ) {
     let Ok((entity, mut controller, mut dodge, mut pose, capsule)) = player.single_mut() else {
@@ -376,7 +378,7 @@ fn check_homecoming(
     orbit: &mut Orbit,
     hits: &mut MessageWriter<Hit>,
     saves: &mut MessageWriter<SaveAtBed>,
-    commands: &mut Commands,
+    commands: &mut SmokeCommands,
 ) {
     match *check {
         Check::Parked if journal.has_occurred(QuestAction::CaravanArrived) => {
@@ -510,7 +512,7 @@ fn resident(fixtures: &Fixtures, id: NpcId) -> (Vec2, NpcGait, bool, bool) {
     (pose.translation().xz(), *gait, homebound, speaker)
 }
 
-fn observe_arrival(fixtures: &Fixtures, watch: &mut ArrivalWatch, commands: &mut Commands) {
+fn observe_arrival(fixtures: &Fixtures, watch: &mut ArrivalWatch, commands: &mut SmokeCommands) {
     let mut moving = 0;
     let mut waiting = 0;
     for (i, (id, _)) in VILLAGE_HOMES.into_iter().enumerate() {
@@ -624,7 +626,7 @@ fn walk_flats(
     position: Vec3,
     keys: &mut ButtonInput<KeyCode>,
     orbit: &mut Orbit,
-    commands: &mut Commands,
+    commands: &mut SmokeCommands,
 ) -> Option<Check> {
     let goal = Vec2::from(FLATS_ROUTE[index]);
     if position.xz().distance(goal) < 0.55 {
@@ -650,7 +652,7 @@ fn capture_lookout(
     dodge: &mut Dodge,
     pose: &mut Transform,
     orbit: &mut Orbit,
-    commands: &mut Commands,
+    commands: &mut SmokeCommands,
 ) {
     match *check {
         Check::FlatsPhoto(photo) if fixtures.captures.get(photo).is_err() => {
@@ -729,7 +731,7 @@ fn prepare_arrival(
     journal: &mut QuestJournal,
     orbit: &mut Orbit,
     hits: &mut MessageWriter<Hit>,
-    commands: &mut Commands,
+    commands: &mut SmokeCommands,
 ) {
     match *check {
         Check::EarlyKill if controller.grounded => {

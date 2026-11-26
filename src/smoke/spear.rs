@@ -1,4 +1,5 @@
 //! Play the spear and trident tutorials before the equipment and quest checks.
+use super::SmokeCommands;
 use bevy::{input::InputSystems, prelude::*, render::view::screenshot::Screenshot};
 
 use super::inventory::{InventorySmoke, click, pointer_click, walk};
@@ -109,7 +110,7 @@ pub(super) fn drive(
         ResMut<ButtonInput<MouseButton>>,
         ResMut<Orbit>,
     ),
-    commands: Commands,
+    commands: SmokeCommands,
 ) {
     if !materials.done || smoke.done() {
         return;
@@ -119,7 +120,7 @@ pub(super) fn drive(
     } else {
         (ItemKind::FieldSpear, "spear")
     };
-    let capture = |commands: &mut Commands, stage: &str| {
+    let capture = |commands: &mut SmokeCommands, stage: &str| {
         super::capture(commands, &format!("{screenshot_name}-{stage}"))
     };
     let now = time.elapsed_secs();
@@ -234,9 +235,9 @@ fn check_spear_equipment(
     tabs: Query<(Entity, &MenuTab)>,
     mut keys: ResMut<ButtonInput<KeyCode>>,
     mut orbit: ResMut<Orbit>,
-    mut commands: Commands,
+    mut commands: SmokeCommands,
     weapon: ItemKind,
-    capture: impl Fn(&mut Commands, &str) -> Entity,
+    capture: impl Fn(&mut SmokeCommands, &str) -> Entity,
     transform: &Transform,
     stance: &WeaponStance,
     window: Entity,
@@ -280,11 +281,11 @@ fn check_spear_equipment(
             }
         }
         SpearSmoke::Select if menu.is_on(MenuTab::Inventory) => {
-            click(&mut commands, MenuTab::Equipment, &tabs, window, camera);
+            click(&mut commands.ecs, MenuTab::Equipment, &tabs, window, camera);
         }
         SpearSmoke::Select if menu.is_on(MenuTab::Equipment) => {
             click(
-                &mut commands,
+                &mut commands.ecs,
                 InventoryAction::ToggleSlot(EquipmentSlot::MainHand),
                 &actions,
                 window,
@@ -294,7 +295,7 @@ fn check_spear_equipment(
         }
         SpearSmoke::Equip => {
             click(
-                &mut commands,
+                &mut commands.ecs,
                 InventoryAction::EquipFromSlot(EquipmentSlot::MainHand, weapon),
                 &actions,
                 window,
@@ -363,8 +364,8 @@ fn check_spear_combat(
     mut keys: ResMut<ButtonInput<KeyCode>>,
     mut buttons: ResMut<ButtonInput<MouseButton>>,
     mut orbit: ResMut<Orbit>,
-    mut commands: Commands,
-    capture: impl Fn(&mut Commands, &str) -> Entity,
+    mut commands: SmokeCommands,
+    capture: impl Fn(&mut SmokeCommands, &str) -> Entity,
     now: f32,
     transform: &Transform,
     controller: &Player,
@@ -494,18 +495,18 @@ fn check_spear_drop(
     tabs: Query<(Entity, &MenuTab)>,
     mut keys: ResMut<ButtonInput<KeyCode>>,
     mut orbit: ResMut<Orbit>,
-    mut commands: Commands,
+    mut commands: SmokeCommands,
     weapon: ItemKind,
     window: Entity,
     camera: Entity,
 ) {
     match *smoke {
         SpearSmoke::Unequip if menu.is_on(MenuTab::Inventory) => {
-            click(&mut commands, MenuTab::Equipment, &tabs, window, camera);
+            click(&mut commands.ecs, MenuTab::Equipment, &tabs, window, camera);
         }
         SpearSmoke::Unequip if menu.is_on(MenuTab::Equipment) => {
             click(
-                &mut commands,
+                &mut commands.ecs,
                 InventoryAction::ToggleSlot(EquipmentSlot::MainHand),
                 &actions,
                 window,
@@ -514,7 +515,7 @@ fn check_spear_drop(
             *smoke = SpearSmoke::SwitchToDrop;
         }
         SpearSmoke::SwitchToDrop => {
-            click(&mut commands, MenuTab::Inventory, &tabs, window, camera);
+            click(&mut commands.ecs, MenuTab::Inventory, &tabs, window, camera);
             *smoke = SpearSmoke::SelectDrop;
         }
         SpearSmoke::SelectDrop if menu.is_on(MenuTab::Inventory) => {
@@ -522,12 +523,12 @@ fn check_spear_drop(
             let (row, _) = actions.iter().find(|(_, action)| {
                 matches!(action, InventoryAction::Select(InventoryRow::BagGear(item, _)) if *item == weapon)
             }).expect("unequipped spear has a bag row");
-            commands.trigger(pointer_click(row, window, camera));
+            commands.ecs.trigger(pointer_click(row, window, camera));
             *smoke = SpearSmoke::Drop;
         }
         SpearSmoke::Drop => {
             click(
-                &mut commands,
+                &mut commands.ecs,
                 InventoryAction::Drop,
                 &actions,
                 window,
@@ -537,7 +538,7 @@ fn check_spear_drop(
         }
         SpearSmoke::ConfirmDrop => {
             click(
-                &mut commands,
+                &mut commands.ecs,
                 InventoryAction::ConfirmDrop,
                 &actions,
                 window,

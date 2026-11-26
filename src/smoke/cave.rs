@@ -1,6 +1,6 @@
 //! Check the shipped basin terrain and the walk-in cave with the normal controller.
 use super::{
-    SmokeRun, capture,
+    SmokeCommands, SmokeRun, capture,
     inventory::{click, walk},
 };
 use crate::{
@@ -263,7 +263,7 @@ pub(super) fn drive(
         Res<Nearby>,
         Query<(Entity, &LootAction)>,
     ),
-    mut commands: Commands,
+    mut commands: SmokeCommands,
     mut exit: MessageWriter<AppExit>,
 ) {
     let (mut keys, mut orbit) = control;
@@ -355,7 +355,7 @@ pub(super) fn drive(
         CaveCheck::TakeLoot if *state.get() == GameState::Looting => {
             assert_eq!(inventory.count(ItemKind::Mycelium), 0);
             click(
-                &mut commands,
+                &mut commands.ecs,
                 LootAction::Take,
                 &actions,
                 window.single().expect("cave smoke window"),
