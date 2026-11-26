@@ -141,6 +141,12 @@ impl Plugin for SmokePlugin {
                 );
         } else if self.crossing {
             app.init_resource::<crossing::Check>()
+                .add_systems(
+                    PreUpdate,
+                    crossing::check_death_screen
+                        .after(InputSystems)
+                        .run_if(in_state(GameState::GameOver)),
+                )
                 .add_systems(Update, crossing::log_progress)
                 .add_systems(
                     OnEnter(GameState::Playing),
