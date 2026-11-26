@@ -28,6 +28,14 @@ the spike's Ubuntu 24.04 dependency set, Vulkan llvmpipe probe,
 incremental compilation. Smoke scenarios use fixed 20 ms virtual-time steps.
 See the [repository guidelines](../../AGENTS.md) for development and verification standards.
 
+Write new scenario logic checks headless-first in the crate's test modules.
+Use `src/headless.rs` to boot the needed game plugins without a window or renderer,
+and advance the app with its fixed 20 ms step and bounded condition helper.
+The harness loads shipped GLB world assets and builds Avian colliders on the CPU.
+It omits audio playback and does not exercise rendering or real window input.
+Reserve desktop and CI smoke scenarios for checks that need pixels,
+such as rendered geometry, real picking, and window or focus behavior.
+
 Run the asset checker from the repository root.
 It validates model references, Blender source coverage, embedded resources, collision companions,
 pickup dimensions, and the animated rigs without starting the game.
