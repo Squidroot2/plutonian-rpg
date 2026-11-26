@@ -1,13 +1,10 @@
 use crate::{
     GameState,
     camera::Orbit,
-    content::{Enemies, Placements},
     dialogue::{Dialogue, DialogueCatalog, DialogueRegistry, NoticeId},
-    enemy,
-    loading::{EnemyVisuals, GameAssets, LoadStatus, spawn_static_scenes},
+    loading::{GameAssets, LoadStatus, spawn_static_scenes},
     player::{Dodge, MovementInput, PLAYER_GROUND_OFFSET, Player},
     quest::{QuestAction, QuestJournal},
-    save::EncounterId,
     weapon::WeaponAttack,
     world::{SessionEntity, SpawnWorld},
 };
@@ -16,6 +13,7 @@ use bevy::{gltf::Gltf, prelude::*};
 
 pub(crate) const HATCH: Vec3 = Vec3::new(-3.0, 0.0, 1.0);
 pub(crate) const ORIGIN: Vec3 = Vec3::new(0.0, -10.0, -8.0);
+#[cfg(feature = "smoke")]
 pub(crate) const ARCHIVE_HUSHCAP_HOME: Vec3 = Vec3::new(ORIGIN.x + 3.2, ORIGIN.y, ORIGIN.z - 26.0);
 pub(crate) const GATE_LOCAL: Vec3 = Vec3::new(0.0, 1.85, -17.4);
 pub(crate) const SWITCH_LOCAL: Vec3 = Vec3::new(9.9, 0.0, -10.75);
@@ -170,9 +168,6 @@ fn spawn_relay(
     _: On<SpawnWorld>,
     assets: Res<GameAssets>,
     models: Res<Assets<Gltf>>,
-    visuals: Res<EnemyVisuals>,
-    enemies: Res<Enemies>,
-    placements: Res<Placements>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut commands: Commands,
@@ -194,7 +189,6 @@ fn spawn_relay(
     );
     spawn_relay_fixtures(&mut commands, &mut meshes, &mut materials);
     spawn_relay_lights(&mut commands);
-    spawn_relay_encounters(&mut commands, &visuals, &enemies, &placements);
 }
 
 fn spawn_relay_fixtures(
@@ -321,31 +315,6 @@ fn spawn_relay_lights(commands: &mut Commands) {
             },
             Transform::from_translation(ORIGIN + offset),
         ));
-    }
-}
-
-fn spawn_relay_encounters(
-    commands: &mut Commands,
-    visuals: &EnemyVisuals,
-    enemies: &Enemies,
-    placements: &Placements,
-) {
-    for (id, home) in [
-        (EncounterId::RelayRoach, ORIGIN + Vec3::new(7.0, 1.2, -12.5)),
-        (
-            EncounterId::RelayJunctionWorm,
-            ORIGIN + Vec3::new(-3.5, 1.2, -10.5),
-        ),
-        (EncounterId::RelayArchiveHushcap, ARCHIVE_HUSHCAP_HOME),
-    ] {
-        enemy::spawn_variant(
-            commands,
-            visuals,
-            placements.enemy(enemies, id),
-            Transform::from_translation(home),
-            Area::OldRelay,
-            id,
-        );
     }
 }
 

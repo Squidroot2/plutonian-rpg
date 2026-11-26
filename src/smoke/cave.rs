@@ -6,7 +6,7 @@ use super::{
 use crate::{
     GameState,
     camera::{FollowCamera, Orbit},
-    cave::{CHAMBER_FLOOR_Y, CaveEncounter, encounter_homes, surface_location},
+    cave::{CHAMBER_FLOOR_Y, surface_location},
     combat::{ConfirmedHit, Dead, Hit},
     enemy::{Enemy, ranged::SpitProjectile},
     experience::Experience,
@@ -40,7 +40,8 @@ const OUTBOUND: [(f32, f32); 14] = [
     (13.0, 99.2),
 ];
 const REVEAL: usize = 9;
-const FIRST_HUSHCAP: EncounterId = EncounterId::Cave(CaveEncounter::FirstWestHushcap);
+const FIRST_HUSHCAP: EncounterId =
+    EncounterId::Added(crate::content::ContentId::new("cave_first_west_hushcap"));
 const LOOT_APPROACH: Vec3 = Vec3::new(9.6, 0.0, 102.8);
 
 #[derive(Resource, Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -64,17 +65,23 @@ pub(super) fn check_geometry(
     encounters: Query<(&EncounterId, &Transform, &Collider)>,
     names: Query<&Name>,
     parents: Query<&ChildOf>,
+    placements: Res<crate::content::Placements>,
 ) {
     let filter = SpatialQueryFilter::from_excluded_entities(actors.iter());
     let capsule = player
         .single()
         .expect("the cave smoke player has a capsule");
     check_entrance_views(&spatial, &filter);
-    check_cover(&spatial, &filter, &names, &parents);
-    for (id, home, _) in encounter_homes() {
+    check_cover(&spatial, &filter, &names, &parents, &placements);
+    for entry in placements
+        .encounters()
+        .filter(|entry| entry.id.as_str().starts_with("cave_"))
+    {
+        let id = entry.id;
+        let home = Vec3::from_array(entry.position);
         let (_, pose, body) = encounters
             .iter()
-            .find(|(encounter, ..)| **encounter == EncounterId::Cave(id))
+            .find(|(encounter, ..)| **encounter == EncounterId::Added(id))
             .expect("each authored cave encounter has a body");
         assert!(
             pose.translation.distance(home) < 0.08,
@@ -186,10 +193,13 @@ fn check_cover(
     filter: &SpatialQueryFilter,
     names: &Query<&Name>,
     parents: &Query<&ChildOf>,
+    placements: &crate::content::Placements,
 ) {
-    let (_, home, _) = encounter_homes()
-        .find(|(id, _, _)| EncounterId::Cave(*id) == FIRST_HUSHCAP)
+    let entry = placements
+        .encounters()
+        .find(|entry| EncounterId::Added(entry.id) == FIRST_HUSHCAP)
         .expect("the first Hushcap has an authored home");
+    let home = Vec3::from_array(entry.position);
     let origin = home + Vec3::Y * super::SHIPPED_HUSHCAP_MUZZLE_HEIGHT_M;
     let delta = Vec3::new(15.3, -4.6, 102.5) - origin;
     let cover = spatial

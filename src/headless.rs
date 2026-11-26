@@ -221,7 +221,10 @@ fn prepare_saved_state(app: &mut App) {
         .record(QuestAction::ReportedArchiveHushcap);
     world.resource_mut::<QuestJournal>().take_completion_xp();
     world.actor_data_mut::<Player>().area = Area::Surface;
-    for id in [EncounterId::RelayRoach, EncounterId::RelayArchiveHushcap] {
+    for id in [
+        EncounterId::Added(crate::content::ContentId::new("relay_roach")),
+        EncounterId::Added(crate::content::ContentId::new("relay_archive_hushcap")),
+    ] {
         let entity = encounter(world, id);
         world
             .get_mut::<Health>(entity)
@@ -327,7 +330,10 @@ fn assert_restored_state(world: &mut World, old_player: Entity) {
     assert!(quest.has_occurred(QuestAction::ReportedArchiveHushcap));
     assert!(!quest.has_occurred(QuestAction::AttackedNemi));
     assert!(world.resource::<DungeonProgress>().gate_open());
-    for id in [EncounterId::RelayRoach, EncounterId::RelayArchiveHushcap] {
+    for id in [
+        EncounterId::Added(crate::content::ContentId::new("relay_roach")),
+        EncounterId::Added(crate::content::ContentId::new("relay_archive_hushcap")),
+    ] {
         let entity = encounter(world, id);
         assert_eq!(
             world

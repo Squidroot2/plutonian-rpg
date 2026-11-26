@@ -34,7 +34,6 @@ const PLACED_CONTENT: &str = r#"
         (chest: Supply, stacks: []),
         (chest: Gear, stacks: [(item: "relay_pike", quantity: 1)]),
     ],
-    encounter_assignments: [(encounter: "relay_roach", enemy: "basin_roach")],
     pickups: [(id: "relay_pike_cache", area: Surface, position: (5.5, 2.0, 3.0),
         stack: (item: "relay_pike", quantity: 1))],
     encounters: [(id: "basin_roach_site", enemy: "basin_roach", area: Surface,
@@ -118,16 +117,6 @@ fn malformed_catalogs_identify_the_invalid_entry_or_reference() {
         .validate(&items, &enemies)
         .expect_err("missing items are invalid");
     assert!(error.contains(Placements::PATH) && error.contains("missing_pike"));
-
-    let file = PLACED_CONTENT.replace(
-        "encounter: \"relay_roach\"",
-        "encounter: \"relay_archive_hushcap\"",
-    );
-    let invalid: Placements = ron::from_str(&file).expect("incompatible assignment still parses");
-    let error = invalid
-        .validate(&items, &enemies)
-        .expect_err("quest encounter must keep its archetype");
-    assert!(error.contains("relay_archive_hushcap") && error.contains("Hushcap"));
 }
 
 #[test]

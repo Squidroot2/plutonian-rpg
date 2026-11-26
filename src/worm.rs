@@ -2,12 +2,10 @@ use crate::{
     GameState,
     combat::Dead,
     combat_feedback::DeathAnimation,
-    content::{Enemies, EnemyDefinition, Placements},
+    content::EnemyDefinition,
     dungeon::Area,
     enemy::{self, EnemyAnimations, EnemyClip, EnemyModel},
     loading::EnemyVisuals,
-    save::EncounterId,
-    world::{SpawnWorld, WorldLayout},
 };
 use avian3d::prelude::Collider;
 use bevy::{
@@ -29,13 +27,6 @@ pub(crate) const GROUND_OFFSET: f32 = 0.56;
 // Material names from the ice worm model.
 pub(crate) const MOUTH_MATERIAL: &str = "Warm throat";
 const CAVITY_MATERIAL: &str = "Mouth cavity";
-const HOMES: [(EncounterId, Vec3); 3] = [
-    // Keep the trail between the paired waystones clear; these worms shelter
-    // out toward the ice escarpments instead of occupying the marked route.
-    (EncounterId::NearTrailWorm, Vec3::new(14.0, 2.0, -27.0)),
-    (EncounterId::FarTrailWorm, Vec3::new(-14.0, 2.0, -71.0)),
-    (EncounterId::CavernWorm, Vec3::new(3.4, 2.0, -110.0)),
-];
 #[derive(Component)]
 pub(crate) struct Worm;
 
@@ -68,15 +59,13 @@ pub(crate) struct WormPlugin;
 
 impl Plugin for WormPlugin {
     fn build(&self, app: &mut App) {
-        app.add_observer(spawn_encounters)
-            .add_observer(bind_mouth)
-            .add_systems(
-                PostUpdate,
-                fade_mouths
-                    .after(AnimationSystems)
-                    .before(AssetEventSystems)
-                    .run_if(in_state(GameState::Playing)),
-            );
+        app.add_observer(bind_mouth).add_systems(
+            PostUpdate,
+            fade_mouths
+                .after(AnimationSystems)
+                .before(AssetEventSystems)
+                .run_if(in_state(GameState::Playing)),
+        );
     }
 }
 
@@ -178,28 +167,6 @@ fn fade_mouths(
         }
         if progress == 1.0 {
             commands.entity(worm).remove::<WormMouth>();
-        }
-    }
-}
-
-fn spawn_encounters(
-    _: On<SpawnWorld>,
-    mut commands: Commands,
-    layout: Res<WorldLayout>,
-    placements: Res<Placements>,
-    enemies: Res<Enemies>,
-    visuals: Res<EnemyVisuals>,
-) {
-    if *layout == WorldLayout::Outpost {
-        for (id, home) in HOMES {
-            let worm = spawn(
-                &mut commands,
-                &visuals,
-                placements.enemy(&enemies, id),
-                Transform::from_translation(home),
-                Area::Surface,
-            );
-            commands.entity(worm).insert(id);
         }
     }
 }

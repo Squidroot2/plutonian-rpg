@@ -140,7 +140,7 @@ pub(super) fn encode(snapshot: &Snapshot) -> Vec<u8> {
         .cavern_defeats
         .iter()
         .copied()
-        .map(|id| string_encounter(EncounterId::Cave(id)))
+        .map(|id| id.as_str().to_owned())
         .collect();
     bitcode::encode(&(wire, defeats, pickups))
 }
@@ -159,12 +159,7 @@ pub(super) fn into_snapshot(
     let mut journal = wire.journal;
     let defeats = defeats
         .iter()
-        .map(|id| match parse_encounter(id)? {
-            EncounterId::Cave(id) => Ok(id),
-            _ => Err(invalid_save(format!(
-                "Invalid credited cavern encounter {id}"
-            ))),
-        })
+        .map(|id| ContentId::parse(id).map_err(invalid_save))
         .collect::<io::Result<_>>()?;
     set_cavern_defeats(&mut journal, defeats)?;
     Ok(Snapshot {

@@ -1,17 +1,12 @@
 use crate::{
     GameState,
     combat::{ActorDefeated, CombatSystems},
-    content::{Enemies, EnemyArchetype, Placements},
-    dungeon::Area,
-    enemy,
     experience::ExperienceUpdates,
     hushcap,
-    loading::{EnemyVisuals, GameAssets, LoadStatus, spawn_static_scenes},
+    loading::{GameAssets, LoadStatus, spawn_static_scenes},
     quest::QuestJournal,
-    roach,
     save::EncounterId,
     world::{SessionEntity, SpawnWorld},
-    worm,
 };
 use avian3d::prelude::ColliderConstructorHierarchyReady;
 use bevy::{gltf::Gltf, prelude::*};
@@ -23,90 +18,8 @@ const BASIN_HALF_WIDTH: f32 = 31.0;
 const CAVE_HIGH_VAULT_Y: f32 = 8.0;
 const CAVE_LIGHT_LUMENS: f32 = 40_000.0;
 // All three chambers share the same floor elevation in the Blender terrain.
+#[cfg(feature = "smoke")]
 pub(crate) const CHAMBER_FLOOR_Y: f32 = -5.5;
-
-#[derive(
-    Clone,
-    Copy,
-    Debug,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    bitcode::Encode,
-    bitcode::Decode,
-    strum::IntoStaticStr,
-)]
-pub(crate) enum CaveEncounter {
-    #[strum(serialize = "cave_first_west_hushcap")]
-    FirstWestHushcap,
-    #[strum(serialize = "cave_first_east_hushcap")]
-    FirstEastHushcap,
-    #[strum(serialize = "cave_first_worm")]
-    FirstWorm,
-    #[strum(serialize = "cave_split_west_hushcap")]
-    SplitWestHushcap,
-    #[strum(serialize = "cave_split_east_hushcap")]
-    SplitEastHushcap,
-    #[strum(serialize = "cave_split_far_hushcap")]
-    SplitFarHushcap,
-    #[strum(serialize = "cave_split_worm")]
-    SplitWorm,
-    #[strum(serialize = "cave_split_roach")]
-    SplitRoach,
-    #[strum(serialize = "cave_gallery_west_hushcap")]
-    GalleryWestHushcap,
-    #[strum(serialize = "cave_gallery_east_hushcap")]
-    GalleryEastHushcap,
-    #[strum(serialize = "cave_gallery_far_hushcap")]
-    GalleryFarHushcap,
-    #[strum(serialize = "cave_gallery_roach")]
-    GalleryRoach,
-}
-
-impl EnemyArchetype {
-    fn ground_offset(self) -> f32 {
-        match self {
-            Self::Hushcap => 0.0,
-            Self::Worm => worm::GROUND_OFFSET,
-            Self::Roach => roach::GROUND_OFFSET,
-            Self::Guard => crate::player::PLAYER_GROUND_OFFSET,
-        }
-    }
-}
-
-use CaveEncounter::*;
-use EnemyArchetype::{Hushcap, Roach, Worm};
-
-const ENCOUNTERS: [(CaveEncounter, EnemyArchetype, f32, f32); 12] = [
-    (FirstWestHushcap, Hushcap, 8.8, 104.3),
-    (FirstEastHushcap, Hushcap, 22.3, 109.6),
-    (FirstWorm, Worm, 12.8, 111.2),
-    (SplitWestHushcap, Hushcap, 3.5, 123.5),
-    (SplitEastHushcap, Hushcap, 19.8, 125.3),
-    (SplitFarHushcap, Hushcap, 10.7, 134.0),
-    (SplitWorm, Worm, 5.0, 131.6),
-    (SplitRoach, Roach, 19.5, 132.0),
-    (GalleryWestHushcap, Hushcap, 5.6, 146.4),
-    (GalleryEastHushcap, Hushcap, 21.3, 146.0),
-    (GalleryFarHushcap, Hushcap, 15.0, 156.5),
-    (GalleryRoach, Roach, 8.8, 153.0),
-];
-
-fn encounters() -> impl ExactSizeIterator<Item = (CaveEncounter, EnemyArchetype, Vec3)> {
-    ENCOUNTERS.into_iter().map(|(id, species, x, z)| {
-        (
-            id,
-            species,
-            Vec3::new(x, CHAMBER_FLOOR_Y + species.ground_offset(), z),
-        )
-    })
-}
-
-pub(crate) fn encounter_homes()
--> impl ExactSizeIterator<Item = (CaveEncounter, Vec3, EnemyArchetype)> {
-    encounters().map(|(id, species, home)| (id, home, species))
-}
 
 pub(crate) fn surface_location(position: Vec3) -> Option<&'static str> {
     if position.z >= MOUTH_Z
@@ -137,26 +50,13 @@ impl Plugin for CavePlugin {
     }
 }
 
-impl CaveEncounter {
-    pub(crate) fn archetype(self) -> EnemyArchetype {
-        ENCOUNTERS
-            .iter()
-            .find_map(|&(id, species, ..)| (id == self).then_some(species))
-            .expect("each cavern encounter has a shipped archetype")
-    }
-
-    pub(crate) fn is_hushcap(self) -> bool {
-        self.archetype() == Hushcap
-    }
-}
-
 fn record_cavern_defeats(
     mut defeats: MessageReader<ActorDefeated>,
     hushcaps: Query<&EncounterId, With<hushcap::Hushcap>>,
     mut journal: ResMut<QuestJournal>,
 ) {
     for ActorDefeated(entity) in defeats.read() {
-        if let Ok(EncounterId::Cave(id)) = hushcaps.get(*entity) {
+        if let Ok(EncounterId::Added(id)) = hushcaps.get(*entity) {
             journal.credit_cavern_defeat(*id);
         }
     }
@@ -166,9 +66,6 @@ fn spawn_basin(
     _: On<SpawnWorld>,
     assets: Res<GameAssets>,
     models: Res<Assets<Gltf>>,
-    visuals: Res<EnemyVisuals>,
-    placements: Res<Placements>,
-    enemies: Res<Enemies>,
     mut commands: Commands,
 ) {
     let Some(scenes) = &assets.south_basin else {
@@ -187,17 +84,6 @@ fn spawn_basin(
         },
     );
     spawn_lights(&mut commands);
-    for (id, _, home) in encounters() {
-        let id = EncounterId::Cave(id);
-        enemy::spawn_variant(
-            &mut commands,
-            &visuals,
-            placements.enemy(&enemies, id),
-            Transform::from_translation(home),
-            Area::Surface,
-            id,
-        );
-    }
 }
 
 fn spawn_lights(commands: &mut Commands) {
@@ -240,7 +126,11 @@ mod tests {
         world.init_resource::<Messages<ActorDefeated>>();
         world.insert_resource(test_relay_journal());
         let early = world
-            .spawn((EncounterId::Cave(GalleryFarHushcap), hushcap::Hushcap, Dead))
+            .spawn((
+                EncounterId::Added(crate::content::ContentId::new("cave_gallery_far_hushcap")),
+                hushcap::Hushcap,
+                Dead,
+            ))
             .id();
         world.write_message(ActorDefeated(early));
         world
@@ -253,17 +143,20 @@ mod tests {
             .record(QuestAction::ReportedArchiveHushcap);
 
         let archive = world
-            .spawn((EncounterId::RelayArchiveHushcap, hushcap::Hushcap))
+            .spawn((
+                EncounterId::Added(crate::content::ContentId::new("relay_archive_hushcap")),
+                hushcap::Hushcap,
+            ))
             .id();
         world.write_message(ActorDefeated(archive));
         for id in [
-            FirstWestHushcap,
-            FirstEastHushcap,
-            SplitWestHushcap,
-            SplitEastHushcap,
-            FirstWestHushcap,
+            crate::content::ContentId::new("cave_first_west_hushcap"),
+            crate::content::ContentId::new("cave_first_east_hushcap"),
+            crate::content::ContentId::new("cave_split_west_hushcap"),
+            crate::content::ContentId::new("cave_split_east_hushcap"),
+            crate::content::ContentId::new("cave_first_west_hushcap"),
         ] {
-            let entity = world.spawn((EncounterId::Cave(id), hushcap::Hushcap)).id();
+            let entity = world.spawn((EncounterId::Added(id), hushcap::Hushcap)).id();
             world.write_message(ActorDefeated(entity));
         }
         world
@@ -277,7 +170,10 @@ mod tests {
         );
 
         let fifth = world
-            .spawn((EncounterId::Cave(SplitFarHushcap), hushcap::Hushcap))
+            .spawn((
+                EncounterId::Added(crate::content::ContentId::new("cave_split_far_hushcap")),
+                hushcap::Hushcap,
+            ))
             .id();
         world.write_message(ActorDefeated(fifth));
         world

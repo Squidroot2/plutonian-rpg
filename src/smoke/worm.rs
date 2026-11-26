@@ -51,10 +51,7 @@ pub(super) fn check_outpost_sites(
     spatial: SpatialQuery,
 ) {
     let surface_worms = worms.iter().filter(|(_, _, _, id)| {
-        matches!(
-            id,
-            EncounterId::NearTrailWorm | EncounterId::FarTrailWorm | EncounterId::CavernWorm
-        )
+        ["near_trail_worm", "far_trail_worm", "cavern_worm"].contains(&id.key().as_str())
     });
     assert_eq!(
         surface_worms.clone().count(),
