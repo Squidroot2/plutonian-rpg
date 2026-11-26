@@ -10,7 +10,7 @@ use bevy::prelude::*;
 use strum::VariantArray;
 
 #[cfg(test)]
-use crate::player::Level;
+use crate::level::Level;
 
 pub(crate) const DEFAULT_RANK: u8 = 5;
 pub(crate) const MAX_RANK: u8 = 100;

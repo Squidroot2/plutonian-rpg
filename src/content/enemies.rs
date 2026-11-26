@@ -2,6 +2,7 @@ use super::{Catalog, ContentId, Items, positive};
 use crate::{
     enemy::{Bite, EnemyBody, GroundMelee, GroundMovement, ranged::Spit},
     inventory::Pickup,
+    level::{Level, MAX_LEVEL},
 };
 use bevy::prelude::*;
 use serde::Deserialize;
@@ -81,6 +82,8 @@ impl Enemies {
 #[serde(deny_unknown_fields)]
 pub(crate) struct EnemyDefinition {
     id: ContentId,
+    #[serde(deserialize_with = "Level::deserialize_number")]
+    level: Level,
     name: String,
     #[serde(default, deserialize_with = "present")]
     health: Option<u16>,
@@ -106,6 +109,11 @@ enum Behavior {
 }
 
 impl EnemyDefinition {
+    #[cfg(test)]
+    pub(super) fn level(&self) -> Level {
+        self.level
+    }
+
     pub(crate) fn archetype(&self) -> EnemyArchetype {
         match self.behavior {
             Behavior::Worm { .. } => EnemyArchetype::Worm,
@@ -159,6 +167,9 @@ impl EnemyDefinition {
     }
 
     fn validate(&self, items: &Items) -> Result<(), String> {
+        if !self.level.is_valid() {
+            return Err(format!("Enemy level must be in 1..={MAX_LEVEL}"));
+        }
         if self.name.trim().is_empty() || self.xp == 0 {
             return Err("Name and positive XP are required".into());
         }

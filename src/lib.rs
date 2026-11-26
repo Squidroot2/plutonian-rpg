@@ -24,6 +24,7 @@ mod guard;
 mod hushcap;
 mod interaction;
 mod inventory;
+mod level;
 mod loading;
 mod nemi;
 mod player;

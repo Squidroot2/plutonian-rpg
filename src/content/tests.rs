@@ -15,6 +15,7 @@ const RELAY_PIKE: &str = r#"
 const BASIN_ROACH: &str = r#"
     (
         id: "basin_roach",
+        level: 1,
         name: "Basin roach",
         health: 51,
         xp: 82,
@@ -127,4 +128,41 @@ fn malformed_catalogs_identify_the_invalid_entry_or_reference() {
         .validate(&items, &enemies)
         .expect_err("quest encounter must keep its archetype");
     assert!(error.contains("relay_archive_hushcap") && error.contains("Hushcap"));
+}
+
+#[test]
+fn shipped_enemy_levels_are_authored_and_out_of_range_levels_fail_validation() {
+    let items = variant_items();
+    let enemies = variant_enemies(&items);
+    for (id, level) in [
+        ("ice_worm", 1),
+        ("relay_roach", 1),
+        ("hushcap", 2),
+        ("outpost_guard", 3),
+    ] {
+        assert_eq!(
+            enemies
+                .get(ContentId::new(id))
+                .expect("shipped enemy exists")
+                .level()
+                .get(),
+            level
+        );
+    }
+
+    for level in [0, crate::level::MAX_LEVEL + 1] {
+        let file = include_str!("../../data/enemies/catalog.enemy.ron").replacen(
+            "level: 1",
+            &format!("level: {level}"),
+            1,
+        );
+        let invalid: Enemies =
+            ron::from_str(&file).expect("out-of-range level parses as raw value");
+        let error = invalid
+            .validate(&items)
+            .expect_err("out-of-range enemy level must fail boot validation");
+        assert!(
+            error.contains(Enemies::PATH) && error.contains("ice_worm") && error.contains("level")
+        );
+    }
 }
