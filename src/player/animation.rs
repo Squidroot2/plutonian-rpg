@@ -133,7 +133,7 @@ pub const CLIPS: [&str; ACTOR_DEATH_CLIP + 1] = [
     "SpearThrust",
     "SwordMainSlash",
     "SwordOffSlash",
-    "NemiDeath",
+    "PlutonianDeath",
 ];
 
 #[derive(Resource)]
