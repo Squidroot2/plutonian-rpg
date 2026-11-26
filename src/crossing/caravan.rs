@@ -23,6 +23,13 @@ use bevy::{
     world_serialization::WorldInstanceReady,
 };
 
+/// The two alternating leg groups use opposite gait phases.
+pub(crate) const VELLIK_LEGS: [[&str; 3]; 2] = [
+    ["Vellik Leg L0", "Vellik Leg R1", "Vellik Leg L2"],
+    ["Vellik Leg R0", "Vellik Leg L1", "Vellik Leg R2"],
+];
+pub(crate) const WAGON_WHEEL_PREFIX: &str = "Wagon Wheel ";
+
 const TOVAN: &str = NpcId::Tovan.key();
 const SHOW_MYCELIUM: &str = "show_mycelium";
 const SAMPLES_NEEDED: ReplyId = ReplyId("samples_needed");
@@ -567,11 +574,9 @@ fn bind_moving_parts(
         };
         let part = match name.as_str() {
             "Vellik Crown" => Mechanism::Crown,
-            "Vellik Leg L0" | "Vellik Leg R1" | "Vellik Leg L2" => Mechanism::Leg(0.0),
-            "Vellik Leg R0" | "Vellik Leg L1" | "Vellik Leg R2" => {
-                Mechanism::Leg(std::f32::consts::PI)
-            }
-            name if name.starts_with("Wagon Wheel ") => Mechanism::Wheel,
+            name if VELLIK_LEGS[0].contains(&name) => Mechanism::Leg(0.0),
+            name if VELLIK_LEGS[1].contains(&name) => Mechanism::Leg(std::f32::consts::PI),
+            name if name.starts_with(WAGON_WHEEL_PREFIX) => Mechanism::Wheel,
             _ => continue,
         };
         commands.entity(child).insert(MovingPart {

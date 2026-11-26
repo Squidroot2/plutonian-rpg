@@ -4,7 +4,7 @@ use crate::{
     combat_feedback::DeathAnimation,
     content::{Enemies, EnemyDefinition, Placements},
     dungeon::Area,
-    enemy::{self, EnemyAnimations, EnemyModel},
+    enemy::{self, EnemyAnimations, EnemyClip, EnemyModel},
     loading::EnemyVisuals,
     save::EncounterId,
     world::{SpawnWorld, WorldLayout},
@@ -17,9 +17,13 @@ use bevy::{
 
 pub(crate) const MODEL: EnemyModel = EnemyModel {
     path: "models/ice_worm.glb",
-    clips: ["WormIdle", "WormBite", "WormDeath"],
+    clips: [
+        EnemyClip::new("WormIdle", 2.0),
+        EnemyClip::new("WormBite", 1.4),
+        EnemyClip::new("WormDeath", 0.7),
+    ],
     visual_offset: Vec3::ZERO,
-    locomotion: Some("WormCrawl"),
+    locomotion: Some(EnemyClip::new("WormCrawl", 0.9)),
 };
 pub(crate) const GROUND_OFFSET: f32 = 0.56;
 // Material names from the ice worm model.

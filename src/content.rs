@@ -103,7 +103,7 @@ impl<'de> Deserialize<'de> for ContentId {
     }
 }
 
-trait Catalog: Asset + for<'de> Deserialize<'de> {
+pub(crate) trait Catalog: Asset + for<'de> Deserialize<'de> {
     const PATH: &'static str;
     const EXTENSION: &'static str;
 }

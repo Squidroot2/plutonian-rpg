@@ -7,8 +7,8 @@ rust-version = "1.100.0"
 license = "MIT"
 
 [workspace]
-members = [".", "crates/plutonian-save"]
-default-members = [".", "crates/plutonian-save"]
+members = [".", "crates/plutonian-save", "crates/plutonian-assets"]
+default-members = [".", "crates/plutonian-save", "crates/plutonian-assets"]
 resolver = "3"
 
 [features]

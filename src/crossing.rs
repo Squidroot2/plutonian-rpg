@@ -6,6 +6,7 @@ pub(crate) use caravan::Caravan;
 #[cfg(test)]
 pub(crate) use caravan::register_topics;
 pub(crate) use caravan::{STATION_NEEDS_SAMPLES, STATION_VERIFIED, SampleStation, verify_samples};
+pub(crate) use caravan::{VELLIK_LEGS, WAGON_WHEEL_PREFIX};
 
 use crate::{
     GameState,
@@ -20,6 +21,12 @@ use bevy::{gltf::Gltf, prelude::*};
 pub(crate) const WEST_RECOVERY_X: f32 = -135.0;
 pub(crate) const GATE_CENTER: Vec3 = Vec3::new(-30.0, 2.30, 27.2);
 pub(crate) const GATE_SIZE: Vec3 = Vec3::new(10.05, 8.7, 1.1);
+pub(crate) const FLATS_MODEL: &str = "models/listening_flats.glb";
+pub(crate) const GATE_MODEL: &str = "models/nivalis_gate.glb";
+pub(crate) const VELLIK_MODEL: &str = "models/vellik.glb";
+pub(crate) const WAGON_MODEL: &str = "models/crossing_wagon.glb";
+pub(crate) const GATE_ENTITY_NAME: &str = "Perimeter solid Gate leaf";
+
 const GATE_LIFT_M: f32 = 8.7;
 const GATE_TRAVEL_SECONDS: f32 = 3.0;
 
@@ -34,12 +41,12 @@ impl CrossingAssets {
     pub(crate) fn load(server: &AssetServer) -> Self {
         Self {
             terrain: (
-                server.load("models/listening_flats.glb"),
+                server.load(FLATS_MODEL),
                 server.load("models/listening_flats_collision.glb"),
             ),
-            gate: server.load("models/nivalis_gate.glb"),
-            vellik: server.load("models/vellik.glb"),
-            wagon: server.load("models/crossing_wagon.glb"),
+            gate: server.load(GATE_MODEL),
+            vellik: server.load(VELLIK_MODEL),
+            wagon: server.load(WAGON_MODEL),
         }
     }
 
@@ -141,7 +148,7 @@ fn spawn_crossing(
     commands
         .spawn((
             SessionEntity,
-            Name::new("Perimeter solid Gate leaf"),
+            Name::new(GATE_ENTITY_NAME),
             Transform::from_translation(GATE_CENTER.with_y(gate.height())),
             Visibility::default(),
             RigidBody::Kinematic,
