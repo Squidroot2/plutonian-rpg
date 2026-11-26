@@ -56,6 +56,8 @@ Species spawn through shared enemy helpers with health, hit reactions, loot, exp
 Worm and roach add ground pursuit; Hushcap adds ranged attack capabilities.
 This capability-based structure lets future enemy types reuse the lifecycle without requiring every enemy to move or attack alike.
 Scenes bind animation players when ready; each model supplies idle, attack, death, and optionally locomotion clips.
+The ice worm's jaws and inner mouth fade to the color of the mouth cavity as its death clip plays,
+giving the player a visible death cue for an enemy that already moves along the ground.
 
 Attacks emit `Hit` into the shared combat resolver, which applies damage and emits confirmed hits and defeat events.
 The player earns XP when they contributed damage to an enemy that is defeated, even if another source lands the final hit.
