@@ -43,7 +43,6 @@ fn app() -> App {
         GltfPlugin::default(),
         bevy::input::InputPlugin,
         bevy::animation::AnimationPlugin,
-        PhysicsPlugins::default(),
     ))
     .insert_resource(TimeUpdateStrategy::ManualDuration(STEP));
     app
@@ -55,49 +54,16 @@ fn game() -> App {
         .init_asset::<StandardMaterial>()
         .init_asset::<bevy::shader::Shader>()
         .add_plugins(bevy::state::app::StatesPlugin)
-        .insert_state(crate::GameState::Boot)
-        .add_plugins(crate::content::ContentPlugin)
-        .add_plugins((
-            crate::loading::LoadingPlugin,
-            crate::world::WorldPlugin,
-            crate::dungeon::DungeonPlugin,
-            crate::player::PlayerPlugin,
-            crate::camera::FollowCameraPlugin,
-            crate::quest::QuestPlugin,
-            crate::dialogue::DialoguePlugin,
-            crate::inventory::InventoryPlugin,
-            crate::equipment::EquipmentPlugin,
-            crate::practice_dummy::PracticeDummyPlugin,
-            crate::weapon::WeaponPlugin,
-            crate::worm::WormPlugin,
-            crate::interaction::InteractionPlugin,
-        ))
-        .add_plugins((
-            crate::ui::inventory_ui::InventoryUiPlugin,
-            crate::ui::title::TitlePlugin,
-            crate::ui::GameUiPlugin,
-            crate::ui::quest_ui::QuestUiPlugin,
-            crate::ui::menu_ui::PlayerMenuPlugin,
-            crate::storage::StoragePlugin,
-            crate::ui::storage_ui::StorageUiPlugin,
-            crate::save::SavePlugin {
-                smoke: true,
-                directory: None,
-            },
-        ))
-        .add_plugins((
-            crate::combat::CombatPlugin,
-            crate::combat_feedback::CombatFeedbackPlugin,
-            crate::ui::settings::SettingsPlugin,
-            crate::enemy::EnemyPlugin,
-            crate::attributes::AttributesPlugin,
-            crate::experience::ExperiencePlugin,
-            crate::nemi::NemiPlugin,
-            crate::guard::GuardPlugin,
-            crate::ui::loot_ui::LootUiPlugin,
-            crate::cave::CavePlugin,
-            crate::crossing::CrossingPlugin,
-        ));
+        .insert_state(crate::GameState::Boot);
+    // Audio playback needs an AudioOutput, which a headless app does not create.
+    crate::add_game_plugins(
+        &mut app,
+        crate::save::SavePlugin {
+            smoke: true,
+            directory: None,
+        },
+        crate::CombatAudio::Disabled,
+    );
     app.finish();
     app.cleanup();
     app
@@ -453,6 +419,7 @@ fn step_until(app: &mut App, budget: usize, condition: impl Fn(&mut World) -> bo
 #[test]
 fn shipped_collision_scene_builds_colliders_without_a_renderer() {
     let mut app = app();
+    app.add_plugins(PhysicsPlugins::default());
     app.finish();
     app.cleanup();
     let scene: Handle<WorldAsset> = app
