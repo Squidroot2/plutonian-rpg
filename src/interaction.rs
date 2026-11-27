@@ -15,7 +15,7 @@ use crate::{
     player::Player,
     player::PlayerWrite,
     quest::{QuestAction, QuestJournal},
-    save::{Bed, SaveAtBed},
+    save::Bed,
     storage::{ChestId, WeaponRack},
     ui::menu_ui::PlayerMenu,
 };
@@ -138,7 +138,6 @@ impl Plugin for InteractionPlugin {
             .init_resource::<LootTarget>()
             .init_resource::<ActiveChest>()
             .init_resource::<ActiveRack>()
-            .add_message::<SaveAtBed>()
             .add_systems(
                 Update,
                 (dialogue::handle_input, find_target, interact)
@@ -323,7 +322,6 @@ fn interact(
     mut loot: ResMut<LootTarget>,
     mut chest: ResMut<ActiveChest>,
     mut rack: ResMut<ActiveRack>,
-    mut saves: MessageWriter<SaveAtBed>,
     mut next: ResMut<NextState<GameState>>,
     log: Option<Res<PlayerMenu>>,
 ) {
@@ -409,7 +407,7 @@ fn interact(
                 next.set(GameState::Storage);
             }
             InteractionTarget::Bed if interact_pressed && matches!(*next, NextState::Unchanged) => {
-                saves.write(SaveAtBed(entity));
+                next.set(GameState::SleepMenu);
             }
             _ => (),
         }
@@ -606,17 +604,7 @@ mod tests {
             .world_mut()
             .spawn((Bed, Transform::from_xyz(0.0, 0.45, -4.0)))
             .id();
-        let mut saves = app
-            .world()
-            .resource::<Messages<SaveAtBed>>()
-            .get_cursor_current();
         press_interact(&mut app);
-        assert_eq!(
-            saves
-                .read(app.world().resource::<Messages<SaveAtBed>>())
-                .count(),
-            0
-        );
 
         app.world_mut()
             .get_mut::<Transform>(bed)
@@ -635,12 +623,6 @@ mod tests {
             app.update();
         }
         press_interact(&mut app);
-        assert_eq!(
-            saves
-                .read(app.world().resource::<Messages<SaveAtBed>>())
-                .count(),
-            0
-        );
 
         app.world_mut().despawn(wall);
         app.world_mut()
@@ -651,19 +633,10 @@ mod tests {
             app.world().resource::<Nearby>().0,
             Some((bed, InteractionTarget::Bed))
         );
-        assert_eq!(
-            saves
-                .read(app.world().resource::<Messages<SaveAtBed>>())
-                .count(),
-            0
-        );
         press_interact(&mut app);
         assert_eq!(
-            saves
-                .read(app.world().resource::<Messages<SaveAtBed>>())
-                .map(|event| event.0)
-                .next(),
-            Some(bed)
+            *app.world().resource::<State<GameState>>().get(),
+            GameState::SleepMenu
         );
     }
 

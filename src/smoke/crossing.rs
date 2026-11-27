@@ -4,6 +4,7 @@ use super::{
     inventory::{pointer_click, walk},
 };
 use crate::{
+    GameState,
     camera::{FollowCamera, Orbit},
     combat::{Dead, Hit},
     combat_feedback::DeathAnimation,
@@ -17,7 +18,7 @@ use crate::{
     player::PlayerWrite,
     player::{Dodge, NpcGait, PLAYER_GROUND_OFFSET, Player},
     quest::{CONTAIN_THE_HUSHCAPS, QuestAction, QuestJournal},
-    save::{Bed, EncounterId, RunSave, SaveAtBed},
+    save::{Bed, EncounterId, RunSave},
     terrain::walkable_height,
     ui::death_screen::ContinueAfterDeath,
 };
@@ -26,31 +27,68 @@ use bevy::{
     app::AppExit, ecs::system::SystemParam, prelude::*, render::view::screenshot::Screenshot,
 };
 
+/// Frame-by-frame crossing smoke phases, from opening the gate to checkpoint recovery.
+///
+/// Screenshot entities identify captures that must finish before advancing;
+/// player entities identify the defeated instance that a reload must replace.
 #[derive(Debug, Default, Resource)]
 pub(super) enum Check {
+    /// Verify an early, ineligible defeat does not count toward the cavern quest.
     #[default]
     EarlyKill,
+    /// Activate the quest and defeat the first four eligible Hushcaps.
     Activate,
+    /// Defeat the fifth eligible Hushcap and trigger the crossing.
     FifthKill,
+    /// Wait for the gate to open and the caravan to cross it.
     Opening,
+    /// Wait for the gate-opening screenshot.
     FirstArrivalPhoto(Entity),
+    /// Check the parked caravan and start an arrival checkpoint.
     Parked,
+    /// Watch residents walk home and guards remain at their posts.
     Settling(ArrivalWatch),
+    /// Frame a village room by its index in `ROOM_VIEWS`.
     RoomView(usize),
+    /// Wait for that room's screenshot before moving to the next room.
     RoomPhoto(usize, Entity),
+    /// Interact with the sample station after defeating Tovan.
     Bench,
+    /// Verify the station quest route and defeat the player.
     BenchResult,
+    /// Wait for the defeated player to be replaced after loading the arrival checkpoint.
     ReloadHomes(Entity),
+    /// Interact with the restored Tovan.
     Speak,
+    /// Submit samples through Tovan's dialogue.
     Samples,
+    /// Verify quest completion and dismiss the reply.
     CloseReply,
+    /// Close the dialogue and begin the flats route.
     CloseTopics,
+    /// Walk toward the indexed waypoint in `FLATS_ROUTE`.
     Walk(usize),
+    /// Wait for the flats screenshot.
     FlatsPhoto(Entity),
+    /// Frame the lookout after validating its footing and sight line.
     LookoutView,
+    /// Wait for the lookout screenshot.
     LookoutPhoto(Entity),
+    /// Inflict a villager casualty before the final checkpoint.
     Save,
+    /// Wait for combat to mark the casualty dead before opening the sleep menu.
+    WaitCasualty,
+    /// Select Sleep and Save for the caravan arrival checkpoint.
+    ChooseArrivalSave,
+    /// Wait for the arrival save and fade to finish.
+    WaitArrivalSave,
+    /// Select Sleep and Save for the casualty checkpoint.
+    ChooseDefeatSave,
+    /// Wait for the casualty save and fade to finish.
+    WaitDefeatSave,
+    /// Defeat the player after the casualty checkpoint has been saved.
     Defeat,
+    /// Wait for the replacement player and verify the restored world.
     Restored(Entity),
 }
 
@@ -229,10 +267,11 @@ pub(super) fn drive(
     mut keys: ResMut<ButtonInput<KeyCode>>,
     mut orbit: ResMut<Orbit>,
     dialogue: Res<Dialogue>,
+    state: Res<State<GameState>>,
+    mut next: ResMut<NextState<GameState>>,
     run: Res<RunSave>,
     fixtures: Fixtures,
     mut hits: MessageWriter<Hit>,
-    mut saves: MessageWriter<SaveAtBed>,
     mut commands: SmokeCommands,
     mut exit: MessageWriter<AppExit>,
 ) {
@@ -283,7 +322,7 @@ pub(super) fn drive(
             &mut keys,
             &mut orbit,
             &mut hits,
-            &mut saves,
+            &mut next,
             &mut commands,
         ),
         Check::Speak if controller.grounded => {
@@ -343,9 +382,22 @@ pub(super) fn drive(
             );
         }
         Check::Save => {
-            save_with_casualty(&fixtures, entity, &mut hits, &mut saves);
-            *check = Check::Defeat;
+            save_with_casualty(&fixtures, entity, &mut hits);
+            *check = Check::WaitCasualty;
         }
+        Check::WaitCasualty
+            if fixtures
+                .villagers
+                .iter()
+                .any(|(_, id, _, dead, _)| *id == NpcId::Isera && dead) =>
+        {
+            next.set(GameState::SleepMenu);
+            *check = Check::ChooseDefeatSave;
+        }
+        Check::ChooseArrivalSave
+        | Check::WaitArrivalSave
+        | Check::ChooseDefeatSave
+        | Check::WaitDefeatSave => drive_sleep_menu(&mut check, &state, &run, &mut keys),
         Check::Defeat if run.checkpoint().is_some() => {
             hits.write(Hit {
                 source: entity,
@@ -358,6 +410,36 @@ pub(super) fn drive(
         Check::Restored(original) if original != entity && !fixtures.caravans.is_empty() => {
             check_restored(&fixtures, gate, &journal, &inventory);
             exit.write(AppExit::Success);
+        }
+        _ => {}
+    }
+}
+
+fn drive_sleep_menu(
+    check: &mut Check,
+    state: &State<GameState>,
+    run: &RunSave,
+    keys: &mut ButtonInput<KeyCode>,
+) {
+    match *check {
+        Check::ChooseArrivalSave | Check::ChooseDefeatSave
+            if *state.get() == GameState::SleepMenu =>
+        {
+            keys.press(KeyCode::Enter);
+            *check = if matches!(*check, Check::ChooseArrivalSave) {
+                Check::WaitArrivalSave
+            } else {
+                Check::WaitDefeatSave
+            };
+        }
+        Check::WaitArrivalSave | Check::WaitDefeatSave
+            if *state.get() == GameState::Playing && run.checkpoint().is_some() =>
+        {
+            *check = if matches!(*check, Check::WaitArrivalSave) {
+                Check::Settling(ArrivalWatch::default())
+            } else {
+                Check::Defeat
+            };
         }
         _ => {}
     }
@@ -376,7 +458,7 @@ fn check_homecoming(
     keys: &mut ButtonInput<KeyCode>,
     orbit: &mut Orbit,
     hits: &mut MessageWriter<Hit>,
-    saves: &mut MessageWriter<SaveAtBed>,
+    next: &mut NextState<GameState>,
     commands: &mut SmokeCommands,
 ) {
     match *check {
@@ -389,13 +471,6 @@ fn check_homecoming(
                 );
             }
             assert!(inventory.add(ItemKind::Mycelium, 5));
-            // Capture a real checkpoint while the homeward routes are active.
-            saves.write(SaveAtBed(
-                fixtures
-                    .beds
-                    .single()
-                    .expect("the player’s cot saves the run"),
-            ));
             at(
                 fixtures,
                 player,
@@ -406,7 +481,8 @@ fn check_homecoming(
             );
             orbit.yaw = 0.45;
             orbit.pitch = 0.15;
-            *check = Check::Settling(ArrivalWatch::default());
+            next.set(GameState::SleepMenu);
+            *check = Check::ChooseArrivalSave;
         }
         Check::Settling(mut watch) => {
             observe_arrival(fixtures, &mut watch, commands);
@@ -596,12 +672,7 @@ fn check_village_rooms(fixtures: &Fixtures, player: Entity, capsule: &Collider) 
     }
 }
 
-fn save_with_casualty(
-    fixtures: &Fixtures,
-    player: Entity,
-    hits: &mut MessageWriter<Hit>,
-    saves: &mut MessageWriter<SaveAtBed>,
-) {
+fn save_with_casualty(fixtures: &Fixtures, player: Entity, hits: &mut MessageWriter<Hit>) {
     let (villager, _, health, dead, _) = fixtures
         .villagers
         .iter()
@@ -615,9 +686,10 @@ fn save_with_casualty(
         damage: u16::MAX,
         contact: None,
     });
-    saves.write(SaveAtBed(
-        fixtures.beds.single().expect("the cot is available"),
-    ));
+    fixtures
+        .beds
+        .single()
+        .expect("the cot is available for the sleep menu");
 }
 
 fn walk_flats(

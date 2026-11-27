@@ -1,6 +1,7 @@
 use crate::{
     GameState,
     content::Items,
+    controls::{Control, Keybinds},
     ui::{inventory_ui, quest_ui, text_style},
 };
 use bevy::{
@@ -185,6 +186,16 @@ pub(crate) fn button() -> impl Bundle {
         FocusPolicy::Pass,
         BackgroundColor(BUTTON),
     )
+}
+
+pub(crate) fn menu_direction(bindings: &Keybinds, keys: &ButtonInput<KeyCode>) -> isize {
+    if bindings.just_pressed(Control::MenuUp, keys) {
+        -1
+    } else if bindings.just_pressed(Control::MenuDown, keys) {
+        1
+    } else {
+        0
+    }
 }
 
 /// A centered modal that follows the lifetime of an interaction state.

@@ -6,9 +6,10 @@ Choose **Start Game** on the title screen and enter a name to begin a new run in
 Names contain 1–16 letters, numbers, or spaces.
 Choose **Load Game** to choose a save made at the bed in the starting tent.
 You can also choose **Load Game** from the pause menu to replace the current run with a save.
-Press E near the bed to save.
-A successful bed save restores full health and creates a new save for the current run.
-It also advances the day.
+Press E near the bed to open the sleep menu.
+**Sleep** advances the day and restores full health without saving.
+**Sleep and Save** also creates a new save for the current run.
+Both choices advance the day; the day advances only when you sleep.
 After six days without killing a worm, roach, or Hushcap in an area,
 those creatures return there at full health with fresh loot.
 This replaces wounded creatures and removes any unlooted corpses in that area.

@@ -43,9 +43,13 @@ impl Plugin for PlayerPlugin {
             .add_systems(OnEnter(GameState::Paused), freeze)
             .add_systems(OnEnter(GameState::Looting), freeze)
             .add_systems(OnEnter(GameState::Storage), freeze)
+            .add_systems(OnEnter(GameState::SleepMenu), freeze)
+            .add_systems(OnEnter(GameState::Sleeping), freeze)
             .add_systems(OnExit(GameState::Paused), resume)
             .add_systems(OnExit(GameState::Looting), resume)
             .add_systems(OnExit(GameState::Storage), resume)
+            .add_systems(OnExit(GameState::SleepMenu), resume)
+            .add_systems(OnExit(GameState::Sleeping), resume)
             .add_systems(
                 PreUpdate,
                 input

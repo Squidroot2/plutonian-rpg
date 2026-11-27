@@ -60,6 +60,8 @@ pub(crate) enum GameState {
     Paused,
     Looting,
     Storage,
+    SleepMenu,
+    Sleeping,
     Failed,
 }
 
