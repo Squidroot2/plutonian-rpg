@@ -87,6 +87,15 @@ enum Action {
 }
 impl Plugin for GameUiPlugin {
     fn build(&self, app: &mut App) {
+        // Font constraint: neither shipped font — Exo 2 (the default font
+        // below) nor Michroma (the title font) — contains arrow glyphs or
+        // other symbol/dingbat ranges, so UI text must stick to Latin
+        // letters, digits, and common punctuation. The punctuation verified
+        // present in Exo 2 is the em dash, en dash, middle dot, bullet,
+        // › (U+203A), and the curly apostrophe. A future UI string that
+        // needs a new non-ASCII character should be checked against the
+        // font's character map before it ships, not discovered as a
+        // missing glyph in game.
         // Replace Bevy's default face before text layout starts, including for
         // text spawned with an implicit TextFont.
         let mut fonts = app.world_mut().resource_mut::<Assets<Font>>();
