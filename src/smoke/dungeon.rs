@@ -924,10 +924,12 @@ fn check_weapon_rack(frame: WorldFrame) {
             *phase = WorldCheck::LeaveRack;
         }
         WorldCheck::LeaveRack if !storage_open => {
-            orbit.yaw = std::f32::consts::PI;
+            orbit.yaw = std::f32::consts::PI + 0.65;
             *phase = WorldCheck::RackView(capture(&mut commands, "weapon-rack"));
         }
         WorldCheck::RackView(photo) if captures.get(photo).is_err() => {
+            // Face the tent exit again for the following camera-relative walk.
+            orbit.yaw = std::f32::consts::FRAC_PI_2;
             controller.respawn(
                 &mut dodge,
                 &mut transform,

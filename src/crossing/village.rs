@@ -292,8 +292,6 @@ pub(crate) fn light_homes(commands: &mut Commands) {
         ("Workshop bench light", Vec3::new(-13.75, 0.70, 6.30), false),
         ("Orla’s hearth", Vec3::new(14.18, 0.36, 10.62), true),
         ("Keeper’s lens light", Vec3::new(5.80, 0.43, 18.34), false),
-        ("Barracks watch lamp", Vec3::new(-6.85, 1.99, -7.43), true),
-        ("Barracks bunk lamp", Vec3::new(-10.52, 1.99, -11.49), true),
         ("Barracks hearth", Vec3::new(-11.75, 0.44, -10.70), true),
     ] {
         commands.spawn((
@@ -308,6 +306,24 @@ pub(crate) fn light_homes(commands: &mut Commands) {
                 },
                 intensity: 8_000.0,
                 range: 6.5,
+                ..default()
+            },
+        ));
+    }
+    // Ceiling work lights illuminate the aisle and both bunks from above.
+    for (name, position) in [
+        ("Barracks watch lamp", Vec3::new(-6.85, 1.99, -7.43)),
+        ("Barracks bunk lamp", Vec3::new(-10.52, 1.99, -11.49)),
+    ] {
+        commands.spawn((
+            SessionEntity,
+            Name::new(name),
+            Transform::from_translation(position),
+            PointLight {
+                color: Color::srgb(1.0, 0.80, 0.57),
+                intensity: 120_000.0,
+                range: 6.0,
+                shadow_maps_enabled: true,
                 ..default()
             },
         ));
