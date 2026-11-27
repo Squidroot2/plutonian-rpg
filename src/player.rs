@@ -528,6 +528,7 @@ mod tests {
     #[test]
     fn idle_player_faces_camera_yaw_even_without_a_fixed_step() {
         let (mut app, player) = test_app();
+        equip_spear(&mut app);
         let start = transform(&app, player).translation;
         app.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::ZERO));
         let mut orbit = app.world_mut().resource_mut::<Orbit>();
@@ -543,6 +544,7 @@ mod tests {
     #[test]
     fn camera_relative_walking_and_sprint_choose_the_expected_gaits() {
         let (mut app, player) = test_app();
+        equip_spear(&mut app);
         app.world_mut().resource_mut::<Orbit>().yaw = std::f32::consts::FRAC_PI_2;
         let cases: &[(&[KeyCode], Vec3, Gait, Pace)] = &[
             (&[KeyCode::KeyW], Vec3::NEG_X, Gait::Run, Pace::Sprint),
@@ -615,6 +617,7 @@ mod tests {
     #[test]
     fn neutral_hop_is_backward_and_held_input_does_not_repeat() {
         let (mut app, player) = test_app();
+        equip_spear(&mut app);
         app.world_mut().resource_mut::<Orbit>().yaw = std::f32::consts::FRAC_PI_2;
         let start = transform(&app, player).translation;
         press(&mut app, &[DODGE_KEY, KeyCode::Space]);
@@ -643,6 +646,7 @@ mod tests {
     #[test]
     fn diagonal_hop_locks_camera_relative_heading_and_stops_at_walls() {
         let (mut app, player) = test_app();
+        equip_spear(&mut app);
         let world = app.world_mut();
         world.resource_mut::<Orbit>().yaw = std::f32::consts::FRAC_PI_2;
         world.spawn((
@@ -831,5 +835,85 @@ mod tests {
             .get::<Dodge>(player)
             .expect("respawn must preserve the Dodge component");
         assert!(!dodge.active() && dodge.ready());
+    }
+
+    #[test]
+    fn holstered_orbit_leaves_idle_facing_unchanged() {
+        let (mut app, player) = test_app();
+        equip_spear(&mut app);
+        app.world_mut()
+            .entity_mut(player)
+            .insert(WeaponStance::Holstered);
+        app.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::ZERO));
+        tick(&mut app, 1);
+        let idle = transform(&app, player).rotation;
+        for yaw in [
+            0.5,
+            std::f32::consts::FRAC_PI_2,
+            std::f32::consts::PI,
+            -std::f32::consts::FRAC_PI_2,
+            0.0,
+        ] {
+            app.world_mut().resource_mut::<Orbit>().yaw = yaw;
+            tick(&mut app, 1);
+            assert_eq!(transform(&app, player).rotation, idle);
+            assert_eq!(app.world().resource::<Orbit>().yaw, yaw);
+        }
+        app.world_mut()
+            .entity_mut(player)
+            .insert(WeaponStance::Drawn);
+        app.world_mut().resource_mut::<Orbit>().yaw = std::f32::consts::FRAC_PI_2;
+        tick(&mut app, 1);
+        assert!(
+            (transform(&app, player).rotation * Vec3::Z).abs_diff_eq(Vec3::NEG_X, 0.001),
+            "drawing must restore the camera lock"
+        );
+    }
+
+    #[test]
+    fn holstered_movement_faces_travel_and_keeps_last_facing() {
+        let (mut app, player) = test_app();
+        app.world_mut()
+            .entity_mut(player)
+            .insert(WeaponStance::Holstered);
+        app.world_mut().resource_mut::<Orbit>().yaw = 0.0;
+        let start = transform(&app, player).translation;
+        press(&mut app, &[KeyCode::KeyD]);
+        tick(&mut app, 3);
+        let strafing = transform(&app, player);
+        assert!(strafing.translation.x > start.x + 0.05);
+        assert!((strafing.rotation * Vec3::Z).abs_diff_eq(Vec3::X, 0.05));
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .reset_all();
+        tick(&mut app, 2);
+        assert!(
+            (transform(&app, player).rotation * Vec3::Z)
+                .abs_diff_eq(strafing.rotation * Vec3::Z, 0.001),
+            "stopping must keep the last travel facing"
+        );
+
+        app.world_mut().resource_mut::<Orbit>().yaw = std::f32::consts::PI;
+        press(&mut app, &[KeyCode::KeyW]);
+        let facing = transform(&app, player).translation;
+        tick(&mut app, 3);
+        let advanced = transform(&app, player);
+        assert!(advanced.translation.z > facing.z + 0.05);
+        assert!((advanced.rotation * Vec3::Z).abs_diff_eq(Vec3::Z, 0.05));
+    }
+
+    #[test]
+    fn unarmed_drawn_frees_the_camera_like_holstered() {
+        let (mut app, player) = test_app();
+        app.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::ZERO));
+        tick(&mut app, 1);
+        let idle = transform(&app, player).rotation;
+        app.world_mut().resource_mut::<Orbit>().yaw = std::f32::consts::FRAC_PI_2;
+        tick(&mut app, 1);
+        assert_eq!(
+            transform(&app, player).rotation,
+            idle,
+            "unarmed Drawn must not lock to the camera"
+        );
     }
 }
