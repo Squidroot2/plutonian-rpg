@@ -27,36 +27,68 @@ use bevy::{
     app::AppExit, ecs::system::SystemParam, prelude::*, render::view::screenshot::Screenshot,
 };
 
+/// Frame-by-frame crossing smoke phases, from opening the gate to checkpoint recovery.
+///
+/// Screenshot entities identify captures that must finish before advancing;
+/// player entities identify the defeated instance that a reload must replace.
 #[derive(Debug, Default, Resource)]
 pub(super) enum Check {
+    /// Verify an early, ineligible defeat does not count toward the cavern quest.
     #[default]
     EarlyKill,
+    /// Activate the quest and defeat the first four eligible Hushcaps.
     Activate,
+    /// Defeat the fifth eligible Hushcap and trigger the crossing.
     FifthKill,
+    /// Wait for the gate to open and the caravan to cross it.
     Opening,
+    /// Wait for the gate-opening screenshot.
     FirstArrivalPhoto(Entity),
+    /// Check the parked caravan and start an arrival checkpoint.
     Parked,
+    /// Watch residents walk home and guards remain at their posts.
     Settling(ArrivalWatch),
+    /// Frame a village room by its index in `ROOM_VIEWS`.
     RoomView(usize),
+    /// Wait for that room's screenshot before moving to the next room.
     RoomPhoto(usize, Entity),
+    /// Interact with the sample station after defeating Tovan.
     Bench,
+    /// Verify the station quest route and defeat the player.
     BenchResult,
+    /// Wait for the defeated player to be replaced after loading the arrival checkpoint.
     ReloadHomes(Entity),
+    /// Interact with the restored Tovan.
     Speak,
+    /// Submit samples through Tovan's dialogue.
     Samples,
+    /// Verify quest completion and dismiss the reply.
     CloseReply,
+    /// Close the dialogue and begin the flats route.
     CloseTopics,
+    /// Walk toward the indexed waypoint in `FLATS_ROUTE`.
     Walk(usize),
+    /// Wait for the flats screenshot.
     FlatsPhoto(Entity),
+    /// Frame the lookout after validating its footing and sight line.
     LookoutView,
+    /// Wait for the lookout screenshot.
     LookoutPhoto(Entity),
+    /// Inflict a villager casualty before the final checkpoint.
     Save,
+    /// Wait for combat to mark the casualty dead before opening the sleep menu.
     WaitCasualty,
+    /// Select Sleep and Save for the caravan arrival checkpoint.
     ChooseArrivalSave,
+    /// Wait for the arrival save and fade to finish.
     WaitArrivalSave,
+    /// Select Sleep and Save for the casualty checkpoint.
     ChooseDefeatSave,
+    /// Wait for the casualty save and fade to finish.
     WaitDefeatSave,
+    /// Defeat the player after the casualty checkpoint has been saved.
     Defeat,
+    /// Wait for the replacement player and verify the restored world.
     Restored(Entity),
 }
 
