@@ -20,6 +20,7 @@ pub(super) struct WireSnapshot {
     inventory: Inventory<String>,
     equipment: Equipment<String>,
     chests: ChestStorage<String>,
+    weapon_rack: WeaponRackStorage<String>,
     dungeons: BTreeMap<String, DungeonProgress>,
     pickups: Vec<SavedPickup<String>>,
     encounters: BTreeMap<String, SavedEncounter>,
@@ -86,6 +87,7 @@ pub(super) fn wire_snapshot(snapshot: &Snapshot) -> WireSnapshot {
                 .map(|(&chest, inventory)| (chest, string_inventory(inventory)))
                 .collect(),
         ),
+        weapon_rack: WeaponRackStorage(snapshot.weapon_rack.0.map(|slot| slot.map(string_item))),
         dungeons: snapshot
             .dungeons
             .iter()
@@ -180,6 +182,16 @@ pub(super) fn into_snapshot(
                 .map(|(chest, inventory)| Ok((chest, parse_inventory(inventory)?)))
                 .collect::<io::Result<_>>()?,
         ),
+        weapon_rack: WeaponRackStorage([
+            wire.weapon_rack.0[0]
+                .as_deref()
+                .map(parse_item)
+                .transpose()?,
+            wire.weapon_rack.0[1]
+                .as_deref()
+                .map(parse_item)
+                .transpose()?,
+        ]),
         dungeons: wire
             .dungeons
             .into_iter()

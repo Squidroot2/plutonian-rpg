@@ -68,6 +68,9 @@
     "progression": {
       "$ref": "#/$defs/SavedProgress"
     },
+    "weapon_rack": {
+      "$ref": "#/$defs/WeaponRackStorage"
+    },
     "world": {
       "$ref": "#/$defs/SavedWorld"
     }
@@ -80,6 +83,7 @@
     "inventory",
     "equipment",
     "chests",
+    "weapon_rack",
     "dungeons",
     "pickups",
     "encounters",
@@ -542,6 +546,18 @@
         "guards_hostile",
         "day"
       ]
+    },
+    "WeaponRackStorage": {
+      "description": "Two rack slots, each empty or holding exactly one weapon item.",
+      "type": "array",
+      "items": {
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "maxItems": 2,
+      "minItems": 2
     }
   }
 }

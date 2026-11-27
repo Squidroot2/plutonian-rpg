@@ -599,6 +599,7 @@ fn refresh_prompt(
                     }
                     InteractionTarget::Corpse => "Loot corpse".into(),
                     InteractionTarget::Chest(chest) => format!("Open {}", chest.name()),
+                    InteractionTarget::WeaponRack => "Open Weapon rack".into(),
                     InteractionTarget::SampleStation => "Verify Mycelium samples".into(),
                     InteractionTarget::Bed => "Save game".into(),
                     InteractionTarget::Dungeon(target) => match target {
@@ -684,7 +685,7 @@ mod tests {
         /// save created after the title snapshot.
         fn copy_fixture_save(&self, name: &str) {
             let source = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("tests/fixtures/inspector-v14.save");
+                .join("tests/fixtures/inspector-v15.save");
             std::fs::copy(&source, self.0.join(name)).expect("copy fixture save");
         }
     }

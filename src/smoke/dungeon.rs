@@ -37,7 +37,7 @@ use crate::{
     quest::{CONTAIN_THE_HUSHCAPS, LAST_LIGHT, OLD_RELAY, QuestAction, QuestJournal, QuestStatus},
     roach::Roach,
     save::{EncounterId, RunSave},
-    storage::{ChestId, ChestStorage},
+    storage::{ChestId, ChestStorage, WeaponRackStorage},
     ui::death_screen::ContinueAfterDeath,
     ui::loot_ui::LootAction,
     ui::menu_ui::{MenuTab, PlayerMenu},
@@ -170,6 +170,15 @@ pub(super) enum WorldCheck {
     StoreInChest(ChestId),
     CloseChest(ChestId),
     NextChest(ChestId),
+    InspectRack,
+    DepositRack,
+    RackSecond,
+    RackFull,
+    RackPhoto(Entity),
+    RackSwap,
+    RackClose,
+    LeaveRack,
+    RackView(Entity),
     LeaveTent,
     OutpostPhoto(Entity),
     OutsideChestWall,
@@ -352,7 +361,7 @@ pub(super) fn drive(
         (With<Worm>, Without<Player>),
     >,
     captures: Query<(), With<Screenshot>>,
-    (state, roaches, hushcaps, spit, actions, window, camera, storage, storage_actions): (
+    (state, roaches, hushcaps, spit, actions, window, camera, storage, storage_actions, rack): (
         Res<State<GameState>>,
         RoachQuery,
         HushcapQuery,
@@ -362,6 +371,7 @@ pub(super) fn drive(
         Query<Entity, With<FollowCamera>>,
         Res<ChestStorage>,
         Query<(Entity, &'static StorageAction)>,
+        Res<WeaponRackStorage>,
     ),
     (hits, guard_smoke): (MessageWriter<Hit>, GuardSmoke),
     spatial: SpatialQuery,
@@ -422,6 +432,7 @@ pub(super) fn drive(
         position,
         now,
         storage,
+        rack,
         keys,
         mouse,
         nearby,
@@ -461,6 +472,15 @@ fn check_world_phase(frame: WorldFrame) {
         | WorldCheck::StoreInChest(..)
         | WorldCheck::CloseChest(..)
         | WorldCheck::NextChest(..) => check_tent_chests(frame),
+        WorldCheck::InspectRack
+        | WorldCheck::DepositRack
+        | WorldCheck::RackSecond
+        | WorldCheck::RackFull
+        | WorldCheck::RackPhoto(..)
+        | WorldCheck::RackSwap
+        | WorldCheck::RackClose
+        | WorldCheck::LeaveRack
+        | WorldCheck::RackView(..) => check_weapon_rack(frame),
         WorldCheck::LeaveTent
         | WorldCheck::OutpostPhoto(..)
         | WorldCheck::OutsideChestWall
@@ -564,6 +584,7 @@ struct WorldFrame<'w, 's, 'a> {
     position: Vec3,
     now: f64,
     storage: Res<'w, ChestStorage>,
+    rack: Res<'w, WeaponRackStorage>,
     keys: ResMut<'w, ButtonInput<KeyCode>>,
     mouse: ResMut<'w, ButtonInput<MouseButton>>,
     nearby: Res<'w, Nearby>,
@@ -795,14 +816,125 @@ fn check_tent_chests(frame: WorldFrame) {
                 *phase = WorldCheck::InspectChest(ChestId::Lamp);
             }
             ChestId::Lamp => {
-                controller.respawn(
+                fixture(
+                    &spatial,
+                    entity,
+                    &mut controller,
                     &mut dodge,
                     &mut transform,
-                    WorldLayout::Outpost.initial_spawn(),
+                    Vec3::new(-9.9, 0.0, -8.26),
                 );
-                *phase = WorldCheck::LeaveTent;
+                commands.ecs.queue(|world: &mut World| {
+                    let mut inventory = world.actor_data_mut::<Inventory>();
+                    assert!(inventory.add(ItemKind::FieldSpear, 1));
+                    assert!(inventory.add(ItemKind::Trident, 1));
+                    assert!(inventory.add(ItemKind::Shortsword, 1));
+                });
+                *phase = WorldCheck::InspectRack;
             }
         },
+        _ => {}
+    }
+}
+
+fn check_weapon_rack(frame: WorldFrame) {
+    let WorldFrame {
+        mut phase,
+        inventory,
+        rack,
+        names,
+        mut keys,
+        mut commands,
+        mut controller,
+        mut dodge,
+        mut transform,
+        nearby,
+        mut orbit,
+        storage_actions,
+        window,
+        camera,
+        state,
+        captures,
+        ..
+    } = frame;
+    let click_storage = |commands: &mut Commands, action| {
+        click_storage(commands, action, &storage_actions, &window, &camera);
+    };
+    let store = |item| StorageAction::Transfer(StorageSide::Backpack, item, TransferAmount::One);
+    let storage_open = *state.get() == GameState::Storage;
+    match *phase {
+        WorldCheck::InspectRack if target_ready(&nearby, InteractionTarget::WeaponRack) => {
+            keys.press(KeyCode::KeyE);
+            *phase = WorldCheck::DepositRack;
+        }
+        WorldCheck::DepositRack if storage_open => {
+            click_storage(&mut commands.ecs, store(ItemKind::Battery));
+            click_storage(&mut commands.ecs, store(ItemKind::FieldSpear));
+            *phase = WorldCheck::RackSecond;
+        }
+        WorldCheck::RackSecond => {
+            assert_eq!(inventory.count(ItemKind::Battery), 1);
+            assert_eq!(rack.0, [Some(ItemKind::FieldSpear), None]);
+            click_storage(&mut commands.ecs, store(ItemKind::Trident));
+            *phase = WorldCheck::RackFull;
+        }
+        WorldCheck::RackFull => {
+            assert_eq!(
+                rack.0,
+                [Some(ItemKind::FieldSpear), Some(ItemKind::Trident)]
+            );
+            click_storage(&mut commands.ecs, store(ItemKind::Shortsword));
+            *phase = WorldCheck::RackPhoto(capture(&mut commands, "weapon-rack"));
+        }
+        WorldCheck::RackPhoto(photo) if captures.get(photo).is_err() => {
+            assert_eq!(inventory.count(ItemKind::Shortsword), 1);
+            for expected in ["Racked Field spear", "Racked Trident"] {
+                assert!(
+                    names.iter().any(|name| name.as_str() == expected),
+                    "the rack must display {expected}"
+                );
+            }
+            click_storage(
+                &mut commands.ecs,
+                StorageAction::Transfer(
+                    StorageSide::Chest,
+                    ItemKind::FieldSpear,
+                    TransferAmount::One,
+                ),
+            );
+            *phase = WorldCheck::RackSwap;
+        }
+        WorldCheck::RackSwap => {
+            assert_eq!(rack.0, [None, Some(ItemKind::Trident)]);
+            assert!(
+                !names
+                    .iter()
+                    .any(|name| name.as_str() == "Racked Field spear"),
+                "withdrawing must remove the displayed spear"
+            );
+            click_storage(&mut commands.ecs, store(ItemKind::Shortsword));
+            *phase = WorldCheck::RackClose;
+        }
+        WorldCheck::RackClose => {
+            assert_eq!(
+                rack.0,
+                [Some(ItemKind::Shortsword), Some(ItemKind::Trident)]
+            );
+            click_storage(&mut commands.ecs, StorageAction::Close);
+            *phase = WorldCheck::LeaveRack;
+        }
+        WorldCheck::LeaveRack if !storage_open => {
+            orbit.yaw = std::f32::consts::FRAC_PI_2;
+            *phase = WorldCheck::RackView(capture(&mut commands, "weapon-rack"));
+        }
+        WorldCheck::RackView(photo) if captures.get(photo).is_err() => {
+            controller.respawn(
+                &mut dodge,
+                &mut transform,
+                WorldLayout::Outpost.initial_spawn(),
+            );
+            *phase = WorldCheck::LeaveTent;
+        }
         _ => {}
     }
 }
@@ -1871,6 +2003,7 @@ fn check_bed_rollback(frame: WorldFrame) {
         roaches,
         hushcaps,
         storage,
+        rack,
         guard_smoke,
         mut keys,
         mut commands,
@@ -1952,6 +2085,7 @@ fn check_bed_rollback(frame: WorldFrame) {
                         .get_mut(ChestId::Lamp)
                         .add(ItemKind::Battery, 1)
                 );
+                mutate_rack_after_save(world);
             });
             guard_smoke.check_posts(&spatial);
             let keeper = guard_smoke
@@ -1984,6 +2118,7 @@ fn check_bed_rollback(frame: WorldFrame) {
             );
             assert_eq!(inventory.count(ItemKind::RoachMeat), 1);
             assert_eq!(inventory.count(ItemKind::Mycelium), 1);
+            assert_saved_rack(&rack);
             assert_eq!(storage.get(ChestId::Lamp).count(ItemKind::Battery), 1);
             assert!(quest.is_complete(OLD_RELAY) && progress.gate_open());
             assert_eq!(
@@ -2145,6 +2280,23 @@ fn click_storage(
 
 fn target_ready(nearby: &Nearby, target: InteractionTarget) -> bool {
     nearby.0.is_some_and(|(_, current)| current == target)
+}
+
+/// Empty one rack slot after the bed save so rollback must restore it.
+fn mutate_rack_after_save(world: &mut World) {
+    assert!(
+        world
+            .resource_mut::<WeaponRackStorage>()
+            .withdraw(ItemKind::Shortsword)
+    );
+}
+
+/// The bed save must restore the weapons racked before it.
+fn assert_saved_rack(rack: &WeaponRackStorage) {
+    assert_eq!(
+        rack.0,
+        [Some(ItemKind::Shortsword), Some(ItemKind::Trident)]
+    );
 }
 
 fn chest_stack(chest: ChestId) -> (ItemKind, u32, TransferAmount) {

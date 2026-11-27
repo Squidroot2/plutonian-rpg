@@ -13,12 +13,14 @@ use crate::{
     equipment::{Equipment, EquipmentSlot},
     experience::{Experience, ExperienceNotice, ExperienceReward, ExperienceUpdates},
     guard::{self, GuardPost, OutpostSecurity},
-    interaction::{ActiveChest, CorpseLoot, InteractionSystems, LootTarget, Nearby, Target},
+    interaction::{
+        ActiveChest, ActiveRack, CorpseLoot, InteractionSystems, LootTarget, Nearby, Target,
+    },
     inventory::{Inventory, InventoryNotice, ItemKind, Pickup},
     nemi::{self, FleeState, Nemi, SavedFleeState},
     player::{CharacterProgress, MovementInput, Player, SavedProgress},
     quest::{QuestAction, QuestJournal, SavedJournal},
-    storage::ChestStorage,
+    storage::{ChestStorage, WeaponRackStorage},
     ui::death_screen::request_game_over,
     ui::inventory_ui::InventoryUiState,
     ui::menu_ui::PlayerMenu,
@@ -40,7 +42,7 @@ use std::{
 };
 
 // Four magic bytes followed by the little-endian save schema version.
-const HEADER: &[u8; 6] = b"PLUT\x0e\x00";
+const HEADER: &[u8; 6] = b"PLUT\x0f\x00";
 const SAVE_FORMAT_VERSION: u16 = u16::from_le_bytes([HEADER[4], HEADER[5]]);
 const MAX_SAVE_BYTES: usize = 1024 * 1024;
 
@@ -188,6 +190,7 @@ pub(crate) struct Snapshot {
     inventory: Inventory,
     equipment: Equipment,
     chests: ChestStorage,
+    weapon_rack: WeaponRackStorage,
     dungeons: BTreeMap<ContentId, DungeonProgress>,
     pub(crate) pickups: Vec<SavedPickup>,
     encounters: BTreeMap<EncounterId, SavedEncounter>,
@@ -357,9 +360,13 @@ impl Snapshot {
                     .values()
                     .flat_map(|chest| chest.0.keys().copied()),
             )
-            .chain(self.pickups.iter().map(|pickup| pickup.stack.item));
+            .chain(self.pickups.iter().map(|pickup| pickup.stack.item))
+            .chain(self.weapon_rack.0.iter().flatten().copied());
         for item in saved_items {
             items.require(item)?;
+        }
+        if !self.weapon_rack.valid_weapons(items) {
+            return Err("The weapon rack holds a non-weapon item".into());
         }
         let strength = self.progression.ranks().rank(AttributeId::Strength);
         for slot in EquipmentSlot::ALL {
@@ -896,10 +903,13 @@ pub(crate) fn save_at_bed(
         Res<CollectedPickups>,
         Res<Placements>,
     ),
-    journal: Res<QuestJournal>,
-    chests: Res<ChestStorage>,
-    dungeon: Res<DungeonProgress>,
-    security: Res<OutpostSecurity>,
+    (journal, chests, weapon_rack, dungeon, security): (
+        Res<QuestJournal>,
+        Res<ChestStorage>,
+        Res<WeaponRackStorage>,
+        Res<DungeonProgress>,
+        Res<OutpostSecurity>,
+    ),
     mut slot: ResMut<SaveSlot>,
     mut run: ResMut<RunSave>,
     mut notice: ResMut<SaveNotice>,
@@ -936,6 +946,7 @@ pub(crate) fn save_at_bed(
         inventory: inventory.clone(),
         equipment: equipment.clone(),
         chests: chests.clone(),
+        weapon_rack: weapon_rack.clone(),
         dungeons: BTreeMap::from([(OLD_RELAY, *dungeon)]),
         pickups: pickups
             .iter()
@@ -1048,6 +1059,7 @@ pub(crate) fn reset_session(world: &mut World) {
     if let Some(save) = checkpoint {
         world.insert_resource(CollectedPickups(save.collected_pickups.clone()));
         world.insert_resource(save.chests.clone());
+        world.insert_resource(save.weapon_rack.clone());
         world.insert_resource(
             *save
                 .dungeons
@@ -1057,6 +1069,7 @@ pub(crate) fn reset_session(world: &mut World) {
     } else {
         let stock = world.resource::<Placements>().stock();
         world.insert_resource(stock);
+        world.insert_resource(WeaponRackStorage::<ItemKind>::default());
         world.insert_resource(CollectedPickups::default());
         world.insert_resource(DungeonProgress::default());
     }
@@ -1066,6 +1079,7 @@ pub(crate) fn reset_session(world: &mut World) {
     world.insert_resource(Nearby::default());
     world.insert_resource(LootTarget::default());
     world.insert_resource(ActiveChest::default());
+    world.insert_resource(ActiveRack::default());
     world.insert_resource(InventoryNotice::default());
     world.insert_resource(SaveNotice::default());
     world.insert_resource(ExperienceNotice::default());
@@ -1220,6 +1234,7 @@ mod tests {
         world.init_resource::<RespawnClock>();
 
         world.insert_resource(crate::content::test_placements().stock());
+        world.init_resource::<WeaponRackStorage>();
         world.init_resource::<CollectedPickups>();
         world.insert_resource(crate::content::test_placements().clone());
         world.init_resource::<DungeonProgress>();
@@ -1315,7 +1330,7 @@ mod tests {
         let file = dir.path();
         let before = fs::read(&file).expect("read game-written save");
         let data = crate::save_inspector::inspect(Some(&file)).expect("inspect game save");
-        assert_eq!(data["format_version"], 14);
+        assert_eq!(data["format_version"], 15);
         assert_eq!(data["player_name"], "Test Player");
         assert!(data["journal"]["progress"].get("last_light").is_some());
         assert_eq!(data["encounters"]["relay_roach"]["actor"]["health"], 0);
@@ -1325,6 +1340,7 @@ mod tests {
             "progression",
             "experience",
             "chests",
+            "weapon_rack",
             "dungeons",
             "pickups",
             "collected_pickups",
@@ -1347,7 +1363,7 @@ mod tests {
 
     #[test]
     fn inspector_game_fixture_loads_with_current_catalogs_and_quest_journal() {
-        let file = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/inspector-v14.save");
+        let file = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/inspector-v15.save");
         let before = fs::read(&file).expect("read fixture");
         crate::save_inspector::inspect(Some(&file)).expect("inspect fixture");
         let mut save = read_save(&file).expect("decode inspected fixture");
@@ -2048,18 +2064,18 @@ mod tests {
         let dir = TestDirectory::new();
         fs::write(
             dir.path(),
-            include_bytes!("../tests/fixtures/inspector-v13.save"),
+            include_bytes!("../tests/fixtures/inspector-v14.save"),
         )
         .expect("write previous version fixture");
         assert!(
             read_save(&dir.path()).is_err(),
-            "v13 saves must be rejected"
+            "v14 saves must be rejected"
         );
         fs::remove_file(dir.path()).expect("remove previous version test fixture");
         let (mut world, bed, _, _) = bed_world(dir.path());
         interact_with(&mut world, bed);
         let mut bytes = fs::read(dir.path()).expect("first save");
-        bytes[4] = 13;
+        bytes[4] = 14;
         fs::write(dir.path(), bytes).expect("write unsupported version");
         assert!(
             read_save(&dir.path())
