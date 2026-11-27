@@ -1,6 +1,6 @@
 # The Plutonian
 
-A third-person exploration RPG game set on a fictional Pluto.
+A third-person exploration RPG set on a fictional Pluto.
 You wake in a tent in Nivalis, a small settlement whose crossing beacon has gone dark.
 Speak to Nemi, follow the blue waystones to the cavern, and bring its power core home.
 The story follows the beacon's return, an abandoned relay, and a crossing caravan facing a strange threat.
