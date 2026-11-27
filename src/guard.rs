@@ -19,7 +19,7 @@ use crate::{
         ActorVisual, NpcGait, PLAYER_COLLIDER_LENGTH, PLAYER_COLLIDER_RADIUS, PLAYER_GROUND_OFFSET,
         Pace, Player, bind_actor_animation,
     },
-    save::{EncounterId, save_at_bed},
+    save::EncounterId,
     terrain::ground_heading,
     weapon::{self, Hand, WeaponAttack, WeaponStance},
     world::{SessionEntity, SpawnWorld, WorldLayout},
@@ -113,7 +113,7 @@ impl Plugin for GuardPlugin {
                 Update,
                 (react_to_player_hit, resolve_armed_loot)
                     .after(CombatSystems::Resolve)
-                    .before(save_at_bed)
+                    .before(crate::save::BedSaveSet)
                     .run_if(in_state(GameState::Playing)),
             );
     }

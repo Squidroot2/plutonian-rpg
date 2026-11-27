@@ -4,6 +4,7 @@ use super::{
     inventory::{pointer_click, walk},
 };
 use crate::{
+    GameState,
     camera::{FollowCamera, Orbit},
     combat::{Dead, Hit},
     combat_feedback::DeathAnimation,
@@ -17,7 +18,7 @@ use crate::{
     player::PlayerWrite,
     player::{Dodge, NpcGait, PLAYER_GROUND_OFFSET, Player},
     quest::{CONTAIN_THE_HUSHCAPS, QuestAction, QuestJournal},
-    save::{Bed, EncounterId, RunSave, SaveAtBed},
+    save::{Bed, EncounterId, RunSave},
     terrain::walkable_height,
     ui::death_screen::ContinueAfterDeath,
 };
@@ -50,6 +51,11 @@ pub(super) enum Check {
     LookoutView,
     LookoutPhoto(Entity),
     Save,
+    WaitCasualty,
+    ChooseArrivalSave,
+    WaitArrivalSave,
+    ChooseDefeatSave,
+    WaitDefeatSave,
     Defeat,
     Restored(Entity),
 }
@@ -229,10 +235,11 @@ pub(super) fn drive(
     mut keys: ResMut<ButtonInput<KeyCode>>,
     mut orbit: ResMut<Orbit>,
     dialogue: Res<Dialogue>,
+    state: Res<State<GameState>>,
+    mut next: ResMut<NextState<GameState>>,
     run: Res<RunSave>,
     fixtures: Fixtures,
     mut hits: MessageWriter<Hit>,
-    mut saves: MessageWriter<SaveAtBed>,
     mut commands: SmokeCommands,
     mut exit: MessageWriter<AppExit>,
 ) {
@@ -283,7 +290,7 @@ pub(super) fn drive(
             &mut keys,
             &mut orbit,
             &mut hits,
-            &mut saves,
+            &mut next,
             &mut commands,
         ),
         Check::Speak if controller.grounded => {
@@ -343,9 +350,22 @@ pub(super) fn drive(
             );
         }
         Check::Save => {
-            save_with_casualty(&fixtures, entity, &mut hits, &mut saves);
-            *check = Check::Defeat;
+            save_with_casualty(&fixtures, entity, &mut hits);
+            *check = Check::WaitCasualty;
         }
+        Check::WaitCasualty
+            if fixtures
+                .villagers
+                .iter()
+                .any(|(_, id, _, dead, _)| *id == NpcId::Isera && dead) =>
+        {
+            next.set(GameState::SleepMenu);
+            *check = Check::ChooseDefeatSave;
+        }
+        Check::ChooseArrivalSave
+        | Check::WaitArrivalSave
+        | Check::ChooseDefeatSave
+        | Check::WaitDefeatSave => drive_sleep_menu(&mut check, &state, &run, &mut keys),
         Check::Defeat if run.checkpoint().is_some() => {
             hits.write(Hit {
                 source: entity,
@@ -358,6 +378,36 @@ pub(super) fn drive(
         Check::Restored(original) if original != entity && !fixtures.caravans.is_empty() => {
             check_restored(&fixtures, gate, &journal, &inventory);
             exit.write(AppExit::Success);
+        }
+        _ => {}
+    }
+}
+
+fn drive_sleep_menu(
+    check: &mut Check,
+    state: &State<GameState>,
+    run: &RunSave,
+    keys: &mut ButtonInput<KeyCode>,
+) {
+    match *check {
+        Check::ChooseArrivalSave | Check::ChooseDefeatSave
+            if *state.get() == GameState::SleepMenu =>
+        {
+            keys.press(KeyCode::Enter);
+            *check = if matches!(*check, Check::ChooseArrivalSave) {
+                Check::WaitArrivalSave
+            } else {
+                Check::WaitDefeatSave
+            };
+        }
+        Check::WaitArrivalSave | Check::WaitDefeatSave
+            if *state.get() == GameState::Playing && run.checkpoint().is_some() =>
+        {
+            *check = if matches!(*check, Check::WaitArrivalSave) {
+                Check::Settling(ArrivalWatch::default())
+            } else {
+                Check::Defeat
+            };
         }
         _ => {}
     }
@@ -376,7 +426,7 @@ fn check_homecoming(
     keys: &mut ButtonInput<KeyCode>,
     orbit: &mut Orbit,
     hits: &mut MessageWriter<Hit>,
-    saves: &mut MessageWriter<SaveAtBed>,
+    next: &mut NextState<GameState>,
     commands: &mut SmokeCommands,
 ) {
     match *check {
@@ -389,13 +439,6 @@ fn check_homecoming(
                 );
             }
             assert!(inventory.add(ItemKind::Mycelium, 5));
-            // Capture a real checkpoint while the homeward routes are active.
-            saves.write(SaveAtBed(
-                fixtures
-                    .beds
-                    .single()
-                    .expect("the player’s cot saves the run"),
-            ));
             at(
                 fixtures,
                 player,
@@ -406,7 +449,8 @@ fn check_homecoming(
             );
             orbit.yaw = 0.45;
             orbit.pitch = 0.15;
-            *check = Check::Settling(ArrivalWatch::default());
+            next.set(GameState::SleepMenu);
+            *check = Check::ChooseArrivalSave;
         }
         Check::Settling(mut watch) => {
             observe_arrival(fixtures, &mut watch, commands);
@@ -596,12 +640,7 @@ fn check_village_rooms(fixtures: &Fixtures, player: Entity, capsule: &Collider) 
     }
 }
 
-fn save_with_casualty(
-    fixtures: &Fixtures,
-    player: Entity,
-    hits: &mut MessageWriter<Hit>,
-    saves: &mut MessageWriter<SaveAtBed>,
-) {
+fn save_with_casualty(fixtures: &Fixtures, player: Entity, hits: &mut MessageWriter<Hit>) {
     let (villager, _, health, dead, _) = fixtures
         .villagers
         .iter()
@@ -615,9 +654,10 @@ fn save_with_casualty(
         damage: u16::MAX,
         contact: None,
     });
-    saves.write(SaveAtBed(
-        fixtures.beds.single().expect("the cot is available"),
-    ));
+    fixtures
+        .beds
+        .single()
+        .expect("the cot is available for the sleep menu");
 }
 
 fn walk_flats(

@@ -194,7 +194,12 @@ impl Plugin for SmokePlugin {
                         .after(InputSystems)
                         .before(crate::player::input)
                         .before(crate::ui::pause)
-                        .run_if(in_state(GameState::Playing)),
+                        .run_if(|state: Res<State<GameState>>| {
+                            matches!(
+                                state.get(),
+                                GameState::Playing | GameState::SleepMenu | GameState::Sleeping
+                            )
+                        }),
                 );
         } else if self.cave {
             app.init_resource::<cave::CaveCheck>()
@@ -238,7 +243,11 @@ impl Plugin for SmokePlugin {
                     .run_if(|state: Res<State<GameState>>| {
                         matches!(
                             state.get(),
-                            GameState::Playing | GameState::Looting | GameState::Storage
+                            GameState::Playing
+                                | GameState::Looting
+                                | GameState::Storage
+                                | GameState::SleepMenu
+                                | GameState::Sleeping
                         )
                     }),
             );

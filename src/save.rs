@@ -56,6 +56,15 @@ pub(crate) struct Bed;
 /// entity; the save system checks that it has the [`Bed`] component.
 pub(crate) struct SaveAtBed(pub(crate) Entity);
 
+#[derive(Message)]
+pub(crate) struct SleepWithoutSaving(pub(crate) Entity);
+
+#[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) struct BedSaveSet;
+
+#[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) struct SleepEffectsSet;
+
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum EncounterId {
     Guard(GuardPost),
@@ -812,6 +821,10 @@ fn select_save_directory(
     smoke.or(override_directory).or_else(default)
 }
 
+fn playing_or_sleeping(state: Res<State<GameState>>) -> bool {
+    matches!(state.get(), GameState::Playing | GameState::Sleeping)
+}
+
 impl Plugin for SavePlugin {
     fn build(&self, app: &mut App) {
         let smoke_directory = self
@@ -828,7 +841,9 @@ impl Plugin for SavePlugin {
             .init_resource::<CollectedPickups>()
             .init_resource::<RunSave>()
             .init_resource::<RespawnClock>()
+            .add_message::<SaveAtBed>()
             .add_message::<RenewArea>()
+            .add_message::<SleepWithoutSaving>()
             .init_resource::<SaveNotice>()
             .add_systems(OnEnter(GameState::Loading), reset_session)
             .add_systems(
@@ -845,8 +860,6 @@ impl Plugin for SavePlugin {
                     record_disposable_deaths,
                     age_notice,
                     request_game_over,
-                    save_at_bed,
-                    crate::content::renew_encounters,
                 )
                     .chain()
                     .after(InteractionSystems)
@@ -855,6 +868,33 @@ impl Plugin for SavePlugin {
                     .after(nemi::react_to_player_hit)
                     .after(guard::react_to_player_hit)
                     .run_if(in_state(GameState::Playing)),
+            )
+            .add_systems(
+                Update,
+                save_at_bed
+                    .in_set(BedSaveSet)
+                    .after(InteractionSystems)
+                    .after(CombatSystems::Resolve)
+                    .after(ExperienceUpdates)
+                    .after(nemi::react_to_player_hit)
+                    .after(guard::react_to_player_hit)
+                    .after(request_game_over)
+                    .after(crate::ui::sleep::SleepFadeSet)
+                    .run_if(playing_or_sleeping),
+            )
+            .add_systems(
+                Update,
+                sleep_without_saving
+                    .in_set(SleepEffectsSet)
+                    .after(crate::ui::sleep::SleepFadeSet)
+                    .run_if(in_state(GameState::Sleeping)),
+            )
+            .add_systems(
+                Update,
+                crate::content::renew_encounters
+                    .after(BedSaveSet)
+                    .after(SleepEffectsSet)
+                    .run_if(playing_or_sleeping),
             );
     }
 }
@@ -931,15 +971,7 @@ pub(crate) fn save_at_bed(
     if player.area != Area::Surface {
         return;
     }
-    let mut next_clock = clock.clone();
-    next_clock.day = next_clock.day.saturating_add(1);
-    let due: Vec<_> = [Area::Surface, Area::OldRelay]
-        .into_iter()
-        .filter(|&area| next_clock.due(area))
-        .collect();
-    for &area in &due {
-        *next_clock.last_kill_mut(area) = None;
-    }
+    let (next_clock, due) = next_sleep_clock(&clock);
     let snapshot = Snapshot {
         player_name: name.0.clone(),
         journal: journal.snapshot(),
@@ -1018,11 +1050,13 @@ pub(crate) fn save_at_bed(
     };
     let text = match slot.save(snapshot, &mut run) {
         Ok(()) => {
-            *clock = next_clock;
-            for area in due {
-                renewals.write(RenewArea(area));
-            }
-            player_health.restore();
+            commit_sleep_effects(
+                &mut clock,
+                next_clock,
+                due,
+                &mut renewals,
+                &mut player_health,
+            );
             "Game saved."
         }
         Err(error) => {
@@ -1032,6 +1066,58 @@ pub(crate) fn save_at_bed(
     };
     *notice = SaveNotice {
         text: Some(text),
+        remaining: 2.0,
+    };
+}
+
+fn next_sleep_clock(clock: &RespawnClock) -> (RespawnClock, Vec<Area>) {
+    let mut next = clock.clone();
+    next.day = next.day.saturating_add(1);
+    let due: Vec<_> = [Area::Surface, Area::OldRelay]
+        .into_iter()
+        .filter(|&area| next.due(area))
+        .collect();
+    for &area in &due {
+        *next.last_kill_mut(area) = None;
+    }
+    (next, due)
+}
+
+fn commit_sleep_effects(
+    clock: &mut RespawnClock,
+    next: RespawnClock,
+    due: Vec<Area>,
+    renewals: &mut MessageWriter<RenewArea>,
+    health: &mut Health,
+) {
+    *clock = next;
+    for area in due {
+        renewals.write(RenewArea(area));
+    }
+    health.restore();
+}
+
+fn sleep_without_saving(
+    mut requests: MessageReader<SleepWithoutSaving>,
+    beds: Query<(), With<Bed>>,
+    mut player: Query<(&Player, &mut Health), (Without<Dead>, Without<Nemi>, Without<EncounterId>)>,
+    mut clock: ResMut<RespawnClock>,
+    mut renewals: MessageWriter<RenewArea>,
+    mut notice: ResMut<SaveNotice>,
+) {
+    let Some(_request) = requests.read().find(|request| beds.contains(request.0)) else {
+        return;
+    };
+    let Ok((player, mut health)) = player.single_mut() else {
+        return;
+    };
+    if player.area != Area::Surface {
+        return;
+    }
+    let (next, due) = next_sleep_clock(&clock);
+    commit_sleep_effects(&mut clock, next, due, &mut renewals, &mut health);
+    *notice = SaveNotice {
+        text: Some("A new day dawns."),
         remaining: 2.0,
     };
 }
@@ -1230,6 +1316,7 @@ mod tests {
         world.init_resource::<SaveNotice>();
         world.init_resource::<NextState<GameState>>();
         world.init_resource::<Messages<SaveAtBed>>();
+        world.init_resource::<Messages<SleepWithoutSaving>>();
         world.init_resource::<Messages<RenewArea>>();
         world.init_resource::<RespawnClock>();
 
@@ -1314,6 +1401,64 @@ mod tests {
             .expect("sleep saved");
         assert_eq!(snapshot.world.day, 6);
         assert_eq!(snapshot.world.surface_last_kill, None);
+    }
+
+    #[test]
+    fn sleep_without_saving_advances_clock_heals_and_renews_without_checkpoint() {
+        let dir = TestDirectory::new();
+        let (mut world, bed, player, _) = bed_world(dir.path());
+        interact_with(&mut world, bed);
+        let saved_day = world
+            .resource::<RunSave>()
+            .checkpoint()
+            .expect("save before sleep-only choice")
+            .world
+            .day;
+        let files_before = fs::read_dir(&dir.0).expect("save directory").count();
+        {
+            let mut clock = world.resource_mut::<RespawnClock>();
+            clock.day = 5;
+            clock.surface_last_kill = Some(0);
+            clock.relay_last_kill = Some(4);
+        }
+        world
+            .get_mut::<Health>(player)
+            .expect("player health")
+            .set_current(1);
+        let mut renewals = world.resource::<Messages<RenewArea>>().get_cursor_current();
+        world.write_message(SleepWithoutSaving(bed));
+        world
+            .run_system_once(sleep_without_saving)
+            .expect("sleep without saving system");
+
+        let clock = world.resource::<RespawnClock>();
+        assert_eq!(clock.day, 6);
+        assert_eq!(clock.surface_last_kill, None);
+        assert_eq!(clock.relay_last_kill, Some(4));
+        let emitted: Vec<_> = renewals
+            .read(world.resource::<Messages<RenewArea>>())
+            .map(|renewal| renewal.0)
+            .collect();
+        assert_eq!(emitted, [Area::Surface]);
+        let health = world.get::<Health>(player).expect("restored player health");
+        assert_eq!(health.current(), health.maximum());
+        assert_eq!(
+            world
+                .resource::<RunSave>()
+                .checkpoint()
+                .expect("sleep-only must preserve checkpoint")
+                .world
+                .day,
+            saved_day
+        );
+        assert_eq!(
+            world.resource::<SaveNotice>().text,
+            Some("A new day dawns.")
+        );
+        assert_eq!(
+            fs::read_dir(&dir.0).expect("save directory").count(),
+            files_before
+        );
     }
 
     fn interact_with(world: &mut World, entity: Entity) {

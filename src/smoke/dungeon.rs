@@ -252,6 +252,7 @@ pub(super) enum WorldCheck {
     Revisited,
     Recover,
     SaveAtBed,
+    ChooseBedSave,
     ChangeAfterSave,
     ProvokeGuards,
     GuardFight {
@@ -545,10 +546,10 @@ fn check_world_phase(frame: WorldFrame) {
         | WorldCheck::CloseMycelium
         | WorldCheck::ClearArchiveCover => fight_hushcap(frame),
         WorldCheck::Reenter | WorldCheck::Revisited => check_relay_revisit(frame),
-        WorldCheck::Recover
-        | WorldCheck::SaveAtBed
-        | WorldCheck::ChangeAfterSave
-        | WorldCheck::SavedRespawn(..) => check_bed_rollback(frame),
+        WorldCheck::SaveAtBed | WorldCheck::ChooseBedSave => drive_bed_menu(frame),
+        WorldCheck::Recover | WorldCheck::ChangeAfterSave | WorldCheck::SavedRespawn(..) => {
+            check_bed_rollback(frame)
+        }
         WorldCheck::ProvokeGuards | WorldCheck::GuardFight { .. } => check_guard_retaliation(frame),
     }
 }
@@ -1993,13 +1994,30 @@ fn check_relay_revisit(frame: WorldFrame) {
     }
 }
 
+fn drive_bed_menu(mut frame: WorldFrame) {
+    match *frame.phase {
+        WorldCheck::SaveAtBed
+            if frame.controller.grounded
+                && matches!(frame.nearby.0, Some((_, InteractionTarget::Bed))) =>
+        {
+            frame.keys.press(KeyCode::KeyE);
+            *frame.phase = WorldCheck::ChooseBedSave;
+        }
+        WorldCheck::ChooseBedSave if *frame.state.get() == GameState::SleepMenu => {
+            frame.keys.press(KeyCode::Enter);
+            *frame.phase = WorldCheck::ChangeAfterSave;
+        }
+        _ => {}
+    }
+}
+
 fn check_bed_rollback(frame: WorldFrame) {
     let WorldFrame {
         run,
+        state,
         mut phase,
         quest,
         inventory,
-        nearby,
         checkpoint,
         progress,
         roaches,
@@ -2007,7 +2025,6 @@ fn check_bed_rollback(frame: WorldFrame) {
         storage,
         rack,
         guard_smoke,
-        mut keys,
         mut commands,
         mut exit,
         entity,
@@ -2050,13 +2067,9 @@ fn check_bed_rollback(frame: WorldFrame) {
                 .insert(AttributeRanks::default().with_rank(AttributeId::Vitality, SAVED_VITALITY));
             *phase = WorldCheck::SaveAtBed;
         }
-        WorldCheck::SaveAtBed
-            if controller.grounded && matches!(nearby.0, Some((_, InteractionTarget::Bed))) =>
+        WorldCheck::ChangeAfterSave
+            if *state.get() == GameState::Playing && checkpoint.checkpoint().is_some() =>
         {
-            keys.press(KeyCode::KeyE);
-            *phase = WorldCheck::ChangeAfterSave;
-        }
-        WorldCheck::ChangeAfterSave => {
             assert!(
                 checkpoint.checkpoint().is_some(),
                 "the cot must write the checkpoint"

@@ -5,6 +5,7 @@ pub(crate) mod loot_ui;
 pub(crate) mod menu_ui;
 pub(crate) mod quest_ui;
 pub(crate) mod settings;
+pub(crate) mod sleep;
 pub(crate) mod storage_ui;
 pub(crate) mod title;
 
@@ -22,7 +23,7 @@ use crate::{
     loading::LoadStatus,
     player::{Player, Stamina},
     quest::QuestJournal,
-    save::{SaveNotice, SaveSlot, save_at_bed},
+    save::{SaveNotice, SaveSlot},
     ui::menu_ui::PlayerMenu,
     ui::{settings::SettingsMenu, title::picker::SavePicker},
     world::WorldLayout,
@@ -131,6 +132,7 @@ impl Plugin for GameUiPlugin {
         app.add_plugins((
             dialogue_ui::DialogueUiPlugin,
             death_screen::DeathScreenPlugin,
+            sleep::SleepPlugin,
         ))
         .add_systems(Startup, setup)
         .init_resource::<PauseSelection>()
@@ -146,9 +148,9 @@ impl Plugin for GameUiPlugin {
         .add_systems(
             Update,
             (
-                (refresh_hud, refresh_status_bars).after(save_at_bed),
+                (refresh_hud, refresh_status_bars).after(crate::save::BedSaveSet),
                 refresh_compass,
-                refresh_prompt.after(save_at_bed),
+                refresh_prompt.after(crate::save::BedSaveSet),
                 refresh_experience_notice.after(ExperienceUpdates),
                 refresh_pause,
                 (select_hovered_pause_button, style_pause_buttons).chain(),
@@ -360,10 +362,9 @@ fn pause_menu_input(
         return;
     }
 
-    if bindings.just_pressed(Control::MenuUp, &keys) {
-        selection.0 = next_action(selection.0, -1);
-    } else if bindings.just_pressed(Control::MenuDown, &keys) {
-        selection.0 = next_action(selection.0, 1);
+    let direction = menu_ui::menu_direction(&bindings, &keys);
+    if direction != 0 {
+        selection.0 = next_action(selection.0, direction);
     }
     if keys.any_just_pressed([KeyCode::Enter, KeyCode::NumpadEnter]) {
         activate(
@@ -739,7 +740,7 @@ fn refresh_prompt(
                     InteractionTarget::Chest(chest) => format!("Open {}", chest.name()),
                     InteractionTarget::WeaponRack => "Open Weapon rack".into(),
                     InteractionTarget::SampleStation => "Verify Mycelium samples".into(),
-                    InteractionTarget::Bed => "Save game".into(),
+                    InteractionTarget::Bed => "Sleep".into(),
                     InteractionTarget::Dungeon(target) => match target {
                         DungeonTarget::Hatch if !quest.beacon_powered() => {
                             "Inspect the sealed hatch".into()
