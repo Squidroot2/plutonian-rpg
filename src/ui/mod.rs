@@ -367,7 +367,7 @@ fn buttons(
     state: Res<State<GameState>>,
     mut settings: ResMut<SettingsMenu>,
     mut picker: ResMut<SavePicker>,
-    slot: Res<SaveSlot>,
+    mut slot: ResMut<SaveSlot>,
     mut next: ResMut<NextState<GameState>>,
     mut exit: MessageWriter<AppExit>,
 ) {
@@ -380,8 +380,15 @@ fn buttons(
     if let Ok(action) = query.get(click.entity) {
         match action {
             Action::Resume => next.set(GameState::Playing),
-            Action::Load if slot.available() => picker.open(),
-            Action::Load => {}
+            Action::Load => {
+                // Refresh from disk before the availability gate so a
+                // save created during this run (e.g. at the bed) is seen
+                // even though the title screen's snapshot is stale.
+                slot.refresh();
+                if slot.available() {
+                    picker.open();
+                }
+            }
             Action::Settings => settings.open(),
             Action::Quit => {
                 exit.write(AppExit::Success);
@@ -639,22 +646,47 @@ mod tests {
     use bevy::{state::app::StatesPlugin, time::TimeUpdateStrategy};
     use std::time::Duration;
 
+    struct SaveDirGuard(std::path::PathBuf);
+
+    impl SaveDirGuard {
+        fn new(label: &str) -> Self {
+            static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+            let count = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let nanos = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos();
+            let dir = std::env::temp_dir().join(format!(
+                "plutonian-ui-{label}-{}-{nanos}-{count}",
+                std::process::id()
+            ));
+            std::fs::create_dir_all(&dir).expect("create test save directory");
+            Self(dir)
+        }
+
+        fn copy_fixture_save(&self, name: &str) {
+            let source = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/fixtures/inspector-v14.save");
+            std::fs::copy(&source, self.0.join(name)).expect("copy fixture save");
+        }
+    }
+
+    impl Drop for SaveDirGuard {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
     #[test]
     fn pause_load_button_opens_the_save_picker_when_a_save_exists() {
+        let dir = SaveDirGuard::new("pause-existing");
+        dir.copy_fixture_save("existing.save");
         let mut app = App::new();
         app.add_plugins((MinimalPlugins, StatesPlugin))
             .insert_state(GameState::Paused)
             .init_resource::<SettingsMenu>()
             .init_resource::<SavePicker>()
-            .insert_resource({
-                let mut slot = SaveSlot::default();
-                slot.entries.push(crate::save::SaveEntry {
-                    path: std::path::PathBuf::from("save.save"),
-                    name: Some("Nemi".into()),
-                    modified: None,
-                });
-                slot
-            })
+            .insert_resource(SaveSlot::open(Some(dir.0.clone())))
             .add_message::<AppExit>()
             .add_observer(buttons);
         let button = app.world_mut().spawn(Action::Load).id();
@@ -665,6 +697,48 @@ mod tests {
             .trigger(crate::interaction::pointer_click(button, window, camera));
 
         assert!(app.world().resource::<SavePicker>().is_open());
+        assert_eq!(app.world().resource::<SaveSlot>().entries.len(), 1);
+    }
+
+    #[test]
+    fn pause_load_button_opens_picker_for_save_created_during_run() {
+        let dir = SaveDirGuard::new("pause-regression");
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, StatesPlugin))
+            .insert_state(GameState::Paused)
+            .init_resource::<SettingsMenu>()
+            .init_resource::<SavePicker>()
+            .insert_resource(SaveSlot::open(Some(dir.0.clone())))
+            .add_message::<AppExit>()
+            .add_observer(buttons);
+        assert!(
+            !app.world().resource::<SaveSlot>().available(),
+            "launch starts with no saves"
+        );
+        dir.copy_fixture_save("bed-save.save");
+        assert!(
+            app.world().resource::<SaveSlot>().entries.is_empty(),
+            "the title snapshot stays stale until the pause Load click refreshes"
+        );
+        let button = app.world_mut().spawn(Action::Load).id();
+        let window = app.world_mut().spawn_empty().id();
+        let camera = app.world_mut().spawn_empty().id();
+
+        app.world_mut()
+            .trigger(crate::interaction::pointer_click(button, window, camera));
+
+        assert!(app.world().resource::<SavePicker>().is_open());
+        let entries = &app.world().resource::<SaveSlot>().entries;
+        assert_eq!(entries.len(), 1, "the bed save must be listed");
+        assert_eq!(
+            entries[0].path,
+            dir.0.join("bed-save.save"),
+            "the picker must list the save created during the run"
+        );
+        assert!(
+            entries[0].name.is_some(),
+            "the fixture save must be readable through refresh"
+        );
     }
 
     #[test]

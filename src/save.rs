@@ -421,7 +421,7 @@ impl SaveSlot {
     }
 
     #[cfg(test)]
-    fn open(directory: Option<PathBuf>) -> Self {
+    pub(crate) fn open(directory: Option<PathBuf>) -> Self {
         let mut slot = Self::new(directory);
         slot.refresh();
         slot
