@@ -107,6 +107,16 @@ The Gear chest contains a field helmet.
 You can store the beacon core, but take it back before handing it to Nemi.
 Unequip gear before moving it from your backpack into storage.
 
+## Weapon rack
+
+Press E near the weapon rack in the Barracks to open it.
+The rack holds two weapons, one per slot,
+and racked weapons are visible in the rack.
+Use **Store 1** for a backpack weapon and **Take 1** to take a racked weapon back.
+Only weapons fit in the rack,
+and a third weapon cannot be added while both slots are full.
+Racked weapons are included in bed saves.
+
 ## Equipment and combat
 
 Equipment slots start empty.

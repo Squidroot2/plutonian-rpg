@@ -8,7 +8,7 @@ use std::{
     time::{Duration, UNIX_EPOCH},
 };
 
-const SAVE: &[u8] = include_bytes!("../../../tests/fixtures/inspector-v14.save");
+const SAVE: &[u8] = include_bytes!("../../../tests/fixtures/inspector-v15.save");
 
 struct TestDirectory(PathBuf);
 impl TestDirectory {
@@ -117,7 +117,7 @@ fn real_game_save_reports_text_and_json_without_changing_any_files() {
     assert!(json.status.success());
     let report = String::from_utf8(text.stdout).expect("text is UTF-8");
     let data: serde_json::Value = serde_json::from_slice(&json.stdout).expect("JSON report");
-    assert_eq!(data["format_version"], 14);
+    assert_eq!(data["format_version"], 15);
     assert_eq!(data["player_name"], "Smoke");
     assert!(report.contains("Smoke") && report.contains("last_light") && report.contains("health"));
     assert!(data["journal"]["progress"].get("last_light").is_some());
@@ -316,6 +316,6 @@ fn schema_subcommand_describes_the_inspection_document() {
 
     let fixture: serde_json::Value =
         serde_json::from_str(GOLDEN_JSON).expect("golden fixture is JSON");
-    assert_eq!(fixture["format_version"], 14);
+    assert_eq!(fixture["format_version"], 15);
     assert!(fixture["format_version"].is_i64());
 }

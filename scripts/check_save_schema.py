@@ -63,7 +63,7 @@ def main():
             raise ValueError("schema accepted an unknown nested progression property")
         print("Schema rejects unknown top-level and nested properties and incorrect field types")
 
-        saved_game = ROOT / "tests" / "fixtures" / "inspector-v14.save"
+        saved_game = ROOT / "tests" / "fixtures" / "inspector-v15.save"
         inspected = subprocess.run(
             [args.binary, "inspect", "--json", saved_game],
             check=True,
