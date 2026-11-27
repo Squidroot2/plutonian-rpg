@@ -1,8 +1,113 @@
 """Run with blender --background -noaudio --factory-startup --python scripts/assets.py -- [--export]."""
+import sys
+
+# Handle --list early, before importing bpy (which is only available in Blender)
+if '--list' in sys.argv:
+    # Minimal imports for --list (no bpy, no mathutils)
+    import sys as _sys
+    from pathlib import Path as _Path
+
+    _ROOT = _Path(__file__).resolve().parents[1]
+    _sys.path.insert(0, str(_ROOT / "scripts"))
+
+    # Constants duplicated from modules (no bpy import)
+    CROSSING_MODELS = ['listening_flats', 'listening_flats_collision', 'nivalis_gate', 'vellik', 'crossing_wagon']
+    MEAT_NAMES = ['worm_meat', 'roach_meat']
+    SPEAR_NAMES = ['field_spear', 'trident']
+    SHORTSWORD_NAME = 'shortsword'
+    GEAR_NAMES = [
+        'field_armor', 'reinforced_armor', 'field_helmet', 'reinforced_helmet',
+        *SPEAR_NAMES, SHORTSWORD_NAME,
+    ]
+    SOUTH_BASIN_MODELS = ['south_basin', 'south_basin_collision']
+
+    class AssetEntry:
+        def __init__(
+            self,
+            *,
+            flag: str,
+            names: list[str],
+            builder=None,
+            export_equipment: bool = False,
+            built_by: str | None = None,
+            export_only: bool = False,
+        ):
+            self.flag = flag
+            self.names = names
+            self.builder = builder
+            self.export_equipment = export_equipment
+            self.built_by = built_by
+            self.export_only = export_only
+
+        def builds(self) -> bool:
+            return self.builder is not None
+
+    ASSET_REGISTRY: list[AssetEntry] = [
+        AssetEntry(flag='--character', names=['plutonian'], builder=True),
+        AssetEntry(flag='--world', names=['outpost', 'collision'], builder=True),
+        AssetEntry(flag='--core', names=['core'], builder=True),
+        AssetEntry(flag='--items', names=['battery', 'scrap', 'methane_pouch'], builder=True),
+        AssetEntry(flag='--meat', names=MEAT_NAMES, builder=True),
+        AssetEntry(flag='--boulder', names=['large_boulder'], builder=True),
+        AssetEntry(flag='--equipment', names=GEAR_NAMES, builder=True, export_equipment=True),
+        AssetEntry(flag='--dummy', names=['practice_dummy'], builder=True),
+        AssetEntry(flag='--worm', names=['ice_worm'], builder=True),
+        AssetEntry(flag='--roach', names=['relay_roach'], builder=True),
+        AssetEntry(flag='--hushcap', names=['hushcap', 'mycelium'], builder=True),
+        AssetEntry(flag='--relay', names=['old_relay', 'old_relay_collision'], builder=True),
+        AssetEntry(flag='--south-basin', names=SOUTH_BASIN_MODELS, builder=True),
+        AssetEntry(flag='--crossing', names=CROSSING_MODELS, builder=True),
+        AssetEntry(flag='--wagon', names=['crossing_wagon'], builder=True),
+        AssetEntry(flag='--spear', names=['plutonian', *SPEAR_NAMES, 'practice_dummy'], builder=True),
+        AssetEntry(flag='--shortsword', names=['plutonian', SHORTSWORD_NAME], builder=True),
+        AssetEntry(flag='--locomotion', names=['plutonian'], builder=True),
+        AssetEntry(flag='--plutonian-death', names=['plutonian'], builder=True),
+        AssetEntry(flag='--pillars', names=['collision'], builder=True),
+        AssetEntry(flag='--ground', names=['outpost', 'collision'], builder=True),
+        AssetEntry(flag='--build-village', names=['outpost', 'collision'], builder=True),
+        AssetEntry(flag='--build-perimeter', names=['outpost', 'collision'], builder=True),
+        AssetEntry(flag='--build-crossing', names=CROSSING_MODELS, builder=True),
+        AssetEntry(flag='--build-wagon', names=['crossing_wagon'], builder=True),
+        AssetEntry(flag='--build-outpost', names=['outpost', 'collision'], builder=True),
+    ]
+
+    for entry in ASSET_REGISTRY:
+        status = []
+        if entry.builds():
+            status.append('builder')
+        if entry.export_equipment:
+            status.append('equipment-export')
+        if entry.built_by:
+            status.append(f'built-by:{entry.built_by}')
+        if entry.export_only:
+            status.append('export-only')
+        status_str = f' [{", ".join(status)}]' if status else ''
+        names_str = ', '.join(entry.names)
+        print(f'{entry.flag:20} {names_str}{status_str}')
+    _sys.exit(0)
+
+# Early flag validation for unknown flags (before importing bpy)
+# Collect all known flags from the registry
+_KNOWN_FLAGS = {
+    '--character', '--world', '--core', '--items', '--meat', '--boulder',
+    '--equipment', '--dummy', '--worm', '--roach', '--hushcap', '--relay',
+    '--south-basin', '--crossing', '--wagon', '--spear', '--shortsword',
+    '--locomotion', '--plutonian-death', '--pillars', '--ground',
+    '--build-village', '--build-perimeter', '--build-crossing', '--build-wagon',
+    '--build-outpost', '--export', '--list', '--outpost', '--hushcap', '--relay',
+    '--south-basin', '--crossing', '--wagon', '--shortsword',
+}
+# Check for unknown flags early
+_argv = [a for a in sys.argv if a.startswith('--') and a != '--']
+_unknown = [a for a in _argv if a not in _KNOWN_FLAGS]
+if _unknown:
+    print(f'Unknown flag(s): {", ".join(_unknown)}', file=sys.stderr)
+    sys.exit(1)
+
+# Normal Blender imports
 import bpy
 import math
 import random
-import sys
 import json
 import struct
 from pathlib import Path
@@ -14,8 +119,176 @@ from grounding import ground_outpost
 import perimeter
 import crossing
 import village
+from asset_helpers import (
+    material, finish, ico, box, cone, save_export, export,
+)
 random.seed(19)
 
+
+# ──────────────────────────────────────────────────────────────────────
+# Asset registry — single source of truth for wiring
+# ──────────────────────────────────────────────────────────────────────
+
+class AssetEntry:
+    """One registry entry describing a buildable or export-only asset."""
+
+    def __init__(
+        self,
+        *,
+        flag: str,
+        names: list[str],
+        builder=None,
+        export_equipment: bool = False,
+        built_by: str | None = None,
+        export_only: bool = False,
+    ):
+        """
+        Args:
+            flag: Command-line flag that selects this asset (e.g. ``--worm``).
+            names: Exported GLB names (also ``.blend`` sources under ``art/``).
+            builder: Zero-argument callable that builds the asset from scratch.
+                If ``None``, the asset is export-only (re-exports an existing
+                ``.blend``) or is built by another entry's builder.
+            export_equipment: If true, export uses ``export_equipment`` which
+                produces both ``_worn.glb`` and base-origin pickup GLBs.
+            built_by: Flag of another entry whose builder also builds this asset.
+            export_only: If true, the asset has no builder and is only exported.
+        """
+        self.flag = flag
+        self.names = names
+        self.builder = builder
+        self.export_equipment = export_equipment
+        self.built_by = built_by
+        self.export_only = export_only
+
+    def builds(self) -> bool:
+        return self.builder is not None
+
+
+# Constant name lists published by modules
+from crossing import MODELS as CROSSING_MODELS
+from village import SOLID as VILLAGE_SOLID  # noqa: F401  (used in collision_from_world)
+from perimeter import SOLID_PREFIX as PERIMETER_SOLID_PREFIX  # noqa: F401
+
+# Local constant lists
+MEAT_NAMES = ['worm_meat', 'roach_meat']
+SPEAR_NAMES = ['field_spear', 'trident']
+SHORTSWORD_NAME = 'shortsword'
+GEAR_NAMES = [
+    'field_armor', 'reinforced_armor', 'field_helmet', 'reinforced_helmet',
+    *SPEAR_NAMES, SHORTSWORD_NAME,
+]
+SOUTH_BASIN_MODELS = ['south_basin', 'south_basin_collision']
+
+
+# Forward-declare builders so the registry can reference them
+def character(): ...
+def world(): ...
+def collision_from_world(): ...
+def core(): ...
+def items(): ...
+def meat_pickups(): ...
+def large_boulder(): ...
+def equipment(): ...
+def practice_dummy(): ...
+def ice_worm(): ...
+def relay_roach(): ...
+def hushcap(): ...
+def mycelium(): ...
+def old_relay(): ...
+def south_basin(): ...
+def build_crossing(): ...
+def build_wagon(): ...
+def spear_assets(): ...
+def shortsword_model(): ...
+def add_directional_walks(rig): ...
+def add_spear_locomotion(rig, bases): ...
+def add_sword_locomotion(rig, bases): ...
+def add_plutonian_death(rig): ...
+def rebuild_village(): ...
+def rebuild_perimeter(): ...
+def build_outpost(): ...
+def add_pillar_collision(): ...
+
+
+# The registry — order matters where builders have dependencies.
+# Equipment derives attachment frames from the character rig, so character
+# must come before equipment. South Basin and Crossing assets are independent.
+ASSET_REGISTRY: list[AssetEntry] = [
+    AssetEntry(flag='--character', names=['plutonian'], builder=character),
+    AssetEntry(flag='--world', names=['outpost', 'collision'], builder=world),
+    AssetEntry(flag='--core', names=['core'], builder=core),
+    AssetEntry(flag='--items', names=['battery', 'scrap', 'methane_pouch'], builder=items),
+    AssetEntry(flag='--meat', names=MEAT_NAMES, builder=meat_pickups),
+    AssetEntry(flag='--boulder', names=['large_boulder'], builder=large_boulder),
+    AssetEntry(flag='--equipment', names=GEAR_NAMES, builder=equipment, export_equipment=True),
+    AssetEntry(flag='--dummy', names=['practice_dummy'], builder=practice_dummy),
+    AssetEntry(flag='--worm', names=['ice_worm'], builder=ice_worm),
+    AssetEntry(flag='--roach', names=['relay_roach'], builder=relay_roach),
+    AssetEntry(flag='--hushcap', names=['hushcap', 'mycelium'], builder=hushcap),  # hushcap() also calls mycelium()
+    AssetEntry(flag='--relay', names=['old_relay', 'old_relay_collision'], builder=old_relay),
+    AssetEntry(flag='--south-basin', names=SOUTH_BASIN_MODELS, builder=south_basin),
+    AssetEntry(flag='--crossing', names=CROSSING_MODELS, builder=build_crossing),
+    AssetEntry(flag='--wagon', names=['crossing_wagon'], builder=build_wagon),
+    AssetEntry(flag='--spear', names=['plutonian', *SPEAR_NAMES, 'practice_dummy'], builder=spear_assets),
+    AssetEntry(flag='--shortsword', names=['plutonian', SHORTSWORD_NAME], builder=shortsword_model),
+    AssetEntry(flag='--locomotion', names=['plutonian'], builder=lambda: _build_locomotion()),
+    AssetEntry(flag='--plutonian-death', names=['plutonian'], builder=lambda: _build_plutonian_death()),
+    AssetEntry(flag='--pillars', names=['collision'], builder=add_pillar_collision),
+    AssetEntry(flag='--ground', names=['outpost', 'collision'], builder=lambda: _build_ground()),
+    AssetEntry(flag='--build-village', names=['outpost', 'collision'], builder=rebuild_village),
+    AssetEntry(flag='--build-perimeter', names=['outpost', 'collision'], builder=rebuild_perimeter),
+    AssetEntry(flag='--build-crossing', names=CROSSING_MODELS, builder=lambda: (rebuild_perimeter(), build_crossing())),
+    AssetEntry(flag='--build-wagon', names=['crossing_wagon'], builder=build_wagon),
+    AssetEntry(flag='--build-outpost', names=['outpost', 'collision'], builder=build_outpost),
+]
+
+
+def _build_locomotion():
+    bpy.context.preferences.filepaths.save_version = 0
+    bpy.context.preferences.filepaths.file_preview_type = 'NONE'
+    bpy.ops.wm.open_mainfile(filepath=str(ROOT / 'art/plutonian.blend'))
+    rig = next(obj for obj in bpy.context.scene.objects if obj.type == 'ARMATURE')
+    add_directional_walks(rig)
+    add_spear_locomotion(rig, DIRECTIONAL_WALKS)
+    add_sword_locomotion(rig, DIRECTIONAL_WALKS)
+    save_export('plutonian')
+
+
+def _build_plutonian_death():
+    bpy.context.preferences.filepaths.save_version = 0
+    bpy.context.preferences.filepaths.file_preview_type = 'NONE'
+    bpy.ops.wm.open_mainfile(filepath=str(ROOT / 'art/plutonian.blend'))
+    rig = next(obj for obj in bpy.context.scene.objects if obj.type == 'ARMATURE')
+    add_plutonian_death(rig)
+    save_export('plutonian')
+
+
+def _build_ground():
+    bpy.context.preferences.filepaths.save_version = 0
+    bpy.context.preferences.filepaths.file_preview_type = 'NONE'
+    bpy.ops.wm.open_mainfile(filepath=str(ROOT / 'art/outpost.blend'))
+    changes = ground_outpost()
+    save_export('outpost')
+    bpy.ops.wm.open_mainfile(filepath=str(ROOT / 'art/collision.blend'))
+    for obj in bpy.context.scene.objects:
+        if obj.name in changes:
+            matrix = obj.matrix_world.copy()
+            matrix.translation.z += changes[obj.name]
+            obj.matrix_world = matrix
+    bpy.context.view_layer.update()
+    save_export('collision')
+
+
+def build_outpost():
+    """Full procedural outpost + collision build."""
+    world()
+    collision_from_world()
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Helpers
+# ──────────────────────────────────────────────────────────────────────
 
 def reset():
     bpy.ops.wm.read_factory_settings(use_empty=True)
@@ -25,54 +298,9 @@ def reset():
     bpy.context.scene.render.fps = 24
 
 
-def material(name, color, emission=0, metal=0):
-    m = bpy.data.materials.new(name)
-    m.diffuse_color = (*color, 1)
-    m.use_nodes = True
-    p = m.node_tree.nodes.get('Principled BSDF')
-    p.inputs['Base Color'].default_value = (*color, 1)
-    p.inputs['Roughness'].default_value = .65
-    p.inputs['Metallic'].default_value = metal
-    p.inputs['Emission Color'].default_value = (*color, 1)
-    p.inputs['Emission Strength'].default_value = emission
-    return m
-
-
-def finish(name, mat, scale):
-    o = bpy.context.object
-    o.name = name
-    o.scale = scale
-    bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
-    if mat:
-        o.data.materials.append(mat)
-    return o
-
-
-def ico(name, pos, scale, mat, subdivisions=1):
-    bpy.ops.mesh.primitive_ico_sphere_add(subdivisions=subdivisions, radius=1, location=pos)
-    return finish(name, mat, scale)
-
-
-def box(name, pos, scale, mat):
-    bpy.ops.mesh.primitive_cube_add(size=1, location=pos)
-    return finish(name, mat, scale)
-
-
-def cone(name, pos, radius, depth, mat, top=0):
-    bpy.ops.mesh.primitive_cone_add(vertices=8, radius1=radius, radius2=top, depth=depth, location=pos)
-    return finish(name, mat, (1, 1, 1))
-
-
-def save_export(name):
-    bpy.ops.wm.save_as_mainfile(filepath=str(ROOT / 'art' / f'{name}.blend'))
-    export(name)
-
-
-def export(name):
-    bpy.ops.export_scene.gltf(filepath=str(ROOT / 'assets/models' / f'{name}.glb'),
-        export_format='GLB', export_animations=True, export_animation_mode='ACTIONS',
-        export_force_sampling=True, export_yup=True, export_lights=False, export_cameras=False)
-
+# ──────────────────────────────────────────────────────────────────────
+# Character & animation (unchanged logic, now using asset_helpers)
+# ──────────────────────────────────────────────────────────────────────
 
 def character():
     reset()
@@ -509,6 +737,10 @@ def add_spear_animations(rig):
     reset_character_pose(rig)
 
 
+# ──────────────────────────────────────────────────────────────────────
+# World & outpost
+# ──────────────────────────────────────────────────────────────────────
+
 TENT_SOLID = 'Starting tent solid '
 
 
@@ -844,6 +1076,10 @@ def rebuild_perimeter():
     save_export('collision')
 
 
+# ──────────────────────────────────────────────────────────────────────
+# Crossing (Listening Flats, Gate, Vellik, Wagon)
+# ──────────────────────────────────────────────────────────────────────
+
 def build_crossing():
     reset()
     crossing.flats(material, box, ico)
@@ -874,6 +1110,10 @@ def build_wagon():
     save_export('crossing_wagon')
 
 
+# ──────────────────────────────────────────────────────────────────────
+# Collision helpers
+# ──────────────────────────────────────────────────────────────────────
+
 def add_pillar_collision():
     """Add missing pillar bodies without replacing existing authored collision meshes."""
     bpy.context.preferences.filepaths.save_version = 0
@@ -890,6 +1130,10 @@ def add_pillar_collision():
     print(f'Added {len(target.objects)} pillar collision meshes')
     save_export('collision')
 
+
+# ──────────────────────────────────────────────────────────────────────
+# Core & items
+# ──────────────────────────────────────────────────────────────────────
 
 def core():
     reset()
@@ -933,9 +1177,6 @@ def items():
         save_export(name)
 
 
-MEAT_NAMES = ['worm_meat', 'roach_meat']
-
-
 def meat_pickups():
     reset()
     flesh = material('Worm flesh', (.32, .09, .20))
@@ -964,11 +1205,9 @@ def large_boulder():
     save_export('large_boulder')
 
 
-SPEAR_NAMES = ['field_spear', 'trident']
-SHORTSWORD_NAME = 'shortsword'
-GEAR_NAMES = ['field_armor', 'reinforced_armor', 'field_helmet', 'reinforced_helmet',
-              *SPEAR_NAMES, SHORTSWORD_NAME]
-
+# ──────────────────────────────────────────────────────────────────────
+# Equipment
+# ──────────────────────────────────────────────────────────────────────
 
 def attachment_frames(bones=('spine', 'head', 'spear_grip')):
     """Read the exported rig's actual rest frames; do not guess Blender bone axis conversion."""
@@ -1157,6 +1396,10 @@ def shortsword_model():
     export_equipment(SHORTSWORD_NAME)
 
 
+# ──────────────────────────────────────────────────────────────────────
+# Enemies
+# ──────────────────────────────────────────────────────────────────────
+
 def practice_dummy():
     reset()
     stand = material('Training stand alloy', (.055,.12,.16), metal=.58)
@@ -1222,8 +1465,8 @@ def ice_worm():
     skin(ico('Recessed throat', (0, -.743, .05), (.235, .045, .215), dark, 2), 'Head')
     skin(ico('Inner mouth glow', (0, -.781, .05), (.108, .024, .100), mouth, 2), 'Head')
     bpy.ops.mesh.primitive_torus_add(major_segments=16, minor_segments=6, major_radius=.22,
-                                    minor_radius=.045, location=(0,-.783,.05),
-                                    rotation=(math.pi/2,0,0))
+                                     minor_radius=.045, location=(0,-.783,.05),
+                                     rotation=(math.pi/2,0,0))
     skin(finish('Luminous jaws', mouth, (1, 1, 1)), 'Head')
     for index in range(8):
         angle = index * math.tau / 8
@@ -1262,13 +1505,12 @@ def ice_worm():
                     bone.rotation_euler.z = collapse*(.72+index*.08)
                 bone.keyframe_insert('location', frame=frame, group=bone.name)
                 bone.keyframe_insert('rotation_euler', frame=frame, group=bone.name)
-    rig.animation_data.action = None
+        rig.animation_data.action = None
     scene.frame_set(0)
     for bone in rig.pose.bones:
         bone.matrix_basis = Matrix.Identity(4)
     bpy.context.view_layer.update()
     save_export('ice_worm')
-
 
 
 def relay_roach():
@@ -1331,7 +1573,7 @@ def relay_roach():
                     bone.rotation_euler.y = math.pi * frame / frames
                 bone.keyframe_insert('location', frame=frame, group=bone.name)
                 bone.keyframe_insert('rotation_euler', frame=frame, group=bone.name)
-    rig.animation_data.action = None
+        rig.animation_data.action = None
     scene.frame_set(0)
     for bone in rig.pose.bones:
         bone.matrix_basis = Matrix.Identity(4)
@@ -1498,6 +1740,10 @@ def mycelium():
     save_export('mycelium')
 
 
+# ──────────────────────────────────────────────────────────────────────
+# Old Relay
+# ──────────────────────────────────────────────────────────────────────
+
 def old_relay():
     reset()
     rock = material('Relay basalt', (.092, .148, .19))
@@ -1615,8 +1861,9 @@ def old_relay():
     save_export('old_relay_collision')
 
 
-SOUTH_BASIN_MODELS = ['south_basin', 'south_basin_collision']
-
+# ──────────────────────────────────────────────────────────────────────
+# South Basin
+# ──────────────────────────────────────────────────────────────────────
 
 def south_basin_mesh(name, sections, materials, cap_start=True, cap_end=True):
     """Join cross sections ordered around the perimeter in Bevy X/Y/Z coordinates."""
@@ -1676,7 +1923,7 @@ def south_basin_exterior(ice, frost, rock, rng):
         (-21, 66, 3.7, 7.0, 4.2), (4, 83, 8.0, 4.0, 5.9),
         (25, 83, 7.1, 4.4, 6.6),
     ]:
-        rock_fin = ico('South Basin ice fin', (x, -1.3, -z), (width, depth, height), frost, 2)
+        rock_fin = ico('South Basin ice fin', (x, -z, -z), (width, depth, height), frost, 2)
         rock_fin.rotation_euler.y = rng.uniform(-.4, .4)
         solids.add(rock_fin.name)
     return solids
@@ -1877,6 +2124,10 @@ def south_basin():
     save_export(collision_name)
 
 
+# ──────────────────────────────────────────────────────────────────────
+# Spear & shortsword asset bundles
+# ──────────────────────────────────────────────────────────────────────
+
 def spear_assets():
     bpy.context.preferences.filepaths.save_version = 0
     bpy.context.preferences.filepaths.file_preview_type = 'NONE'
@@ -1890,119 +2141,96 @@ def spear_assets():
     practice_dummy()
 
 
-if '--south-basin' in sys.argv and '--export' not in sys.argv:
-    south_basin()
-elif '--relay' in sys.argv and '--export' not in sys.argv:
-    old_relay()
-elif '--hushcap' in sys.argv and '--export' not in sys.argv:
-    hushcap()
-    mycelium()
-elif '--roach' in sys.argv:
-    relay_roach()
-elif '--worm' in sys.argv:
-    ice_worm()
-elif '--spear' in sys.argv:
-    spear_assets()
-elif '--shortsword' in sys.argv and '--export' not in sys.argv:
-    bpy.context.preferences.filepaths.save_version = 0
-    bpy.context.preferences.filepaths.file_preview_type = 'NONE'
-    bpy.ops.wm.open_mainfile(filepath=str(ROOT / 'art/plutonian.blend'))
-    rig = next(obj for obj in bpy.context.scene.objects if obj.type == 'ARMATURE')
-    add_sword_animations(rig)
-    save_export('plutonian')
-    shortsword_model()
-elif '--locomotion' in sys.argv:
-    bpy.context.preferences.filepaths.save_version = 0
-    bpy.context.preferences.filepaths.file_preview_type = 'NONE'
-    bpy.ops.wm.open_mainfile(filepath=str(ROOT / 'art/plutonian.blend'))
-    rig = next(obj for obj in bpy.context.scene.objects if obj.type == 'ARMATURE')
-    add_directional_walks(rig)
-    add_spear_locomotion(rig, DIRECTIONAL_WALKS)
-    add_sword_locomotion(rig, DIRECTIONAL_WALKS)
-    save_export('plutonian')
-elif '--equipment' in sys.argv:
-    equipment()
-elif '--pillars' in sys.argv:
-    add_pillar_collision()
-elif '--boulder' in sys.argv:
-    large_boulder()
-elif '--meat' in sys.argv:
-    meat_pickups()
-elif '--items' in sys.argv:
-    items()
-elif '--build-wagon' in sys.argv:
-    build_wagon()
-elif '--build-crossing' in sys.argv:
-    rebuild_perimeter()
-    build_crossing()
-elif '--build-perimeter' in sys.argv:
-    rebuild_perimeter()
-elif '--build-village' in sys.argv:
-    rebuild_village()
-elif '--build-outpost' in sys.argv:
-    world()
-    collision_from_world()
-elif '--ground' in sys.argv:
-    # Repair existing sources without replacing authored meshes or materials.
-    bpy.context.preferences.filepaths.save_version = 0
-    bpy.context.preferences.filepaths.file_preview_type = 'NONE'
-    bpy.ops.wm.open_mainfile(filepath=str(ROOT / 'art/outpost.blend'))
-    changes = ground_outpost()
-    save_export('outpost')
-    bpy.ops.wm.open_mainfile(filepath=str(ROOT / 'art/collision.blend'))
-    for obj in bpy.context.scene.objects:
-        if obj.name in changes:
-            matrix = obj.matrix_world.copy()
-            matrix.translation.z += changes[obj.name]
-            obj.matrix_world = matrix
-    bpy.context.view_layer.update()
-    save_export('collision')
-elif '--export' in sys.argv and '--plutonian-death' in sys.argv:
-    bpy.context.preferences.filepaths.save_version = 0
-    bpy.context.preferences.filepaths.file_preview_type = 'NONE'
-    bpy.ops.wm.open_mainfile(filepath=str(ROOT / 'art/plutonian.blend'))
-    rig = next(obj for obj in bpy.context.scene.objects if obj.type == 'ARMATURE')
-    add_plutonian_death(rig)
-    save_export('plutonian')
-elif '--export' in sys.argv:
-    names = ['outpost', 'collision'] if '--outpost' in sys.argv else [
-        'plutonian', 'outpost', 'collision', 'core', 'battery', 'scrap', 'methane_pouch',
-        'large_boulder', 'practice_dummy', 'ice_worm', 'relay_roach', 'hushcap', 'mycelium', 'old_relay',
-        'old_relay_collision', *SOUTH_BASIN_MODELS, *crossing.MODELS, *MEAT_NAMES, *GEAR_NAMES,
-    ]
-    if '--shortsword' in sys.argv:
-        names = ['plutonian', SHORTSWORD_NAME]
-    elif '--hushcap' in sys.argv:
-        names = ['hushcap', 'mycelium']
-    elif '--relay' in sys.argv:
-        names = ['old_relay', 'old_relay_collision']
-    elif '--south-basin' in sys.argv:
-        names = SOUTH_BASIN_MODELS
-    elif '--crossing' in sys.argv:
-        names = crossing.MODELS
-    elif '--wagon' in sys.argv:
-        names = ['crossing_wagon']
+# ──────────────────────────────────────────────────────────────────────
+# Dispatch & CLI
+# ──────────────────────────────────────────────────────────────────────
+
+def print_registry():
+    """Print the asset registry for inspection (``--list``)."""
+    for entry in ASSET_REGISTRY:
+        status = []
+        if entry.builds():
+            status.append('builder')
+        if entry.export_equipment:
+            status.append('equipment-export')
+        if entry.built_by:
+            status.append(f'built-by:{entry.built_by}')
+        if entry.export_only:
+            status.append('export-only')
+        status_str = f' [{", ".join(status)}]' if status else ''
+        names_str = ', '.join(entry.names)
+        print(f'{entry.flag:20} {names_str}{status_str}')
+
+
+def export_registered(names: list[str], export_equipment_names: set[str]):
+    """Export a list of registered asset names."""
     for name in names:
         bpy.ops.wm.open_mainfile(filepath=str(ROOT/'art'/f'{name}.blend'))
-        if name in GEAR_NAMES:
+        if name in export_equipment_names:
             export_equipment(name)
         else:
             export(name)
-else:
-    character()
-    world()
-    collision_from_world()
-    core()
-    items()
-    meat_pickups()
-    large_boulder()
-    equipment()
-    practice_dummy()
-    ice_worm()
-    relay_roach()
-    hushcap()
-    mycelium()
-    old_relay()
-    south_basin()
-    build_crossing()
+
+
+def main():
+    argv = sys.argv
+
+    # Handle --list first (doesn't need Blender scene work)
+    if '--list' in argv:
+        print_registry()
+        return
+
+    # Handle --export (may be combined with a specific flag)
+    if '--export' in argv:
+        # Collect all export names from registry in declared order
+        all_names = []
+        equipment_names = set()
+        for entry in ASSET_REGISTRY:
+            all_names.extend(entry.names)
+            if entry.export_equipment:
+                equipment_names.update(entry.names)
+
+        # Filter by specific flag if provided
+        specific_flags = [f for f in argv if f.startswith('--') and f not in ('--export', '--list')]
+        if specific_flags:
+            # Allow multiple specific flags
+            filtered_names = []
+            filtered_equipment = set()
+            for flag in specific_flags:
+                entry = next((e for e in ASSET_REGISTRY if e.flag == flag), None)
+                if entry is None:
+                    sys.exit(f'Unknown flag: {flag}')
+                filtered_names.extend(entry.names)
+                if entry.export_equipment:
+                    filtered_equipment.update(entry.names)
+            export_registered(filtered_names, filtered_equipment)
+        else:
+            export_registered(all_names, equipment_names)
+        return
+
+    # Build mode: exactly one builder flag expected (or none for full rebuild)
+    builder_flags = [f for f in argv if f.startswith('--')]
+    if len(builder_flags) == 0:
+        # Full rebuild — run every builder in registry order
+        for entry in ASSET_REGISTRY:
+            if entry.builds():
+                entry.builder()
+        return
+
+    if len(builder_flags) > 1:
+        sys.exit(f'Only one build flag allowed at a time, got: {", ".join(builder_flags)}')
+
+    flag = builder_flags[0]
+    entry = next((e for e in ASSET_REGISTRY if e.flag == flag), None)
+    if entry is None:
+        sys.exit(f'Unknown flag: {flag}')
+
+    if not entry.builds():
+        sys.exit(f'Flag {flag} does not have a builder (export-only or built by another entry)')
+
+    entry.builder()
+
+
+if __name__ == '__main__':
+    main()
 print('Exported Plutonian RPG assets')

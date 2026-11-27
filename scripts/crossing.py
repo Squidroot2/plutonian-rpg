@@ -7,6 +7,7 @@ import bpy
 from mathutils import Vector
 
 import perimeter
+from asset_helpers import material, box, ico
 
 MODELS = ['listening_flats', 'listening_flats_collision', 'nivalis_gate', 'vellik', 'crossing_wagon']
 RIM = [
@@ -17,13 +18,13 @@ RIM = [
 FLOOR = -1.46
 
 
-def block(box, name, at, size, mat):
+def block(name, at, size, mat):
     x, y, z = at
     width, height, depth = size
     return box(name, (x, -z, y), (width, depth, height), mat)
 
 
-def flats(material, box, ico):
+def flats():
     ice = material('Worn graphite ice', (.081, .146, .211), metal=.22)
     basalt = material('Crossing basalt', (.053, .068, .105))
     frost = material('Crossing frost', (.145, .224, .295))
@@ -55,9 +56,9 @@ def flats(material, box, ico):
         normal = road_normal(road, j)
         for side in (-1, 1):
             dx, dz = normal * side*3.4
-            block(box, 'Flats solid Crossing waystone', (x+dx, FLOOR+.58, z+dz),
+            block('Flats solid Crossing waystone', (x+dx, FLOOR+.58, z+dz),
                   (.56, 1.2, .56), basalt)
-            block(box, 'Crossing waystone glass', (x+dx, FLOOR+1.2, z+dz), (.28, .24, .28), pale)
+            block('Crossing waystone glass', (x+dx, FLOOR+1.2, z+dz), (.28, .24, .28), pale)
     for x, z, sx, sz, height in [
         (-69, 50, 5, 4, 3.0), (-80, 57, 6, 4, 4.1), (-84, 81, 8, 5, 4.6),
         (-71, 85, 5, 4, 3.4), (-103, 58, 8, 8, 6.0), (-111, 68, 6, 4, 3.4),
@@ -68,8 +69,8 @@ def flats(material, box, ico):
                     rng.choice([ice, frost, basalt]), 1)
         shard.rotation_euler.y = rng.uniform(-.2, .2)
 
-    cairn(box, ico, basalt, bronze, pale)
-    overlook(basalt, frost, box)
+    cairn(basalt, bronze, pale)
+    overlook(basalt, frost)
 
 
 def road_normal(road, index):
@@ -88,21 +89,21 @@ def road_mesh(road, material, name='Polished wagon track'):
     perimeter.mesh(name, vertices, faces, [material])
 
 
-def cairn(box, ico, basalt, bronze, pale):
+def cairn(basalt, bronze, pale):
     for i in range(5):
         radius = 2.05-i*.27
         ico('Flats solid Bell cairn', (-101, -86, FLOOR+.22+i*.40),
             (radius, radius*.85, .44), basalt, 1)
     for x in (-102.2, -99.8):
-        block(box, 'Flats solid Bell frame post', (x, FLOOR+1.65, 85.3), (.26, 3.3, .26), bronze)
-    block(box, 'Flats solid Bell frame bar', (-101, FLOOR+3.3, 85.3), (2.7, .21, .25), bronze)
+        block('Flats solid Bell frame post', (x, FLOOR+1.65, 85.3), (.26, 3.3, .26), bronze)
+    block('Flats solid Bell frame bar', (-101, FLOOR+3.3, 85.3), (2.7, .21, .25), bronze)
     for i, x in enumerate((-101.78, -101.25, -100.70, -100.15)):
-        block(box, 'Wagon bell tether', (x, FLOOR+3.03, 85.3), (.045, .55, .045), bronze)
+        block('Wagon bell tether', (x, FLOOR+3.03, 85.3), (.045, .55, .045), bronze)
         ico('Hanging wagon bell', (x, -85.3, FLOOR+2.73-(i%2)*.16), (.18, .17, .22), bronze, 1)
-    block(box, 'Cairn lamp', (-101, FLOOR+2.10, 86.6), (.28, .27, .28), pale)
+    block('Cairn lamp', (-101, FLOOR+2.10, 86.6), (.28, .27, .28), pale)
 
 
-def overlook(basalt, frost, box):
+def overlook(basalt, frost):
     # A broad grade and raised viewing terrace on the west branch.
     sections = [(-112, 91, FLOOR-.05, 3), (-115, 83, 2.4, 4),
                 (-117, 77, 6.3, 4), (-117, 72, 9.4, 4), (-117, 67, 9.45, 4)]
@@ -116,7 +117,7 @@ def overlook(basalt, frost, box):
     faces.append((n-4,n-2,n-1,n-3))
     perimeter.mesh('Flats solid Charon overlook', vertices, faces, [frost])
     for x in (-120.2, -113.8):
-        block(box, 'Flats solid Overlook pillars', (x, 10.43, 67.5), (.64, 2.0, .7), basalt)
+        block('Flats solid Overlook pillars', (x, 10.43, 67.5), (.64, 2.0, .7), basalt)
 
 
 def local_parent(name, at, parent=None):
@@ -127,7 +128,7 @@ def local_parent(name, at, parent=None):
     return obj
 
 
-def vellik(material, box, ico):
+def vellik():
     slate = material('Vellik slate shell', (.115, .199, .276), metal=.22)
     frost = material('Vellik raised shell', (.199, .285, .316), metal=.17)
     hide = material('Vellik dark hide', (.072, .085, .117))
@@ -169,7 +170,7 @@ def vellik(material, box, ico):
         strap.rotation_euler.x = .23
 
 
-def wagon(material, box, ico):
+def wagon():
     alloy = material('Salvaged Relay alloy', (.105, .183, .222), metal=.55)
     tread = material('Cleated graphite alloy', (.062, .09, .119), metal=.34)
     shell = material('Fired basalt ceramic', (.182, .262, .309), metal=.10)
@@ -179,13 +180,13 @@ def wagon(material, box, ico):
     marker = material('Crossing marker glass', (.12, .68, .72), emission=1.25)
     amber = material('Wagon lantern glass', (1.0, .49, .15), emission=3.4)
 
-    wagon_chassis(box, alloy, shell, enamel, marker, amber)
-    wagon_canopy(box, alloy, cloth, seams)
+    wagon_chassis(alloy, shell, enamel, marker, amber)
+    wagon_canopy(alloy, cloth, seams)
     for i, y in enumerate((-1.19, 1.19)):
         box('Reinforced wagon axle', (0, y, .63), (2.94, .20, .19), alloy)
         for side, label in [(-1, 'L'), (1, 'R')]:
             wheel = local_parent(f'Wagon Wheel {label}{i}', (side*1.47, y, .63))
-            wagon_wheel(box, wheel, side, alloy, tread, enamel)
+            wagon_wheel(wheel, side, alloy, tread, enamel)
 
     for x in (-.52, .52):
         box('Alloy draught rail', (x, -2.61, 1.09), (.14, 2.26, .115), alloy)
@@ -195,7 +196,7 @@ def wagon(material, box, ico):
     pack.rotation_euler.z = -.18
 
 
-def wagon_chassis(box, alloy, shell, enamel, marker, amber):
+def wagon_chassis(alloy, shell, enamel, marker, amber):
     box('Pressed alloy underframe', (0, 0, 1.01), (2.20, 3.63, .24), alloy)
     box('Fired ceramic cargo deck', (0, 0, 1.16), (2.25, 3.63, .105), shell)
 
@@ -227,7 +228,7 @@ def wagon_chassis(box, alloy, shell, enamel, marker, amber):
                 (.15, .035, .22), amber if outward > 0 else marker)
 
 
-def wagon_canopy(box, alloy, cloth, seam):
+def wagon_canopy(alloy, cloth, seam):
     # Tension the same basalt fibre as the Plutonian cloaks over a folded alloy frame.
     profile = [(-1.17, 1.88), (-1.13, 2.45), (-.66, 2.87),
                (.66, 2.87), (1.13, 2.45), (1.17, 1.88)]
@@ -247,7 +248,7 @@ def wagon_canopy(box, alloy, cloth, seam):
             rib.rotation_euler = delta.to_track_quat('Z', 'Y').to_euler()
 
 
-def wagon_wheel(box, wheel, side, alloy, tread, enamel):
+def wagon_wheel(wheel, side, alloy, tread, enamel):
     # Wheel geometry stays local to its original pivot so Bevy can still roll it.
     for name, x, radius, depth, sides, mat in [
         ('Forged wheel disc', 0, .53, .16, 12, alloy),
