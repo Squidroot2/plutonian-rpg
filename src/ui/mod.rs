@@ -646,9 +646,20 @@ mod tests {
     use bevy::{state::app::StatesPlugin, time::TimeUpdateStrategy};
     use std::time::Duration;
 
+    /// Owns a unique temporary save directory for one pause-menu test.
+    ///
+    /// `SaveSlot` discovers saves by listing this directory, so the tests
+    /// must use a real on-disk directory to exercise the refresh path
+    /// instead of hand-filling entries. Keep the guard alive for the whole
+    /// test; dropping it removes the directory.
     struct SaveDirGuard(std::path::PathBuf);
 
     impl SaveDirGuard {
+        /// Create a fresh, uniquely named empty save directory.
+        ///
+        /// The label only namespaces the path; uniqueness comes from the
+        /// process id, current time, and a per-process counter so parallel
+        /// tests never share a directory.
         fn new(label: &str) -> Self {
             static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
             let count = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -664,6 +675,13 @@ mod tests {
             Self(dir)
         }
 
+        /// Copy a valid current-format save into the directory.
+        ///
+        /// The copy lets `SaveSlot::refresh` read a real player name, so
+        /// the test exercises the same disk-to-picker path as a bed save
+        /// created during the run. Call it before `SaveSlot::open` to
+        /// model a save that exists at launch, or afterwards to model a
+        /// save created after the title snapshot.
         fn copy_fixture_save(&self, name: &str) {
             let source = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
                 .join("tests/fixtures/inspector-v14.save");
