@@ -5,6 +5,8 @@ import random
 
 import bpy
 from mathutils import Vector
+from asset_helpers import material, box
+
 
 SOLID_PREFIX = 'Perimeter solid '
 TRIM_PREFIX = 'Perimeter trim '
@@ -131,11 +133,11 @@ def cave_collar(materials):
 def gate(box, materials):
     ceramic, alloy, amber = materials
 
-    def part(name, at, size, material, solid=True):
+    def part(name, at, size, mat, solid=True):
         x, y, z = at
         width, height, depth = size
         return box((SOLID_PREFIX if solid else TRIM_PREFIX) + name,
-                   (x, -z, y), (width, depth, height), material)
+                   (x, -z, y), (width, depth, height), mat)
 
     center = -30
     for side, label in [(-1, 'west'), (1, 'east')]:
@@ -180,7 +182,7 @@ def clear():
             bpy.data.materials.remove(mat)
 
 
-def build(material, box):
+def build():
     clear()
     rock = material('Rim basalt', (.045, .060, .088))
     ice = material('Rim blue ice', (.079, .137, .197), metal=.25)
