@@ -63,6 +63,9 @@ jobs:
       - name: Check assets
         run: cargo run --locked -p plutonian-assets
 
+      - name: Validate gameplay catalogs
+        run: cargo run --locked -p plutonian-validate
+
       - name: Build
         run: cargo build --locked
 

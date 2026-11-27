@@ -177,6 +177,59 @@ pub(crate) fn read_save_catalogs(root: &std::path::Path) -> io::Result<(Items, P
     Ok((items, placements))
 }
 
+/// Read and validate every authored gameplay catalog beneath `root` without booting Bevy.
+pub fn validate_data_root(root: &std::path::Path) -> Result<(), String> {
+    fn read<T: Catalog>(root: &std::path::Path) -> Result<T, String> {
+        let relative = T::PATH
+            .strip_prefix("data://")
+            .expect("catalog uses the data asset source");
+        read_ron(root.join(relative)).map_err(|error| error.to_string())
+    }
+
+    fn validate<T>(
+        path: &str,
+        result: Result<T, String>,
+        validate: impl FnOnce(&T) -> Result<(), String>,
+    ) -> Result<T, String> {
+        let catalog = result.map_err(|error| format!("{path}: {error}"))?;
+        validate(&catalog).map_err(|error| format!("{path}: {error}"))?;
+        println!("Validated {path}");
+        Ok(catalog)
+    }
+
+    // Keep these four checks in sync with `validate_catalogs`; this path adds per-file reporting.
+    let items: Items = validate("items/catalog.item.ron", read(root), |catalog: &Items| {
+        catalog.validate()
+    })?;
+    let enemies: Enemies = validate(
+        "enemies/catalog.enemy.ron",
+        read(root),
+        |catalog: &Enemies| catalog.validate(&items),
+    )?;
+    validate(
+        "world/catalog.placement.ron",
+        read(root),
+        |catalog: &Placements| catalog.validate(&items, &enemies),
+    )?;
+    validate("npcs/catalog.npc.ron", read(root), |catalog: &Npcs| {
+        catalog.validate(&items)
+    })?;
+
+    let dialogue_path = "dialogue/catalog.dialogue.ron";
+    let dialogue: crate::dialogue::DialogueCatalog =
+        read_ron(root.join(dialogue_path)).map_err(|error| format!("{dialogue_path}: {error}"))?;
+    dialogue
+        .validate_content()
+        .map_err(|error| format!("{dialogue_path}: {error}"))?;
+    println!("Validated {dialogue_path}");
+
+    let quest_path = "quests/catalog.quest.ron";
+    let _: crate::quest::QuestCatalog =
+        read_ron(root.join(quest_path)).map_err(|error| format!("{quest_path}: {error}"))?;
+    println!("Validated {quest_path}");
+    Ok(())
+}
+
 pub(crate) fn read_ron<T: serde::de::DeserializeOwned>(path: std::path::PathBuf) -> io::Result<T> {
     let read = || ron::de::from_bytes(&std::fs::read(&path)?).map_err(io::Error::other);
     read().map_err(|error: io::Error| {
@@ -193,6 +246,7 @@ fn validate_catalogs(
     placements: &Placements,
     npcs: &Npcs,
 ) -> Result<(), String> {
+    // Keep this list in sync with `validate_data_root`, which reports each catalog separately.
     items.validate()?;
     enemies.validate(items)?;
     placements.validate(items, enemies)?;

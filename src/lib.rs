@@ -13,6 +13,7 @@ mod combat;
 mod combat_audio;
 mod combat_feedback;
 mod content;
+pub use content::validate_data_root;
 mod controls;
 mod crossing;
 mod dialogue;

@@ -101,7 +101,7 @@ impl DialogueCatalog {
             .expect("dialogue loading must validate every required notice ID")
     }
 
-    fn validate_content(&self) -> Result<(), String> {
+    pub(crate) fn validate_content(&self) -> Result<(), String> {
         validate_lines(&self.notices, "notices")?;
         let mut profiles = BTreeSet::new();
         for profile in &self.profiles {
