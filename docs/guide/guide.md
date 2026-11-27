@@ -54,7 +54,8 @@ Use the hatch in the vestibule to return to Nivalis.
 After restoring the beacon and reading the survey log,
 ask Nemi about the creature in the archive to learn about Hushcaps.
 If Nemi is unavailable, the survey log gives the warning.
-Head south from the outpost into South Basin and follow the ridge to Hushcap Caverns.
+Head south from the outpost toward the lone glowing mushroom in South Basin,
+and follow the bend behind the ridge to Hushcap Caverns.
 Defeat five distinct cavern Hushcaps after **Contain the Hushcaps** begins.
 The fifth credited defeat raises the southwest gate and lets the crossing caravan pass.
 Once the caravan returns home, bring five Mycelium to Tovan in the tall-roofed workshop southwest of the beacon.

@@ -97,6 +97,7 @@ pub(super) const AREAS: &[AreaRequirements] = &[
         bodies: &[
             "South Basin shelf",
             "South Basin blind ridge",
+            "South Basin solid Guide mushroom stalk",
             "Hushcap Caverns shell",
             "Entrance cover",
             "First chamber buttress",

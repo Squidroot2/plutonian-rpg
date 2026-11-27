@@ -1737,6 +1737,120 @@ def south_basin_growth(ice, chalk, glow, rng):
             shard.rotation_euler.y = rng.uniform(-.45, .45)
 
 
+def south_basin_guide_mushroom(shelf, chalk, beacon_glow, beacon_crown):
+    """Place one tall bioluminescent mushroom beside the ridge bend, visible from Nivalis."""
+    import bmesh
+
+    bx, by = -11.5, -72.5
+    lean_x, lean_y = -0.18, -0.08
+    bpy.context.view_layer.update()
+    inv = shelf.matrix_world.inverted()
+    down = inv.to_3x3() @ Vector((0, 0, -1))
+
+    def floor_z(x, y):
+        hit, loc, _, _ = shelf.ray_cast(inv @ Vector((x, y, 10.0)), down)
+        if not hit:
+            raise RuntimeError(f'Guide mushroom point ({x:.2f}, {y:.2f}) missed South Basin shelf')
+        return (shelf.matrix_world @ loc).z
+
+    def revolved_mesh(name, rings, segments, materials, material_for_face):
+        vertices = []
+        for cx, cy, z, radius, wave_amp in rings:
+            for index in range(segments):
+                angle = math.tau * index / segments
+                wave = (math.sin(angle * 7 + .5) * .65 + math.cos(angle * 11) * .35) * wave_amp
+                r = radius + wave
+                vertices.append((cx + math.cos(angle) * r, cy + math.sin(angle) * r, z + wave * .45))
+        faces = [tuple(range(segments))]
+        for row in range(len(rings) - 1):
+            for index in range(segments):
+                nxt = (index + 1) % segments
+                a = row * segments + index
+                b = row * segments + nxt
+                c = (row + 1) * segments + nxt
+                d = (row + 1) * segments + index
+                faces.append((a, d, c, b))
+        faces.append(tuple(reversed(range(len(vertices) - segments, len(vertices)))))
+        mesh = bpy.data.meshes.new(name)
+        mesh.from_pydata(vertices, [], faces)
+        bm = bmesh.new()
+        bm.from_mesh(mesh)
+        bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+        bm.to_mesh(mesh)
+        bm.free()
+        mesh.update()
+        for mat in materials:
+            mesh.materials.append(mat)
+        for face in mesh.polygons[1:-1]:
+            row, sector = divmod(face.index - 1, segments)
+            face.material_index = material_for_face(row, sector)
+        obj = bpy.data.objects.new(name, mesh)
+        bpy.context.collection.objects.link(obj)
+        return obj
+
+    gz = floor_z(bx, by)
+    stalk_rings = [
+        (bx + lean_x * t, by + lean_y * t, gz + h, r, 0.0)
+        for h, r, t in [
+            (-.20, .64, 0.0), (.02, .56, 0.0), (.40, .40, .08), (1.15, .28, .34),
+            (1.95, .25, .66), (2.60, .32, .90), (2.98, .48, 1.0),
+        ]
+    ]
+    stalk = revolved_mesh(
+        'South Basin solid Guide mushroom stalk',
+        stalk_rings,
+        14,
+        [chalk, beacon_crown],
+        lambda row, _: 1 if row >= len(stalk_rings) - 2 else 0,
+    )
+
+    cap_x, cap_y = bx + lean_x, by + lean_y
+    cap_rings = [
+        (cap_x, cap_y, gz + h, r, amp)
+        for r, h, amp in [
+            (.08, 3.66, 0.0), (.52, 3.56, .02), (1.04, 3.34, .05), (1.44, 3.04, .07),
+            (1.62, 2.80, .08), (1.50, 2.66, .06), (.94, 2.80, .02), (.42, 2.70, 0.0),
+        ]
+    ]
+    revolved_mesh(
+        'Guide mushroom cap',
+        cap_rings,
+        24,
+        [beacon_glow, beacon_crown],
+        lambda row, sector: 0 if row >= 3 or sector % 3 == 0 else 1,
+    )
+
+    for index in range(14):
+        angle = math.tau * index / 14
+        c, s = math.cos(angle), math.sin(angle)
+        fungal_thread(
+            'Guide mushroom gill',
+            [
+                (cap_x + c * .40, cap_y + s * .40, gz + 2.70),
+                (cap_x + c * .92, cap_y + s * .92, gz + 2.77),
+                (cap_x + c * 1.46, cap_y + s * 1.46, gz + 2.68),
+            ],
+            .036,
+            beacon_glow,
+        )
+
+    for index in range(9):
+        angle = math.tau * index / 9 + .22
+        c, s = math.cos(angle), math.sin(angle)
+        reach = 1.35 + (index % 3) * .26
+        pts = [
+            (bx + c * .42, by + s * .42, gz + .28),
+            (bx + c * .76, by + s * .76, floor_z(bx + c * .76, by + s * .76) + .06),
+            (bx + c * (reach * .78), by + s * (reach * .78),
+             floor_z(bx + c * (reach * .78), by + s * (reach * .78)) + .038),
+            (bx + c * reach, by + s * reach,
+             floor_z(bx + c * reach, by + s * reach) + .024),
+        ]
+        fungal_thread('Guide mushroom root', pts, .058, chalk)
+
+    return {stalk.name}
+
+
 def south_basin():
     reset()
     rng = random.Random(47)
@@ -1745,9 +1859,16 @@ def south_basin():
     rock = material('Violet basalt', (.071, .068, .105), metal=.08)
     chalk = material('Pale mycelium', (.52, .62, .51), .12)
     glow = material('Fungal phosphor', (.24, .86, .61), 2.4)
+    beacon_glow = material('Guide fungal phosphor', (.24, .92, .66), 7.5)
+    beacon_crown = material('Guide fungal crown', (.18, .72, .56), 3.4)
     solids = south_basin_exterior(ice, frost, rock, rng)
     solids.update(south_basin_tunnel(rock, ice, frost, rng))
     south_basin_growth(frost, chalk, glow, rng)
+    solids.update(
+        south_basin_guide_mushroom(
+            bpy.data.objects['South Basin shelf'], chalk, beacon_glow, beacon_crown
+        )
+    )
     visual_name, collision_name = SOUTH_BASIN_MODELS
     save_export(visual_name)
     for obj in list(bpy.context.scene.objects):

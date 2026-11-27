@@ -2,8 +2,12 @@
 
 The outpost has a southbound route opposite the core trail.
   Two paths around an ice-fin field lead behind a ridge about 90 meters from the starting tent.
-  The ridge hides the mouth from the settlement at the maximum camera orbit distance.
-  The reveal comes after the player rounds the bend.
+  A single tall glowing mushroom stands at the southwest bend beside the ridge,
+  visible from the village courtyard and Old Relay hatch to pull players south around the western flank.
+  Its stalk is solid in the collision scene while its luminous cap and roots remain decorative.
+  The ridge still hides the mouth from the settlement at the maximum camera orbit distance.
+  The reveal comes after the player rounds the bend past the mushroom,
+  where matching fungal light spills from the cave arch ahead.
 
 The cave descends through a winding tunnel into three chambers.
   The central chamber splits around a rock column and rejoins before a tall final gallery.
