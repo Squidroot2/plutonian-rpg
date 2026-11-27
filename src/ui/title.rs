@@ -2,6 +2,7 @@ pub(crate) mod picker;
 
 use crate::{
     GameState,
+    controls::{Control, Keybinds},
     save::{RunSave, SaveSlot},
     ui::settings::SettingsMenu,
 };
@@ -305,6 +306,7 @@ fn spawn_backdrop(screen: &mut ChildSpawnerCommands, assets: &AssetServer) {
 }
 
 fn navigate(
+    bindings: Res<Keybinds>,
     keys: Res<ButtonInput<KeyCode>>,
     mut selection: ResMut<MenuSelection>,
     mut settings: ResMut<SettingsMenu>,
@@ -368,9 +370,9 @@ fn navigate(
     if settings.is_open() || !matches!(*next, NextState::Unchanged) {
         return;
     }
-    let direction = if keys.just_pressed(KeyCode::ArrowUp) {
+    let direction = if bindings.just_pressed(Control::MenuUp, &keys) {
         -1
-    } else if keys.any_just_pressed([KeyCode::ArrowDown, KeyCode::Tab]) {
+    } else if bindings.just_pressed(Control::MenuDown, &keys) || keys.just_pressed(KeyCode::Tab) {
         1
     } else {
         0
@@ -378,7 +380,7 @@ fn navigate(
     if direction != 0 {
         selection.0 = next_action(selection.0, direction, &slot);
     }
-    if keys.any_just_pressed([KeyCode::Enter, KeyCode::NumpadEnter, KeyCode::Space]) {
+    if keys.any_just_pressed([KeyCode::Enter, KeyCode::NumpadEnter]) {
         activate(
             selection.0,
             &slot,

@@ -203,7 +203,11 @@ impl Keybinds {
                 return Err("That key could not be identified.".into());
             }
             Binding::Key(
-                KeyCode::Escape | KeyCode::Tab | KeyCode::Enter | KeyCode::NumpadEnter,
+                KeyCode::Escape
+                | KeyCode::Tab
+                | KeyCode::Enter
+                | KeyCode::NumpadEnter
+                | KeyCode::Delete,
             ) => {
                 return Err("That key is reserved.".into());
             }
@@ -232,6 +236,10 @@ mod tests {
 
         assert_eq!(
             keybinds.assign(Control::Jump, Binding::Key(KeyCode::Escape)),
+            Err("That key is reserved.".into())
+        );
+        assert_eq!(
+            keybinds.assign(Control::Jump, Binding::Key(KeyCode::Delete)),
             Err("That key is reserved.".into())
         );
         assert_eq!(
