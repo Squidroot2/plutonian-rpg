@@ -614,7 +614,10 @@ fn check_pause_and_movement(
                     controller.pace == Pace::Walk,
                     "shift must keep pure strafing at walking speed"
                 );
-                assert!((transform.rotation * Vec3::Z).abs_diff_eq(Vec3::NEG_Z, 0.001));
+                assert!(
+                    (transform.rotation * Vec3::Z).abs_diff_eq(Vec3::X, 0.001),
+                    "the unarmed player must face right while moving right"
+                );
                 capture(&mut commands, "strafe");
                 // Switch inputs before the next fixed step.
                 *step = ArenaStep::Backpedal {
@@ -638,10 +641,13 @@ fn check_pause_and_movement(
                     controller.pace == Pace::Walk,
                     "shift must keep backpedaling at walking speed"
                 );
-                assert!((transform.rotation * Vec3::Z).abs_diff_eq(Vec3::NEG_Z, 0.001));
+                assert!(
+                    (transform.rotation * Vec3::Z).abs_diff_eq(Vec3::Z, 0.001),
+                    "the unarmed player must face the camera while moving toward it"
+                );
                 capture(&mut commands, "backpedal");
                 info!(
-                    "MOVEMENT SMOKE PASS: strafed and backpedaled at walking speed while facing the camera aim"
+                    "MOVEMENT SMOKE PASS: moved right and backward at walking speed while facing the direction of travel"
                 );
                 keys.press(KeyCode::Tab);
                 keys.press(KeyCode::KeyE);
