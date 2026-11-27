@@ -724,6 +724,18 @@ mod tests {
     }
 
     #[test]
+    fn old_relay_survey_log_does_not_mention_hushcaps() {
+        let catalog = test_catalog();
+        let survey_log = catalog
+            .notices
+            .iter()
+            .find(|notice| notice.id == "old_relay.survey_log")
+            .expect("the shipped catalogue contains the Old Relay survey log");
+
+        assert!(!survey_log.text.to_lowercase().contains("hushcap"));
+    }
+
+    #[test]
     fn duplicate_and_blank_authored_lines_report_their_ids() {
         let mut catalog = test_catalog();
         let first = catalog.notices[0].clone();

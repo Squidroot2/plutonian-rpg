@@ -161,7 +161,7 @@
         ),
         (
             id: "old_relay.survey_log",
-            text: "SURVEY LOG / THE FIRST WATCH\n\nBefore there was a Nivalis, there was this room. We put the first lamps on the ice so the survey crews could find their way back in the long dark.\n\nThe beacon above us still sends the same signal. Its first meaning was simple. There is shelter here, and someone is waiting.\n\nMARGIN NOTE / If Hushcap spores foul the gate channels, keep the crossing closed. The colony grows in South Basin, behind the ridge beyond the ice fins. Thin five Hushcaps and the draft animals can cross. Keep five Mycelium samples for the caravan craftsman.",
+            text: "SURVEY LOG / THE FIRST WATCH\n\nBefore there was a Nivalis, there was this room. We put the first lamps on the ice so the survey crews could find their way back in the long dark.\n\nThe beacon above us still sends the same signal. Its first meaning was simple. There is shelter here, and someone is waiting.\n\nMARGIN NOTE / Keep the crossing beacon burning through the long dark. Families beyond the ice depend on its light to find the safe route home.",
         ),
         (
             id: "old_relay.sealed_hatch",
