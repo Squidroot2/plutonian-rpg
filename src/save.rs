@@ -48,6 +48,10 @@ const MAX_SAVE_BYTES: usize = 1024 * 1024;
 pub(crate) struct Bed;
 
 #[derive(Message)]
+/// Request saving the current run at the bed identified by this entity.
+///
+/// The entity is the bed's runtime Bevy entity, not the player or save-slot
+/// entity; the save system checks that it has the [`Bed`] component.
 pub(crate) struct SaveAtBed(pub(crate) Entity);
 
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]

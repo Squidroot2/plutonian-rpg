@@ -20,6 +20,10 @@ const PULSE_SECONDS: f32 = 0.24;
 
 #[derive(Asset, AsBindGroup, TypePath, Clone)]
 struct ImpactMaterial {
+    /// Normalized lifetime of the impact effect, from `0.0` when spawned to `1.0` when expired.
+    ///
+    /// The impact shader uses this value to animate the effect; `age_effects` advances it
+    /// according to `IMPACT_SECONDS` and despawns the impact when it reaches `1.0`.
     #[uniform(0)]
     age: f32,
 }
@@ -54,6 +58,10 @@ impl Material for ImpactMaterial {
 
 #[derive(Asset, AsBindGroup, TypePath, Clone)]
 struct BiteMaterial {
+    /// Normalized lifetime of the bite pulse, from `0.0` when triggered to `1.0` when finished.
+    ///
+    /// The pulse shader uses this value to animate the overlay; `age_effects` advances it
+    /// according to `PULSE_SECONDS` and hides the overlay when it reaches `1.0`.
     #[uniform(0)]
     age: f32,
 }
