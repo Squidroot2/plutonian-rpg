@@ -45,8 +45,8 @@ Isera and Vey share two cots.
 Tovan, Orla, and Nemi each have one, and the barracks has two.
 The guards sleep at the rear of the barracks,
   leaving the aisle from the hatch to the weapon rack clear.
-Cool overhead strips light the rack and the bunks separately,
-  with amber showing through the viewport grilles on either side of the aisle.
+Amber overhead lamps light the rack and the bunks in separate pools,
+  echoing the amber panes behind the viewport grilles.
 Both rack slots hold a weapon upright by its grip,
   so a guard can reach a shortsword or a polearm at the same height.
 The player’s own cot is the save point.

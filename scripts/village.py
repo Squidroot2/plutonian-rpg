@@ -202,7 +202,7 @@ class Shelter:
         self.block(f'{label} frame', (u, v, .17), (.88, 2.27, .34), 'frame', solid=True)
         self.block(f'{label} mattress', (u, v, .41), (.86, 2.19, .15), 'mattress', solid=True)
         fabric = {'Family': 'rust', 'Workshop': 'ochre', 'Orla': 'violet',
-                  'Keeper': 'teal', 'Barracks': 'teal'}[self.home.name]
+                  'Keeper': 'teal', 'Barracks': 'mattress'}[self.home.name]
         self.block(f'{label} blanket', (u, v-.21, .505), (.89, 1.55, .04), fabric)
         self.block(f'{label} folded seam', (u, v+.47, .532), (.90, .12, .04), fabric)
         self.crystal(f'{label} headrest', (u, v+.81, .54), (.34, .24, .08), 'linen')
@@ -279,8 +279,8 @@ def build():
         'basalt': bpy.data.materials['Basalt'],
         'amber': bpy.data.materials['Amber habitation'],
         'blue': bpy.data.materials['Trail phosphor'],
-        'work light': bpy.data.materials.get('Barracks frost glass') or
-                      material('Barracks frost glass', (.59, .76, .88), emission=3),
+        'work light': bpy.data.materials.get('Barracks amber glass') or
+                      material('Barracks amber glass', (.94, .53, .22), emission=1.25),
     }
     for name, color, metal in (
         ('lining', (.125, .153, .17), .28), ('deck', (.074, .086, .093), .16),
