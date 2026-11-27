@@ -94,6 +94,10 @@ impl Action {
 #[derive(Resource, Default)]
 struct PauseSelection(Action);
 
+/// Remembers the last hover target so a stationary pointer cannot override keyboard navigation.
+#[derive(Resource, Default)]
+struct PauseHover(Option<Action>);
+
 const PAUSE_BUTTON_OUTLINE: Color = Color::srgb(0.86, 0.94, 1.0);
 const PAUSE_BUTTON_IDLE_OUTLINE: Color = Color::srgba(0.50, 0.65, 0.78, 0.48);
 impl Plugin for GameUiPlugin {
@@ -130,6 +134,7 @@ impl Plugin for GameUiPlugin {
         ))
         .add_systems(Startup, setup)
         .init_resource::<PauseSelection>()
+        .init_resource::<PauseHover>()
         .add_systems(OnEnter(GameState::Paused), reset_pause_selection)
         .add_systems(PreUpdate, pause.after(bevy::input::InputSystems))
         .add_systems(
@@ -146,7 +151,7 @@ impl Plugin for GameUiPlugin {
                 refresh_prompt.after(save_at_bed),
                 refresh_experience_notice.after(ExperienceUpdates),
                 refresh_pause,
-                style_pause_buttons,
+                (select_hovered_pause_button, style_pause_buttons).chain(),
             )
                 .after(InteractionSystems),
         );
@@ -331,8 +336,9 @@ fn spawn_status_bar(commands: &mut Commands, kind: StatusBarKind, bottom: u16) -
     (bar, fill)
 }
 
-fn reset_pause_selection(mut selection: ResMut<PauseSelection>) {
+fn reset_pause_selection(mut selection: ResMut<PauseSelection>, mut hover: ResMut<PauseHover>) {
     *selection = PauseSelection::default();
+    *hover = PauseHover::default();
 }
 
 fn pause_menu_input(
@@ -484,17 +490,44 @@ fn activate(
     }
 }
 
+fn select_hovered_pause_button(
+    mut selection: ResMut<PauseSelection>,
+    mut last_hovered: ResMut<PauseHover>,
+    state: Res<State<GameState>>,
+    settings: Option<Res<SettingsMenu>>,
+    picker: Option<Res<SavePicker>>,
+    buttons: Query<(&Action, Option<&PickingInteraction>)>,
+) {
+    if *state.get() != GameState::Paused
+        || settings.is_some_and(|menu| menu.is_open())
+        || picker.is_some_and(|picker| picker.is_open())
+    {
+        if last_hovered.0.is_some() {
+            last_hovered.0 = None;
+        }
+        return;
+    }
+    let hovered = buttons.iter().find_map(|(action, interaction)| {
+        matches!(
+            interaction,
+            Some(PickingInteraction::Hovered | PickingInteraction::Pressed)
+        )
+        .then_some(*action)
+    });
+    if hovered != last_hovered.0 {
+        if let Some(action) = hovered {
+            selection.0 = action;
+        }
+        last_hovered.0 = hovered;
+    }
+}
+
 fn style_pause_buttons(
     selection: Res<PauseSelection>,
-    mut buttons: Query<(&Action, Option<&PickingInteraction>, &mut BorderColor)>,
+    mut buttons: Query<(&Action, &mut BorderColor)>,
 ) {
-    for (action, hover, mut border) in &mut buttons {
-        let highlighted = *action == selection.0
-            || matches!(
-                hover,
-                Some(PickingInteraction::Hovered | PickingInteraction::Pressed)
-            );
-        border.set_if_neq(BorderColor::all(if highlighted {
+    for (action, mut border) in &mut buttons {
+        border.set_if_neq(BorderColor::all(if *action == selection.0 {
             PAUSE_BUTTON_OUTLINE
         } else {
             PAUSE_BUTTON_IDLE_OUTLINE
@@ -871,6 +904,7 @@ mod tests {
         app.add_plugins((MinimalPlugins, StatesPlugin))
             .insert_state(GameState::Playing)
             .init_resource::<PauseSelection>()
+            .init_resource::<PauseHover>()
             .add_systems(OnEnter(GameState::Paused), reset_pause_selection);
         app.world_mut().resource_mut::<PauseSelection>().0 = Action::Quit;
         app.world_mut()
@@ -918,6 +952,61 @@ mod tests {
         assert_eq!(app.world().resource::<SaveSlot>().entries.len(), 1);
     }
 
+    #[test]
+    fn hovering_selects_one_option_and_keyboard_navigation_takes_over() {
+        let dir = SaveDirGuard::new("pause-hover-selection");
+        let mut app = pause_input_app(&dir);
+        let resume = app
+            .world_mut()
+            .spawn((Action::Resume, BorderColor::default()))
+            .id();
+        let load = app
+            .world_mut()
+            .spawn((
+                Action::Load,
+                PickingInteraction::Hovered,
+                BorderColor::default(),
+            ))
+            .id();
+        let settings = app
+            .world_mut()
+            .spawn((Action::Settings, BorderColor::default()))
+            .id();
+
+        app.update();
+
+        assert_eq!(app.world().resource::<PauseSelection>().0, Action::Load);
+        assert_eq!(
+            *app.world()
+                .get::<BorderColor>(load)
+                .expect("load button keeps its border"),
+            BorderColor::all(PAUSE_BUTTON_OUTLINE)
+        );
+        assert_eq!(
+            *app.world()
+                .get::<BorderColor>(resume)
+                .expect("resume button keeps its border"),
+            BorderColor::all(PAUSE_BUTTON_IDLE_OUTLINE)
+        );
+
+        press_pause_key(&mut app, KeyCode::KeyS);
+        app.update();
+
+        assert_eq!(app.world().resource::<PauseSelection>().0, Action::Settings);
+        assert_eq!(
+            *app.world()
+                .get::<BorderColor>(load)
+                .expect("load button keeps its border"),
+            BorderColor::all(PAUSE_BUTTON_IDLE_OUTLINE)
+        );
+        assert_eq!(
+            *app.world()
+                .get::<BorderColor>(settings)
+                .expect("settings button keeps its border"),
+            BorderColor::all(PAUSE_BUTTON_OUTLINE)
+        );
+    }
+
     fn pause_input_app(dir: &SaveDirGuard) -> App {
         let mut app = App::new();
         app.add_plugins((MinimalPlugins, StatesPlugin))
@@ -927,9 +1016,14 @@ mod tests {
             .init_resource::<SettingsMenu>()
             .init_resource::<SavePicker>()
             .init_resource::<PauseSelection>()
+            .init_resource::<PauseHover>()
             .insert_resource(SaveSlot::open(Some(dir.0.clone())))
             .add_message::<AppExit>()
-            .add_systems(Update, pause_menu_input);
+            .add_systems(PreUpdate, pause_menu_input)
+            .add_systems(
+                Update,
+                (select_hovered_pause_button, style_pause_buttons).chain(),
+            );
         app
     }
 
