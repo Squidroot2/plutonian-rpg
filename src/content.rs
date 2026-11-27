@@ -197,6 +197,7 @@ pub fn validate_data_root(root: &std::path::Path) -> Result<(), String> {
         Ok(catalog)
     }
 
+    // Keep these four checks in sync with `validate_catalogs`; this path adds per-file reporting.
     let items: Items = validate("items/catalog.item.ron", read(root), |catalog: &Items| {
         catalog.validate()
     })?;
@@ -245,6 +246,7 @@ fn validate_catalogs(
     placements: &Placements,
     npcs: &Npcs,
 ) -> Result<(), String> {
+    // Keep this list in sync with `validate_data_root`, which reports each catalog separately.
     items.validate()?;
     enemies.validate(items)?;
     placements.validate(items, enemies)?;
