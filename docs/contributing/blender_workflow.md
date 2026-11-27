@@ -84,6 +84,9 @@ Pass `-- --meat` to regenerate the two meat pickup models.
 
 Pass `-- --locomotion` to regenerate the player's backpedal, strafe, and diagonal actions in `art/plutonian.blend` and re-export `assets/models/plutonian.glb`.
 
+Pass `-- --list` to print the registered asset flags, builder status, and export names without building or opening a Blender scene.
+An unrecognized asset flag exits with an error naming that flag instead of starting a full rebuild.
+
 To regenerate only equipment, pass `-- --equipment`.
 This overwrites equipment sources and exports while preserving character and map art.
 Each equipment `.blend` stores geometry in its attachment frame.

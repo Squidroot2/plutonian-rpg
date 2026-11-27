@@ -6,6 +6,7 @@ import math
 import bpy
 from mathutils import Vector
 
+from asset_helpers import box, cone, ico, material
 
 SOLID = 'Village solid '
 TRIM = 'Village trim '
@@ -47,10 +48,10 @@ def remove_homes():
 
 
 class Shelter:
-    def __init__(self, home, palette, mesh_helpers):
+    def __init__(self, home, palette):
         self.home = home
         self.mat = palette
-        self.box, self.ico, self.cone = mesh_helpers
+        self.box, self.ico, self.cone = box, ico, cone
         self.x, self.z = home.center
         self.inward = Vector((home.inward[0], -home.inward[1], 0))
         self.side = Vector((self.inward.y, -self.inward.x, 0))
@@ -261,7 +262,7 @@ class Shelter:
         self.cup('Oiling pot', (-.49, 2.75, .77), .125, .18, 'ochre', .094)
 
 
-def build(material, box, ico, cone):
+def build():
     palette = {
         'shell': bpy.data.materials['Ceramic shell'],
         'basalt': bpy.data.materials['Basalt'],
@@ -278,11 +279,11 @@ def build(material, box, ico, cone):
         key = f'Village {name}'
         palette[name] = bpy.data.materials.get(key) or material(key, color, metal=metal)
     for home in HOMES:
-        shelter = Shelter(home, palette, (box, ico, cone))
+        shelter = Shelter(home, palette)
         shelter.shell()
         shelter.siding()
         shelter.furnish()
-    workshop = Shelter(HOMES[1], palette, (box, ico, cone))
+    workshop = Shelter(HOMES[1], palette)
     # A low side lamp marks the turn from the parking road into the courtyard.
     workshop.cup('Approach lamp pedestal', (-4.60, -1.30, .43), .13, 1.05, 'frame', .075)
     workshop.crystal('Approach lamp glass', (-4.60, -1.30, 1.10),

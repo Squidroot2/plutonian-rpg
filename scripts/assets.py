@@ -5,11 +5,13 @@ import random
 import sys
 import json
 import struct
+from dataclasses import dataclass
 from pathlib import Path
 from mathutils import Vector, Matrix, Quaternion
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
+from asset_helpers import box, cone, export, finish, ico, material, save_export
 from grounding import ground_outpost
 import perimeter
 import crossing
@@ -23,55 +25,6 @@ def reset():
     bpy.context.preferences.filepaths.file_preview_type = 'NONE'
     bpy.context.scene.unit_settings.system = 'METRIC'
     bpy.context.scene.render.fps = 24
-
-
-def material(name, color, emission=0, metal=0):
-    m = bpy.data.materials.new(name)
-    m.diffuse_color = (*color, 1)
-    m.use_nodes = True
-    p = m.node_tree.nodes.get('Principled BSDF')
-    p.inputs['Base Color'].default_value = (*color, 1)
-    p.inputs['Roughness'].default_value = .65
-    p.inputs['Metallic'].default_value = metal
-    p.inputs['Emission Color'].default_value = (*color, 1)
-    p.inputs['Emission Strength'].default_value = emission
-    return m
-
-
-def finish(name, mat, scale):
-    o = bpy.context.object
-    o.name = name
-    o.scale = scale
-    bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
-    if mat:
-        o.data.materials.append(mat)
-    return o
-
-
-def ico(name, pos, scale, mat, subdivisions=1):
-    bpy.ops.mesh.primitive_ico_sphere_add(subdivisions=subdivisions, radius=1, location=pos)
-    return finish(name, mat, scale)
-
-
-def box(name, pos, scale, mat):
-    bpy.ops.mesh.primitive_cube_add(size=1, location=pos)
-    return finish(name, mat, scale)
-
-
-def cone(name, pos, radius, depth, mat, top=0):
-    bpy.ops.mesh.primitive_cone_add(vertices=8, radius1=radius, radius2=top, depth=depth, location=pos)
-    return finish(name, mat, (1, 1, 1))
-
-
-def save_export(name):
-    bpy.ops.wm.save_as_mainfile(filepath=str(ROOT / 'art' / f'{name}.blend'))
-    export(name)
-
-
-def export(name):
-    bpy.ops.export_scene.gltf(filepath=str(ROOT / 'assets/models' / f'{name}.glb'),
-        export_format='GLB', export_animations=True, export_animation_mode='ACTIONS',
-        export_force_sampling=True, export_yup=True, export_lights=False, export_cameras=False)
 
 
 def character():
@@ -791,8 +744,8 @@ def world():
     ico('Charon', (-72,100,65), (13,13,13), material('Charon rock', (.23,.26,.32)), 3)
     ground_outpost()
     starting_tent()
-    village.build(material, box, ico, cone)
-    perimeter.build(material, box)
+    village.build()
+    perimeter.build()
     save_export('outpost')
 
 
@@ -813,7 +766,7 @@ def rebuild_village():
     bpy.context.preferences.filepaths.file_preview_type = 'NONE'
     bpy.ops.wm.open_mainfile(filepath=str(ROOT / 'art/outpost.blend'))
     village.remove_homes()
-    village.build(material, box, ico, cone)
+    village.build()
     save_export('outpost')
 
     bpy.ops.wm.open_mainfile(filepath=str(ROOT / 'art/collision.blend'))
@@ -831,7 +784,7 @@ def rebuild_perimeter():
     bpy.context.preferences.filepaths.file_preview_type = 'NONE'
     outpost = str(ROOT / 'art/outpost.blend')
     bpy.ops.wm.open_mainfile(filepath=outpost)
-    perimeter.build(material, box)
+    perimeter.build()
     save_export('outpost')
 
     bpy.ops.wm.open_mainfile(filepath=str(ROOT / 'art/collision.blend'))
@@ -846,7 +799,7 @@ def rebuild_perimeter():
 
 def build_crossing():
     reset()
-    crossing.flats(material, box, ico)
+    crossing.flats()
     save_export('listening_flats')
     for obj in list(bpy.context.scene.objects):
         if not obj.name.startswith(('Flats solid ', perimeter.SOLID_PREFIX)):
@@ -854,7 +807,7 @@ def build_crossing():
     save_export('listening_flats_collision')
 
     reset()
-    perimeter.gate_leaf(box, (
+    perimeter.gate_leaf((
         material('Rim ceramic', (.096, .122, .153), metal=.25),
         material('Rim aged alloy', (.169, .237, .268), metal=.46),
         material('Rim graphite panels', (.092, .139, .170), metal=.32),
@@ -862,7 +815,7 @@ def build_crossing():
     save_export('nivalis_gate')
 
     reset()
-    crossing.vellik(material, box, ico)
+    crossing.vellik()
     save_export('vellik')
 
     build_wagon()
@@ -870,7 +823,7 @@ def build_crossing():
 
 def build_wagon():
     reset()
-    crossing.wagon(material, box, ico)
+    crossing.wagon()
     save_export('crossing_wagon')
 
 
@@ -1890,20 +1843,7 @@ def spear_assets():
     practice_dummy()
 
 
-if '--south-basin' in sys.argv and '--export' not in sys.argv:
-    south_basin()
-elif '--relay' in sys.argv and '--export' not in sys.argv:
-    old_relay()
-elif '--hushcap' in sys.argv and '--export' not in sys.argv:
-    hushcap()
-    mycelium()
-elif '--roach' in sys.argv:
-    relay_roach()
-elif '--worm' in sys.argv:
-    ice_worm()
-elif '--spear' in sys.argv:
-    spear_assets()
-elif '--shortsword' in sys.argv and '--export' not in sys.argv:
+def build_shortsword():
     bpy.context.preferences.filepaths.save_version = 0
     bpy.context.preferences.filepaths.file_preview_type = 'NONE'
     bpy.ops.wm.open_mainfile(filepath=str(ROOT / 'art/plutonian.blend'))
@@ -1911,7 +1851,9 @@ elif '--shortsword' in sys.argv and '--export' not in sys.argv:
     add_sword_animations(rig)
     save_export('plutonian')
     shortsword_model()
-elif '--locomotion' in sys.argv:
+
+
+def build_locomotion():
     bpy.context.preferences.filepaths.save_version = 0
     bpy.context.preferences.filepaths.file_preview_type = 'NONE'
     bpy.ops.wm.open_mainfile(filepath=str(ROOT / 'art/plutonian.blend'))
@@ -1920,29 +1862,19 @@ elif '--locomotion' in sys.argv:
     add_spear_locomotion(rig, DIRECTIONAL_WALKS)
     add_sword_locomotion(rig, DIRECTIONAL_WALKS)
     save_export('plutonian')
-elif '--equipment' in sys.argv:
-    equipment()
-elif '--pillars' in sys.argv:
-    add_pillar_collision()
-elif '--boulder' in sys.argv:
-    large_boulder()
-elif '--meat' in sys.argv:
-    meat_pickups()
-elif '--items' in sys.argv:
-    items()
-elif '--build-wagon' in sys.argv:
-    build_wagon()
-elif '--build-crossing' in sys.argv:
+
+
+def build_crossing_and_perimeter():
     rebuild_perimeter()
     build_crossing()
-elif '--build-perimeter' in sys.argv:
-    rebuild_perimeter()
-elif '--build-village' in sys.argv:
-    rebuild_village()
-elif '--build-outpost' in sys.argv:
+
+
+def build_outpost():
     world()
     collision_from_world()
-elif '--ground' in sys.argv:
+
+
+def build_grounded_sources():
     # Repair existing sources without replacing authored meshes or materials.
     bpy.context.preferences.filepaths.save_version = 0
     bpy.context.preferences.filepaths.file_preview_type = 'NONE'
@@ -1957,52 +1889,144 @@ elif '--ground' in sys.argv:
             obj.matrix_world = matrix
     bpy.context.view_layer.update()
     save_export('collision')
-elif '--export' in sys.argv and '--plutonian-death' in sys.argv:
+
+
+def export_plutonian_death():
     bpy.context.preferences.filepaths.save_version = 0
     bpy.context.preferences.filepaths.file_preview_type = 'NONE'
     bpy.ops.wm.open_mainfile(filepath=str(ROOT / 'art/plutonian.blend'))
     rig = next(obj for obj in bpy.context.scene.objects if obj.type == 'ARMATURE')
     add_plutonian_death(rig)
     save_export('plutonian')
-elif '--export' in sys.argv:
-    names = ['outpost', 'collision'] if '--outpost' in sys.argv else [
-        'plutonian', 'outpost', 'collision', 'core', 'battery', 'scrap', 'methane_pouch',
-        'large_boulder', 'practice_dummy', 'ice_worm', 'relay_roach', 'hushcap', 'mycelium', 'old_relay',
-        'old_relay_collision', *SOUTH_BASIN_MODELS, *crossing.MODELS, *MEAT_NAMES, *GEAR_NAMES,
-    ]
-    if '--shortsword' in sys.argv:
-        names = ['plutonian', SHORTSWORD_NAME]
-    elif '--hushcap' in sys.argv:
-        names = ['hushcap', 'mycelium']
-    elif '--relay' in sys.argv:
-        names = ['old_relay', 'old_relay_collision']
-    elif '--south-basin' in sys.argv:
-        names = SOUTH_BASIN_MODELS
-    elif '--crossing' in sys.argv:
-        names = crossing.MODELS
-    elif '--wagon' in sys.argv:
-        names = ['crossing_wagon']
-    for name in names:
-        bpy.ops.wm.open_mainfile(filepath=str(ROOT/'art'/f'{name}.blend'))
-        if name in GEAR_NAMES:
-            export_equipment(name)
-        else:
-            export(name)
-else:
-    character()
-    world()
-    collision_from_world()
-    core()
-    items()
-    meat_pickups()
-    large_boulder()
-    equipment()
-    practice_dummy()
-    ice_worm()
-    relay_roach()
+
+
+def build_hushcap_group():
     hushcap()
     mycelium()
-    old_relay()
-    south_basin()
-    build_crossing()
+
+
+@dataclass(frozen=True)
+class AssetEntry:
+    """One registry row: command wiring and the assets it builds or exports."""
+
+    flag: str
+    export_names: tuple[str, ...]
+    builder: object | None
+    export_only: bool = False
+    export_selector: bool = False
+    equipment: bool = False
+    export_all: bool = True
+    export_order: int | None = None
+    rebuild_order: int | None = None
+    rebuild_builder: object | None = None
+
+
+# Export and rebuild orders are explicit because they differ. Character must
+# precede equipment: equipment builders read attachment frames from plutonian.glb.
+ASSET_REGISTRY = (
+    AssetEntry('--character', ('plutonian',), character, export_order=0, rebuild_order=0),
+    AssetEntry('--build-outpost', ('outpost', 'collision'), build_outpost, export_order=1, rebuild_order=1),
+    AssetEntry('--core', ('core',), core, export_order=3, rebuild_order=3),
+    AssetEntry('--items', ('battery', 'scrap', 'methane_pouch'), items,
+               export_order=4, rebuild_order=4),
+    AssetEntry('--boulder', ('large_boulder',), large_boulder, export_order=7, rebuild_order=6),
+    AssetEntry('--equipment', tuple(GEAR_NAMES), equipment, equipment=True,
+               export_order=24, rebuild_order=7),
+    AssetEntry('--practice-dummy', ('practice_dummy',), practice_dummy,
+               export_order=8, rebuild_order=8),
+    AssetEntry('--worm', ('ice_worm',), ice_worm, export_order=9, rebuild_order=9),
+    AssetEntry('--roach', ('relay_roach',), relay_roach, export_order=10, rebuild_order=10),
+    AssetEntry('--hushcap', ('hushcap', 'mycelium'), build_hushcap_group,
+               export_selector=True, export_order=11, rebuild_order=11),
+    AssetEntry('--relay', ('old_relay', 'old_relay_collision'), old_relay,
+               export_selector=True, export_order=13, rebuild_order=12),
+    AssetEntry('--south-basin', tuple(SOUTH_BASIN_MODELS), south_basin,
+               export_selector=True, export_order=15, rebuild_order=13),
+    AssetEntry('--build-crossing', tuple(crossing.MODELS), build_crossing_and_perimeter,
+               export_order=17, rebuild_order=14, rebuild_builder=build_crossing),
+    AssetEntry('--meat', tuple(MEAT_NAMES), meat_pickups, export_order=22, rebuild_order=5),
+    AssetEntry('--spear', ('plutonian', *SPEAR_NAMES, 'practice_dummy'),
+               spear_assets, export_all=False),
+    AssetEntry('--build-village', ('outpost', 'collision'), rebuild_village, export_all=False),
+    AssetEntry('--build-perimeter', ('outpost', 'collision'), rebuild_perimeter, export_all=False),
+    AssetEntry('--build-wagon', ('crossing_wagon',), build_wagon, export_all=False),
+    AssetEntry('--shortsword', ('plutonian', SHORTSWORD_NAME), build_shortsword,
+               export_selector=True, export_all=False),
+    AssetEntry('--locomotion', ('plutonian',), build_locomotion, export_all=False),
+    AssetEntry('--pillars', ('collision',), add_pillar_collision, export_all=False),
+    AssetEntry('--ground', ('outpost', 'collision'), build_grounded_sources, export_all=False),
+    AssetEntry('--plutonian-death', ('plutonian',), None, export_only=True,
+               export_all=False),
+    # Export selectors preserve the historical --export subsets.
+    AssetEntry('--outpost', ('outpost', 'collision'), None, export_only=True,
+               export_selector=True, export_all=False),
+    AssetEntry('--crossing', tuple(crossing.MODELS), None, export_only=True,
+               export_selector=True, export_all=False),
+    AssetEntry('--wagon', ('crossing_wagon',), None, export_only=True,
+               export_selector=True, export_all=False),
+)
+
+
+def script_flags():
+    args = sys.argv[sys.argv.index('--') + 1:] if '--' in sys.argv else []
+    return {arg for arg in args if arg.startswith('--')}
+
+
+def list_assets():
+    for entry in ASSET_REGISTRY:
+        status = 'export-only' if entry.export_only else 'built'
+        names = ', '.join(entry.export_names)
+        print(f'{entry.flag}\t{status}\t{names}')
+
+
+def export_names_for(flags):
+    selectors = [entry for entry in ASSET_REGISTRY
+                 if entry.export_selector and entry.flag in flags]
+    if selectors:
+        return tuple(dict.fromkeys(name for entry in selectors for name in entry.export_names))
+    ordered = sorted((entry for entry in ASSET_REGISTRY
+                      if entry.export_all and entry.export_order is not None),
+                     key=lambda entry: entry.export_order)
+    return tuple(dict.fromkeys(name for entry in ordered
+                               for name in entry.export_names))
+
+
+def dispatch(flags):
+    if flags == {'--list'}:
+        list_assets()
+        return
+    known = {'--export', '--list'} | {entry.flag for entry in ASSET_REGISTRY}
+    unknown = sorted(flags - known)
+    if unknown:
+        raise SystemExit(f"Unknown asset flag: {unknown[0]}")
+    if '--export' in flags:
+        if '--plutonian-death' in flags:
+            export_plutonian_death()
+            return
+        equipment_names = {name for entry in ASSET_REGISTRY if entry.equipment
+                           for name in entry.export_names}
+        for name in export_names_for(flags):
+            bpy.ops.wm.open_mainfile(filepath=str(ROOT / 'art' / f'{name}.blend'))
+            if name in equipment_names:
+                export_equipment(name)
+            else:
+                export(name)
+        return
+    selected = next((entry for entry in ASSET_REGISTRY
+                     if entry.flag in flags and entry.builder is not None
+                     and not entry.export_only), None)
+    if selected:
+        selected.builder()
+        return
+    if flags:
+        raise SystemExit(f"Asset flag has no builder: {sorted(flags)[0]}")
+    ordered = sorted((entry for entry in ASSET_REGISTRY if entry.rebuild_order is not None),
+                     key=lambda entry: entry.rebuild_order)
+    for entry in ordered:
+        builder = entry.rebuild_builder or entry.builder
+        if builder is not None:
+            builder()
+
+
+dispatch(script_flags())
 print('Exported Plutonian RPG assets')
