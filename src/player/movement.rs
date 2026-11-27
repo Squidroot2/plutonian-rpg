@@ -5,7 +5,7 @@ use crate::{
     content::Items,
     controls::{Control, Keybinds},
     dialogue::Dialogue,
-    equipment::Equipment,
+    equipment::{Equipment, EquipmentSlot},
     inventory::Inventory,
     ui::menu_ui::PlayerMenu,
     weapon::{WeaponAttack, WeaponStance},
@@ -319,16 +319,24 @@ fn camera_heading(direction: Vec2, yaw: f32) -> Vec3 {
 
 pub(crate) fn face_camera(
     orbit: Res<Orbit>,
-    mut players: Query<(&mut Transform, &WeaponStance, &Player)>,
+    items: Option<Res<Items>>,
+    mut players: Query<(&mut Transform, &WeaponStance, &Player, &Equipment)>,
 ) {
     // Drawn weapons lock the model to the camera, so combat always faces the camera.
     // Holstered weapons free the camera: the model keeps its facing while idle and
     // turns toward its camera-relative travel direction while moving.
+    // Being unarmed frees the camera the same way: with no weapon drawn there is
+    // no combat facing to preserve.
     let drawn_facing = Quat::from_rotation_y(orbit.yaw + std::f32::consts::PI);
-    for (mut transform, stance, player) in &mut players {
+    for (mut transform, stance, player, equipment) in &mut players {
+        let armed = items.as_ref().is_some_and(|items| {
+            EquipmentSlot::HANDS
+                .into_iter()
+                .any(|hand| equipment.weapon(hand, items).is_some())
+        });
         let facing = match stance {
-            WeaponStance::Drawn => Some(drawn_facing),
-            WeaponStance::Holstered => {
+            WeaponStance::Drawn if armed => Some(drawn_facing),
+            WeaponStance::Drawn | WeaponStance::Holstered => {
                 let heading = camera_heading(player.movement_direction, orbit.yaw);
                 if heading.length_squared() > 0.0 {
                     Some(Quat::from_rotation_y(heading.x.atan2(heading.z)))
