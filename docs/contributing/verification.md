@@ -64,6 +64,8 @@ Plain waits for elapsed time remain appropriate when no reaction deadline is ass
 - `--smoke-test` starts a standalone arena with nearby materials, equipment, a practice dummy, and the keeper and core.
   It checks tab switching, live physics while the menu is open, inventory quantities, equipped rows, the drop prompt, both polearms' hits and misses, and shortsword attachment and hits, including simultaneous strikes.
   It also checks a worm pursuit, dodge, bite, and defeat, the Character tab's XP total, armor swaps and attachment during movement, the 640×704 player-menu layout, wall collision, pause/resume, and fall recovery.
+  After the equipment checks, it verifies that the unarmed player faces the direction of travel
+  when moving right or backward at walking pace.
   After corpse looting, it checks that an ineligible equip shows a dismissible Strength warning and leaves the gear in the bag.
   The short beacon interaction verifies that the core is protected in the bag, consumed on turn-in, and lights the beacon.
   The run prints `SMOKE PASS` and its duration, or reports the current phase if it reaches 60 virtual seconds.
