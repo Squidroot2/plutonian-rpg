@@ -8,21 +8,33 @@ description: Work on Blender art for plutonian-rpg — edit or re-export .blend 
 Do Blender/asset work for plutonian-rpg in the current repository.
 Two repo docs govern this work — read both before touching art:
 
-- `../../../docs/design/art-style.md` is the source of truth for art direction: shape language, palette, lighting accents, and per-location character.
+- `docs/design/art-style.md` is the source of truth for art direction: shape language, palette, lighting accents, and per-location character.
   This skill covers process and hard constraints; it does not restate or override the style doc.
   If a request conflicts with the style doc, flag the conflict instead of silently deviating.
-- `../../../docs/contributing/blender_workflow.md` is the full asset workflow — follow it over any general Blender habit.
+- `docs/contributing/blender_workflow.md` is the full asset workflow — follow it over any general Blender habit.
 
 ## Layout
 
 - Blender sources: `art/*.blend` (editable, checked in; Blender 5.3 was used for them).
 - Runtime exports: `assets/models/*.glb` (checked in, so Blender is not needed to play).
-- Asset tooling: `../../../scripts/assets.py` (generation + export), `scripts/check_assets.py` (GLB validation), `scripts/grounding.py` (foundation-contact check), `scripts/render_title.py` (title-screen render).
+- Asset tooling: `scripts/assets.py` is the registry and dispatcher (see below); the builders live in modules beside it — `scripts/village.py` (the outpost village homes, including the Barracks), `scripts/crossing.py`, and `scripts/perimeter.py` — with shared primitives in `scripts/asset_helpers.py` (`material`, `finish`, `box`, `cone`, `ico`, `save_export`, `export`).
+  Prefer the helpers over hand-rolling materials or geometry.
+- Validation is Rust, not Python: `crates/plutonian-assets`, run as `cargo run --locked -p plutonian-assets` (see Verify).
+  There is no `scripts/check_assets.py` anymore.
+- Other scripts: `scripts/grounding.py` (foundation-contact check), `scripts/render_title.py` (title-screen render).
+
+## The registry
+
+`ASSET_REGISTRY` at the end of `scripts/assets.py` is the single source of truth for the asset pipeline: each entry declares a flag, its export names, and its builder (or an export-only marker).
+Dispatch, the `--export` name list, and rebuild-all are all derived from it, in the registry's declared order — the order is load-bearing (the character rig builds before equipment, which reads its attachment frames).
+Run `blender --background -noaudio --factory-startup --python-exit-code 1 --python scripts/assets.py -- --list` to print every flag, whether it is built or export-only, and its export names.
+An unknown flag is an error, not a no-op — if a flag you expect is rejected, check `--list` before inventing one.
+Adding an asset means adding a registry entry (plus its builder, in the module where its neighbours live); do not wire new assets into dispatch or export lists by hand.
 
 ## The one rule that matters most
 
-**Never run `../../../scripts/assets.py` without a flag.**
-Bare `../../../scripts/assets.py` rebuilds all source art from the procedural designs and **overwrites the editable `.blend` sources**.
+**Never run `scripts/assets.py` without a flag.**
+Bare `scripts/assets.py` rebuilds all source art from the procedural designs and **overwrites the editable `.blend` sources**.
 Re-exporting hand-edited sources always takes `--export`:
 
 ```sh
@@ -30,15 +42,16 @@ blender --background -noaudio --factory-startup --python-exit-code 1 --python sc
 ```
 
 Append a per-asset flag to export just that source, e.g. `-- --export --hushcap`, `-- --export --relay`, `-- --export --south-basin`, `-- --export --crossing`, `-- --export --wagon`, `-- --export --outpost`, `-- --export --shortsword`.
-Rebuild flags (which regenerate sources) are a different, deliberate act — `-- --build-outpost`, `-- --build-crossing`, `-- --build-wagon`, `-- --build-perimeter`, `-- --worm`, `-- --roach`, `-- --items`, `-- --meat`, `-- --locomotion`, `-- --equipment`, `-- --spear`, `-- --nemi-death`, `-- --ground`, `-- --pillars` — and each overwrites the sources it names.
+Rebuild flags (which regenerate sources) are a different, deliberate act — `-- --build-outpost`, `-- --build-village`, `-- --build-crossing`, `-- --build-wagon`, `-- --build-perimeter`, `-- --character`, `-- --core`, `-- --boulder`, `-- --practice-dummy`, `-- --worm`, `-- --roach`, `-- --items`, `-- --meat`, `-- --locomotion`, `-- --equipment`, `-- --spear`, `-- --plutonian-death`, `-- --ground`, `-- --pillars` — and each overwrites the sources it names.
 Say which mode you are in (re-export vs. rebuild) before running anything, and never rebuild when the user asked for a re-export.
 
 ## The seam with Rust — check it before exporting
 
 Clip and model names are a contract with the game code, not just Blender labels.
-Before exporting an enemy or the character rig, check the `EnemyModel` clips in `../../../src` (e.g. `src/worm.rs`: `WormIdle`, `WormBite`, `WormDeath`) and the locomotion/carry sets `check_assets.py` enforces for `plutonian` (`Idle`, `Walk`, `Run`, `Jump`, directional walks, `SwordMainSlash`, `SwordOffSlash`, `SpearThrust`, `NemiDeath`).
+Enemy clips are declared in the `ENEMY_MODELS` registry in `src/enemy.rs` (each `EnemyModel` carries its `EnemyClip` names and durations; per-enemy files such as `src/worm.rs` hold the behaviour).
+Before exporting an enemy or the character rig, check those declarations (e.g. `WormIdle`, `WormBite`, `WormDeath`) and the locomotion/carry sets the asset validator enforces for `plutonian` (`Idle`, `Walk`, `Run`, `Jump`, directional walks, `SwordMainSlash`, `SwordOffSlash`, `SpearThrust`, `PlutonianDeath`).
 Keep animation names unchanged unless the issue explicitly asks to rename one — and if it does, update the Rust side in the same change.
-Equipment geometry must fit the per-item bounds from `ItemKind::gear()` in `src/equipment.rs`; `check_assets.py` verifies that.
+Equipment geometry must fit the per-item bounds declared on the item definitions in the catalog (`src/content/items.rs`); the asset validator verifies that.
 
 ## Authoring conventions
 
@@ -56,7 +69,7 @@ Equipment geometry must fit the per-item bounds from `ItemKind::gear()` in `src/
 
 ## Style gates
 
-Check finished work against `../../../docs/design/art-style.md` before reporting done.
+Check finished work against `docs/design/art-style.md` before reporting done.
 The quick version of its checks:
 
 - Silhouette reads at normal third-person gameplay distance, against its surroundings.
@@ -76,10 +89,10 @@ The quick version of its checks:
 After every export, run the repo's asset check (no Blender needed):
 
 ```sh
-python3 scripts/check_assets.py
+cargo run --locked -p plutonian-assets
 ```
 
-It validates GLB structure, resources, skin, animation names, and equipment bounds, and asserts every exported GLB has a matching `.blend` source in `../../../art`.
+It validates GLB structure, resources, skin, animation names and durations, and equipment bounds, and asserts every exported GLB has a matching `.blend` source in `art/`.
 If it fails, fix the cause and rerun — do not hand the user an export that fails it.
 If the change also touches Rust, run the repo's Rust verification from `AGENTS.md` (`cargo fmt --check`, `cargo clippy --locked --all-targets`, `cargo test --locked`) as well.
 Do not claim a check passed that did not run.
@@ -90,4 +103,5 @@ To refresh the title render after editing the scenery: `blender --background -no
 
 ## Out of scope
 
+- Gameplay, tuning, or save-format changes. This skill is art only; a task that also needs code changes says so explicitly.
 - Live MCP connections: the scripts run in a separate background Blender process; none is required.
