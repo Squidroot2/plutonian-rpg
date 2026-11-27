@@ -89,6 +89,59 @@ impl Control {
     }
 }
 
+impl Control {
+    /// Stable snake-case key for the `[keybinds]` table in `config.toml`.
+    /// This is the file format, distinct from [`Control::label`] presentation text.
+    pub(crate) fn config_key(self) -> &'static str {
+        match self {
+            Self::Forward => "forward",
+            Self::Backward => "backward",
+            Self::Left => "left",
+            Self::Right => "right",
+            Self::ToggleRun => "toggle_run",
+            Self::Sprint => "sprint",
+            Self::Jump => "jump",
+            Self::Dodge => "dodge",
+            Self::Interact => "interact",
+            Self::Inventory => "inventory",
+            Self::QuestLog => "quest_log",
+            Self::Drop => "drop",
+            Self::MenuUp => "menu_up",
+            Self::MenuDown => "menu_down",
+            Self::MenuLeft => "menu_left",
+            Self::MenuRight => "menu_right",
+            Self::Attack => "attack",
+            Self::OffHandAttack => "off_hand_attack",
+            Self::Holster => "holster",
+        }
+    }
+
+    pub(crate) fn from_config_key(name: &str) -> Option<Self> {
+        match name {
+            "forward" => Some(Self::Forward),
+            "backward" => Some(Self::Backward),
+            "left" => Some(Self::Left),
+            "right" => Some(Self::Right),
+            "toggle_run" => Some(Self::ToggleRun),
+            "sprint" => Some(Self::Sprint),
+            "jump" => Some(Self::Jump),
+            "dodge" => Some(Self::Dodge),
+            "interact" => Some(Self::Interact),
+            "inventory" => Some(Self::Inventory),
+            "quest_log" => Some(Self::QuestLog),
+            "drop" => Some(Self::Drop),
+            "menu_up" => Some(Self::MenuUp),
+            "menu_down" => Some(Self::MenuDown),
+            "menu_left" => Some(Self::MenuLeft),
+            "menu_right" => Some(Self::MenuRight),
+            "attack" => Some(Self::Attack),
+            "off_hand_attack" => Some(Self::OffHandAttack),
+            "holster" => Some(Self::Holster),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum KeybindCategory {
     Gameplay,
@@ -156,7 +209,264 @@ impl Binding {
     }
 }
 
-#[derive(Resource)]
+const KEY_CONFIG_NAMES: &[(&str, KeyCode)] = &[
+    ("Backquote", KeyCode::Backquote),
+    ("Backslash", KeyCode::Backslash),
+    ("BracketLeft", KeyCode::BracketLeft),
+    ("BracketRight", KeyCode::BracketRight),
+    ("Comma", KeyCode::Comma),
+    ("Digit0", KeyCode::Digit0),
+    ("Digit1", KeyCode::Digit1),
+    ("Digit2", KeyCode::Digit2),
+    ("Digit3", KeyCode::Digit3),
+    ("Digit4", KeyCode::Digit4),
+    ("Digit5", KeyCode::Digit5),
+    ("Digit6", KeyCode::Digit6),
+    ("Digit7", KeyCode::Digit7),
+    ("Digit8", KeyCode::Digit8),
+    ("Digit9", KeyCode::Digit9),
+    ("Equal", KeyCode::Equal),
+    ("IntlBackslash", KeyCode::IntlBackslash),
+    ("IntlRo", KeyCode::IntlRo),
+    ("IntlYen", KeyCode::IntlYen),
+    ("KeyA", KeyCode::KeyA),
+    ("KeyB", KeyCode::KeyB),
+    ("KeyC", KeyCode::KeyC),
+    ("KeyD", KeyCode::KeyD),
+    ("KeyE", KeyCode::KeyE),
+    ("KeyF", KeyCode::KeyF),
+    ("KeyG", KeyCode::KeyG),
+    ("KeyH", KeyCode::KeyH),
+    ("KeyI", KeyCode::KeyI),
+    ("KeyJ", KeyCode::KeyJ),
+    ("KeyK", KeyCode::KeyK),
+    ("KeyL", KeyCode::KeyL),
+    ("KeyM", KeyCode::KeyM),
+    ("KeyN", KeyCode::KeyN),
+    ("KeyO", KeyCode::KeyO),
+    ("KeyP", KeyCode::KeyP),
+    ("KeyQ", KeyCode::KeyQ),
+    ("KeyR", KeyCode::KeyR),
+    ("KeyS", KeyCode::KeyS),
+    ("KeyT", KeyCode::KeyT),
+    ("KeyU", KeyCode::KeyU),
+    ("KeyV", KeyCode::KeyV),
+    ("KeyW", KeyCode::KeyW),
+    ("KeyX", KeyCode::KeyX),
+    ("KeyY", KeyCode::KeyY),
+    ("KeyZ", KeyCode::KeyZ),
+    ("Minus", KeyCode::Minus),
+    ("Period", KeyCode::Period),
+    ("Quote", KeyCode::Quote),
+    ("Semicolon", KeyCode::Semicolon),
+    ("Slash", KeyCode::Slash),
+    ("AltLeft", KeyCode::AltLeft),
+    ("AltRight", KeyCode::AltRight),
+    ("Backspace", KeyCode::Backspace),
+    ("CapsLock", KeyCode::CapsLock),
+    ("ContextMenu", KeyCode::ContextMenu),
+    ("ControlLeft", KeyCode::ControlLeft),
+    ("ControlRight", KeyCode::ControlRight),
+    ("Enter", KeyCode::Enter),
+    ("SuperLeft", KeyCode::SuperLeft),
+    ("SuperRight", KeyCode::SuperRight),
+    ("ShiftLeft", KeyCode::ShiftLeft),
+    ("ShiftRight", KeyCode::ShiftRight),
+    ("Space", KeyCode::Space),
+    ("Tab", KeyCode::Tab),
+    ("Convert", KeyCode::Convert),
+    ("KanaMode", KeyCode::KanaMode),
+    ("Lang1", KeyCode::Lang1),
+    ("Lang2", KeyCode::Lang2),
+    ("Lang3", KeyCode::Lang3),
+    ("Lang4", KeyCode::Lang4),
+    ("Lang5", KeyCode::Lang5),
+    ("NonConvert", KeyCode::NonConvert),
+    ("Delete", KeyCode::Delete),
+    ("End", KeyCode::End),
+    ("Help", KeyCode::Help),
+    ("Home", KeyCode::Home),
+    ("Insert", KeyCode::Insert),
+    ("PageDown", KeyCode::PageDown),
+    ("PageUp", KeyCode::PageUp),
+    ("ArrowDown", KeyCode::ArrowDown),
+    ("ArrowLeft", KeyCode::ArrowLeft),
+    ("ArrowRight", KeyCode::ArrowRight),
+    ("ArrowUp", KeyCode::ArrowUp),
+    ("NumLock", KeyCode::NumLock),
+    ("Numpad0", KeyCode::Numpad0),
+    ("Numpad1", KeyCode::Numpad1),
+    ("Numpad2", KeyCode::Numpad2),
+    ("Numpad3", KeyCode::Numpad3),
+    ("Numpad4", KeyCode::Numpad4),
+    ("Numpad5", KeyCode::Numpad5),
+    ("Numpad6", KeyCode::Numpad6),
+    ("Numpad7", KeyCode::Numpad7),
+    ("Numpad8", KeyCode::Numpad8),
+    ("Numpad9", KeyCode::Numpad9),
+    ("NumpadAdd", KeyCode::NumpadAdd),
+    ("NumpadBackspace", KeyCode::NumpadBackspace),
+    ("NumpadClear", KeyCode::NumpadClear),
+    ("NumpadClearEntry", KeyCode::NumpadClearEntry),
+    ("NumpadComma", KeyCode::NumpadComma),
+    ("NumpadDecimal", KeyCode::NumpadDecimal),
+    ("NumpadDivide", KeyCode::NumpadDivide),
+    ("NumpadEnter", KeyCode::NumpadEnter),
+    ("NumpadEqual", KeyCode::NumpadEqual),
+    ("NumpadHash", KeyCode::NumpadHash),
+    ("NumpadMemoryAdd", KeyCode::NumpadMemoryAdd),
+    ("NumpadMemoryClear", KeyCode::NumpadMemoryClear),
+    ("NumpadMemoryRecall", KeyCode::NumpadMemoryRecall),
+    ("NumpadMemoryStore", KeyCode::NumpadMemoryStore),
+    ("NumpadMemorySubtract", KeyCode::NumpadMemorySubtract),
+    ("NumpadMultiply", KeyCode::NumpadMultiply),
+    ("NumpadParenLeft", KeyCode::NumpadParenLeft),
+    ("NumpadParenRight", KeyCode::NumpadParenRight),
+    ("NumpadStar", KeyCode::NumpadStar),
+    ("NumpadSubtract", KeyCode::NumpadSubtract),
+    ("Escape", KeyCode::Escape),
+    ("Fn", KeyCode::Fn),
+    ("FnLock", KeyCode::FnLock),
+    ("PrintScreen", KeyCode::PrintScreen),
+    ("ScrollLock", KeyCode::ScrollLock),
+    ("Pause", KeyCode::Pause),
+    ("BrowserBack", KeyCode::BrowserBack),
+    ("BrowserFavorites", KeyCode::BrowserFavorites),
+    ("BrowserForward", KeyCode::BrowserForward),
+    ("BrowserHome", KeyCode::BrowserHome),
+    ("BrowserRefresh", KeyCode::BrowserRefresh),
+    ("BrowserSearch", KeyCode::BrowserSearch),
+    ("BrowserStop", KeyCode::BrowserStop),
+    ("Eject", KeyCode::Eject),
+    ("LaunchApp1", KeyCode::LaunchApp1),
+    ("LaunchApp2", KeyCode::LaunchApp2),
+    ("LaunchMail", KeyCode::LaunchMail),
+    ("MediaPlayPause", KeyCode::MediaPlayPause),
+    ("MediaSelect", KeyCode::MediaSelect),
+    ("MediaStop", KeyCode::MediaStop),
+    ("MediaTrackNext", KeyCode::MediaTrackNext),
+    ("MediaTrackPrevious", KeyCode::MediaTrackPrevious),
+    ("Power", KeyCode::Power),
+    ("Sleep", KeyCode::Sleep),
+    ("AudioVolumeDown", KeyCode::AudioVolumeDown),
+    ("AudioVolumeMute", KeyCode::AudioVolumeMute),
+    ("AudioVolumeUp", KeyCode::AudioVolumeUp),
+    ("WakeUp", KeyCode::WakeUp),
+    ("Meta", KeyCode::Meta),
+    ("Hyper", KeyCode::Hyper),
+    ("Turbo", KeyCode::Turbo),
+    ("Abort", KeyCode::Abort),
+    ("Resume", KeyCode::Resume),
+    ("Suspend", KeyCode::Suspend),
+    ("Again", KeyCode::Again),
+    ("Copy", KeyCode::Copy),
+    ("Cut", KeyCode::Cut),
+    ("Find", KeyCode::Find),
+    ("Open", KeyCode::Open),
+    ("Paste", KeyCode::Paste),
+    ("Props", KeyCode::Props),
+    ("Select", KeyCode::Select),
+    ("Undo", KeyCode::Undo),
+    ("Hiragana", KeyCode::Hiragana),
+    ("Katakana", KeyCode::Katakana),
+    ("F1", KeyCode::F1),
+    ("F2", KeyCode::F2),
+    ("F3", KeyCode::F3),
+    ("F4", KeyCode::F4),
+    ("F5", KeyCode::F5),
+    ("F6", KeyCode::F6),
+    ("F7", KeyCode::F7),
+    ("F8", KeyCode::F8),
+    ("F9", KeyCode::F9),
+    ("F10", KeyCode::F10),
+    ("F11", KeyCode::F11),
+    ("F12", KeyCode::F12),
+    ("F13", KeyCode::F13),
+    ("F14", KeyCode::F14),
+    ("F15", KeyCode::F15),
+    ("F16", KeyCode::F16),
+    ("F17", KeyCode::F17),
+    ("F18", KeyCode::F18),
+    ("F19", KeyCode::F19),
+    ("F20", KeyCode::F20),
+    ("F21", KeyCode::F21),
+    ("F22", KeyCode::F22),
+    ("F23", KeyCode::F23),
+    ("F24", KeyCode::F24),
+    ("F25", KeyCode::F25),
+    ("F26", KeyCode::F26),
+    ("F27", KeyCode::F27),
+    ("F28", KeyCode::F28),
+    ("F29", KeyCode::F29),
+    ("F30", KeyCode::F30),
+    ("F31", KeyCode::F31),
+    ("F32", KeyCode::F32),
+    ("F33", KeyCode::F33),
+    ("F34", KeyCode::F34),
+    ("F35", KeyCode::F35),
+];
+
+impl Binding {
+    /// Stable human-readable name for the config file.
+    /// This is the file format, distinct from [`Binding::label`] presentation text.
+    pub(crate) fn config_name(self) -> String {
+        match self {
+            Self::Key(KeyCode::Unidentified(_)) => "Unidentified".into(),
+            Self::Key(key) => format!("{key:?}"),
+            Self::Mouse(MouseButton::Left) => "MouseLeft".into(),
+            Self::Mouse(MouseButton::Right) => "MouseRight".into(),
+            Self::Mouse(MouseButton::Middle) => "MouseMiddle".into(),
+            Self::Mouse(MouseButton::Back) => "MouseBack".into(),
+            Self::Mouse(MouseButton::Forward) => "MouseForward".into(),
+            Self::Mouse(MouseButton::Other(button)) => format!("MouseOther({button})"),
+        }
+    }
+
+    pub(crate) fn from_config_name(name: &str) -> Option<Self> {
+        match name {
+            "MouseLeft" => Some(Self::Mouse(MouseButton::Left)),
+            "MouseRight" => Some(Self::Mouse(MouseButton::Right)),
+            "MouseMiddle" => Some(Self::Mouse(MouseButton::Middle)),
+            "MouseBack" => Some(Self::Mouse(MouseButton::Back)),
+            "MouseForward" => Some(Self::Mouse(MouseButton::Forward)),
+            _ => parse_config_key(name)
+                .map(Self::Key)
+                .or_else(|| parse_config_mouse_other(name).map(Self::Mouse)),
+        }
+    }
+}
+
+/// Look up a keyboard key by its stable config name.
+fn parse_config_key(name: &str) -> Option<KeyCode> {
+    KEY_CONFIG_NAMES
+        .iter()
+        .find(|(known, _)| *known == name)
+        .map(|(_, key)| *key)
+}
+
+/// Parse `MouseOther(N)` for auxiliary mouse buttons.
+fn parse_config_mouse_other(name: &str) -> Option<MouseButton> {
+    name.strip_prefix("MouseOther(")
+        .and_then(|rest| rest.strip_suffix(')'))
+        .and_then(|digits| digits.parse::<u16>().ok())
+        .map(MouseButton::Other)
+}
+
+impl Keybinds {
+    /// Set both slots directly from validated config values.
+    /// Unlike [`Keybinds::assign`], this skips conflict and reservation checks:
+    /// the config file stores the bindings as-is and loads them verbatim.
+    pub(crate) fn apply_config(
+        &mut self,
+        control: Control,
+        primary: Binding,
+        secondary: Option<Binding>,
+    ) {
+        self.0[control as usize] = (primary, secondary);
+    }
+}
+
+#[derive(Resource, Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Keybinds([(Binding, Option<Binding>); Control::VARIANTS.len()]);
 
 impl Default for Keybinds {

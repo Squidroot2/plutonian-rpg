@@ -1,5 +1,6 @@
 use crate::{
     GameState,
+    config::{self, ConfigFile},
     controls::{Binding, Control, KeybindCategory, KeybindSlot, Keybinds},
     ui,
     ui::menu_ui::set_display,
@@ -17,7 +18,12 @@ use strum::VariantArray;
 pub(crate) const FULLSCREEN_MODE: WindowMode =
     WindowMode::BorderlessFullscreen(MonitorSelection::Primary);
 
-pub(crate) struct SettingsPlugin;
+pub(crate) struct SettingsPlugin {
+    /// Use an isolated temporary config file instead of the player's real one.
+    pub(crate) smoke: bool,
+    /// Override the directory containing `config.toml`, if any.
+    pub(crate) directory: Option<std::path::PathBuf>,
+}
 
 #[derive(Resource, Default, Clone, Copy, PartialEq, Eq)]
 enum FpsPosition {
@@ -106,10 +112,15 @@ enum Action {
 
 impl Plugin for SettingsPlugin {
     fn build(&self, app: &mut App) {
+        // Load the persisted bindings once so every consumer reads the
+        // configured bindings from the first frame.
+        let path = config::select_config_file(self.smoke, self.directory.clone());
+        let bindings = config::load_keybinds(path.as_deref());
         app.add_plugins(FrameTimeDiagnosticsPlugin::default())
-            .init_resource::<FpsPosition>()
-            .init_resource::<SettingsMenu>()
-            .init_resource::<Keybinds>()
+            .insert_resource(FpsPosition::default())
+            .insert_resource(SettingsMenu::default())
+            .insert_resource(ConfigFile(path))
+            .insert_resource(bindings)
             .add_systems(Startup, setup)
             .add_systems(
                 PreUpdate,
@@ -308,6 +319,7 @@ fn navigate(
     mut bindings: ResMut<Keybinds>,
     mut fps: ResMut<FpsPosition>,
     mut windows: Query<&mut Window, With<PrimaryWindow>>,
+    config: Res<ConfigFile>,
 ) {
     if !settings.is_open() {
         return;
@@ -319,6 +331,7 @@ fn navigate(
             &mut bindings,
             &mut fps,
             &mut windows,
+            &config,
         );
     } else if let Some((control, slot)) = settings.capture {
         if settings.is_changed() {
@@ -339,11 +352,13 @@ fn navigate(
         if let Some(binding) = binding {
             if slot == KeybindSlot::Secondary && matches!(binding, Binding::Key(KeyCode::Delete)) {
                 bindings.clear_secondary(control);
+                config.save(&bindings);
                 settings.capture = None;
                 settings.notice.clear();
             } else {
                 match bindings.assign(control, slot, binding) {
                     Ok(()) => {
+                        config.save(&bindings);
                         settings.capture = None;
                         settings.notice.clear();
                     }
@@ -361,6 +376,7 @@ fn navigate(
             &mut bindings,
             &mut fps,
             &mut windows,
+            &config,
         );
     }
 }
@@ -372,12 +388,20 @@ fn click(
     mut bindings: ResMut<Keybinds>,
     mut fps: ResMut<FpsPosition>,
     mut windows: Query<&mut Window, With<PrimaryWindow>>,
+    config: Res<ConfigFile>,
 ) {
     if settings.is_open()
         && event.button == PointerButton::Primary
         && let Ok(&action) = actions.get(event.entity)
     {
-        activate(action, &mut settings, &mut bindings, &mut fps, &mut windows);
+        activate(
+            action,
+            &mut settings,
+            &mut bindings,
+            &mut fps,
+            &mut windows,
+            &config,
+        );
     }
 }
 
@@ -387,6 +411,7 @@ fn activate(
     bindings: &mut Keybinds,
     fps: &mut FpsPosition,
     windows: &mut Query<&mut Window, With<PrimaryWindow>>,
+    config: &ConfigFile,
 ) {
     match action {
         Action::Back if settings.capture.take().is_some() => settings.notice.clear(),
@@ -398,7 +423,7 @@ fn activate(
             settings.capture = Some((control, slot));
             settings.notice.clear();
         }
-        Action::ResetBindings => *bindings = Keybinds::default(),
+        Action::ResetBindings => reset_bindings(bindings, config),
         Action::ToggleDisplay => {
             if let Ok(mut window) = windows.single_mut() {
                 window.mode = if window.mode == WindowMode::Windowed {
@@ -409,6 +434,12 @@ fn activate(
             }
         }
     }
+}
+
+/// Restore defaults and persist them, so a reset survives the next launch.
+fn reset_bindings(bindings: &mut Keybinds, config: &ConfigFile) {
+    *bindings = Keybinds::default();
+    config.save(bindings);
 }
 
 fn refresh_panel(
@@ -554,6 +585,15 @@ mod tests {
     use crate::{GameState, ui::title::TitlePlugin};
     use bevy::{asset::AssetPlugin, state::app::StatesPlugin};
 
+    /// Settings under test use an isolated temporary config file so
+    /// rebinding never touches the player's real configuration.
+    fn test_plugin() -> SettingsPlugin {
+        SettingsPlugin {
+            smoke: true,
+            directory: None,
+        }
+    }
+
     #[test]
     fn fps_position_cycles_through_corners_and_disabled() {
         let mut position = FpsPosition::default();
@@ -581,7 +621,7 @@ mod tests {
             .init_resource::<ButtonInput<MouseButton>>()
             .init_resource::<crate::save::SaveSlot>()
             .init_resource::<crate::save::RunSave>()
-            .add_plugins((TitlePlugin, SettingsPlugin));
+            .add_plugins((TitlePlugin, test_plugin()));
         let window = app
             .world_mut()
             .spawn((Window::default(), PrimaryWindow))
@@ -621,7 +661,7 @@ mod tests {
     #[test]
     fn escape_from_paused_settings_returns_to_pause() {
         let mut app = App::new();
-        app.add_plugins((MinimalPlugins, StatesPlugin, SettingsPlugin))
+        app.add_plugins((MinimalPlugins, StatesPlugin, test_plugin()))
             .insert_state(GameState::Paused)
             .init_resource::<crate::dialogue::Dialogue>()
             .init_resource::<ButtonInput<KeyCode>>()
@@ -642,7 +682,7 @@ mod tests {
     #[test]
     fn capture_rejects_a_duplicate_and_applies_an_available_key() {
         let mut app = App::new();
-        app.add_plugins((MinimalPlugins, StatesPlugin, SettingsPlugin))
+        app.add_plugins((MinimalPlugins, StatesPlugin, test_plugin()))
             .insert_state(GameState::Paused)
             .init_resource::<ButtonInput<KeyCode>>()
             .init_resource::<ButtonInput<MouseButton>>();
@@ -673,9 +713,67 @@ mod tests {
     }
 
     #[test]
+    fn rebind_and_reset_persist_to_the_config_file() {
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, StatesPlugin, test_plugin()))
+            .insert_state(GameState::Paused)
+            .init_resource::<ButtonInput<KeyCode>>()
+            .init_resource::<ButtonInput<MouseButton>>();
+        app.update();
+        let config = app.world().resource::<ConfigFile>().clone();
+        let path = config.0.clone().expect("test config file");
+
+        // Rebind through the capture flow, as a player would in settings.
+        let world = app.world_mut();
+        let mut menu = world.resource_mut::<SettingsMenu>();
+        menu.open();
+        menu.keybinds = true;
+        menu.capture = Some((Control::Holster, KeybindSlot::Primary));
+        app.update();
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .press(KeyCode::KeyR);
+        app.update();
+        assert!(matches!(
+            app.world().resource::<Keybinds>().get(Control::Holster),
+            Binding::Key(KeyCode::KeyR)
+        ));
+        // The write is synchronous: it is on disk before the next frame,
+        // so a forced kill right after the rebind cannot lose it.
+        let reloaded = config::load_keybinds(Some(&path));
+        assert_eq!(reloaded.get(Control::Holster), Binding::Key(KeyCode::KeyR));
+
+        // Relaunching with the same directory picks the binding back up.
+        let mut relaunched = App::new();
+        relaunched.add_plugins((
+            MinimalPlugins,
+            StatesPlugin,
+            SettingsPlugin {
+                smoke: false,
+                directory: path.parent().map(|dir| dir.to_path_buf()),
+            },
+        ));
+        assert_eq!(
+            relaunched
+                .world()
+                .resource::<Keybinds>()
+                .get(Control::Holster),
+            Binding::Key(KeyCode::KeyR)
+        );
+
+        // Resetting restores defaults in memory and on disk.
+        {
+            let mut bindings = app.world_mut().resource_mut::<Keybinds>();
+            reset_bindings(&mut bindings, &config);
+        }
+        assert_eq!(*app.world().resource::<Keybinds>(), Keybinds::default());
+        assert_eq!(config::load_keybinds(Some(&path)), Keybinds::default());
+    }
+
+    #[test]
     fn menu_navigation_rebinds_independently_of_gameplay_controls() {
         let mut app = App::new();
-        app.add_plugins((MinimalPlugins, StatesPlugin, SettingsPlugin))
+        app.add_plugins((MinimalPlugins, StatesPlugin, test_plugin()))
             .insert_state(GameState::Paused)
             .init_resource::<ButtonInput<KeyCode>>()
             .init_resource::<ButtonInput<MouseButton>>();

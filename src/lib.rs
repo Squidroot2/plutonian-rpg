@@ -12,6 +12,7 @@ mod cave;
 mod combat;
 mod combat_audio;
 mod combat_feedback;
+mod config;
 mod content;
 pub use content::validate_data_root;
 mod controls;
@@ -136,6 +137,7 @@ pub fn run(options: Options) {
 
 /// Register the game features in the same order for desktop and headless apps.
 fn add_game_plugins(app: &mut App, save_plugin: save::SavePlugin, combat_audio: CombatAudio) {
+    let settings_smoke = save_plugin.smoke;
     app.add_plugins(content::ContentPlugin)
         .add_plugins((
             avian3d::prelude::PhysicsPlugins::default(),
@@ -171,7 +173,10 @@ fn add_game_plugins(app: &mut App, save_plugin: save::SavePlugin, combat_audio: 
                     app.add_plugins(combat_audio::CombatAudioPlugin);
                 }
             },
-            ui::settings::SettingsPlugin,
+            ui::settings::SettingsPlugin {
+                smoke: settings_smoke,
+                directory: None,
+            },
             enemy::EnemyPlugin,
             attributes::AttributesPlugin,
             experience::ExperiencePlugin,
