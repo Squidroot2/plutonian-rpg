@@ -4,7 +4,7 @@ use crate::{
     controls::Keybinds,
     save::{Bed, SaveAtBed, SleepWithoutSaving},
 };
-use bevy::prelude::*;
+use bevy::{picking::hover::PickingInteraction, prelude::*};
 
 const FADE_OUT_SECONDS: f32 = 0.8;
 const HOLD_SECONDS: f32 = 0.4;
@@ -39,6 +39,10 @@ impl SleepAction {
 #[derive(Resource, Default)]
 struct Selection(SleepAction);
 
+/// Track hover changes so a stationary pointer does not override keyboard selection.
+#[derive(Resource, Default)]
+struct Hover(Option<SleepAction>);
+
 #[derive(Component)]
 struct SleepButton(SleepAction);
 
@@ -53,11 +57,14 @@ pub(crate) struct SleepPlugin;
 impl Plugin for SleepPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Selection>()
+            .init_resource::<Hover>()
             .init_resource::<ChosenAction>()
             .add_systems(OnEnter(GameState::SleepMenu), (reset_selection, open))
             .add_systems(
                 Update,
-                (navigate, style_buttons).run_if(in_state(GameState::SleepMenu)),
+                (navigate, select_hovered_button, style_buttons)
+                    .chain()
+                    .run_if(in_state(GameState::SleepMenu)),
             )
             .add_systems(OnEnter(GameState::Sleeping), begin_fade)
             .add_systems(
@@ -69,8 +76,9 @@ impl Plugin for SleepPlugin {
     }
 }
 
-fn reset_selection(mut selection: ResMut<Selection>) {
+fn reset_selection(mut selection: ResMut<Selection>, mut hover: ResMut<Hover>) {
     selection.0 = SleepAction::default();
+    hover.0 = None;
 }
 
 fn open(mut commands: Commands) {
@@ -185,6 +193,26 @@ fn style_buttons(selection: Res<Selection>, mut buttons: Query<(&SleepButton, &m
     }
 }
 
+fn select_hovered_button(
+    mut selection: ResMut<Selection>,
+    mut last_hovered: ResMut<Hover>,
+    buttons: Query<(&SleepButton, Option<&PickingInteraction>)>,
+) {
+    let hovered = buttons.iter().find_map(|(button, interaction)| {
+        matches!(
+            interaction,
+            Some(PickingInteraction::Hovered | PickingInteraction::Pressed)
+        )
+        .then_some(button.0)
+    });
+    if hovered != last_hovered.0 {
+        if let Some(action) = hovered {
+            selection.0 = action;
+        }
+        last_hovered.0 = hovered;
+    }
+}
+
 fn begin_fade(mut commands: Commands) {
     commands.spawn((
         Fade(
@@ -259,6 +287,7 @@ mod tests {
         world.init_resource::<ButtonInput<KeyCode>>();
         world.init_resource::<Keybinds>();
         world.init_resource::<Selection>();
+        world.init_resource::<Hover>();
         world.init_resource::<ChosenAction>();
         world
     }
@@ -312,5 +341,33 @@ mod tests {
             *world.resource::<NextState<GameState>>(),
             NextState::Pending(GameState::Playing)
         ));
+    }
+
+    #[test]
+    fn hover_selects_button_without_overriding_later_keyboard_selection() {
+        let mut world = menu_world();
+        let button = world
+            .spawn((SleepButton(SleepAction::Sleep), PickingInteraction::Hovered))
+            .id();
+        world.run_system_once(select_hovered_button).expect("hover");
+        assert_eq!(world.resource::<Selection>().0, SleepAction::Sleep);
+
+        world.resource_mut::<Selection>().0 = SleepAction::Cancel;
+        world
+            .run_system_once(select_hovered_button)
+            .expect("stationary hover");
+        assert_eq!(world.resource::<Selection>().0, SleepAction::Cancel);
+
+        *world
+            .get_mut::<PickingInteraction>(button)
+            .expect("interaction") = PickingInteraction::None;
+        world.run_system_once(select_hovered_button).expect("leave");
+        *world
+            .get_mut::<PickingInteraction>(button)
+            .expect("interaction") = PickingInteraction::Hovered;
+        world
+            .run_system_once(select_hovered_button)
+            .expect("hover again");
+        assert_eq!(world.resource::<Selection>().0, SleepAction::Sleep);
     }
 }
