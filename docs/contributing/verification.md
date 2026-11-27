@@ -68,6 +68,7 @@ Plain waits for elapsed time remain appropriate when no reaction deadline is ass
   The short beacon interaction verifies that the core is protected in the bag, consumed on turn-in, and lights the beacon.
   The run prints `SMOKE PASS` and its duration, or reports the current phase if it reaches 60 virtual seconds.
 - `--smoke-world` loads the shipped outpost, checks transfers in all three tent chests, and walks out of and back into the tent to verify stored contents.
+  It also checks the Barracks weapon rack: non-weapon and full-rack refusals, two displayed weapons, withdrawal removing the model, and bed-save restoration of the racked weapons.
   It checks grounded worm spawns, traversable routes, and pillar collision from four directions.
   It sweeps the perimeter with the player capsule,
   then sprints and jumps into the sealed gate to verify the player stays on the shelf.

@@ -250,14 +250,25 @@ class Shelter:
         self.beam('Relief inlay', (.75, 2.03, 1.39), (.75, 2.03, 1.89), .049, 'teal')
 
     def barracks(self):
-        self.beam('Pikes storage rail', (-2.6, 2.31, 1.43), (-1.15, 2.31, 1.43),
+        # The weapon rack replaces the old decorative pike rail in the same
+        # footprint against the rear wall, so the hut needs no enlargement.
+        # Its two slots sit at local u=-2.21 and u=-1.57, v=2.49 (the base
+        # line); src/storage.rs records the matching game-space anchors.
+        self.beam('Weapon rack rail', (-2.6, 2.31, 1.43), (-1.15, 2.31, 1.43),
                   .10, 'frame')
+        self.beam('Weapon rack lower rail', (-2.6, 2.42, .55),
+                  (-1.15, 2.42, .55), .08, 'frame')
+        for i, u in enumerate((-2.55, -1.20)):
+            self.block(f'Weapon rack post {i}', (u, 2.38, .71),
+                       (.14, .18, 1.42), 'frame', solid=True)
+        self.block('Weapon rack base', (-1.875, 2.44, .07), (1.55, .34, .14),
+                   'frame', solid=True)
         for i in range(2):
             u = -2.21+i*.64
-            self.beam(f'Training pike {i}', (u, 2.49, .29), (u-.10, 2.36, 1.96),
-                      .048, 'linen')
-            self.crystal(f'Training pike head {i}', (u-.10, 2.36, 2.01),
-                         (.092, .040, .17), 'frame')
+            self.block(f'Weapon rack peg {i}', (u, 2.24, 1.30),
+                       (.08, .24, .08), 'linen')
+            self.block(f'Weapon rack slot foot {i}', (u, 2.44, .17),
+                       (.30, .30, .06), 'linen')
         self.block('Repair kit', (.10, 2.81, .76), (.62, .25, .16), 'teal')
         self.cup('Oiling pot', (-.49, 2.75, .77), .125, .18, 'ochre', .094)
 

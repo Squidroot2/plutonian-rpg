@@ -26,7 +26,7 @@ saves at a bed.
 
 - Quest journal state, encoded through stable quest and objective identifiers.
 - Player inventory, equipment, attribute progression and experience.
-- Storage chest contents and dungeon progress, including the Old Relay gate.
+- Storage chest contents, the weapon rack's two slots, and dungeon progress, including the Old Relay gate.
 - Loose pickup stacks and their world positions, plus IDs of collected RON pickups.
 - Nemi's position, rotation, health and quest-related state.
 - Each authored encounter's position, rotation, health and loot availability.
@@ -56,7 +56,7 @@ systems.
 
 The file begins with the six-byte `PLUT` header and a little-endian schema
 version, followed by a bitcode-encoded snapshot.
-The current schema is version 14, and it is the only supported format.
+The current schema is version 15, and it is the only supported format.
 It stores the player name in the snapshot and restores it when the run is loaded.
 It encodes item, encounter, dungeon, pickup, and NPC IDs as strings.
 Persistent NPC state is stored alongside the snapshot payload.
@@ -121,7 +121,7 @@ Selecting a readable entry validates it and makes it the active save and `RunSav
 Each successful bed save creates a new active file and replaces the current run's checkpoint.
 
 Entering `Loading` first despawns entities marked as part of the prior session,
-restores inventory, equipment, chests and dungeon resources from the current
+restores inventory, equipment, chests, weapon rack and dungeon resources from the current
 checkpoint (or defaults for a fresh run), and clears transient session state.
 The loader waits for assets and scene instances, then constructs a quest
 journal from the checkpoint's stable IDs or creates a new journal.
@@ -173,7 +173,7 @@ without applying catalog-dependent changes or modifying any file.
 The JSON object is the shared representation for `inspect --json` and `create`.
 Its top-level `format_version` is the binary save version.
 The remaining top-level fields are `player_name`, `journal`, `inventory`, `equipment`, `chests`,
-`dungeons`, `pickups`, `collected_pickups`, `cavern_defeats`, `npcs`,
+`weapon_rack`, `dungeons`, `pickups`, `collected_pickups`, `cavern_defeats`, `npcs`,
 `encounters`, `progression`, `experience`, and `world`.
 Item, dungeon, encounter, pickup, and NPC IDs use their stable string keys.
 Dungeon progress is keyed by dungeon ID; global flags live in `world`.

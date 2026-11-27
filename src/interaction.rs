@@ -16,7 +16,7 @@ use crate::{
     player::PlayerWrite,
     quest::{QuestAction, QuestJournal},
     save::{Bed, SaveAtBed},
-    storage::ChestId,
+    storage::{ChestId, WeaponRack},
     ui::menu_ui::PlayerMenu,
 };
 use avian3d::prelude::*;
@@ -44,6 +44,7 @@ pub enum InteractionTarget {
     Dungeon(DungeonTarget),
     Corpse,
     Chest(ChestId),
+    WeaponRack,
     Bed,
     SampleStation,
 }
@@ -114,6 +115,9 @@ pub(crate) struct LootTarget(pub(crate) Option<Entity>);
 #[derive(Resource, Default)]
 pub(crate) struct ActiveChest(pub(crate) Option<Entity>);
 
+#[derive(Resource, Default)]
+pub(crate) struct ActiveRack(pub(crate) Option<Entity>);
+
 #[derive(Resource, Default, PartialEq, Eq)]
 pub struct Nearby(pub Option<(Entity, InteractionTarget)>);
 #[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -133,6 +137,7 @@ impl Plugin for InteractionPlugin {
             .init_resource::<DialogueClick>()
             .init_resource::<LootTarget>()
             .init_resource::<ActiveChest>()
+            .init_resource::<ActiveRack>()
             .add_message::<SaveAtBed>()
             .add_systems(
                 Update,
@@ -157,6 +162,7 @@ struct Candidate {
     dead: Has<Dead>,
     speaker: Option<&'static Speaker>,
     chest: Option<&'static ChestId>,
+    rack: Has<WeaponRack>,
     bed: Has<Bed>,
     sample_station: Has<SampleStation>,
 }
@@ -212,6 +218,8 @@ impl CandidateItem<'_, '_> {
             (InteractionTarget::Corpse, 0.0)
         } else if let Some(&chest) = self.chest.filter(|_| area == Area::Surface) {
             (InteractionTarget::Chest(chest), 0.0)
+        } else if self.rack && area == Area::Surface {
+            (InteractionTarget::WeaponRack, 0.0)
         } else if self.sample_station && area == Area::Surface && can_use_station {
             (InteractionTarget::SampleStation, 0.0)
         } else if self.bed && area == Area::Surface {
@@ -234,6 +242,7 @@ fn find_target(
             With<DungeonTarget>,
             With<CorpseLoot>,
             With<ChestId>,
+            With<WeaponRack>,
             With<Bed>,
             With<SampleStation>,
         )>,
@@ -313,6 +322,7 @@ fn interact(
     (catalog, handlers): (Res<DialogueCatalog>, Res<DialogueRegistry>),
     mut loot: ResMut<LootTarget>,
     mut chest: ResMut<ActiveChest>,
+    mut rack: ResMut<ActiveRack>,
     mut saves: MessageWriter<SaveAtBed>,
     mut next: ResMut<NextState<GameState>>,
     log: Option<Res<PlayerMenu>>,
@@ -390,6 +400,12 @@ fn interact(
                 if interact_pressed && matches!(*next, NextState::Unchanged) =>
             {
                 chest.0 = Some(entity);
+                next.set(GameState::Storage);
+            }
+            InteractionTarget::WeaponRack
+                if interact_pressed && matches!(*next, NextState::Unchanged) =>
+            {
+                rack.0 = Some(entity);
                 next.set(GameState::Storage);
             }
             InteractionTarget::Bed if interact_pressed && matches!(*next, NextState::Unchanged) => {
@@ -938,6 +954,90 @@ mod tests {
         assert_eq!(storage.get(ChestId::Gear).count(ItemKind::Battery), 1);
         assert_eq!(storage.get(ChestId::Gear).count(ItemKind::FieldHelmet), 1);
         assert_eq!(storage.get(ChestId::Lamp).count(ItemKind::Battery), 0);
+    }
+
+    #[test]
+    fn weapon_rack_only_accepts_weapons_and_holds_one_per_slot() {
+        use crate::storage::{WeaponRack, WeaponRackStorage};
+
+        let mut app = test_app();
+        let world = app.world_mut();
+        let window = world.spawn_empty().id();
+        let camera = world.spawn_empty().id();
+        world.spawn((WeaponRack, Transform::from_xyz(0.0, 0.0, -1.0)));
+        {
+            let mut inventory = world.actor_data_mut::<Inventory>();
+            assert!(inventory.add(ItemKind::Battery, 1));
+            assert!(inventory.add(ItemKind::FieldSpear, 1));
+            assert!(inventory.add(ItemKind::Trident, 1));
+            assert!(inventory.add(ItemKind::Shortsword, 1));
+        }
+        let click = |app: &mut App, action| {
+            let world = app.world_mut();
+            let button = world
+                .query::<(Entity, &StorageAction)>()
+                .iter(world)
+                .find(|(_, current)| **current == action)
+                .expect("storage action")
+                .0;
+            world.trigger(crate::interaction::pointer_click(button, window, camera));
+        };
+        let store =
+            |item| StorageAction::Transfer(StorageSide::Backpack, item, TransferAmount::One);
+
+        press_interact(&mut app);
+        assert!(app.world().resource::<ActiveRack>().0.is_some());
+        click(&mut app, store(ItemKind::Battery));
+        assert_eq!(
+            app.world()
+                .actor_data::<Inventory>()
+                .count(ItemKind::Battery),
+            1,
+            "a non-weapon must stay in the backpack"
+        );
+        assert!(
+            app.world()
+                .resource::<WeaponRackStorage>()
+                .0
+                .iter()
+                .all(Option::is_none)
+        );
+
+        click(&mut app, store(ItemKind::FieldSpear));
+        click(&mut app, store(ItemKind::Trident));
+        assert_eq!(
+            app.world().resource::<WeaponRackStorage>().0,
+            [Some(ItemKind::FieldSpear), Some(ItemKind::Trident)]
+        );
+        click(&mut app, store(ItemKind::Shortsword));
+        assert_eq!(
+            app.world()
+                .actor_data::<Inventory>()
+                .count(ItemKind::Shortsword),
+            1,
+            "a third weapon must stay in the backpack while both slots are full"
+        );
+
+        click(
+            &mut app,
+            StorageAction::Transfer(
+                StorageSide::Chest,
+                ItemKind::FieldSpear,
+                TransferAmount::One,
+            ),
+        );
+        assert_eq!(
+            app.world().resource::<WeaponRackStorage>().0,
+            [None, Some(ItemKind::Trident)]
+        );
+        click(&mut app, store(ItemKind::Shortsword));
+        assert_eq!(
+            app.world().resource::<WeaponRackStorage>().0,
+            [Some(ItemKind::Shortsword), Some(ItemKind::Trident)]
+        );
+        click(&mut app, StorageAction::Close);
+        app.update();
+        assert_eq!(app.world().resource::<ActiveRack>().0, None);
     }
 
     #[test]
