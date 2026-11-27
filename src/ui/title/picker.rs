@@ -276,9 +276,7 @@ fn render(
                                 row_button(row, "Cancel", PickerAction::Cancel, true, false);
                             });
                     } else {
-                        panel.spawn(Text::new(
-                            "↑/↓ select · Enter load · Delete removes · Esc closes",
-                        ));
+                        panel.spawn(Text::new("Enter load · Delete removes · Esc closes"));
                         row_button(panel, "Back", PickerAction::Close, true, false);
                     }
                 });
