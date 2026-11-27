@@ -66,6 +66,7 @@ fn game() -> App {
             smoke: true,
             directory: None,
         },
+        None,
         crate::CombatAudio::Disabled,
     );
     app.finish();

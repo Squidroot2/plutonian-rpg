@@ -76,6 +76,8 @@ pub struct Options {
     pub windowed: bool,
     /// Optional absolute save directory supplied at launch.
     pub save_dir: Option<std::path::PathBuf>,
+    /// Optional absolute config directory supplied at launch.
+    pub config_dir: Option<std::path::PathBuf>,
 }
 
 /// Construct and run the game with the selected process options.
@@ -88,6 +90,7 @@ pub fn run(options: Options) {
         crossing,
         windowed,
         save_dir,
+        config_dir,
         ..
     } = options;
     let mode = if windowed {
@@ -120,6 +123,7 @@ pub fn run(options: Options) {
             smoke: arena || world || nemi || cave || crossing,
             directory: save_dir,
         },
+        config_dir,
         CombatAudio::Enabled,
     );
     #[cfg(feature = "smoke")]
@@ -136,7 +140,12 @@ pub fn run(options: Options) {
 }
 
 /// Register the game features in the same order for desktop and headless apps.
-fn add_game_plugins(app: &mut App, save_plugin: save::SavePlugin, combat_audio: CombatAudio) {
+fn add_game_plugins(
+    app: &mut App,
+    save_plugin: save::SavePlugin,
+    config_dir: Option<std::path::PathBuf>,
+    combat_audio: CombatAudio,
+) {
     let settings_smoke = save_plugin.smoke;
     app.add_plugins(content::ContentPlugin)
         .add_plugins((
@@ -175,7 +184,7 @@ fn add_game_plugins(app: &mut App, save_plugin: save::SavePlugin, combat_audio: 
             },
             ui::settings::SettingsPlugin {
                 smoke: settings_smoke,
-                directory: None,
+                directory: config_dir,
             },
             enemy::EnemyPlugin,
             attributes::AttributesPlugin,
