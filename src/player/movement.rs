@@ -257,6 +257,14 @@ pub(crate) struct MovementInput {
     dodge: Option<Vec2>,
 }
 
+fn keyboard_axis(negative: bool, positive: bool) -> f32 {
+    match (negative, positive) {
+        (true, false) => -1.0,
+        (false, true) => 1.0,
+        _ => 0.0,
+    }
+}
+
 impl MovementInput {
     // Frame-based attacks can run before the next fixed step consumes the request.
     pub(crate) fn dodge_pending(
@@ -299,10 +307,14 @@ pub(crate) fn input(
         return;
     }
     input.direction = Vec2::new(
-        bindings.pressed_any(Control::Right, &keys, &mouse) as i8 as f32
-            - bindings.pressed_any(Control::Left, &keys, &mouse) as i8 as f32,
-        bindings.pressed_any(Control::Forward, &keys, &mouse) as i8 as f32
-            - bindings.pressed_any(Control::Backward, &keys, &mouse) as i8 as f32,
+        keyboard_axis(
+            bindings.pressed_any(Control::Left, &keys, &mouse),
+            bindings.pressed_any(Control::Right, &keys, &mouse),
+        ),
+        keyboard_axis(
+            bindings.pressed_any(Control::Backward, &keys, &mouse),
+            bindings.pressed_any(Control::Forward, &keys, &mouse),
+        ),
     )
     .normalize_or_zero();
     input.jump |= bindings.just_pressed_any(Control::Jump, &keys, &mouse);
@@ -483,5 +495,18 @@ pub(crate) fn movement(
             };
             stamina.recover(recovery_time);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::keyboard_axis;
+
+    #[test]
+    fn keyboard_axis_preserves_opposite_and_single_key_semantics() {
+        assert_eq!(keyboard_axis(false, false), 0.0);
+        assert_eq!(keyboard_axis(true, false), -1.0);
+        assert_eq!(keyboard_axis(false, true), 1.0);
+        assert_eq!(keyboard_axis(true, true), 0.0);
     }
 }

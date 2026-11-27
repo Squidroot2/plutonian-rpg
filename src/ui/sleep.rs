@@ -152,8 +152,11 @@ fn adjacent(current: SleepAction, direction: isize) -> SleepAction {
     let index = SleepAction::ALL
         .iter()
         .position(|&action| action == current)
-        .expect("sleep action is listed") as isize;
-    SleepAction::ALL[(index + direction).rem_euclid(SleepAction::ALL.len() as isize) as usize]
+        .expect("sleep action is listed");
+    let index = isize::try_from(index).expect("sleep action count fits in isize");
+    let len = isize::try_from(SleepAction::ALL.len()).expect("sleep action count fits in isize");
+    let index = (index + direction).rem_euclid(len);
+    SleepAction::ALL[usize::try_from(index).expect("remainder is non-negative")]
 }
 
 fn click(

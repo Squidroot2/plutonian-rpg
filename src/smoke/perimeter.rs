@@ -1,6 +1,7 @@
 //! Probe the perimeter in isolation so existing terrain cannot hide a gap.
 use crate::player::Player;
 use avian3d::prelude::*;
+use az::Az;
 use bevy::prelude::*;
 
 // Follow the inward faces through the main shelf, the shoulder and South Basin.
@@ -72,9 +73,9 @@ pub(super) fn check_geometry(
             let edge = end - start;
             let outward = Dir3::new(Vec3::new(edge.y, 0.0, -edge.x))
                 .expect("perimeter segments have positive length");
-            let steps = edge.length().ceil() as u32;
+            let steps = edge.length().ceil().az::<u32>();
             for step in 0..=steps {
-                let point = start.lerp(end, step as f32 / steps as f32);
+                let point = start.lerp(end, step.az::<f32>() / steps.az::<f32>());
                 for y in [-1.5, 2.0, 4.5] {
                     assert_blocked(
                         &spatial,
@@ -105,7 +106,7 @@ pub(super) fn check_geometry(
                 &spatial,
                 capsule,
                 &filter,
-                Vec3::new(x as f32 * 0.5, y, 27.0),
+                Vec3::new(x.az::<f32>() * 0.5, y, 27.0),
                 Dir3::Z,
             );
         }

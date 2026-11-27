@@ -5,6 +5,9 @@ edition = "2024"
 rust-version = "1.100.0"
 license = "MIT"
 
+[lints]
+workspace = true
+
 [dependencies]
 clap = { version = "4", features = ["derive"] }
 plutonian-rpg = { path = "../.." }

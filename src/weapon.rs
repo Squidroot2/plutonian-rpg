@@ -44,6 +44,15 @@ pub(crate) enum Hand {
     Off,
 }
 
+impl From<Hand> for usize {
+    fn from(hand: Hand) -> Self {
+        match hand {
+            Hand::Main => 0,
+            Hand::Off => 1,
+        }
+    }
+}
+
 impl Hand {
     pub(crate) const ALL: [Self; 2] = [Self::Main, Self::Off];
 
@@ -108,7 +117,7 @@ impl WeaponAttack {
     }
 
     pub(crate) fn current(&self, hand: Hand) -> Option<Swing> {
-        self.swings[hand as usize]
+        self.swings[usize::from(hand)]
     }
 
     pub(crate) fn just_started(&self) -> bool {
@@ -132,7 +141,7 @@ impl WeaponAttack {
         let Some((weapon, stats)) = items[item].attack() else {
             return false;
         };
-        self.swings[hand as usize] = Some(Swing {
+        self.swings[usize::from(hand)] = Some(Swing {
             weapon,
             item,
             stats,
@@ -152,7 +161,7 @@ impl WeaponAttack {
         pose: &Transform,
     ) -> Option<Hit> {
         if equipment.get(hand.slot()) != Some(self.current(hand)?.item) {
-            self.swings[hand as usize] = None;
+            self.swings[usize::from(hand)] = None;
             return None;
         }
         let (weapon, stats) = self.advance(hand, delta)?;
@@ -170,7 +179,7 @@ impl WeaponAttack {
     }
 
     fn advance(&mut self, hand: Hand, delta: f32) -> Option<(WeaponKind, WeaponStats)> {
-        let slot = &mut self.swings[hand as usize];
+        let slot = &mut self.swings[usize::from(hand)];
         let swing = slot.as_mut()?;
         let (weapon, stats) = (swing.weapon, swing.stats);
         let (impact_at, recovery_at) = weapon.timing();
@@ -389,7 +398,7 @@ mod tests {
     #[test]
     fn thrust_has_one_impact_and_ends_after_recovery() {
         let mut thrust = WeaponAttack::default();
-        thrust.swings[Hand::Main as usize] = Some(Swing {
+        thrust.swings[usize::from(Hand::Main)] = Some(Swing {
             weapon: WeaponKind::Spear,
             item: ItemKind::FieldSpear,
             stats: test_stats(ItemKind::FieldSpear),

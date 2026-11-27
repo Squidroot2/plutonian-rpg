@@ -73,8 +73,7 @@ const RELAY_PROGRESS: CharacterProgress = CharacterProgress {
 const SHIPPED_GUARD_HEALTH: u16 = 140;
 // Both kills occur one level above their authored enemy level.
 const RELAY_ROACH_XP: u64 = 25 * 3 / 4;
-const LOOTED_RELAY_XP: Experience =
-    Experience(RELAY_ROACH_XP + super::SHIPPED_HUSHCAP_XP as u64 * 3 / 4);
+const LOOTED_RELAY_XP: Experience = Experience(RELAY_ROACH_XP + super::SHIPPED_HUSHCAP_XP * 3 / 4);
 
 type HushcapData = (
     Entity,

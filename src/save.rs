@@ -599,7 +599,8 @@ fn unique_suffix() -> String {
 }
 
 pub(crate) fn read_save(path: &Path) -> io::Result<Snapshot> {
-    let mut file = File::open(path)?.take(MAX_SAVE_BYTES as u64 + 1);
+    let max_save_bytes = u64::try_from(MAX_SAVE_BYTES).expect("save limit fits in u64");
+    let mut file = File::open(path)?.take(max_save_bytes + 1);
     let mut data = Vec::new();
     file.read_to_end(&mut data)?;
     if data.len() > MAX_SAVE_BYTES {

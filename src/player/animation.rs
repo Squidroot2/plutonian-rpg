@@ -12,6 +12,7 @@ use crate::{
     player::Player,
     weapon::{Hand, WeaponAttack, WeaponStance},
 };
+use az::Az;
 use bevy::{animation::AnimationTargetId, prelude::*, world_serialization::WorldInstanceReady};
 use std::time::Duration;
 
@@ -60,6 +61,24 @@ pub(super) enum Gait {
     WalkBackRight,
 }
 
+impl From<Gait> for usize {
+    fn from(gait: Gait) -> Self {
+        match gait {
+            Gait::Idle => 0,
+            Gait::Walk => 1,
+            Gait::Run => 2,
+            Gait::Jump => 3,
+            Gait::WalkBack => 4,
+            Gait::StrafeLeft => 5,
+            Gait::StrafeRight => 6,
+            Gait::WalkForwardLeft => 7,
+            Gait::WalkForwardRight => 8,
+            Gait::WalkBackLeft => 9,
+            Gait::WalkBackRight => 10,
+        }
+    }
+}
+
 impl Gait {
     pub(super) fn for_player(player: &Player) -> Self {
         if !player.grounded {
@@ -67,8 +86,8 @@ impl Gait {
         }
         // The normalized keyboard axes are each zero, ±1, or ±1/√2.
         match (
-            player.movement_direction.x.round() as i8,
-            player.movement_direction.y.round() as i8,
+            player.movement_direction.x.round().az::<i8>(),
+            player.movement_direction.y.round().az::<i8>(),
         ) {
             (0, 1) if player.pace != Pace::Walk => Self::Run,
             (0, 1) => Self::Walk,
@@ -92,7 +111,7 @@ impl Gait {
     }
 }
 
-const SPEAR_LOCOMOTION_START: usize = Gait::WalkBackRight as usize + 1;
+const SPEAR_LOCOMOTION_START: usize = 11;
 const SWORD_LOCOMOTION_START: usize = SPEAR_LOCOMOTION_START * 2;
 pub(crate) const SPEAR_THRUST_CLIP: usize = SPEAR_LOCOMOTION_START * 3;
 const SWORD_MAIN_SLASH_CLIP: usize = SPEAR_THRUST_CLIP + 1;
@@ -143,7 +162,9 @@ pub const CLIPS: [&str; ACTOR_DEATH_CLIP + 1] = [
 pub(crate) fn directional_walk_clips() -> impl Iterator<Item = &'static str> {
     [0, SPEAR_LOCOMOTION_START, SWORD_LOCOMOTION_START]
         .into_iter()
-        .flat_map(|start| &CLIPS[start + Gait::WalkBack as usize..start + SPEAR_LOCOMOTION_START])
+        .flat_map(|start| {
+            &CLIPS[start + usize::from(Gait::WalkBack)..start + SPEAR_LOCOMOTION_START]
+        })
         .copied()
 }
 
@@ -187,7 +208,10 @@ pub(crate) fn add_sword_animation_masks(
             if idle_clip.curves_for_target(target).is_none() {
                 return Err("SwordIdle is missing an arm or wrist animation target".into());
             }
-            graph.add_target_to_mask_group(target, side as u32);
+            graph.add_target_to_mask_group(
+                target,
+                u32::try_from(side).expect("there are only two animation mask sides"),
+            );
         }
     }
     for &target in idle_clip.curves().keys() {
@@ -227,7 +251,7 @@ pub(crate) fn bind_actor_animation(
             transitions
                 .play(
                     &mut player,
-                    library.nodes[Gait::Idle as usize],
+                    library.nodes[usize::from(Gait::Idle)],
                     Duration::ZERO,
                 )
                 .repeat();
@@ -236,7 +260,7 @@ pub(crate) fn bind_actor_animation(
                 .insert((AnimationGraphHandle(library.graph.clone()), transitions));
             commands.entity(child).insert(AnimatedActor {
                 owner: parent.parent(),
-                current: Some(Gait::Idle as usize),
+                current: Some(usize::from(Gait::Idle)),
             });
             death_players.push(child);
         }
@@ -304,7 +328,7 @@ pub(super) fn animate(
         let index = if thrusting {
             SPEAR_THRUST_CLIP
         } else {
-            start + gait as usize
+            start + usize::from(gait)
         };
         if swinging_swords {
             if actor.current.take().is_some() {

@@ -1,4 +1,5 @@
 mod spear;
+use az::Az;
 
 use super::{
     Animation, Failures, Model, Property, Transform, check_clip_names, check_duration,
@@ -205,7 +206,7 @@ fn attack_frames(kind: WeaponKind) -> (u32, u32) {
 }
 
 fn sample_frame(seconds: f32) -> u32 {
-    (seconds * ATTACK_CLIP_FPS).round() as u32
+    (seconds * ATTACK_CLIP_FPS).round().az::<u32>()
 }
 
 struct PoseTracks<'a> {

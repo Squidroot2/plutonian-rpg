@@ -294,7 +294,7 @@ impl ItemList {
                 .map(|&(row, _)| row)
                 .filter(|row| matches!(row, InventoryRow::BagGear(kind, _) if *kind == item))
                 .collect();
-            let count = count as usize;
+            let count = usize::try_from(count).expect("inventory count fits in usize");
             // Copies are interchangeable in the bag. Remove the selected row first so the
             // other copies keep their entities and their own click histories.
             if bag.len() > count

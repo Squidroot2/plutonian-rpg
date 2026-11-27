@@ -23,6 +23,7 @@ use crate::{
     ui::death_screen::ContinueAfterDeath,
 };
 use avian3d::prelude::*;
+use az::Az;
 use bevy::{
     app::AppExit, ecs::system::SystemParam, prelude::*, render::view::screenshot::Screenshot,
 };
@@ -642,10 +643,10 @@ fn check_village_rooms(fixtures: &Fixtures, player: Entity, capsule: &Collider) 
     ] {
         let start = Vec2::from(outside);
         let end = Vec2::from(inside);
-        let steps = (start.distance(end) / 0.20).ceil() as u32;
+        let steps = (start.distance(end) / 0.20).ceil().az::<u32>();
         let mut previous = None;
         for i in 0..=steps {
-            let point = start.lerp(end, i as f32 / steps as f32);
+            let point = start.lerp(end, i.az::<f32>() / steps.az::<f32>());
             let probe = Vec3::new(point.x, 0.55, point.y);
             let floor = walkable_height(&fixtures.spatial, &filter, probe, 2.5, 0.0)
                 .unwrap_or_else(|| panic!("{name} has no walkable floor at {point}"));
@@ -988,9 +989,9 @@ pub(super) fn check_rim(
         let [a, b] = segment.map(Vec2::from);
         let edge = b - a;
         let outward = Dir3::new(Vec3::new(edge.y, 0.0, -edge.x)).expect("distinct rim corners");
-        let samples = edge.length().ceil() as u32;
+        let samples = edge.length().ceil().az::<u32>();
         for sample in 0..=samples {
-            let point = a.lerp(b, sample as f32 / samples as f32);
+            let point = a.lerp(b, sample.az::<f32>() / samples.az::<f32>());
             for y in [-0.45, 2.1, 7.1] {
                 super::perimeter::assert_blocked(
                     &spatial,

@@ -50,7 +50,7 @@ use std::{
 
 // These smoke scenarios exercise the shipped balance and geometry.
 const SHIPPED_HUSHCAP_HEALTH: u16 = 42;
-const SHIPPED_HUSHCAP_XP: u16 = 45;
+const SHIPPED_HUSHCAP_XP: u64 = 45;
 const SHIPPED_HUSHCAP_MUZZLE_HEIGHT_M: f32 = 1.01;
 const SHIPPED_HUSHCAP_SPIT_RADIUS_M: f32 = 0.14;
 
@@ -920,7 +920,8 @@ fn check_carrying_limits(
                     &mut keys,
                     &mut orbit,
                     transform.translation,
-                    ARENA_BOULDER_SITES[count as usize - 1],
+                    ARENA_BOULDER_SITES
+                        [usize::try_from(count).expect("arena boulder count fits in usize") - 1],
                 );
             }
         }

@@ -6,6 +6,7 @@ use crate::{
     save::{RunSave, SaveSlot},
     ui::menu_ui::{modal_overlay, scroll_hovered},
 };
+use az::Az;
 use bevy::{
     input::{InputSystems, mouse::AccumulatedMouseScroll},
     prelude::*,
@@ -213,7 +214,7 @@ fn render(
                             PickerPane,
                             ScrollPosition(Vec2::new(
                                 0.0,
-                                picker.selected as f32 * SAVE_ROW_HEIGHT_PX,
+                                picker.selected.az::<f32>() * SAVE_ROW_HEIGHT_PX,
                             )),
                             RelativeCursorPosition::default(),
                             Node {
@@ -353,7 +354,10 @@ fn format_time(time: Option<SystemTime>) -> String {
     else {
         return "Unknown time".into();
     };
-    let days = (seconds / 86_400) as i64 + 719_468;
+    let Ok(days) = i64::try_from(seconds / 86_400) else {
+        return "Unknown time".into();
+    };
+    let days = days + 719_468;
     let era = days / 146_097;
     let day = days - era * 146_097;
     let year_of_era = (day - day / 1_460 + day / 36_524 - day / 146_096) / 365;

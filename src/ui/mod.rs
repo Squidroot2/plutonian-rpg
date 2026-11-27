@@ -28,6 +28,7 @@ use crate::{
     ui::{settings::SettingsMenu, title::picker::SavePicker},
     world::WorldLayout,
 };
+use az::Az;
 use bevy::{app::AppExit, asset::AssetId, picking::hover::PickingInteraction, prelude::*};
 
 pub struct GameUiPlugin;
@@ -382,8 +383,11 @@ fn next_action(current: Action, direction: isize) -> Action {
     let index = Action::ALL
         .iter()
         .position(|&action| action == current)
-        .expect("pause action is listed") as isize;
-    Action::ALL[(index + direction).rem_euclid(Action::ALL.len() as isize) as usize]
+        .expect("pause action is listed");
+    let index = isize::try_from(index).expect("pause action count fits in isize");
+    let len = isize::try_from(Action::ALL.len()).expect("pause action count fits in isize");
+    let index = (index + direction).rem_euclid(len);
+    Action::ALL[usize::try_from(index).expect("remainder is non-negative")]
 }
 
 pub(crate) fn pause(
@@ -594,8 +598,8 @@ fn camera_bearing(yaw: f32) -> (u16, &'static str) {
     const DIRECTIONS: [&str; 8] = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
     // At zero yaw the camera looks toward -Z. Positive orbit yaw turns west.
     let bearing = (-yaw).to_degrees().rem_euclid(360.0);
-    let degrees = bearing.round() as u16 % 360;
-    let direction = (f32::from(degrees) / 45.0).round() as usize % DIRECTIONS.len();
+    let degrees = bearing.round().az::<u16>() % 360;
+    let direction = (f32::from(degrees) / 45.0).round().az::<usize>() % DIRECTIONS.len();
     (degrees, DIRECTIONS[direction])
 }
 

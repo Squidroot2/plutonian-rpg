@@ -6,6 +6,7 @@ use crate::{
     ui::menu_ui::set_display,
     ui::title::TitleInput,
 };
+use az::Az;
 use bevy::{
     diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin},
     input::InputSystems,
@@ -572,7 +573,7 @@ fn refresh_fps(
         .get(&FrameTimeDiagnosticsPlugin::FPS)
         .and_then(|diagnostic| diagnostic.smoothed())
         .filter(|fps| fps.is_finite())
-        .map(|fps| fps.round() as u32);
+        .map(|fps| fps.round().az::<u32>());
     if *last_fps != fps {
         **text = fps.map_or_else(|| "FPS: --".into(), |fps| format!("FPS: {fps}"));
         *last_fps = fps;

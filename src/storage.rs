@@ -130,7 +130,12 @@ impl<I: Ord> Default for WeaponRackStorage<I> {
 
 impl WeaponRackStorage {
     pub(crate) fn count(&self, item: ItemKind) -> u32 {
-        self.0.iter().filter(|slot| **slot == Some(item)).count() as u32
+        self.0
+            .iter()
+            .filter(|slot| **slot == Some(item))
+            .count()
+            .try_into()
+            .expect("weapon rack slot count fits in u32")
     }
 
     pub(crate) fn is_full(&self) -> bool {
