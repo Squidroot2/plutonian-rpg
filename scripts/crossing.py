@@ -6,6 +6,7 @@ import random
 import bpy
 from mathutils import Vector
 
+from asset_helpers import box, ico, material
 import perimeter
 
 MODELS = ['listening_flats', 'listening_flats_collision', 'nivalis_gate', 'vellik', 'crossing_wagon']
@@ -23,7 +24,7 @@ def block(box, name, at, size, mat):
     return box(name, (x, -z, y), (width, depth, height), mat)
 
 
-def flats(material, box, ico):
+def flats():
     ice = material('Worn graphite ice', (.081, .146, .211), metal=.22)
     basalt = material('Crossing basalt', (.053, .068, .105))
     frost = material('Crossing frost', (.145, .224, .295))
@@ -127,7 +128,7 @@ def local_parent(name, at, parent=None):
     return obj
 
 
-def vellik(material, box, ico):
+def vellik():
     slate = material('Vellik slate shell', (.115, .199, .276), metal=.22)
     frost = material('Vellik raised shell', (.199, .285, .316), metal=.17)
     hide = material('Vellik dark hide', (.072, .085, .117))
@@ -169,7 +170,7 @@ def vellik(material, box, ico):
         strap.rotation_euler.x = .23
 
 
-def wagon(material, box, ico):
+def wagon():
     alloy = material('Salvaged Relay alloy', (.105, .183, .222), metal=.55)
     tread = material('Cleated graphite alloy', (.062, .09, .119), metal=.34)
     shell = material('Fired basalt ceramic', (.182, .262, .309), metal=.10)

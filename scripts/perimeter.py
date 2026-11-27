@@ -6,6 +6,7 @@ import random
 import bpy
 from mathutils import Vector
 
+from asset_helpers import box, material
 SOLID_PREFIX = 'Perimeter solid '
 TRIM_PREFIX = 'Perimeter trim '
 
@@ -128,7 +129,7 @@ def cave_collar(materials):
                 materials, indices)
 
 
-def gate(box, materials):
+def gate(materials):
     ceramic, alloy, amber = materials
 
     def part(name, at, size, material, solid=True):
@@ -157,7 +158,7 @@ def gate(box, materials):
         part('Gate lift rail', (center+side*4.85, 12.7, 25.22), (.26, 4.6, .2), alloy, False)
 
 
-def gate_leaf(box, materials):
+def gate_leaf(materials):
     ceramic, alloy, enamel = materials
     leaf = box('Nivalis gate leaf', (0, 0, 0), (10.05, 1.10, 8.7), alloy)
     for offset in (-4.0, -2.0, 0, 2.0, 4.0):
@@ -180,7 +181,7 @@ def clear():
             bpy.data.materials.remove(mat)
 
 
-def build(material, box):
+def build():
     clear()
     rock = material('Rim basalt', (.045, .060, .088))
     ice = material('Rim blue ice', (.079, .137, .197), metal=.25)
@@ -209,7 +210,7 @@ def build(material, box):
     cliff('Basin west cliffs', west, materials, rng,
           depth_scale=lambda point: .18+.82*max(0, min(1, (point.y-50)/19)))
     cave_collar(materials)
-    gate(box, (
+    gate((
         material('Rim ceramic', (.096, .122, .153), metal=.25),
         material('Rim aged alloy', (.169, .237, .268), metal=.46),
         material('Rim amber signal', (.95, .36, .10), emission=3.0),
