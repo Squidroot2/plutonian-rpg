@@ -3,6 +3,11 @@
 Items, enemies, and placements use the same `data://` Bevy asset source as dialogue and quests.
 The game validates the catalogs before it opens the title screen and checks item models while loading the world.
 Edit the files directly and restart the game to pick up changes.
+After editing any catalog under `data/`, run
+`cargo run --locked -p plutonian-validate` from the repository root.
+This headless check validates the content and dialogue rules and parses the quest catalog;
+it is also part of the regular verify loop and CI.
+Use `--data-root <path>` to validate catalogs in another data directory.
 
 - `data/items/catalog.item.ron` contains each item's display text, weight in kg, pickup model, and pickup dimensions in meters.
 - `data/enemies/catalog.enemy.ron` contains each enemy's health, XP, loot stack, and archetype-specific movement and attack tuning.

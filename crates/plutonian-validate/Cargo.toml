@@ -1,0 +1,10 @@
+[package]
+name = "plutonian-validate"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.100.0"
+license = "MIT"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+plutonian-rpg = { path = "../.." }
