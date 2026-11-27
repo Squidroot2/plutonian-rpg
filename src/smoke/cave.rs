@@ -39,6 +39,8 @@ const OUTBOUND: [(f32, f32); 14] = [
     (11.7, 95.0),
     (13.0, 99.2),
 ];
+const VILLAGE_VIEW: usize = 1;
+const BEND_VIEW: usize = 7;
 const REVEAL: usize = 9;
 const FIRST_HUSHCAP: EncounterId =
     EncounterId::Added(crate::content::ContentId::new("cave_first_west_hushcap"));
@@ -49,6 +51,8 @@ pub(super) enum CaveCheck {
     #[default]
     Begin,
     Approach(usize),
+    GuideView(Option<Entity>),
+    BendView(Option<Entity>),
     Reveal(Option<Entity>),
     Interior(Option<Entity>),
     WatchSpit,
@@ -254,6 +258,48 @@ pub(super) fn check_route(
     }
 }
 
+/// Advances the cave smoke state machine after the player reaches `OUTBOUND[index]`.
+///
+/// `index` is the zero-based index into [`OUTBOUND`] for the waypoint that was just reached.
+/// At [`VILLAGE_VIEW`], [`BEND_VIEW`], [`REVEAL`], and the final waypoint, this frames `orbit`
+/// on the landmark under inspection and transitions to the corresponding capture phase; all
+/// other waypoints simply advance to `CaveCheck::Approach(index + 1)`.
+fn advance_approach(index: usize, position: Vec3, orbit: &mut Orbit) -> CaveCheck {
+    if index == VILLAGE_VIEW {
+        let to_guide = crate::cave::GUIDE_MUSHROOM_CAP_POS.xz() - position.xz();
+        // Offset yaw slightly so the player's silhouette sits beside the distant mushroom.
+        orbit.yaw = (-to_guide.x).atan2(-to_guide.y) + 0.14;
+        orbit.distance = 4.5;
+        orbit.pitch = 0.08;
+        CaveCheck::GuideView(None)
+    } else if index == BEND_VIEW {
+        assert_eq!(surface_location(position), Some("SOUTH BASIN"));
+        let to_mouth = Vec2::new(14.0, 84.0) - position.xz();
+        orbit.yaw = (-to_mouth.x).atan2(-to_mouth.y);
+        orbit.distance = 5.0;
+        orbit.pitch = 0.14;
+        CaveCheck::BendView(None)
+    } else if index == REVEAL {
+        assert_eq!(surface_location(position), Some("SOUTH BASIN"));
+        orbit.yaw = std::f32::consts::PI;
+        orbit.distance = 3.8;
+        orbit.pitch = 0.30;
+        CaveCheck::Reveal(None)
+    } else if index + 1 == OUTBOUND.len() {
+        assert_eq!(surface_location(position), Some("HUSHCAP CAVERNS"));
+        orbit.yaw = std::f32::consts::PI - 0.40;
+        CaveCheck::Interior(None)
+    } else {
+        CaveCheck::Approach(index + 1)
+    }
+}
+
+fn finish_capture(orbit: &mut Orbit, next: CaveCheck) -> CaveCheck {
+    orbit.distance = Orbit::default().distance;
+    orbit.pitch = Orbit::default().pitch;
+    next
+}
+
 pub(super) fn drive(
     mut phase: ResMut<CaveCheck>,
     run: Res<SmokeRun>,
@@ -308,28 +354,26 @@ pub(super) fn drive(
         }
         CaveCheck::Approach(index) => {
             if reached(&mut keys, &mut orbit, position, waypoint(index)) {
-                *phase = if index == REVEAL {
-                    assert_eq!(surface_location(position), Some("SOUTH BASIN"));
-                    orbit.yaw = std::f32::consts::PI;
-                    orbit.distance = 3.8;
-                    orbit.pitch = 0.30;
-                    CaveCheck::Reveal(None)
-                } else if index + 1 == OUTBOUND.len() {
-                    assert_eq!(surface_location(position), Some("HUSHCAP CAVERNS"));
-                    orbit.yaw = std::f32::consts::PI - 0.40;
-                    CaveCheck::Interior(None)
-                } else {
-                    CaveCheck::Approach(index + 1)
-                };
+                *phase = advance_approach(index, position, &mut orbit);
             }
+        }
+        CaveCheck::GuideView(None) => {
+            *phase = CaveCheck::GuideView(Some(capture(&mut commands, "south-basin-guide")));
+        }
+        CaveCheck::GuideView(Some(image)) if captures.get(image).is_err() => {
+            *phase = finish_capture(&mut orbit, CaveCheck::Approach(VILLAGE_VIEW + 1));
+        }
+        CaveCheck::BendView(None) => {
+            *phase = CaveCheck::BendView(Some(capture(&mut commands, "south-basin-bend")));
+        }
+        CaveCheck::BendView(Some(image)) if captures.get(image).is_err() => {
+            *phase = finish_capture(&mut orbit, CaveCheck::Approach(BEND_VIEW + 1));
         }
         CaveCheck::Reveal(None) => {
             *phase = CaveCheck::Reveal(Some(capture(&mut commands, "south-basin-entrance")));
         }
         CaveCheck::Reveal(Some(image)) if captures.get(image).is_err() => {
-            orbit.distance = Orbit::default().distance;
-            orbit.pitch = Orbit::default().pitch;
-            *phase = CaveCheck::Approach(REVEAL + 1);
+            *phase = finish_capture(&mut orbit, CaveCheck::Approach(REVEAL + 1));
         }
         CaveCheck::Interior(None) => {
             *phase = CaveCheck::Interior(Some(capture(&mut commands, "hushcap-caverns")));

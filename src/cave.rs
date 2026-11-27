@@ -17,6 +17,23 @@ pub(crate) const FAR_WALL_Z: f32 = 161.0;
 const BASIN_HALF_WIDTH: f32 = 31.0;
 const CAVE_HIGH_VAULT_Y: f32 = 8.0;
 const CAVE_LIGHT_LUMENS: f32 = 40_000.0;
+/// Solid stalk collider name of the single glowing mushroom beside the South Basin ridge bend.
+#[cfg(test)]
+pub(crate) const GUIDE_MUSHROOM_STALK_NAME: &str = "South Basin solid Guide mushroom stalk";
+/// Glowing cap center of the South Basin guide mushroom, visible from Nivalis.
+#[cfg(any(test, feature = "smoke"))]
+pub(crate) const GUIDE_MUSHROOM_CAP_POS: Vec3 = Vec3::new(-11.68, 1.30, 72.58);
+/// Point-light position slightly beneath the cap so its glow washes the stalk, floor, and ridge.
+const GUIDE_MUSHROOM_LIGHT_POS: Vec3 = Vec3::new(-11.68, 0.90, 72.58);
+const GUIDE_MUSHROOM_LIGHT_LUMENS: f32 = 340_000.0;
+const GUIDE_MUSHROOM_LIGHT_RANGE_M: f32 = 38.0;
+const GUIDE_MUSHROOM_LIGHT_COLOR: Color = Color::srgb(0.24, 0.92, 0.66);
+/// Brighter fungal spill tucked behind the ridge at the cavern mouth so the entrance beckons once
+/// the player rounds the bend past the guide mushroom.
+const CAVE_MOUTH_LIGHT_POS: Vec3 = Vec3::new(14.5, 2.0, 82.0);
+const CAVE_MOUTH_LIGHT_LUMENS: f32 = 130_000.0;
+const CAVE_MOUTH_LIGHT_RANGE_M: f32 = 24.0;
+const CAVE_MOUTH_LIGHT_COLOR: Color = Color::srgb(0.28, 0.84, 0.72);
 // All three chambers share the same floor elevation in the Blender terrain.
 #[cfg(feature = "smoke")]
 pub(crate) const CHAMBER_FLOOR_Y: f32 = -5.5;
@@ -87,26 +104,77 @@ fn spawn_basin(
 }
 
 fn spawn_lights(commands: &mut Commands) {
-    for (x, y, z, range, color) in [
-        (16.3, 2.1, 80.7, 13.0, Color::srgb(0.45, 0.64, 0.91)),
-        (14.4, 0.9, 89.9, 9.0, Color::srgb(0.35, 0.58, 0.89)),
-        (8.0, -2.5, 104.5, 13.0, Color::srgb(0.28, 0.74, 0.66)),
-        (20.4, -2.2, 110.2, 12.0, Color::srgb(0.44, 0.64, 0.95)),
-        (4.6, -2.0, 124.4, 13.0, Color::srgb(0.44, 0.75, 0.68)),
-        (20.0, -1.9, 129.1, 12.0, Color::srgb(0.34, 0.62, 0.89)),
-        (9.6, -2.5, 137.0, 10.0, Color::srgb(0.47, 0.75, 0.65)),
-        (6.5, -1.5, 149.0, 15.0, Color::srgb(0.25, 0.72, 0.70)),
-        (19.0, 1.5, 155.0, 16.0, Color::srgb(0.53, 0.55, 0.95)),
+    for (position, intensity, range, color) in [
+        (
+            GUIDE_MUSHROOM_LIGHT_POS,
+            GUIDE_MUSHROOM_LIGHT_LUMENS,
+            GUIDE_MUSHROOM_LIGHT_RANGE_M,
+            GUIDE_MUSHROOM_LIGHT_COLOR,
+        ),
+        (
+            CAVE_MOUTH_LIGHT_POS,
+            CAVE_MOUTH_LIGHT_LUMENS,
+            CAVE_MOUTH_LIGHT_RANGE_M,
+            CAVE_MOUTH_LIGHT_COLOR,
+        ),
+        (
+            Vec3::new(14.4, 0.9, 89.9),
+            CAVE_LIGHT_LUMENS,
+            9.0,
+            Color::srgb(0.35, 0.58, 0.89),
+        ),
+        (
+            Vec3::new(8.0, -2.5, 104.5),
+            CAVE_LIGHT_LUMENS,
+            13.0,
+            Color::srgb(0.28, 0.74, 0.66),
+        ),
+        (
+            Vec3::new(20.4, -2.2, 110.2),
+            CAVE_LIGHT_LUMENS,
+            12.0,
+            Color::srgb(0.44, 0.64, 0.95),
+        ),
+        (
+            Vec3::new(4.6, -2.0, 124.4),
+            CAVE_LIGHT_LUMENS,
+            13.0,
+            Color::srgb(0.44, 0.75, 0.68),
+        ),
+        (
+            Vec3::new(20.0, -1.9, 129.1),
+            CAVE_LIGHT_LUMENS,
+            12.0,
+            Color::srgb(0.34, 0.62, 0.89),
+        ),
+        (
+            Vec3::new(9.6, -2.5, 137.0),
+            CAVE_LIGHT_LUMENS,
+            10.0,
+            Color::srgb(0.47, 0.75, 0.65),
+        ),
+        (
+            Vec3::new(6.5, -1.5, 149.0),
+            CAVE_LIGHT_LUMENS,
+            15.0,
+            Color::srgb(0.25, 0.72, 0.70),
+        ),
+        (
+            Vec3::new(19.0, 1.5, 155.0),
+            CAVE_LIGHT_LUMENS,
+            16.0,
+            Color::srgb(0.53, 0.55, 0.95),
+        ),
     ] {
         commands.spawn((
             SessionEntity,
             PointLight {
                 color,
-                intensity: CAVE_LIGHT_LUMENS,
+                intensity,
                 range,
                 ..default()
             },
-            Transform::from_xyz(x, y, z),
+            Transform::from_translation(position),
         ));
     }
 }
@@ -119,6 +187,35 @@ mod tests {
         quest::{QuestAction, test_relay_journal},
     };
     use bevy::ecs::system::RunSystemOnce;
+
+    #[test]
+    fn basin_lights_include_guide_mushroom_and_cave_mouth() {
+        let mut world = World::new();
+        world
+            .run_system_once(|mut commands: Commands| spawn_lights(&mut commands))
+            .expect("spawn cave lights");
+        let lights: Vec<_> = world
+            .query::<(&PointLight, &Transform)>()
+            .iter(&world)
+            .map(|(light, transform)| (transform.translation, light.intensity, light.range))
+            .collect();
+        assert!(
+            lights.iter().any(|&(pos, intensity, range)| {
+                pos.distance(GUIDE_MUSHROOM_LIGHT_POS) < 0.01
+                    && intensity >= GUIDE_MUSHROOM_LIGHT_LUMENS
+                    && range >= GUIDE_MUSHROOM_LIGHT_RANGE_M
+            }),
+            "expected a bright point light at the South Basin guide mushroom"
+        );
+        assert!(
+            lights.iter().any(|&(pos, intensity, range)| {
+                pos.distance(CAVE_MOUTH_LIGHT_POS) < 0.01
+                    && intensity >= CAVE_MOUTH_LIGHT_LUMENS
+                    && range >= CAVE_MOUTH_LIGHT_RANGE_M
+            }),
+            "expected a point light illuminating the hidden cave mouth behind the ridge"
+        );
+    }
 
     #[test]
     fn only_new_distinct_cavern_defeats_during_the_active_quest_count() {

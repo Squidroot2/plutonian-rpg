@@ -534,6 +534,100 @@ fn step_until(app: &mut App, budget: usize, condition: impl Fn(&mut World) -> bo
 }
 
 #[test]
+fn south_basin_guide_mushroom_is_visible_from_village_and_leads_to_cave_mouth() {
+    use bevy::ecs::system::RunSystemOnce;
+
+    let mut app = game();
+    step_until(&mut app, 10_000, |world| {
+        *world.resource::<State<GameState>>().get() == GameState::Title
+    });
+    app.world_mut()
+        .resource_mut::<NextState<GameState>>()
+        .set(GameState::Loading);
+    step_until(&mut app, 20_000, |world| {
+        *world.resource::<State<GameState>>().get() == GameState::Playing
+    });
+    app.world_mut()
+        .run_system_once(
+            |spatial: SpatialQuery,
+             actors: Query<Entity, Or<(With<crate::enemy::Enemy>, With<Player>, With<crate::nemi::Nemi>)>>,
+             names: Query<&Name>,
+             parents: Query<&ChildOf>| {
+                let filter = SpatialQueryFilter::from_excluded_entities(actors.iter());
+                let cap = crate::cave::GUIDE_MUSHROOM_CAP_POS;
+                let cave_mouth = Vec3::new(14.0, 0.0, 84.0);
+                let village_views = [
+                    ("Old Relay hatch", crate::dungeon::HATCH + Vec3::Y * 1.2),
+                    ("Nemi", WorldLayout::Outpost.keeper() + Vec3::Y * 2.0),
+                    ("Outpost start", WorldLayout::Outpost.start() + Vec3::Y * 0.8),
+                    ("South courtyard", Vec3::new(0.0, 1.0, 16.0)),
+                ];
+                for (label, origin) in village_views {
+                    let to_cap = cap - origin;
+                    assert!(
+                        spatial
+                            .cast_ray(
+                                origin,
+                                Dir3::new(to_cap).expect("mushroom is away from village"),
+                                to_cap.length(),
+                                true,
+                                &filter,
+                            )
+                            .is_none(),
+                        "guide mushroom must be visible from {label} ({origin})"
+                    );
+                    let to_mouth = cave_mouth - origin;
+                    assert!(
+                        spatial
+                            .cast_ray(
+                                origin,
+                                Dir3::new(to_mouth).expect("cave mouth is away from village"),
+                                to_mouth.length(),
+                                true,
+                                &filter,
+                            )
+                            .is_some(),
+                        "cave mouth must stay concealed behind the ridge from {label} ({origin})"
+                    );
+                }
+
+                // Confirm the mushroom stalk has a matching static collider at its base.
+                let stalk_probe = Vec3::new(-13.2, -1.0, 72.5);
+                let hit = spatial
+                    .cast_ray(stalk_probe, Dir3::X, 2.5, true, &filter)
+                    .expect("guide mushroom stalk must have a collider");
+                assert!(
+                    std::iter::once(hit.entity)
+                        .chain(parents.iter_ancestors(hit.entity))
+                        .any(|entity| {
+                            names
+                                .get(entity)
+                                .is_ok_and(|name| name.as_str() == crate::cave::GUIDE_MUSHROOM_STALK_NAME)
+                        }),
+                    "probe into mushroom trunk must hit the guide mushroom stalk collider"
+                );
+
+                // Rounding the bend past the guide mushroom reveals the cave mouth.
+                let bend_view = Vec3::new(-13.0, 0.0, 76.0);
+                let to_mouth = cave_mouth - bend_view;
+                assert!(
+                    spatial
+                        .cast_ray(
+                            bend_view,
+                            Dir3::new(to_mouth).expect("cave mouth is across the bend"),
+                            to_mouth.length(),
+                            true,
+                            &filter,
+                        )
+                        .is_none(),
+                    "cave mouth must be visible once the player rounds the bend past the guide mushroom"
+                );
+            },
+        )
+        .expect("guide mushroom sightline check must run");
+}
+
+#[test]
 fn shipped_collision_scene_builds_colliders_without_a_renderer() {
     let mut app = app();
     app.add_plugins(PhysicsPlugins::default());
