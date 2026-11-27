@@ -27,7 +27,7 @@ use crate::{
     ui::{settings::SettingsMenu, title::picker::SavePicker},
     world::WorldLayout,
 };
-use bevy::{app::AppExit, asset::AssetId, prelude::*};
+use bevy::{app::AppExit, asset::AssetId, picking::hover::PickingInteraction, prelude::*};
 
 pub struct GameUiPlugin;
 #[derive(Component)]
@@ -78,13 +78,28 @@ struct StatusText;
 struct ExperienceText;
 #[derive(Component)]
 struct PausePanel;
-#[derive(Component, Clone, Copy)]
+#[derive(Component, Clone, Copy, Debug, Default, PartialEq, Eq)]
 enum Action {
+    #[default]
     Resume,
     Load,
     Settings,
     Quit,
 }
+
+impl Action {
+    const ALL: [Self; 4] = [Self::Resume, Self::Load, Self::Settings, Self::Quit];
+}
+
+#[derive(Resource, Default)]
+struct PauseSelection(Action);
+
+/// Remembers the last hover target so a stationary pointer cannot override keyboard navigation.
+#[derive(Resource, Default)]
+struct PauseHover(Option<Action>);
+
+const PAUSE_BUTTON_OUTLINE: Color = Color::srgb(0.86, 0.94, 1.0);
+const PAUSE_BUTTON_IDLE_OUTLINE: Color = Color::srgba(0.50, 0.65, 0.78, 0.48);
 impl Plugin for GameUiPlugin {
     fn build(&self, app: &mut App) {
         // Font constraint: neither shipped font — Exo 2 (the default font
@@ -118,7 +133,16 @@ impl Plugin for GameUiPlugin {
             death_screen::DeathScreenPlugin,
         ))
         .add_systems(Startup, setup)
+        .init_resource::<PauseSelection>()
+        .init_resource::<PauseHover>()
+        .add_systems(OnEnter(GameState::Paused), reset_pause_selection)
         .add_systems(PreUpdate, pause.after(bevy::input::InputSystems))
+        .add_systems(
+            PreUpdate,
+            pause_menu_input
+                .after(bevy::input::InputSystems)
+                .after(pause),
+        )
         .add_systems(
             Update,
             (
@@ -127,6 +151,7 @@ impl Plugin for GameUiPlugin {
                 refresh_prompt.after(save_at_bed),
                 refresh_experience_notice.after(ExperienceUpdates),
                 refresh_pause,
+                (select_hovered_pause_button, style_pause_buttons).chain(),
             )
                 .after(InteractionSystems),
         );
@@ -243,8 +268,10 @@ fn setup(mut commands: Commands) {
                             height: px(52),
                             justify_content: JustifyContent::Center,
                             align_items: AlignItems::Center,
+                            border: UiRect::all(px(1)),
                             ..default()
                         },
+                        BorderColor::all(PAUSE_BUTTON_IDLE_OUTLINE),
                         BackgroundColor(Color::srgb(0.05, 0.13, 0.17)),
                     ))
                     .observe(buttons)
@@ -307,6 +334,55 @@ fn spawn_status_bar(commands: &mut Commands, kind: StatusBarKind, bottom: u16) -
         opacity: 0.0,
     });
     (bar, fill)
+}
+
+fn reset_pause_selection(mut selection: ResMut<PauseSelection>, mut hover: ResMut<PauseHover>) {
+    *selection = PauseSelection::default();
+    *hover = PauseHover::default();
+}
+
+fn pause_menu_input(
+    keys: Res<ButtonInput<KeyCode>>,
+    bindings: Res<Keybinds>,
+    state: Res<State<GameState>>,
+    mut settings: ResMut<SettingsMenu>,
+    mut picker: ResMut<SavePicker>,
+    mut selection: ResMut<PauseSelection>,
+    mut slot: ResMut<SaveSlot>,
+    mut next: ResMut<NextState<GameState>>,
+    mut exit: MessageWriter<AppExit>,
+) {
+    if *state.get() != GameState::Paused
+        || settings.is_open()
+        || picker.is_open()
+        || !matches!(*next, NextState::Unchanged)
+    {
+        return;
+    }
+
+    if bindings.just_pressed(Control::MenuUp, &keys) {
+        selection.0 = next_action(selection.0, -1);
+    } else if bindings.just_pressed(Control::MenuDown, &keys) {
+        selection.0 = next_action(selection.0, 1);
+    }
+    if keys.any_just_pressed([KeyCode::Enter, KeyCode::NumpadEnter]) {
+        activate(
+            selection.0,
+            &mut settings,
+            &mut picker,
+            &mut slot,
+            &mut next,
+            &mut exit,
+        );
+    }
+}
+
+fn next_action(current: Action, direction: isize) -> Action {
+    let index = Action::ALL
+        .iter()
+        .position(|&action| action == current)
+        .expect("pause action is listed") as isize;
+    Action::ALL[(index + direction).rem_euclid(Action::ALL.len() as isize) as usize]
 }
 
 pub(crate) fn pause(
@@ -378,22 +454,84 @@ fn buttons(
         return;
     }
     if let Ok(action) = query.get(click.entity) {
-        match action {
-            Action::Resume => next.set(GameState::Playing),
-            Action::Load => {
-                // Refresh from disk before the availability gate so a
-                // save created during this run (e.g. at the bed) is seen
-                // even though the title screen's snapshot is stale.
-                slot.refresh();
-                if slot.available() {
-                    picker.open();
-                }
-            }
-            Action::Settings => settings.open(),
-            Action::Quit => {
-                exit.write(AppExit::Success);
+        activate(
+            *action,
+            &mut settings,
+            &mut picker,
+            &mut slot,
+            &mut next,
+            &mut exit,
+        );
+    }
+}
+
+fn activate(
+    action: Action,
+    settings: &mut SettingsMenu,
+    picker: &mut SavePicker,
+    slot: &mut SaveSlot,
+    next: &mut NextState<GameState>,
+    exit: &mut MessageWriter<AppExit>,
+) {
+    match action {
+        Action::Resume => next.set(GameState::Playing),
+        Action::Load => {
+            // Refresh before the availability gate so saves created during
+            // this run are visible through either input path.
+            slot.refresh();
+            if slot.available() {
+                picker.open();
             }
         }
+        Action::Settings => settings.open(),
+        Action::Quit => {
+            exit.write(AppExit::Success);
+        }
+    }
+}
+
+fn select_hovered_pause_button(
+    mut selection: ResMut<PauseSelection>,
+    mut last_hovered: ResMut<PauseHover>,
+    state: Res<State<GameState>>,
+    settings: Option<Res<SettingsMenu>>,
+    picker: Option<Res<SavePicker>>,
+    buttons: Query<(&Action, Option<&PickingInteraction>)>,
+) {
+    if *state.get() != GameState::Paused
+        || settings.is_some_and(|menu| menu.is_open())
+        || picker.is_some_and(|picker| picker.is_open())
+    {
+        if last_hovered.0.is_some() {
+            last_hovered.0 = None;
+        }
+        return;
+    }
+    let hovered = buttons.iter().find_map(|(action, interaction)| {
+        matches!(
+            interaction,
+            Some(PickingInteraction::Hovered | PickingInteraction::Pressed)
+        )
+        .then_some(*action)
+    });
+    if hovered != last_hovered.0 {
+        if let Some(action) = hovered {
+            selection.0 = action;
+        }
+        last_hovered.0 = hovered;
+    }
+}
+
+fn style_pause_buttons(
+    selection: Res<PauseSelection>,
+    mut buttons: Query<(&Action, &mut BorderColor)>,
+) {
+    for (action, mut border) in &mut buttons {
+        border.set_if_neq(BorderColor::all(if *action == selection.0 {
+            PAUSE_BUTTON_OUTLINE
+        } else {
+            PAUSE_BUTTON_IDLE_OUTLINE
+        }));
     }
 }
 fn refresh_hud(
@@ -758,6 +896,142 @@ mod tests {
             entries[0].name.is_some(),
             "the fixture save must be readable through refresh"
         );
+    }
+
+    #[test]
+    fn pause_selection_resets_to_resume_on_entering_paused() {
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, StatesPlugin))
+            .insert_state(GameState::Playing)
+            .init_resource::<PauseSelection>()
+            .init_resource::<PauseHover>()
+            .add_systems(OnEnter(GameState::Paused), reset_pause_selection);
+        app.world_mut().resource_mut::<PauseSelection>().0 = Action::Quit;
+        app.world_mut()
+            .resource_mut::<NextState<GameState>>()
+            .set(GameState::Paused);
+
+        app.update();
+
+        assert_eq!(app.world().resource::<PauseSelection>().0, Action::Resume);
+    }
+
+    #[test]
+    fn pause_menu_navigation_uses_bindings_and_wraps_in_both_directions() {
+        let dir = SaveDirGuard::new("pause-navigation");
+        let mut app = pause_input_app(&dir);
+
+        press_pause_key(&mut app, KeyCode::KeyS);
+        app.update();
+        assert_eq!(app.world().resource::<PauseSelection>().0, Action::Load);
+
+        press_pause_key(&mut app, KeyCode::KeyW);
+        app.update();
+        assert_eq!(app.world().resource::<PauseSelection>().0, Action::Resume);
+
+        press_pause_key(&mut app, KeyCode::KeyW);
+        app.update();
+        assert_eq!(app.world().resource::<PauseSelection>().0, Action::Quit);
+
+        press_pause_key(&mut app, KeyCode::KeyS);
+        app.update();
+        assert_eq!(app.world().resource::<PauseSelection>().0, Action::Resume);
+    }
+
+    #[test]
+    fn enter_activates_the_selected_pause_action_through_the_shared_handler() {
+        let dir = SaveDirGuard::new("pause-keyboard-load");
+        let mut app = pause_input_app(&dir);
+        dir.copy_fixture_save("keyboard-save.save");
+        app.world_mut().resource_mut::<PauseSelection>().0 = Action::Load;
+
+        press_pause_key(&mut app, KeyCode::NumpadEnter);
+        app.update();
+
+        assert!(app.world().resource::<SavePicker>().is_open());
+        assert_eq!(app.world().resource::<SaveSlot>().entries.len(), 1);
+    }
+
+    #[test]
+    fn hovering_selects_one_option_and_keyboard_navigation_takes_over() {
+        let dir = SaveDirGuard::new("pause-hover-selection");
+        let mut app = pause_input_app(&dir);
+        let resume = app
+            .world_mut()
+            .spawn((Action::Resume, BorderColor::default()))
+            .id();
+        let load = app
+            .world_mut()
+            .spawn((
+                Action::Load,
+                PickingInteraction::Hovered,
+                BorderColor::default(),
+            ))
+            .id();
+        let settings = app
+            .world_mut()
+            .spawn((Action::Settings, BorderColor::default()))
+            .id();
+
+        app.update();
+
+        assert_eq!(app.world().resource::<PauseSelection>().0, Action::Load);
+        assert_eq!(
+            *app.world()
+                .get::<BorderColor>(load)
+                .expect("load button keeps its border"),
+            BorderColor::all(PAUSE_BUTTON_OUTLINE)
+        );
+        assert_eq!(
+            *app.world()
+                .get::<BorderColor>(resume)
+                .expect("resume button keeps its border"),
+            BorderColor::all(PAUSE_BUTTON_IDLE_OUTLINE)
+        );
+
+        press_pause_key(&mut app, KeyCode::KeyS);
+        app.update();
+
+        assert_eq!(app.world().resource::<PauseSelection>().0, Action::Settings);
+        assert_eq!(
+            *app.world()
+                .get::<BorderColor>(load)
+                .expect("load button keeps its border"),
+            BorderColor::all(PAUSE_BUTTON_IDLE_OUTLINE)
+        );
+        assert_eq!(
+            *app.world()
+                .get::<BorderColor>(settings)
+                .expect("settings button keeps its border"),
+            BorderColor::all(PAUSE_BUTTON_OUTLINE)
+        );
+    }
+
+    fn pause_input_app(dir: &SaveDirGuard) -> App {
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, StatesPlugin))
+            .insert_state(GameState::Paused)
+            .init_resource::<ButtonInput<KeyCode>>()
+            .init_resource::<Keybinds>()
+            .init_resource::<SettingsMenu>()
+            .init_resource::<SavePicker>()
+            .init_resource::<PauseSelection>()
+            .init_resource::<PauseHover>()
+            .insert_resource(SaveSlot::open(Some(dir.0.clone())))
+            .add_message::<AppExit>()
+            .add_systems(PreUpdate, pause_menu_input)
+            .add_systems(
+                Update,
+                (select_hovered_pause_button, style_pause_buttons).chain(),
+            );
+        app
+    }
+
+    fn press_pause_key(app: &mut App, key: KeyCode) {
+        let mut keys = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
+        keys.release_all();
+        keys.clear();
+        keys.press(key);
     }
 
     #[test]
