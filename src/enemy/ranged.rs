@@ -13,14 +13,27 @@ use bevy::prelude::*;
 
 #[derive(Clone, Copy, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
+/// Configuration for a ranged enemy's spit attack.
+///
+/// Distances are in meters, durations in seconds, and speed in meters per
+/// second. The muzzle offset is relative to the enemy's origin and is rotated
+/// with its heading.
 pub(crate) struct Spit {
+    /// Maximum distance at which the enemy can begin aiming.
     pub(crate) sight_m: f32,
+    /// Time spent aiming before the projectile is launched.
     pub(crate) windup_seconds: f32,
+    /// Minimum delay after launching before another attack can begin.
     pub(crate) recovery_seconds: f32,
+    /// Projectile travel speed.
     pub(crate) speed_mps: f32,
+    /// Maximum distance the projectile travels before disappearing.
     pub(crate) travel_m: f32,
+    /// Projectile collision radius.
     pub(crate) radius_m: f32,
+    /// Damage dealt if the projectile hits its target.
     pub(crate) damage: u16,
+    /// Projectile spawn offset from the enemy's origin, in local coordinates.
     #[serde(deserialize_with = "deserialize_muzzle")]
     pub(crate) muzzle: Vec3,
 }
