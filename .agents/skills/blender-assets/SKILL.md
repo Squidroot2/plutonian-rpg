@@ -42,7 +42,9 @@ blender --background -noaudio --factory-startup --python-exit-code 1 --python sc
 ```
 
 Append a per-asset flag to export just that source, e.g. `-- --export --hushcap`, `-- --export --relay`, `-- --export --south-basin`, `-- --export --crossing`, `-- --export --wagon`, `-- --export --outpost`, `-- --export --shortsword`.
-Rebuild flags (which regenerate sources) are a different, deliberate act — `-- --build-outpost`, `-- --build-village`, `-- --build-crossing`, `-- --build-wagon`, `-- --build-perimeter`, `-- --character`, `-- --core`, `-- --boulder`, `-- --practice-dummy`, `-- --worm`, `-- --roach`, `-- --items`, `-- --meat`, `-- --locomotion`, `-- --equipment`, `-- --spear`, `-- --plutonian-death`, `-- --ground`, `-- --pillars` — and each overwrites the sources it names.
+Rebuild flags (which regenerate sources) are a different, deliberate act.
+They are the entries `--list` reports as built rather than export-only — do not work from a remembered list of them, in this skill or anywhere else; the registry is the only maintained list, and any copied list will drift.
+Each rebuild overwrites the sources it names.
 Say which mode you are in (re-export vs. rebuild) before running anything, and never rebuild when the user asked for a re-export.
 
 ## The seam with Rust — check it before exporting
