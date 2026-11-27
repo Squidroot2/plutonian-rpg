@@ -292,6 +292,8 @@ pub(crate) fn light_homes(commands: &mut Commands) {
         ("Workshop bench light", Vec3::new(-13.75, 0.70, 6.30), false),
         ("Orla’s hearth", Vec3::new(14.18, 0.36, 10.62), true),
         ("Keeper’s lens light", Vec3::new(5.80, 0.43, 18.34), false),
+        ("Barracks watch lamp", Vec3::new(-6.85, 1.99, -7.43), true),
+        ("Barracks bunk lamp", Vec3::new(-10.52, 1.99, -11.49), true),
         ("Barracks hearth", Vec3::new(-11.75, 0.44, -10.70), true),
     ] {
         commands.spawn((

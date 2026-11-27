@@ -109,7 +109,7 @@ Unequip gear before moving it from your backpack into storage.
 
 ## Weapon rack
 
-Press E near the weapon rack in the Barracks to open it.
+Press E near the weapon rack just inside the Barracks hatch to open it.
 The rack holds two weapons, one per slot,
 and racked weapons are visible in the rack.
 Use **Store 1** for a backpack weapon and **Take 1** to take a racked weapon back.

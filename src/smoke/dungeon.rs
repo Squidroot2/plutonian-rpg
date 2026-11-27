@@ -37,7 +37,7 @@ use crate::{
     quest::{CONTAIN_THE_HUSHCAPS, LAST_LIGHT, OLD_RELAY, QuestAction, QuestJournal, QuestStatus},
     roach::Roach,
     save::{EncounterId, RunSave},
-    storage::{ChestId, ChestStorage, WeaponRackStorage},
+    storage::{ChestId, ChestStorage, RACK_POSITION, WeaponRackStorage},
     ui::death_screen::ContinueAfterDeath,
     ui::loot_ui::LootAction,
     ui::menu_ui::{MenuTab, PlayerMenu},
@@ -822,7 +822,7 @@ fn check_tent_chests(frame: WorldFrame) {
                     &mut controller,
                     &mut dodge,
                     &mut transform,
-                    Vec3::new(-9.9, 0.0, -8.26),
+                    RACK_POSITION - Vec3::Z * 1.4,
                 );
                 commands.ecs.queue(|world: &mut World| {
                     let mut inventory = world.actor_data_mut::<Inventory>();
@@ -924,7 +924,7 @@ fn check_weapon_rack(frame: WorldFrame) {
             *phase = WorldCheck::LeaveRack;
         }
         WorldCheck::LeaveRack if !storage_open => {
-            orbit.yaw = std::f32::consts::FRAC_PI_2;
+            orbit.yaw = std::f32::consts::PI;
             *phase = WorldCheck::RackView(capture(&mut commands, "weapon-rack"));
         }
         WorldCheck::RackView(photo) if captures.get(photo).is_err() => {
