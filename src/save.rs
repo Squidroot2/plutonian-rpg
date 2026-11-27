@@ -40,7 +40,7 @@ use std::{
 };
 
 // Four magic bytes followed by the little-endian save schema version.
-const HEADER: &[u8; 6] = b"PLUT\x0d\x00";
+const HEADER: &[u8; 6] = b"PLUT\x0e\x00";
 const SAVE_FORMAT_VERSION: u16 = u16::from_le_bytes([HEADER[4], HEADER[5]]);
 const MAX_SAVE_BYTES: usize = 1024 * 1024;
 
@@ -205,7 +205,45 @@ pub(crate) struct Snapshot {
 #[schemars(deny_unknown_fields)]
 struct SavedWorld {
     guards_hostile: bool,
+    day: u32,
+    surface_last_kill: Option<u32>,
+    relay_last_kill: Option<u32>,
 }
+
+const RESPAWN_DAYS: u32 = 6;
+
+/// The active run's clock, distinct from the checkpoint until the next save.
+#[derive(Resource, Clone, Default)]
+pub(crate) struct RespawnClock {
+    day: u32,
+    surface_last_kill: Option<u32>,
+    relay_last_kill: Option<u32>,
+}
+
+impl RespawnClock {
+    #[cfg(test)]
+    pub(crate) fn day(&self) -> u32 {
+        self.day
+    }
+
+    fn last_kill_mut(&mut self, area: Area) -> &mut Option<u32> {
+        match area {
+            Area::Surface => &mut self.surface_last_kill,
+            Area::OldRelay => &mut self.relay_last_kill,
+        }
+    }
+
+    fn due(&self, area: Area) -> bool {
+        let last = match area {
+            Area::Surface => self.surface_last_kill,
+            Area::OldRelay => self.relay_last_kill,
+        };
+        last.is_some_and(|day| self.day.saturating_sub(day) >= RESPAWN_DAYS)
+    }
+}
+
+#[derive(Message)]
+pub(crate) struct RenewArea(pub(crate) Area);
 
 const OLD_RELAY: ContentId = ContentId::new("old_relay");
 
@@ -269,6 +307,14 @@ impl Snapshot {
 
     fn valid_state(&self) -> bool {
         crate::player::PlayerName::valid(&self.player_name)
+            && self
+                .world
+                .surface_last_kill
+                .is_none_or(|day| day <= self.world.day)
+            && self
+                .world
+                .relay_last_kill
+                .is_none_or(|day| day <= self.world.day)
             && self.inventory.valid_stacks()
             && self.progression.is_valid()
             && self.experience.player.is_valid(self.progression.level())
@@ -278,9 +324,11 @@ impl Snapshot {
                 .iter()
                 .all(|id| self.npcs.get(id).is_some_and(|npc| npc.actor.health > 0))
             && self.experience.encounter_contributions.iter().all(|id| {
-                self.encounters
-                    .get(id)
-                    .is_some_and(|encounter| encounter.actor.health > 0)
+                matches!(id, EncounterId::Guard(_))
+                    && self
+                        .encounters
+                        .get(id)
+                        .is_some_and(|encounter| encounter.actor.health > 0)
             })
             && self.chests.valid_stacks()
             && self.dungeons.contains_key(&OLD_RELAY)
@@ -768,6 +816,8 @@ impl Plugin for SavePlugin {
         app.insert_resource(SaveSlot::new(path))
             .init_resource::<CollectedPickups>()
             .init_resource::<RunSave>()
+            .init_resource::<RespawnClock>()
+            .add_message::<RenewArea>()
             .init_resource::<SaveNotice>()
             .add_systems(OnEnter(GameState::Loading), reset_session)
             .add_systems(
@@ -779,7 +829,14 @@ impl Plugin for SavePlugin {
             )
             .add_systems(
                 Update,
-                (age_notice, request_game_over, save_at_bed)
+                (
+                    crate::content::clear_sleep_mask,
+                    record_disposable_deaths,
+                    age_notice,
+                    request_game_over,
+                    save_at_bed,
+                    crate::content::renew_encounters,
+                )
                     .chain()
                     .after(InteractionSystems)
                     .after(CombatSystems::Resolve)
@@ -788,6 +845,19 @@ impl Plugin for SavePlugin {
                     .after(guard::react_to_player_hit)
                     .run_if(in_state(GameState::Playing)),
             );
+    }
+}
+
+fn record_disposable_deaths(
+    mut defeats: MessageReader<ActorDefeated>,
+    encounters: Query<(&EncounterId, &CorpseLoot), With<crate::enemy::Disposable>>,
+    mut clock: ResMut<RespawnClock>,
+) {
+    for defeat in defeats.read() {
+        if let Ok((EncounterId::Added(_), loot)) = encounters.get(defeat.0) {
+            let day = clock.day;
+            *clock.last_kill_mut(loot.area) = Some(day);
+        }
     }
 }
 
@@ -817,7 +887,11 @@ pub(crate) fn save_at_bed(
     )>,
     pickups: Query<(&Pickup, &Transform), Without<PlacedPickup>>,
     caravan: Query<(&NpcId, &Transform, &Health, &FleeState), (Without<Nemi>, Without<Player>)>,
-    (next, collected): (Res<NextState<GameState>>, Res<CollectedPickups>),
+    (next, collected, placements): (
+        Res<NextState<GameState>>,
+        Res<CollectedPickups>,
+        Res<Placements>,
+    ),
     journal: Res<QuestJournal>,
     chests: Res<ChestStorage>,
     dungeon: Res<DungeonProgress>,
@@ -825,6 +899,7 @@ pub(crate) fn save_at_bed(
     mut slot: ResMut<SaveSlot>,
     mut run: ResMut<RunSave>,
     mut notice: ResMut<SaveNotice>,
+    (mut clock, mut renewals): (ResMut<RespawnClock>, MessageWriter<RenewArea>),
 ) {
     if !requests.read().any(|request| beds.contains(request.0))
         || !matches!(*next, NextState::Unchanged)
@@ -842,6 +917,15 @@ pub(crate) fn save_at_bed(
     if player.area != Area::Surface {
         return;
     }
+    let mut next_clock = clock.clone();
+    next_clock.day = next_clock.day.saturating_add(1);
+    let due: Vec<_> = [Area::Surface, Area::OldRelay]
+        .into_iter()
+        .filter(|&area| next_clock.due(area))
+        .collect();
+    for &area in &due {
+        *next_clock.last_kill_mut(area) = None;
+    }
     let snapshot = Snapshot {
         player_name: name.0.clone(),
         journal: journal.snapshot(),
@@ -858,6 +942,11 @@ pub(crate) fn save_at_bed(
             .collect(),
         encounters: encounters
             .iter()
+            .filter(|(id, ..)| {
+                !placements
+                    .encounters()
+                    .any(|entry| EncounterId::Added(entry.id) == **id && due.contains(&entry.area))
+            })
             .map(|(&id, transform, health, loot, _)| {
                 (
                     id,
@@ -877,14 +966,19 @@ pub(crate) fn save_at_bed(
                 .collect(),
             encounter_contributions: encounters
                 .iter()
-                .filter(|(_, _, health, _, reward)| {
-                    health.current() > 0 && reward.player_contributed
+                .filter(|(id, _, health, _, reward)| {
+                    matches!(id, EncounterId::Guard(_))
+                        && health.current() > 0
+                        && reward.player_contributed
                 })
                 .map(|(&id, ..)| id)
                 .collect(),
         },
         world: SavedWorld {
             guards_hostile: security.hostile,
+            day: next_clock.day,
+            surface_last_kill: next_clock.surface_last_kill,
+            relay_last_kill: next_clock.relay_last_kill,
         },
         collected_pickups: collected.0.clone(),
         npcs: caravan
@@ -909,6 +1003,10 @@ pub(crate) fn save_at_bed(
     };
     let text = match slot.save(snapshot, &mut run) {
         Ok(()) => {
+            *clock = next_clock;
+            for area in due {
+                renewals.write(RenewArea(area));
+            }
             player_health.restore();
             "Game saved."
         }
@@ -930,6 +1028,19 @@ pub(crate) fn reset_session(world: &mut World) {
         world.despawn(root);
     }
     let checkpoint = world.resource::<RunSave>().0.clone();
+    let mut clock = checkpoint
+        .as_ref()
+        .map_or_else(RespawnClock::default, |save| RespawnClock {
+            day: save.world.day,
+            surface_last_kill: save.world.surface_last_kill,
+            relay_last_kill: save.world.relay_last_kill,
+        });
+    for area in [Area::Surface, Area::OldRelay] {
+        if clock.due(area) {
+            *clock.last_kill_mut(area) = None;
+        }
+    }
+    world.insert_resource(clock);
     if let Some(save) = checkpoint {
         world.insert_resource(CollectedPickups(save.collected_pickups.clone()));
         world.insert_resource(save.chests.clone());
@@ -966,6 +1077,7 @@ pub(crate) fn reset_session(world: &mut World) {
 
 fn restore_actors(
     run: Res<RunSave>,
+    placements: Res<Placements>,
     journal: Res<QuestJournal>,
     mut security: ResMut<OutpostSecurity>,
     mut nemi: Query<
@@ -1007,7 +1119,18 @@ fn restore_actors(
         }
         reward.player_contributed = save.experience.npc_contributions.contains(&NpcId::Nemi);
     }
+    let clock = RespawnClock {
+        day: save.world.day,
+        surface_last_kill: save.world.surface_last_kill,
+        relay_last_kill: save.world.relay_last_kill,
+    };
     for (entity, id, mut transform, mut health, mut loot, mut reward) in &mut encounters {
+        if placements
+            .encounters()
+            .any(|entry| EncounterId::Added(entry.id) == *id && clock.due(entry.area))
+        {
+            continue;
+        }
         if let Some(encounter) = save.encounters.get(id) {
             // Living guards regroup at their posts so the player can leave the cot.
             if matches!(id, EncounterId::Guard(_)) && encounter.actor.health > 0 {
@@ -1017,7 +1140,8 @@ fn restore_actors(
                     .actor
                     .restore(&mut transform, &mut health, &mut commands.entity(entity));
             }
-            reward.player_contributed = save.experience.encounter_contributions.contains(id);
+            reward.player_contributed = matches!(id, EncounterId::Guard(_))
+                && save.experience.encounter_contributions.contains(id);
             if !encounter.has_loot {
                 loot.stack = None;
                 commands.entity(entity).insert(Visibility::Hidden);
@@ -1088,6 +1212,8 @@ mod tests {
         world.init_resource::<SaveNotice>();
         world.init_resource::<NextState<GameState>>();
         world.init_resource::<Messages<SaveAtBed>>();
+        world.init_resource::<Messages<RenewArea>>();
+        world.init_resource::<RespawnClock>();
 
         world.insert_resource(crate::content::test_placements().stock());
         world.init_resource::<CollectedPickups>();
@@ -1148,6 +1274,29 @@ mod tests {
         (world, bed, player, corpse)
     }
 
+    #[test]
+    fn sleeping_advances_clock_and_renews_only_due_areas() {
+        let dir = TestDirectory::new();
+        let (mut world, bed, _, _) = bed_world(dir.path());
+        world.resource_mut::<RespawnClock>().surface_last_kill = Some(0);
+        for expected in 1..=5 {
+            interact_with(&mut world, bed);
+            let clock = world.resource::<RespawnClock>();
+            assert_eq!(clock.day, expected);
+            assert_eq!(clock.surface_last_kill, Some(0));
+        }
+        interact_with(&mut world, bed);
+        let clock = world.resource::<RespawnClock>();
+        assert_eq!(clock.day, 6);
+        assert_eq!(clock.surface_last_kill, None);
+        let snapshot = world
+            .resource::<RunSave>()
+            .checkpoint()
+            .expect("sleep saved");
+        assert_eq!(snapshot.world.day, 6);
+        assert_eq!(snapshot.world.surface_last_kill, None);
+    }
+
     fn interact_with(world: &mut World, entity: Entity) {
         world.resource_mut::<Messages<SaveAtBed>>().clear();
         world.write_message(SaveAtBed(entity));
@@ -1162,7 +1311,7 @@ mod tests {
         let file = dir.path();
         let before = fs::read(&file).expect("read game-written save");
         let data = crate::save_inspector::inspect(Some(&file)).expect("inspect game save");
-        assert_eq!(data["format_version"], 13);
+        assert_eq!(data["format_version"], 14);
         assert_eq!(data["player_name"], "Test Player");
         assert!(data["journal"]["progress"].get("last_light").is_some());
         assert_eq!(data["encounters"]["relay_roach"]["actor"]["health"], 0);
@@ -1194,7 +1343,7 @@ mod tests {
 
     #[test]
     fn inspector_game_fixture_loads_with_current_catalogs_and_quest_journal() {
-        let file = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/inspector-v13.save");
+        let file = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/inspector-v14.save");
         let before = fs::read(&file).expect("read fixture");
         crate::save_inspector::inspect(Some(&file)).expect("inspect fixture");
         let mut save = read_save(&file).expect("decode inspected fixture");
@@ -1687,7 +1836,7 @@ mod tests {
             FleeState::civilian(),
         ));
         interact_with(&mut world, bed);
-        let checkpoint = read_save(&dir.path()).expect("read v13 checkpoint");
+        let checkpoint = read_save(&dir.path()).expect("read v14 checkpoint");
         let inspection =
             crate::save_inspector::inspect(Some(&dir.path())).expect("inspect caravan");
         assert_eq!(inspection["npcs"][NpcId::Tovan.key()]["actor"]["health"], 0);
@@ -1831,6 +1980,7 @@ mod tests {
         interact_with(&mut world, bed);
         let previous_file = fs::read(dir.path()).expect("first save");
         let previous_checkpoint = world.resource::<RunSave>().0.clone().expect("checkpoint");
+        let previous_day = world.resource::<RespawnClock>().day;
 
         let bad_destination = dir.0.join("directory");
         fs::write(&bad_destination, b"block").expect("file blocks directory creation");
@@ -1847,6 +1997,7 @@ mod tests {
             .as_ref()
             .expect("retained checkpoint");
         assert!(Arc::ptr_eq(active, &previous_checkpoint));
+        assert_eq!(world.resource::<RespawnClock>().day, previous_day);
         assert_eq!(fs::read(dir.path()).expect("previous save"), previous_file);
         assert_eq!(
             world
@@ -1890,10 +2041,20 @@ mod tests {
     #[test]
     fn save_with_unsupported_version_or_truncated_payload_is_unavailable() {
         let dir = TestDirectory::new();
+        fs::write(
+            dir.path(),
+            include_bytes!("../tests/fixtures/inspector-v13.save"),
+        )
+        .expect("write previous version fixture");
+        assert!(
+            read_save(&dir.path()).is_err(),
+            "v13 saves must be rejected"
+        );
+        fs::remove_file(dir.path()).expect("remove previous version test fixture");
         let (mut world, bed, _, _) = bed_world(dir.path());
         interact_with(&mut world, bed);
         let mut bytes = fs::read(dir.path()).expect("first save");
-        bytes[4] = 12;
+        bytes[4] = 13;
         fs::write(dir.path(), bytes).expect("write unsupported version");
         assert!(
             read_save(&dir.path())
@@ -1960,7 +2121,7 @@ mod tests {
     }
 
     #[test]
-    fn current_save_restores_damage_credit_for_living_encounters_and_nemi() {
+    fn current_save_restores_nemi_credit_but_not_disposable_credit() {
         let dir = TestDirectory::new();
         let (mut world, bed, _, corpse) = bed_world(dir.path());
         let nemi = world
@@ -1993,7 +2154,7 @@ mod tests {
         world
             .run_system_once(restore_actors)
             .expect("restore actors");
-        for (actor, credited) in [(nemi, true), (worm, true), (corpse, false)] {
+        for (actor, credited) in [(nemi, true), (worm, false), (corpse, false)] {
             assert_eq!(
                 world
                     .get::<ExperienceReward>(actor)
@@ -2210,9 +2371,9 @@ mod tests {
             23
         );
         assert!(
-            rebuilt
+            !rebuilt
                 .get::<ExperienceReward>(hushcap)
-                .expect("restored XP credit")
+                .expect("restored reward")
                 .player_contributed
         );
         for defeated in [worm, roach] {

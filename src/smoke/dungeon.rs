@@ -71,7 +71,10 @@ const RELAY_PROGRESS: CharacterProgress = CharacterProgress {
     unspent: 6,
 };
 const SHIPPED_GUARD_HEALTH: u16 = 140;
-const LOOTED_RELAY_XP: Experience = Experience(25 + super::SHIPPED_HUSHCAP_XP as u64);
+// Both kills occur one level above their authored enemy level.
+const RELAY_ROACH_XP: u64 = 25 * 3 / 4;
+const LOOTED_RELAY_XP: Experience =
+    Experience(RELAY_ROACH_XP + super::SHIPPED_HUSHCAP_XP as u64 * 3 / 4);
 
 type HushcapData = (
     Entity,
@@ -1371,7 +1374,7 @@ fn check_relay_encounters(frame: WorldFrame) {
         WorldCheck::ApproachRoach => {
             let (roach, corpse, dead) = relay_encounter(&roaches, RELAY_ROACH);
             assert!(dead);
-            assert_eq!(*xp, Experience(25));
+            assert_eq!(*xp, Experience(RELAY_ROACH_XP));
             if nearby.0 == Some((roach, InteractionTarget::Corpse)) {
                 keys.press(KeyCode::KeyE);
                 *phase = WorldCheck::TakeRoachMeat;
@@ -1503,7 +1506,10 @@ fn finish_relay_quest(frame: WorldFrame) {
             assert!(quest.is_complete(OLD_RELAY));
             assert_eq!(quest.status(CONTAIN_THE_HUSHCAPS), None);
             assert!(!relay_encounter(&hushcaps, RELAY_ARCHIVE_HUSHCAP).4);
-            assert_eq!((*attributes, *xp), (RELAY_PROGRESS, Experience(25)));
+            assert_eq!(
+                (*attributes, *xp),
+                (RELAY_PROGRESS, Experience(RELAY_ROACH_XP))
+            );
             assert_eq!(
                 xp_notice.text.as_deref(),
                 Some("+120 XP | Level 3 (+3 attribute points)")

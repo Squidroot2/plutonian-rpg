@@ -199,6 +199,10 @@ impl Plugin for EnemyPlugin {
         app.add_plugins(ranged::RangedPlugin)
             .add_systems(OnExit(GameState::Loading), ground_encounters)
             .add_systems(
+                Update,
+                ground_new_encounters.run_if(in_state(GameState::Playing)),
+            )
+            .add_systems(
                 FixedUpdate,
                 (plan_actions, move_ground_enemies)
                     .chain()
@@ -227,10 +231,18 @@ pub(crate) struct GroundMelee {
 
 pub(crate) struct EnemyBody {
     pub(crate) name: String,
+    pub(crate) level: crate::level::Level,
     pub(crate) health: u16,
     pub(crate) experience: u16,
     pub(crate) loot: Pickup,
 }
+
+#[derive(Component)]
+pub(crate) struct RenewedEncounter;
+
+/// Population actors are eligible for area renewal and repeatable rewards.
+#[derive(Component)]
+pub(crate) struct Disposable;
 
 pub(crate) fn spawn_variant(
     commands: &mut Commands,
@@ -239,14 +251,15 @@ pub(crate) fn spawn_variant(
     home: Transform,
     area: Area,
     id: EncounterId,
-) {
+) -> Entity {
     let entity = match definition.archetype() {
         EnemyArchetype::Worm => crate::worm::spawn(commands, visuals, definition, home, area),
         EnemyArchetype::Roach => crate::roach::spawn(commands, visuals, definition, home, area),
         EnemyArchetype::Hushcap => crate::hushcap::spawn(commands, visuals, definition, home, area),
         EnemyArchetype::Guard => unreachable!("guards spawn through their scripted posts"),
     };
-    commands.entity(entity).insert(id);
+    commands.entity(entity).insert((id, Disposable));
+    entity
 }
 
 pub(crate) fn spawn_ground_melee(
@@ -307,7 +320,7 @@ pub(crate) fn spawn_enemy(
         ))
         .insert((
             SessionEntity,
-            crate::experience::ExperienceReward::new(config.experience),
+            crate::experience::ExperienceReward::disposable(config.experience, config.level),
         ))
         .with_children(|root| {
             root.spawn((
@@ -342,18 +355,47 @@ fn ground_encounters(
 ) {
     let filter = SpatialQueryFilter::from_excluded_entities(actors.iter());
     for (movement, mut transform, pursuit) in &mut enemies {
-        let origin = transform.translation + Vec3::Y * ENCOUNTER_GROUND_PROBE_HEIGHT;
-        if let Some(y) = walkable_height(
-            &spatial,
-            &filter,
-            origin,
-            ENCOUNTER_GROUND_PROBE_RANGE,
-            movement.ground_offset,
-        ) {
-            transform.translation.y = y;
-            if let Some(mut pursuit) = pursuit {
-                pursuit.home.translation = transform.translation;
-            }
+        ground_encounter(&spatial, &filter, movement, &mut transform, pursuit);
+    }
+}
+
+fn ground_new_encounters(
+    spatial: SpatialQuery,
+    actors: Query<Entity, Or<(With<Player>, With<Enemy>, With<crate::nemi::Nemi>)>>,
+    mut enemies: Query<
+        (&GroundMovement, &mut Transform, Option<&mut MeleePursuit>),
+        With<RenewedEncounter>,
+    >,
+    entities: Query<Entity, With<RenewedEncounter>>,
+    mut commands: Commands,
+) {
+    let filter = SpatialQueryFilter::from_excluded_entities(actors.iter());
+    for (movement, mut transform, pursuit) in &mut enemies {
+        ground_encounter(&spatial, &filter, movement, &mut transform, pursuit);
+    }
+    for entity in &entities {
+        commands.entity(entity).remove::<RenewedEncounter>();
+    }
+}
+
+fn ground_encounter(
+    spatial: &SpatialQuery,
+    filter: &SpatialQueryFilter,
+    movement: &GroundMovement,
+    transform: &mut Transform,
+    pursuit: Option<Mut<MeleePursuit>>,
+) {
+    let origin = transform.translation + Vec3::Y * ENCOUNTER_GROUND_PROBE_HEIGHT;
+    if let Some(y) = walkable_height(
+        spatial,
+        filter,
+        origin,
+        ENCOUNTER_GROUND_PROBE_RANGE,
+        movement.ground_offset,
+    ) {
+        transform.translation.y = y;
+        if let Some(mut pursuit) = pursuit {
+            pursuit.home.translation = transform.translation;
         }
     }
 }

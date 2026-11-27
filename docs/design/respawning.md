@@ -2,8 +2,8 @@
 
 This document describes how disposable enemies return to the world after
 the player kills them.
-The decisions here were settled in issue #24 before implementation;
-implementation is a separate follow-up issue.
+The decisions here were settled in issue #24
+and implemented in issue #84.
 
 ## The rule
 
@@ -35,8 +35,7 @@ and the journal never moves backwards.
 Whether an encounter is disposable is declared with its data,
 in the enemy definition or the encounter's catalog entry,
 not hard-coded per spawn site.
-Until encounters move into the placements catalog (issue #61),
-the classification derives from the archetype:
+The classification derives from the archetype in the placements catalog:
 worms, roaches, and hushcaps are disposable;
 guards and other named NPCs are not.
 
@@ -89,28 +88,16 @@ meat and mycelium are consumables.
 
 Kill XP falls off as the player outlevels the enemy,
 so the easiest loop stops paying.
-Enemy definitions gain a `level`,
-using the game's existing `Level` type:
+Enemy definitions carry a `level`,
+using the shared `Level` type:
 ice worm 1, relay roach 1, hushcap 2, outpost guard 3.
 The guard's level is never consulted
 (consequential actors are exempt from falloff),
 but the field is total,
 so no definition is a special case.
 
-This reverses an earlier decision
-that levels belong to the player alone.
-`Level` currently lives with the player's progression,
-inside `CharacterProgress`;
-it becomes a general actor attribute,
-while progression — earning XP and advancing —
-stays player-specific.
-A preparatory refactor (issue #85) lands
-between this document and the implementation:
-it moves `Level` to a shared home
-and adds the `level` field to the enemy definitions,
-with no behavior change.
-The implementation (issue #84) then adds
-only the falloff and the renewal.
+`Level` is a general actor attribute,
+while progression, earning XP, and advancing stay player-specific.
 With `d = player level - enemy level`:
 
 - `d <= 0`: full XP.
@@ -165,8 +152,8 @@ the respawn state belongs in that struct.
 Death rollback stays consistent by construction:
 the day counter and the encounter states live in the same snapshot,
 so rolling back restores the pair as of the checkpoint.
-A renewal that happened after the checkpoint is undone by dying,
-like everything else after the checkpoint.
+A renewal saved at the bed is part of that checkpoint.
+Kills and other changes after the checkpoint are undone by dying.
 
 ## Out of scope
 

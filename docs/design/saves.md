@@ -31,6 +31,7 @@ saves at a bed.
 - Nemi's position, rotation, health and quest-related state.
 - Each authored encounter's position, rotation, health and loot availability.
 - The outpost guards' shared hostility.
+- The current day and the most recent disposable kill day in each area.
 - Caravan residents’ health, poses, and flee state after the wagons park, keyed by NPC ID.
 - XP contribution credit for living enemies and Nemi, keyed by stable encounter
   identifiers because world loading recreates those actors.
@@ -55,7 +56,7 @@ systems.
 
 The file begins with the six-byte `PLUT` header and a little-endian schema
 version, followed by a bitcode-encoded snapshot.
-The current schema is version 13, and it is the only supported format.
+The current schema is version 14, and it is the only supported format.
 It stores the player name in the snapshot and restores it when the run is loaded.
 It encodes item, encounter, dungeon, pickup, and NPC IDs as strings.
 Persistent NPC state is stored alongside the snapshot payload.

@@ -14,11 +14,13 @@ use crate::{
 const FIRST_LEVEL_XP: u64 = 70;
 const XP_INCREASE_PER_LEVEL: u64 = 50;
 const XP_NOTICE_SECONDS: f32 = 3.0;
+const FALLOFF_LEVELS: u32 = 4;
 
 /// The player's XP toward the next level, rather than a lifetime total.
 ///
-/// Quest completions and defeated enemies the player damaged award XP. Reaching
-/// a level's threshold advances `CharacterProgress` and carries surplus XP
+/// Quest completions and disposable defeats award XP. Consequential actors with
+/// rewards, including Nemi and guards, award full XP if the player damaged them.
+/// Reaching a level's threshold advances `CharacterProgress` and carries surplus XP
 /// toward subsequent levels. This component is saved with the player's progress.
 #[derive(
     Component,
@@ -66,18 +68,39 @@ impl Experience {
     }
 }
 
+/// Disposable rewards use level falloff; consequential rewards require player damage.
 #[derive(Component)]
 pub(crate) struct ExperienceReward {
     amount: u16,
+    disposable_level: Option<Level>,
     pub(crate) player_contributed: bool,
 }
 
 impl ExperienceReward {
     pub(crate) const fn new(amount: u16) -> Self {
-        assert!(amount > 0, "killable NPCs must award positive XP");
+        assert!(amount > 0, "experience rewards must have a positive amount");
         Self {
             amount,
+            disposable_level: None,
             player_contributed: false,
+        }
+    }
+
+    pub(crate) const fn disposable(amount: u16, level: Level) -> Self {
+        let mut reward = Self::new(amount);
+        reward.disposable_level = Some(level);
+        reward
+    }
+
+    fn award(&mut self, player_level: Level) -> u64 {
+        if let Some(level) = self.disposable_level {
+            let difference = player_level.get().saturating_sub(level.get());
+            let remaining = FALLOFF_LEVELS.saturating_sub(difference);
+            u64::from(self.amount) * u64::from(remaining) / u64::from(FALLOFF_LEVELS)
+        } else if std::mem::take(&mut self.player_contributed) {
+            u64::from(self.amount)
+        } else {
+            0
         }
     }
 }
@@ -135,9 +158,10 @@ fn award_experience(
         defeats.clear();
         return;
     };
-    // Record every contribution before looking up rewards, including hits from this update.
+    // Record consequential-actor contributions before defeats, including hits from this update.
     for hit in hits.read().filter(|hit| hit.source == player) {
         if let Ok(mut reward) = rewards.get_mut(hit.target)
+            && reward.disposable_level.is_none()
             && !reward.player_contributed
         {
             reward.player_contributed = true;
@@ -147,7 +171,7 @@ fn award_experience(
         .read()
         .filter_map(|defeat| {
             let mut reward = rewards.get_mut(defeat.0).ok()?;
-            std::mem::take(&mut reward.player_contributed).then_some(u64::from(reward.amount))
+            Some(reward.award(progress.level))
         })
         .sum();
     let earned = combat_xp + quest_xp;
@@ -180,6 +204,18 @@ mod tests {
         quest::{QuestAction, test_journal},
     };
     use bevy::state::app::StatesPlugin;
+
+    #[test]
+    fn disposable_experience_falls_off_and_can_be_awarded_again() {
+        let mut reward = ExperienceReward::disposable(35, Level::FIRST);
+        for (level, expected) in [(1, 35), (2, 26), (3, 17), (4, 8), (5, 0), (6, 0)] {
+            assert_eq!(
+                reward.award(Level::new(level).expect("test level is valid")),
+                expected
+            );
+        }
+        assert_eq!(reward.award(Level::FIRST), 35);
+    }
 
     #[test]
     fn thresholds_increase_and_surplus_can_grant_multiple_levels() {

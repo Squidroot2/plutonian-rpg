@@ -369,7 +369,7 @@
     "npc_contributions": [],
     "player": 70
   },
-  "format_version": 13,
+  "format_version": 14,
   "inventory": {
     "battery": 1,
     "mycelium": 1,
@@ -717,6 +717,9 @@
     }
   },
   "world": {
-    "guards_hostile": false
+    "guards_hostile": false,
+    "day": 0,
+    "surface_last_kill": null,
+    "relay_last_kill": null
   }
 }
