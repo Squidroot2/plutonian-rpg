@@ -105,7 +105,13 @@ enum ConflictGroup {
     Exclusive,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum KeybindSlot {
+    Primary,
+    Secondary,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Binding {
     Key(KeyCode),
     Mouse(MouseButton),
@@ -151,12 +157,12 @@ impl Binding {
 }
 
 #[derive(Resource)]
-pub(crate) struct Keybinds([Binding; Control::VARIANTS.len()]);
+pub(crate) struct Keybinds([(Binding, Option<Binding>); Control::VARIANTS.len()]);
 
 impl Default for Keybinds {
     fn default() -> Self {
         use KeyCode::*;
-        let mut bindings = [Binding::Mouse(MouseButton::Left); Control::VARIANTS.len()];
+        let mut bindings = [(Binding::Key(KeyCode::Space), None); Control::VARIANTS.len()];
         let keys = [
             (Control::Forward, KeyW),
             (Control::Backward, KeyS),
@@ -177,27 +183,74 @@ impl Default for Keybinds {
             (Control::Holster, KeyX),
         ];
         for (control, key) in keys {
-            bindings[control as usize] = Binding::Key(key);
+            bindings[control as usize] = (Binding::Key(key), None);
         }
-        bindings[Control::OffHandAttack as usize] = Binding::Mouse(MouseButton::Right);
+        bindings[Control::Attack as usize] = (Binding::Mouse(MouseButton::Left), None);
+        bindings[Control::OffHandAttack as usize] = (Binding::Mouse(MouseButton::Right), None);
+        bindings[Control::MenuUp as usize].1 = Some(Binding::Key(ArrowUp));
+        bindings[Control::MenuDown as usize].1 = Some(Binding::Key(ArrowDown));
+        bindings[Control::MenuLeft as usize].1 = Some(Binding::Key(ArrowLeft));
+        bindings[Control::MenuRight as usize].1 = Some(Binding::Key(ArrowRight));
         Self(bindings)
     }
 }
 
 impl Keybinds {
     pub(crate) fn get(&self, control: Control) -> Binding {
-        self.0[control as usize]
+        self.0[control as usize].0
+    }
+
+    pub(crate) fn get_secondary(&self, control: Control) -> Option<Binding> {
+        self.0[control as usize].1
+    }
+
+    /// Every binding held by a control: its primary followed by its
+    /// secondary when one is set.
+    pub(crate) fn bindings(&self, control: Control) -> impl Iterator<Item = Binding> {
+        let (primary, secondary) = self.0[control as usize];
+        [Some(primary), secondary].into_iter().flatten()
+    }
+
+    fn binding_pressed(binding: Binding, keys: &ButtonInput<KeyCode>) -> bool {
+        matches!(binding, Binding::Key(key) if keys.pressed(key))
+    }
+
+    fn binding_just_pressed(binding: Binding, keys: &ButtonInput<KeyCode>) -> bool {
+        matches!(binding, Binding::Key(key) if keys.just_pressed(key))
     }
 
     pub(crate) fn pressed(&self, control: Control, keys: &ButtonInput<KeyCode>) -> bool {
-        matches!(self.get(control), Binding::Key(key) if keys.pressed(key))
+        self.bindings(control)
+            .any(|binding| Self::binding_pressed(binding, keys))
     }
 
     pub(crate) fn just_pressed(&self, control: Control, keys: &ButtonInput<KeyCode>) -> bool {
-        matches!(self.get(control), Binding::Key(key) if keys.just_pressed(key))
+        self.bindings(control)
+            .any(|binding| Self::binding_just_pressed(binding, keys))
     }
 
-    pub(crate) fn assign(&mut self, control: Control, binding: Binding) -> Result<(), String> {
+    /// Either-slot press across keyboard and mouse, for controls such as
+    /// the attacks that accept mouse buttons in either slot.
+    pub(crate) fn just_pressed_any(
+        &self,
+        control: Control,
+        keys: &ButtonInput<KeyCode>,
+        mouse: &ButtonInput<MouseButton>,
+    ) -> bool {
+        self.bindings(control)
+            .any(|binding| binding.just_pressed(keys, mouse))
+    }
+
+    pub(crate) fn clear_secondary(&mut self, control: Control) {
+        self.0[control as usize].1 = None;
+    }
+
+    pub(crate) fn assign(
+        &mut self,
+        control: Control,
+        slot: KeybindSlot,
+        binding: Binding,
+    ) -> Result<(), String> {
         match binding {
             Binding::Key(KeyCode::Unidentified(_)) => {
                 return Err("That key could not be identified.".into());
@@ -217,11 +270,24 @@ impl Keybinds {
             _ => {}
         }
         if let Some(other) = Control::VARIANTS.iter().find(|&&other| {
-            other != control && control.conflicts_with(other) && self.get(other) == binding
+            other != control
+                && control.conflicts_with(other)
+                && self.bindings(other).any(|held| held == binding)
         }) {
             return Err(format!("Already assigned to {}.", other.label()));
         }
-        self.0[control as usize] = binding;
+        let (primary, secondary) = self.0[control as usize];
+        let other_slot = match slot {
+            KeybindSlot::Primary => secondary,
+            KeybindSlot::Secondary => Some(primary),
+        };
+        if other_slot == Some(binding) {
+            return Err(format!("Already assigned to {}.", control.label()));
+        }
+        match slot {
+            KeybindSlot::Primary => self.0[control as usize].0 = binding,
+            KeybindSlot::Secondary => self.0[control as usize].1 = Some(binding),
+        }
         Ok(())
     }
 }
@@ -235,15 +301,27 @@ mod tests {
         let mut keybinds = Keybinds::default();
 
         assert_eq!(
-            keybinds.assign(Control::Jump, Binding::Key(KeyCode::Escape)),
+            keybinds.assign(
+                Control::Jump,
+                KeybindSlot::Primary,
+                Binding::Key(KeyCode::Escape)
+            ),
             Err("That key is reserved.".into())
         );
         assert_eq!(
-            keybinds.assign(Control::Jump, Binding::Key(KeyCode::Delete)),
+            keybinds.assign(
+                Control::Jump,
+                KeybindSlot::Secondary,
+                Binding::Key(KeyCode::Delete)
+            ),
             Err("That key is reserved.".into())
         );
         assert_eq!(
-            keybinds.assign(Control::Interact, Binding::Mouse(MouseButton::Middle)),
+            keybinds.assign(
+                Control::Interact,
+                KeybindSlot::Primary,
+                Binding::Mouse(MouseButton::Middle)
+            ),
             Err("Press a keyboard key for this action.".into())
         );
         assert!(keybinds.get(Control::Jump) == Binding::Key(KeyCode::Space));
@@ -254,30 +332,123 @@ mod tests {
         let mut keybinds = Keybinds::default();
 
         assert_eq!(
-            keybinds.assign(Control::Forward, Binding::Key(KeyCode::KeyW)),
+            keybinds.assign(
+                Control::Forward,
+                KeybindSlot::Primary,
+                Binding::Key(KeyCode::KeyW)
+            ),
             Ok(())
         );
         assert_eq!(
-            keybinds.assign(Control::MenuDown, Binding::Key(KeyCode::KeyW)),
+            keybinds.assign(
+                Control::MenuDown,
+                KeybindSlot::Primary,
+                Binding::Key(KeyCode::KeyW)
+            ),
             Err("Already assigned to Menu Up.".into())
         );
         assert_eq!(
-            keybinds.assign(Control::Sprint, Binding::Key(KeyCode::KeyW)),
+            keybinds.assign(
+                Control::Sprint,
+                KeybindSlot::Primary,
+                Binding::Key(KeyCode::KeyW)
+            ),
             Err("Already assigned to Move forward.".into())
         );
         assert_eq!(
-            keybinds.assign(Control::QuestLog, Binding::Key(KeyCode::KeyI)),
+            keybinds.assign(
+                Control::QuestLog,
+                KeybindSlot::Primary,
+                Binding::Key(KeyCode::KeyI)
+            ),
             Err("Already assigned to Inventory.".into())
         );
 
         assert_eq!(
-            keybinds.assign(Control::Forward, Binding::Key(KeyCode::KeyZ)),
+            keybinds.assign(
+                Control::Forward,
+                KeybindSlot::Primary,
+                Binding::Key(KeyCode::KeyZ)
+            ),
             Ok(())
         );
         assert_eq!(
-            keybinds.assign(Control::Sprint, Binding::Key(KeyCode::KeyW)),
+            keybinds.assign(
+                Control::Sprint,
+                KeybindSlot::Primary,
+                Binding::Key(KeyCode::KeyW)
+            ),
             Ok(())
         );
+    }
+
+    #[test]
+    fn either_slot_reports_pressed_and_conflicts_across_slots() {
+        let mut keybinds = Keybinds::default();
+        keybinds
+            .assign(
+                Control::Jump,
+                KeybindSlot::Secondary,
+                Binding::Key(KeyCode::KeyJ),
+            )
+            .expect("an unused key must bind as the jump secondary");
+
+        let mut primary_keys = ButtonInput::<KeyCode>::default();
+        primary_keys.press(KeyCode::Space);
+        assert!(keybinds.pressed(Control::Jump, &primary_keys));
+        assert!(keybinds.just_pressed(Control::Jump, &primary_keys));
+
+        let mut secondary_keys = ButtonInput::<KeyCode>::default();
+        secondary_keys.press(KeyCode::KeyJ);
+        assert!(keybinds.pressed(Control::Jump, &secondary_keys));
+        assert!(keybinds.just_pressed(Control::Jump, &secondary_keys));
+
+        assert_eq!(
+            keybinds.assign(
+                Control::Sprint,
+                KeybindSlot::Primary,
+                Binding::Key(KeyCode::KeyJ)
+            ),
+            Err("Already assigned to Jump.".into())
+        );
+        assert_eq!(
+            keybinds.assign(
+                Control::Jump,
+                KeybindSlot::Primary,
+                Binding::Key(KeyCode::KeyJ)
+            ),
+            Err("Already assigned to Jump.".into())
+        );
+
+        keybinds.clear_secondary(Control::Jump);
+        assert_eq!(keybinds.get_secondary(Control::Jump), None);
+        assert!(!keybinds.pressed(Control::Jump, &secondary_keys));
+        assert!(keybinds.pressed(Control::Jump, &primary_keys));
+    }
+
+    #[test]
+    fn menu_directions_default_to_arrows_in_the_secondary_slot() {
+        let keybinds = Keybinds::default();
+        assert_eq!(
+            keybinds.get_secondary(Control::MenuUp),
+            Some(Binding::Key(KeyCode::ArrowUp))
+        );
+        assert_eq!(
+            keybinds.get_secondary(Control::MenuDown),
+            Some(Binding::Key(KeyCode::ArrowDown))
+        );
+        assert_eq!(
+            keybinds.get_secondary(Control::MenuLeft),
+            Some(Binding::Key(KeyCode::ArrowLeft))
+        );
+        assert_eq!(
+            keybinds.get_secondary(Control::MenuRight),
+            Some(Binding::Key(KeyCode::ArrowRight))
+        );
+        assert_eq!(keybinds.get_secondary(Control::Forward), None);
+        assert_eq!(keybinds.get_secondary(Control::Backward), None);
+        assert_eq!(keybinds.get_secondary(Control::Left), None);
+        assert_eq!(keybinds.get_secondary(Control::Right), None);
     }
 
     #[test]

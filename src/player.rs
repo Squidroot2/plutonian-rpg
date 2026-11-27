@@ -511,6 +511,7 @@ mod tests {
             .resource_mut::<Keybinds>()
             .assign(
                 Control::Forward,
+                crate::controls::KeybindSlot::Primary,
                 crate::controls::Binding::Key(KeyCode::ArrowUp),
             )
             .expect("the up arrow must be available for forward movement");
