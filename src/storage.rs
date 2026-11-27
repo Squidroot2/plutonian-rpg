@@ -4,7 +4,6 @@ use bevy::{gltf::Gltf, prelude::*};
 
 use crate::{
     content::Items,
-    equipment::WeaponKind,
     inventory::{Inventory, ItemKind},
     loading::{GameAssets, PendingScene, scene_ready},
     world::{SessionEntity, SpawnWorld, WorldLayout},
@@ -97,16 +96,12 @@ impl ChestStorage {
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct WeaponRack;
 
-/// Interaction point at the centre of the rack in the Barracks
-/// (the guard hut at the outpost); see `RACK_SLOT_BASES`.
-pub(crate) const RACK_POSITION: Vec3 = Vec3::new(-11.31, -0.45, -8.26);
-
-/// Floor-level grip points for the rack's two slots, matching the slot
-/// feet modelled in `scripts/village.py` (`barracks`): slot u=-2.21 and
-/// u=-1.57 on the base line v=2.49, on the Barracks floor.
+/// Between the two grip forks beside the Barracks hatch in `scripts/village.py`.
+/// Local (u, v, h) maps to world (-9 - v, deck + h, -10.15 - u).
+pub(crate) const RACK_POSITION: Vec3 = Vec3::new(-6.85, 0.078, -7.21);
 pub(crate) const RACK_SLOT_BASES: [Vec3; 2] = [
-    Vec3::new(-11.49, -0.45, -7.94),
-    Vec3::new(-11.49, -0.45, -8.58),
+    Vec3::new(-6.45, 0.078, -7.21),
+    Vec3::new(-7.25, 0.078, -7.21),
 ];
 
 pub(crate) const RACK_NAME: &str = "Weapon rack";
@@ -185,20 +180,11 @@ pub(crate) struct RackDisplay {
 }
 
 /// Display transform for a racked weapon, local to the rack entity.
-/// Both worn models point along local +Z from grip to tip: polearms lean
-/// back against the upper rail from the slot foot, while a shortsword is
-/// too short to lean, so it hangs from its slot peg with the tip down.
-fn rack_display_transform(slot: usize, profile: WeaponKind) -> Transform {
-    let base = RACK_SLOT_BASES[slot] - RACK_POSITION;
-    let (grip, direction) = match profile {
-        WeaponKind::Spear => (base, Vec3::new(0.13, 1.67, 0.10)),
-        WeaponKind::Shortsword => (
-            base + Vec3::new(0.25, 1.01, 0.0),
-            Vec3::new(0.10, -1.0, 0.06),
-        ),
-    };
-    Transform::from_translation(grip)
-        .with_rotation(Quat::from_rotation_arc(Vec3::Z, direction.normalize()))
+/// Worn weapons share a grip origin and +Z blade axis. Keep the blade
+/// upright and its broad face toward the aisle.
+fn rack_display_transform(slot: usize) -> Transform {
+    Transform::from_translation(RACK_SLOT_BASES[slot] - RACK_POSITION)
+        .with_rotation(Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2))
 }
 
 fn sync_rack_display(
@@ -233,9 +219,9 @@ fn sync_rack_display(
         if present.contains(&(slot, *item)) {
             continue;
         }
-        let Some(profile) = items[*item].weapon() else {
+        if items[*item].weapon().is_none() {
             continue;
-        };
+        }
         let Some(handle) = assets.worn.get(item) else {
             continue;
         };
@@ -248,7 +234,7 @@ fn sync_rack_display(
                 RackDisplay { slot, item: *item },
                 PendingScene,
                 WorldAssetRoot(gltf.scenes[0].clone()),
-                rack_display_transform(slot, profile),
+                rack_display_transform(slot),
                 ChildOf(rack),
             ))
             .observe(scene_ready);
@@ -272,8 +258,6 @@ fn spawn_chests(_: On<SpawnWorld>, layout: Res<WorldLayout>, mut commands: Comma
             Transform::from_translation(position),
         ));
     }
-    // The rack stands against the Barracks rear wall; `RACK_POSITION` is
-    // the interaction point between its two modelled slots.
     commands.spawn((
         SessionEntity,
         WeaponRack,
@@ -304,15 +288,11 @@ mod tests {
     }
 
     #[test]
-    fn rack_display_anchors_lean_polearms_up_and_hang_shortswords_down() {
-        for slot in 0..2 {
-            let spear = rack_display_transform(slot, WeaponKind::Spear);
-            let tip = spear.transform_point(Vec3::new(0.0, 0.0, 1.94));
-            assert!(tip.y > 1.5, "spear tip must clear the upper rail");
-            let sword = rack_display_transform(slot, WeaponKind::Shortsword);
-            let tip = sword.transform_point(Vec3::new(0.0, 0.0, 0.68));
-            assert!(tip.y < sword.translation.y, "shortsword hangs tip-down");
-            assert!(tip.y > -0.6, "shortsword tip stays above the base");
+    fn rack_displays_point_up_from_their_grip_forks() {
+        for (slot, grip) in RACK_SLOT_BASES.iter().enumerate() {
+            let mount = rack_display_transform(slot);
+            assert!((RACK_POSITION + mount.translation).abs_diff_eq(*grip, 0.001));
+            assert!((mount.rotation * Vec3::Z).abs_diff_eq(Vec3::Y, 0.001));
         }
     }
 }

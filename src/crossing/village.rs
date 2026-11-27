@@ -310,6 +310,23 @@ pub(crate) fn light_homes(commands: &mut Commands) {
             },
         ));
     }
+    // Ceiling work lights illuminate the aisle and both bunks from above.
+    for (name, position) in [
+        ("Barracks watch lamp", Vec3::new(-6.85, 1.99, -7.43)),
+        ("Barracks bunk lamp", Vec3::new(-10.52, 1.99, -11.49)),
+    ] {
+        commands.spawn((
+            SessionEntity,
+            Name::new(name),
+            Transform::from_translation(position),
+            PointLight {
+                color: Color::srgb(1.0, 0.57, 0.28),
+                intensity: 16_000.0,
+                range: 6.0,
+                ..default()
+            },
+        ));
+    }
     commands.spawn((
         SessionEntity,
         Name::new("Village approach lantern"),
