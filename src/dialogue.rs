@@ -503,6 +503,7 @@ pub(crate) fn finish_close(mut dialogue: ResMut<Dialogue>) {
 
 pub(crate) fn handle_input(
     keys: Res<ButtonInput<KeyCode>>,
+    mouse: Res<ButtonInput<MouseButton>>,
     bindings: Res<Keybinds>,
     catalog: Res<DialogueCatalog>,
     handlers: Res<DialogueRegistry>,
@@ -523,7 +524,7 @@ pub(crate) fn handle_input(
         return;
     }
     let enter = keys.any_just_pressed([KeyCode::Enter, KeyCode::NumpadEnter]);
-    let advance = enter || bindings.just_pressed(Control::Interact, &keys);
+    let advance = enter || bindings.just_pressed_any(Control::Interact, &keys, &mouse);
     let Some(screen) = dialogue.screen() else {
         return;
     };

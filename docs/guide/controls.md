@@ -8,7 +8,8 @@ The game opens in borderless fullscreen.
 
 Under **Keybinds**, each gameplay action, menu control, or menu shortcut has a primary and a secondary binding column.
   Select either binding button and press its new key.
-  Both attack actions also accept mouse buttons in either slot.
+  All gameplay actions also accept mouse buttons in either slot;
+  menu controls and menu shortcuts remain keyboard-only.
   While capturing a secondary binding, press Delete to clear it back to "None".
   The primary binding cannot be cleared.
   Press Esc to cancel, or choose **Restore defaults** to reset all bindings.
