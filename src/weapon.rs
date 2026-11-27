@@ -271,7 +271,7 @@ fn attack(
             ) {
                 hits.write(hit);
             }
-        } else if can_start && bindings.get(hand.control()).just_pressed(&keys, &buttons) {
+        } else if can_start && bindings.just_pressed_any(hand.control(), &keys, &buttons) {
             swing.begin(hand, &equipment, &items);
         }
     }
@@ -1083,7 +1083,11 @@ mod tests {
 
         app.world_mut()
             .resource_mut::<Keybinds>()
-            .assign(Control::Holster, Binding::Key(KeyH))
+            .assign(
+                Control::Holster,
+                crate::controls::KeybindSlot::Primary,
+                Binding::Key(KeyH),
+            )
             .expect("H must be available to bind as the holster key");
         frame(&mut app, Some(KeyX), &[]);
         assert_eq!(stance(&app), Holstered);

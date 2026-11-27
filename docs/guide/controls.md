@@ -6,14 +6,16 @@ The game opens in borderless fullscreen.
   The **FPS counter** setting cycles through the four screen corners and Off.
   It starts in the top left.
 
-Under **Keybinds**, select a gameplay action, menu control, or menu shortcut and press its new key.
-  Both attack actions also accept mouse buttons.
+Under **Keybinds**, each gameplay action, menu control, or menu shortcut has a primary and a secondary binding column.
+  Select either binding button and press its new key.
+  Both attack actions also accept mouse buttons in either slot.
+  While capturing a secondary binding, press Delete to clear it back to "None".
+  The primary binding cannot be cleared.
   Press Esc to cancel, or choose **Restore defaults** to reset all bindings.
   Changes apply immediately for the current session.
 
 Choose **Start Game** on the title screen to begin a fresh run in Nivalis, or **Load Game** to choose a bed save.
-  Click a button or select it with the Menu Up and Menu Down keys (W and S by default) or Tab and activate it with Enter.
-  Arrow keys move the selection only when bound to Menu Up or Menu Down.
+  Click a button or select it with the Menu Up and Menu Down keys (W and S by default, with the arrow keys as secondary bindings) or Tab and activate it with Enter.
 
 | Control | Action |
 | --- | --- |

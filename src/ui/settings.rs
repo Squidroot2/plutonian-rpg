@@ -1,6 +1,6 @@
 use crate::{
     GameState,
-    controls::{Binding, Control, KeybindCategory, Keybinds},
+    controls::{Binding, Control, KeybindCategory, KeybindSlot, Keybinds},
     ui,
     ui::menu_ui::set_display,
     ui::title::TitleInput,
@@ -58,7 +58,7 @@ struct FpsCounter;
 pub(crate) struct SettingsMenu {
     open: bool,
     keybinds: bool,
-    capture: Option<Control>,
+    capture: Option<(Control, KeybindSlot)>,
     notice: String,
 }
 
@@ -99,7 +99,7 @@ enum Action {
     ToggleDisplay,
     CycleFps,
     Keybinds,
-    Rebind(Control),
+    Rebind(Control, KeybindSlot),
     ResetBindings,
     Back,
 }
@@ -258,11 +258,20 @@ fn spawn_keybind_row(parent: &mut ChildSpawnerCommands, control: Control) {
                 ui::text_style(16.0),
                 Pickable::IGNORE,
                 Node {
-                    width: percent(68),
+                    width: percent(40),
                     ..default()
                 },
             ));
-            spawn_button(row, Action::Rebind(control), percent(30));
+            spawn_button(
+                row,
+                Action::Rebind(control, KeybindSlot::Primary),
+                percent(28),
+            );
+            spawn_button(
+                row,
+                Action::Rebind(control, KeybindSlot::Secondary),
+                percent(28),
+            );
         });
 }
 
@@ -311,7 +320,7 @@ fn navigate(
             &mut fps,
             &mut windows,
         );
-    } else if let Some(control) = settings.capture {
+    } else if let Some((control, slot)) = settings.capture {
         if settings.is_changed() {
             return;
         }
@@ -328,12 +337,18 @@ fn navigate(
                 }
             });
         if let Some(binding) = binding {
-            match bindings.assign(control, binding) {
-                Ok(()) => {
-                    settings.capture = None;
-                    settings.notice.clear();
+            if slot == KeybindSlot::Secondary && matches!(binding, Binding::Key(KeyCode::Delete)) {
+                bindings.clear_secondary(control);
+                settings.capture = None;
+                settings.notice.clear();
+            } else {
+                match bindings.assign(control, slot, binding) {
+                    Ok(()) => {
+                        settings.capture = None;
+                        settings.notice.clear();
+                    }
+                    Err(message) => settings.notice = message,
                 }
-                Err(message) => settings.notice = message,
             }
         }
     } else if !settings.keybinds
@@ -379,8 +394,8 @@ fn activate(
         Action::Back => settings.open = false,
         Action::CycleFps => *fps = fps.next(),
         Action::Keybinds => settings.keybinds = true,
-        Action::Rebind(control) => {
-            settings.capture = Some(control);
+        Action::Rebind(control, slot) => {
+            settings.capture = Some((control, slot));
             settings.notice.clear();
         }
         Action::ResetBindings => *bindings = Keybinds::default(),
@@ -423,7 +438,7 @@ fn refresh_panel(
     for (section, mut node) in &mut sections {
         set_display(&mut node, *section == visible);
     }
-    if let Some(control) = settings.capture
+    if let Some((control, _)) = settings.capture
         && let Ok(mut text) = prompt.single_mut()
     {
         let input = if control.accepts_mouse() {
@@ -464,7 +479,11 @@ fn refresh_labels(
                 Action::ToggleDisplay => "Display mode: Fullscreen".into(),
                 Action::CycleFps => format!("FPS counter: {}", fps.label()),
                 Action::Keybinds => "Keybinds".into(),
-                Action::Rebind(control) => bindings.get(control).label(),
+                Action::Rebind(control, KeybindSlot::Primary) => bindings.get(control).label(),
+                Action::Rebind(control, KeybindSlot::Secondary) => bindings
+                    .get_secondary(control)
+                    .map(|binding| binding.label())
+                    .unwrap_or_else(|| "None".into()),
                 Action::ResetBindings => "Restore defaults".into(),
                 Action::Back => "Back (Esc)".into(),
             };
@@ -631,7 +650,7 @@ mod tests {
         let mut menu = world.resource_mut::<SettingsMenu>();
         menu.open();
         menu.keybinds = true;
-        menu.capture = Some(Control::Holster);
+        menu.capture = Some((Control::Holster, KeybindSlot::Primary));
         app.update();
 
         app.world_mut()
@@ -639,7 +658,7 @@ mod tests {
             .press(KeyCode::KeyW);
         app.update();
         let menu = app.world().resource::<SettingsMenu>();
-        assert_eq!(menu.capture, Some(Control::Holster));
+        assert_eq!(menu.capture, Some((Control::Holster, KeybindSlot::Primary)));
         assert!(menu.notice.contains("Move forward"));
 
         let mut keys = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
@@ -681,11 +700,18 @@ mod tests {
         assert_eq!(bindings.get(Control::MenuRight).label(), "D");
         assert_eq!(bindings.get(Control::Inventory).label(), "I");
         assert_eq!(bindings.get(Control::QuestLog).label(), "L");
+        assert_eq!(
+            bindings
+                .get_secondary(Control::MenuDown)
+                .map(|binding| binding.label()),
+            Some("ArrowDown".into())
+        );
+        assert_eq!(bindings.get_secondary(Control::Forward), None);
 
         let mut menu = app.world_mut().resource_mut::<SettingsMenu>();
         menu.open();
         menu.keybinds = true;
-        menu.capture = Some(Control::MenuUp);
+        menu.capture = Some((Control::MenuUp, KeybindSlot::Primary));
         app.update();
 
         let press = |app: &mut App, key| {
@@ -702,7 +728,8 @@ mod tests {
         app.world_mut()
             .resource_mut::<ButtonInput<KeyCode>>()
             .reset_all();
-        app.world_mut().resource_mut::<SettingsMenu>().capture = Some(Control::MenuDown);
+        app.world_mut().resource_mut::<SettingsMenu>().capture =
+            Some((Control::MenuDown, KeybindSlot::Primary));
         app.update();
         press(&mut app, KeyCode::KeyD);
         assert!(
@@ -718,6 +745,29 @@ mod tests {
                 .notice
                 .contains("Drop item")
         );
+        press(&mut app, KeyCode::ArrowDown);
+        assert!(
+            app.world()
+                .resource::<SettingsMenu>()
+                .notice
+                .contains("Menu Down")
+        );
+
+        app.world_mut().resource_mut::<SettingsMenu>().capture =
+            Some((Control::MenuDown, KeybindSlot::Secondary));
+        app.update();
+        press(&mut app, KeyCode::Delete);
+        assert_eq!(
+            app.world()
+                .resource::<Keybinds>()
+                .get_secondary(Control::MenuDown),
+            None
+        );
+        assert_eq!(app.world().resource::<SettingsMenu>().capture, None);
+
+        app.world_mut().resource_mut::<SettingsMenu>().capture =
+            Some((Control::MenuDown, KeybindSlot::Primary));
+        app.update();
         press(&mut app, KeyCode::ArrowDown);
         assert_eq!(
             app.world()
