@@ -935,6 +935,7 @@ mod tests {
 
     fn press_pause_key(app: &mut App, key: KeyCode) {
         let mut keys = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
+        keys.release_all();
         keys.clear();
         keys.press(key);
     }
