@@ -320,7 +320,7 @@ pub(crate) fn light_homes(commands: &mut Commands) {
             Name::new(name),
             Transform::from_translation(position),
             PointLight {
-                color: Color::srgb(1.0, 0.80, 0.57),
+                color: Color::srgb(0.80, 0.90, 0.96),
                 intensity: 120_000.0,
                 range: 6.0,
                 shadow_maps_enabled: true,

@@ -158,13 +158,18 @@ class Shelter:
                 self.block('Alloy seam', (u, v, self.home.shoulder / 2),
                            (.075, .17, self.home.shoulder - .08), 'frame')
             sign = math.copysign(1, u)
-            self.block('Viewport frame', (u + sign*.025, 0, 1.92),
-                       (.12, 1.48, .56), 'frame')
-            self.block('Recessed viewport', (u + sign*.094, 0, 1.94),
-                       (.045, 1.21, .28), 'blue' if self.home.name == 'Keeper' else 'amber')
-            for v in (-.41, 0, .41):
-                self.block('Viewport grille', (u + sign*.124, v, 1.94),
-                           (.079, .075, .32), 'lining')
+            self.viewport(u, sign)
+            if self.home.name == 'Barracks':
+                self.viewport(u - sign*.15, -sign)
+
+    def viewport(self, surface, normal):
+        self.block('Viewport frame', (surface + normal*.025, 0, 1.92),
+                   (.12, 1.48, .56), 'frame')
+        self.block('Recessed viewport', (surface + normal*.094, 0, 1.94),
+                   (.045, 1.21, .28), 'blue' if self.home.name == 'Keeper' else 'amber')
+        for v in (-.41, 0, .41):
+            self.block('Viewport grille', (surface + normal*.124, v, 1.94),
+                       (.079, .075, .32), 'lining')
 
 
     def hatch(self):
@@ -259,11 +264,11 @@ class Shelter:
             for edge in (-.066, .066):
                 self.block(f'Weapon rack grip jaw {i}', (-2.94, v+edge, .82),
                            (.18, .054, .08), 'ochre')
-        # The two amber strips have matching point lights in light_homes.
+        # The ceiling strips have matching point lights in light_homes.
         for label, u, v in [('Watch', -2.72, -2.15), ('Bunk', 1.34, 1.52)]:
             self.beam(f'{label} lamp hanger', (u, v, 3.64), (u, v, 2.91), .08, 'frame')
             self.block(f'{label} lamp hood', (u, v, 2.90), (.44, 1.02, .14), 'frame')
-            self.block(f'{label} lamp diffuser', (u, v, 2.80), (.32, .87, .08), 'amber')
+            self.block(f'{label} lamp diffuser', (u, v, 2.80), (.32, .87, .08), 'work light')
         self.block('Repair kit', (.10, 2.81, .76), (.62, .25, .16), 'teal')
         self.cup('Oiling pot', (-.49, 2.75, .77), .125, .18, 'ochre', .094)
 
@@ -274,6 +279,8 @@ def build():
         'basalt': bpy.data.materials['Basalt'],
         'amber': bpy.data.materials['Amber habitation'],
         'blue': bpy.data.materials['Trail phosphor'],
+        'work light': bpy.data.materials.get('Barracks frost glass') or
+                      material('Barracks frost glass', (.59, .76, .88), emission=3),
     }
     for name, color, metal in (
         ('lining', (.125, .153, .17), .28), ('deck', (.074, .086, .093), .16),
