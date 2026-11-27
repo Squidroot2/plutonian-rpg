@@ -2,6 +2,7 @@ use super::TitleInput;
 use crate::{
     GameState,
     content::{Items, Placements},
+    controls::{Control, Keybinds},
     save::{RunSave, SaveSlot},
     ui::menu_ui::{modal_overlay, scroll_hovered},
 };
@@ -87,7 +88,12 @@ fn despawn_picker_screen(mut commands: Commands, screens: Query<Entity, With<Pic
     }
 }
 
-fn keyboard(keys: Res<ButtonInput<KeyCode>>, slot: Res<SaveSlot>, mut picker: ResMut<SavePicker>) {
+fn keyboard(
+    bindings: Res<Keybinds>,
+    keys: Res<ButtonInput<KeyCode>>,
+    slot: Res<SaveSlot>,
+    mut picker: ResMut<SavePicker>,
+) {
     if !picker.open {
         return;
     }
@@ -101,15 +107,15 @@ fn keyboard(keys: Res<ButtonInput<KeyCode>>, slot: Res<SaveSlot>, mut picker: Re
         if keys.any_just_pressed([KeyCode::Enter, KeyCode::NumpadEnter]) {
             picker.pending = Some(PickerAction::Confirm);
         }
-    } else if keys.just_pressed(KeyCode::ArrowUp) && !slot.entries.is_empty() {
+    } else if bindings.just_pressed(Control::MenuUp, &keys) && !slot.entries.is_empty() {
         picker.pending = Some(PickerAction::Select(picker.selected.saturating_sub(1)));
-    } else if keys.just_pressed(KeyCode::ArrowDown) && !slot.entries.is_empty() {
+    } else if bindings.just_pressed(Control::MenuDown, &keys) && !slot.entries.is_empty() {
         picker.pending = Some(PickerAction::Select(
             (picker.selected + 1).min(slot.entries.len() - 1),
         ));
     } else if keys.just_pressed(KeyCode::Delete) && !slot.entries.is_empty() {
         picker.pending = Some(PickerAction::Delete(picker.selected));
-    } else if keys.any_just_pressed([KeyCode::Enter, KeyCode::NumpadEnter, KeyCode::Space])
+    } else if keys.any_just_pressed([KeyCode::Enter, KeyCode::NumpadEnter])
         && !slot.entries.is_empty()
     {
         picker.pending = Some(PickerAction::Load(picker.selected));
@@ -395,6 +401,7 @@ mod tests {
         app.add_plugins((MinimalPlugins, bevy::state::app::StatesPlugin))
             .insert_state(GameState::Paused)
             .init_resource::<ButtonInput<KeyCode>>()
+            .init_resource::<Keybinds>()
             .init_resource::<SaveSlot>()
             .init_resource::<RunSave>()
             .add_plugins(SavePickerPlugin);

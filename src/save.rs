@@ -1435,6 +1435,7 @@ mod tests {
             .init_asset::<Image>()
             .init_state::<GameState>()
             .init_resource::<ButtonInput<KeyCode>>()
+            .init_resource::<crate::controls::Keybinds>()
             .init_resource::<SettingsMenu>()
             .init_resource::<RunSave>()
             .insert_resource(test_items().clone())
@@ -1451,7 +1452,7 @@ mod tests {
                 .press(key);
             app.update();
         };
-        press(&mut app, KeyCode::ArrowDown);
+        press(&mut app, KeyCode::KeyS);
         press(&mut app, KeyCode::Enter);
         press(&mut app, KeyCode::Enter);
         assert_eq!(
@@ -1475,7 +1476,7 @@ mod tests {
             .resource_mut::<NextState<GameState>>()
             .set(GameState::Title);
         app.update();
-        press(&mut app, KeyCode::ArrowDown);
+        press(&mut app, KeyCode::KeyS);
         press(&mut app, KeyCode::Enter);
         press(&mut app, KeyCode::Delete);
         assert!(new_save.exists());
@@ -2421,6 +2422,7 @@ mod tests {
             .init_asset::<Image>()
             .init_state::<GameState>()
             .init_resource::<ButtonInput<KeyCode>>()
+            .init_resource::<crate::controls::Keybinds>()
             .init_resource::<SettingsMenu>()
             .init_resource::<RunSave>()
             .insert_resource(test_items().clone())
@@ -2437,7 +2439,7 @@ mod tests {
                 .press(key);
             app.update();
         };
-        press(&mut app, KeyCode::ArrowDown);
+        press(&mut app, KeyCode::KeyS);
         press(&mut app, KeyCode::Enter);
         press(&mut app, KeyCode::Delete);
         assert!(file.exists());
@@ -2464,6 +2466,7 @@ mod tests {
         app.add_plugins((MinimalPlugins, AssetPlugin::default(), StatesPlugin))
             .insert_state(GameState::Paused)
             .init_resource::<ButtonInput<KeyCode>>()
+            .init_resource::<crate::controls::Keybinds>()
             .init_resource::<SettingsMenu>()
             .init_resource::<RunSave>()
             .insert_resource(test_items().clone())
@@ -2505,12 +2508,13 @@ mod tests {
         );
         interact_with(&mut world, bed);
 
-        for control in [Some(KeyCode::ArrowDown), Some(KeyCode::Tab), None] {
+        for control in [Some(KeyCode::KeyS), Some(KeyCode::Tab), None] {
             let mut app = App::new();
             app.add_plugins((MinimalPlugins, AssetPlugin::default(), StatesPlugin))
                 .init_asset::<Image>()
                 .init_state::<GameState>()
                 .init_resource::<ButtonInput<KeyCode>>()
+                .init_resource::<crate::controls::Keybinds>()
                 .init_resource::<SettingsMenu>()
                 .init_resource::<RunSave>()
                 .insert_resource(test_items().clone())

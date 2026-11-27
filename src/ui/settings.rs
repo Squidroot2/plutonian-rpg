@@ -584,7 +584,7 @@ mod tests {
         };
 
         app.update();
-        press(&mut app, &[KeyCode::ArrowDown, KeyCode::Enter]);
+        press(&mut app, &[KeyCode::KeyS, KeyCode::Enter]);
         assert!(open(&app));
         assert_eq!(mode(&app), WindowMode::Windowed);
         press(&mut app, &[KeyCode::Enter]);

@@ -12,7 +12,8 @@ Under **Keybinds**, select a gameplay action, menu control, or menu shortcut and
   Changes apply immediately for the current session.
 
 Choose **Start Game** on the title screen to begin a fresh run in Nivalis, or **Load Game** to choose a bed save.
-  Click a button or select it with Up, Down, or Tab and activate it with Enter or Space.
+  Click a button or select it with the Menu Up and Menu Down keys (W and S by default) or Tab and activate it with Enter.
+  Arrow keys move the selection only when bound to Menu Up or Menu Down.
 
 | Control | Action |
 | --- | --- |
