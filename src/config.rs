@@ -523,6 +523,47 @@ mod tests {
     }
 
     #[test]
+    fn override_directory_selects_config_toml_inside_it() {
+        let dir = TestDirectory::new();
+        let selected =
+            select_config_file(false, Some(dir.0.clone())).expect("override selects a file");
+        assert_eq!(selected, dir.file());
+    }
+
+    #[test]
+    fn smoke_isolation_wins_over_the_override_directory() {
+        let dir = TestDirectory::new();
+        let selected = select_config_file(true, Some(dir.0.clone())).expect("smoke selects a file");
+        assert!(selected.ends_with(CONFIG_FILE_NAME));
+        assert!(
+            !selected.starts_with(&dir.0),
+            "smoke runs must not write into the override: {}",
+            selected.display()
+        );
+    }
+
+    #[test]
+    fn broken_override_config_stops_startup_naming_the_override_path() {
+        let dir = TestDirectory::new();
+        let selected =
+            select_config_file(false, Some(dir.0.clone())).expect("override selects a file");
+        fs::write(&selected, "[keybinds]\njump = \"NotAKey\"\n")
+            .expect("write the broken override config");
+        let message = panic_message(&selected, || {
+            load_keybinds(Some(&selected));
+        });
+        assert!(
+            message.contains(&selected.display().to_string()),
+            "{message}"
+        );
+        assert!(
+            message.contains("unrecognized binding 'NotAKey' for control 'jump'"),
+            "{message}"
+        );
+        assert!(message.contains("delete the file"), "{message}");
+    }
+
+    #[test]
     fn smoke_and_override_directories_select_isolated_files() {
         let smoke = select_config_file(true, None).expect("smoke selects a file");
         assert!(smoke.ends_with(CONFIG_FILE_NAME));

@@ -18,6 +18,12 @@ when no directory resolves, the game runs on defaults and persists nothing.
 The parent directory is created on the first write.
 Smoke runs and tests use isolated temporary files
 so they never touch the player's real configuration.
+Launching with `--config-dir <dir>` points both loading and saving
+at `<dir>/config.toml` instead of the XDG path,
+the same relationship `--save-dir` has to the saves inside it.
+The precedence is smoke isolation first, then `--config-dir`, then XDG:
+a smoke run ignores `--config-dir`,
+just as smoke save runs ignore the player's save directory.
 
 ## Format
 

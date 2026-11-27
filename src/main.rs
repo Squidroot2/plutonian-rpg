@@ -18,6 +18,12 @@ fn parse_args(args: impl IntoIterator<Item = OsString>) -> Result<plutonian_rpg:
                 .filter(|value| !value.is_empty() && !value.to_string_lossy().starts_with("--"))
                 .ok_or("--save-dir requires a non-empty directory path")?;
             options.save_dir = Some(PathBuf::from(value));
+        } else if arg == "--config-dir" {
+            let value = args
+                .next()
+                .filter(|value| !value.is_empty() && !value.to_string_lossy().starts_with("--"))
+                .ok_or("--config-dir requires a non-empty directory path")?;
+            options.config_dir = Some(PathBuf::from(value));
         } else if arg == "--smoke-test" {
             options.arena = true;
         } else if arg == "--smoke-world" {
@@ -55,15 +61,19 @@ fn parse_args(args: impl IntoIterator<Item = OsString>) -> Result<plutonian_rpg:
     if options.no_screenshots && smoke_count == 0 {
         return Err("--no-screenshots requires a smoke scenario".into());
     }
-    if smoke_count == 0
-        && let Some(path) = options.save_dir.take()
-    {
-        options.save_dir = Some(
-            std::path::absolute(path)
-                .map_err(|error| format!("Could not resolve --save-dir: {error}"))?,
-        );
+    if smoke_count == 0 {
+        if let Some(path) = options.save_dir.take() {
+            options.save_dir = Some(resolve_dir("--save-dir", path)?);
+        }
+        if let Some(path) = options.config_dir.take() {
+            options.config_dir = Some(resolve_dir("--config-dir", path)?);
+        }
     }
     Ok(options)
+}
+
+fn resolve_dir(flag: &str, path: PathBuf) -> Result<PathBuf, String> {
+    std::path::absolute(path).map_err(|error| format!("Could not resolve {flag}: {error}"))
 }
 
 #[cfg(test)]
@@ -105,6 +115,14 @@ mod tests {
 
     #[cfg(feature = "smoke")]
     #[test]
+    fn smoke_runs_leave_the_config_directory_unresolved() {
+        let options = parse(&["--config-dir", "cfg", "--smoke-world"]).expect("smoke options");
+        assert!(options.world);
+        assert_eq!(options.config_dir, Some(PathBuf::from("cfg")));
+    }
+
+    #[cfg(feature = "smoke")]
+    #[test]
     fn smoke_screenshots_are_enabled_unless_explicitly_disabled() {
         assert!(
             !parse(&["--smoke-test"])
@@ -131,6 +149,43 @@ mod tests {
                     .err()
                     .expect("invalid argument")
                     .contains("--save-dir requires")
+            );
+        }
+    }
+
+    #[test]
+    fn config_dir_accepts_absolute_and_relative_paths() {
+        assert_eq!(
+            parse(&["--config-dir", "/tmp/cfg"])
+                .expect("absolute path")
+                .config_dir,
+            Some(PathBuf::from("/tmp/cfg"))
+        );
+        assert_eq!(
+            parse(&["--config-dir", "config/test"])
+                .expect("relative path")
+                .config_dir,
+            Some(
+                std::env::current_dir()
+                    .expect("working directory")
+                    .join("config/test")
+            )
+        );
+        assert!(parse(&[]).expect("no override").config_dir.is_none());
+    }
+
+    #[test]
+    fn config_dir_requires_a_nonempty_value() {
+        for args in [
+            &["--config-dir"][..],
+            &["--config-dir", ""][..],
+            &["--config-dir", "--windowed"][..],
+        ] {
+            assert!(
+                parse(args)
+                    .err()
+                    .expect("invalid argument")
+                    .contains("--config-dir requires")
             );
         }
     }
