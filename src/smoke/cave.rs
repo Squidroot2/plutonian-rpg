@@ -258,6 +258,12 @@ pub(super) fn check_route(
     }
 }
 
+/// Advances the cave smoke state machine after the player reaches `OUTBOUND[index]`.
+///
+/// `index` is the zero-based index into [`OUTBOUND`] for the waypoint that was just reached.
+/// At [`VILLAGE_VIEW`], [`BEND_VIEW`], [`REVEAL`], and the final waypoint, this frames `orbit`
+/// on the landmark under inspection and transitions to the corresponding capture phase; all
+/// other waypoints simply advance to `CaveCheck::Approach(index + 1)`.
 fn advance_approach(index: usize, position: Vec3, orbit: &mut Orbit) -> CaveCheck {
     if index == VILLAGE_VIEW {
         let to_guide = crate::cave::GUIDE_MUSHROOM_CAP_POS.xz() - position.xz();
