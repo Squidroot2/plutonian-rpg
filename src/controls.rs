@@ -59,7 +59,7 @@ impl Control {
     }
 
     pub(crate) fn accepts_mouse(self) -> bool {
-        matches!(self, Self::Attack | Self::OffHandAttack)
+        self.keybind_category() == KeybindCategory::Gameplay
     }
 
     pub(crate) fn keybind_category(self) -> KeybindCategory {
@@ -551,6 +551,18 @@ impl Keybinds {
             .any(|binding| binding.just_pressed(keys, mouse))
     }
 
+    pub(crate) fn pressed_any(
+        &self,
+        control: Control,
+        keys: &ButtonInput<KeyCode>,
+        mouse: &ButtonInput<MouseButton>,
+    ) -> bool {
+        self.bindings(control).any(|binding| match binding {
+            Binding::Key(key) => keys.pressed(key),
+            Binding::Mouse(button) => mouse.pressed(button),
+        })
+    }
+
     pub(crate) fn clear_secondary(&mut self, control: Control) {
         self.0[control as usize].1 = None;
     }
@@ -607,7 +619,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn assignment_rejects_reserved_keys_and_mouse_on_non_attack_controls() {
+    fn assignment_rejects_reserved_keys_and_mouse_on_menu_controls() {
         let mut keybinds = Keybinds::default();
 
         assert_eq!(
@@ -628,13 +640,58 @@ mod tests {
         );
         assert_eq!(
             keybinds.assign(
-                Control::Interact,
+                Control::MenuUp,
                 KeybindSlot::Primary,
                 Binding::Mouse(MouseButton::Middle)
             ),
             Err("Press a keyboard key for this action.".into())
         );
         assert!(keybinds.get(Control::Jump) == Binding::Key(KeyCode::Space));
+    }
+
+    #[test]
+    fn mouse_assignment_follows_categories_in_both_slots() {
+        for &control in Control::VARIANTS {
+            for slot in [KeybindSlot::Primary, KeybindSlot::Secondary] {
+                let mut bindings = Keybinds::default();
+                let result = bindings.assign(control, slot, Binding::Mouse(MouseButton::Middle));
+                if control.keybind_category() == KeybindCategory::Gameplay {
+                    assert_eq!(result, Ok(()), "{control:?} {slot:?}");
+                } else {
+                    assert_eq!(result, Err("Press a keyboard key for this action.".into()));
+                }
+            }
+        }
+        assert_eq!(
+            Keybinds::default().assign(
+                Control::Forward,
+                KeybindSlot::Secondary,
+                Binding::Mouse(MouseButton::Left),
+            ),
+            Err("Already assigned to Main-hand attack.".into())
+        );
+    }
+
+    #[test]
+    fn mouse_and_keyboard_bindings_work_across_frames() {
+        let mut bindings = Keybinds::default();
+        bindings
+            .assign(
+                Control::Forward,
+                KeybindSlot::Secondary,
+                Binding::Mouse(MouseButton::Middle),
+            )
+            .unwrap();
+        let mut mouse = ButtonInput::<MouseButton>::default();
+        let mut keys = ButtonInput::<KeyCode>::default();
+        mouse.press(MouseButton::Middle);
+        assert!(bindings.just_pressed_any(Control::Forward, &keys, &mouse));
+        mouse.clear();
+        assert!(bindings.pressed_any(Control::Forward, &keys, &mouse));
+        assert!(!bindings.just_pressed_any(Control::Forward, &keys, &mouse));
+        mouse.release(MouseButton::Middle);
+        keys.press(KeyCode::KeyW);
+        assert!(bindings.pressed_any(Control::Forward, &keys, &mouse));
     }
 
     #[test]

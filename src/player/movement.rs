@@ -272,6 +272,7 @@ impl MovementInput {
 
 pub(crate) fn input(
     keys: Res<ButtonInput<KeyCode>>,
+    mouse: Res<ButtonInput<MouseButton>>,
     bindings: Res<Keybinds>,
     dialogue: Res<Dialogue>,
     mut input: ResMut<MovementInput>,
@@ -279,11 +280,11 @@ pub(crate) fn input(
     log: Option<Res<PlayerMenu>>,
 ) {
     input.direction = Vec2::ZERO;
-    input.sprint = bindings.pressed(Control::Sprint, &keys);
+    input.sprint = bindings.pressed_any(Control::Sprint, &keys, &mouse);
     let blocked = dialogue.is_open()
         || log.is_some_and(|log| log.is_open())
         || keys.just_pressed(KeyCode::Escape);
-    let toggle_run = !blocked && bindings.just_pressed(Control::ToggleRun, &keys);
+    let toggle_run = !blocked && bindings.just_pressed_any(Control::ToggleRun, &keys, &mouse);
     for mut player in &mut players {
         if toggle_run {
             player.run_enabled = !player.run_enabled;
@@ -298,14 +299,14 @@ pub(crate) fn input(
         return;
     }
     input.direction = Vec2::new(
-        bindings.pressed(Control::Right, &keys) as i8 as f32
-            - bindings.pressed(Control::Left, &keys) as i8 as f32,
-        bindings.pressed(Control::Forward, &keys) as i8 as f32
-            - bindings.pressed(Control::Backward, &keys) as i8 as f32,
+        bindings.pressed_any(Control::Right, &keys, &mouse) as i8 as f32
+            - bindings.pressed_any(Control::Left, &keys, &mouse) as i8 as f32,
+        bindings.pressed_any(Control::Forward, &keys, &mouse) as i8 as f32
+            - bindings.pressed_any(Control::Backward, &keys, &mouse) as i8 as f32,
     )
     .normalize_or_zero();
-    input.jump |= bindings.just_pressed(Control::Jump, &keys);
-    if bindings.just_pressed(Control::Dodge, &keys) {
+    input.jump |= bindings.just_pressed_any(Control::Jump, &keys, &mouse);
+    if bindings.just_pressed_any(Control::Dodge, &keys, &mouse) {
         input.dodge = Some(input.direction);
     }
 }

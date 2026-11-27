@@ -310,7 +310,7 @@ pub(crate) fn unobstructed(
     })
 }
 fn interact(
-    keys: Res<ButtonInput<KeyCode>>,
+    (keys, mouse): (Res<ButtonInput<KeyCode>>, Res<ButtonInput<MouseButton>>),
     bindings: Res<Keybinds>,
     nearby: Res<Nearby>,
     mut dialogue: ResMut<Dialogue>,
@@ -333,7 +333,7 @@ fn interact(
     {
         return;
     }
-    let interact_pressed = bindings.just_pressed(Control::Interact, &keys);
+    let interact_pressed = bindings.just_pressed_any(Control::Interact, &keys, &mouse);
     if !interact_pressed && !keys.any_just_pressed([KeyCode::Enter, KeyCode::NumpadEnter]) {
         return;
     }

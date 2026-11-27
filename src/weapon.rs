@@ -234,7 +234,7 @@ fn attack(
         return;
     }
     let menu_open = log.is_some_and(|log| log.is_open());
-    if bindings.just_pressed(Control::Holster, &keys)
+    if bindings.just_pressed_any(Control::Holster, &keys, &buttons)
         && !menu_open
         && matches!(*next, NextState::Unchanged)
         && !swing.active()

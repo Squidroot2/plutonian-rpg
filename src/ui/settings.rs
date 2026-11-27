@@ -713,6 +713,46 @@ mod tests {
     }
 
     #[test]
+    fn gameplay_mouse_capture_ignores_opening_click_and_persists() {
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, StatesPlugin, test_plugin()))
+            .insert_state(GameState::Paused)
+            .init_resource::<ButtonInput<KeyCode>>()
+            .init_resource::<ButtonInput<MouseButton>>();
+        app.update();
+        let path = app.world().resource::<ConfigFile>().0.clone().unwrap();
+        {
+            let mut menu = app.world_mut().resource_mut::<SettingsMenu>();
+            menu.open();
+            menu.keybinds = true;
+            menu.capture = Some((Control::Forward, KeybindSlot::Secondary));
+        }
+        app.world_mut()
+            .resource_mut::<ButtonInput<MouseButton>>()
+            .press(MouseButton::Middle);
+        app.update();
+        assert!(app.world().resource::<SettingsMenu>().capture.is_some());
+        app.world_mut()
+            .resource_mut::<ButtonInput<MouseButton>>()
+            .reset_all();
+        app.update();
+        app.world_mut()
+            .resource_mut::<ButtonInput<MouseButton>>()
+            .press(MouseButton::Middle);
+        app.update();
+        assert_eq!(
+            app.world()
+                .resource::<Keybinds>()
+                .get_secondary(Control::Forward),
+            Some(Binding::Mouse(MouseButton::Middle))
+        );
+        assert_eq!(
+            config::load_keybinds(Some(&path)).get_secondary(Control::Forward),
+            Some(Binding::Mouse(MouseButton::Middle))
+        );
+    }
+
+    #[test]
     fn rebind_and_reset_persist_to_the_config_file() {
         let mut app = App::new();
         app.add_plugins((MinimalPlugins, StatesPlugin, test_plugin()))
