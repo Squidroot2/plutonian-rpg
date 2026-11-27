@@ -521,17 +521,8 @@ impl Keybinds {
         [Some(primary), secondary].into_iter().flatten()
     }
 
-    fn binding_pressed(binding: Binding, keys: &ButtonInput<KeyCode>) -> bool {
-        matches!(binding, Binding::Key(key) if keys.pressed(key))
-    }
-
     fn binding_just_pressed(binding: Binding, keys: &ButtonInput<KeyCode>) -> bool {
         matches!(binding, Binding::Key(key) if keys.just_pressed(key))
-    }
-
-    pub(crate) fn pressed(&self, control: Control, keys: &ButtonInput<KeyCode>) -> bool {
-        self.bindings(control)
-            .any(|binding| Self::binding_pressed(binding, keys))
     }
 
     pub(crate) fn just_pressed(&self, control: Control, keys: &ButtonInput<KeyCode>) -> bool {
@@ -681,7 +672,7 @@ mod tests {
                 KeybindSlot::Secondary,
                 Binding::Mouse(MouseButton::Middle),
             )
-            .unwrap();
+            .expect("middle mouse is available for forward");
         let mut mouse = ButtonInput::<MouseButton>::default();
         let mut keys = ButtonInput::<KeyCode>::default();
         mouse.press(MouseButton::Middle);
@@ -762,12 +753,13 @@ mod tests {
 
         let mut primary_keys = ButtonInput::<KeyCode>::default();
         primary_keys.press(KeyCode::Space);
-        assert!(keybinds.pressed(Control::Jump, &primary_keys));
+        let mouse = ButtonInput::default();
+        assert!(keybinds.pressed_any(Control::Jump, &primary_keys, &mouse));
         assert!(keybinds.just_pressed(Control::Jump, &primary_keys));
 
         let mut secondary_keys = ButtonInput::<KeyCode>::default();
         secondary_keys.press(KeyCode::KeyJ);
-        assert!(keybinds.pressed(Control::Jump, &secondary_keys));
+        assert!(keybinds.pressed_any(Control::Jump, &secondary_keys, &mouse));
         assert!(keybinds.just_pressed(Control::Jump, &secondary_keys));
 
         assert_eq!(
@@ -789,8 +781,8 @@ mod tests {
 
         keybinds.clear_secondary(Control::Jump);
         assert_eq!(keybinds.get_secondary(Control::Jump), None);
-        assert!(!keybinds.pressed(Control::Jump, &secondary_keys));
-        assert!(keybinds.pressed(Control::Jump, &primary_keys));
+        assert!(!keybinds.pressed_any(Control::Jump, &secondary_keys, &mouse));
+        assert!(keybinds.pressed_any(Control::Jump, &primary_keys, &mouse));
     }
 
     #[test]
@@ -829,8 +821,8 @@ mod tests {
         assert!(Binding::Mouse(MouseButton::Left).just_pressed(&keys, &mouse));
         assert!(!Binding::Key(KeyCode::KeyS).just_pressed(&keys, &mouse));
         assert!(!Binding::Mouse(MouseButton::Right).just_pressed(&keys, &mouse));
-        assert!(Keybinds::default().pressed(Control::Forward, &keys));
+        assert!(Keybinds::default().pressed_any(Control::Forward, &keys, &mouse));
         assert!(Keybinds::default().just_pressed(Control::Forward, &keys));
-        assert!(!Keybinds::default().pressed(Control::Attack, &keys));
+        assert!(Keybinds::default().pressed_any(Control::Attack, &keys, &mouse));
     }
 }

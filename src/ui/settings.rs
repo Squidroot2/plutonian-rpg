@@ -720,7 +720,12 @@ mod tests {
             .init_resource::<ButtonInput<KeyCode>>()
             .init_resource::<ButtonInput<MouseButton>>();
         app.update();
-        let path = app.world().resource::<ConfigFile>().0.clone().unwrap();
+        let path = app
+            .world()
+            .resource::<ConfigFile>()
+            .0
+            .clone()
+            .expect("test config file");
         {
             let mut menu = app.world_mut().resource_mut::<SettingsMenu>();
             menu.open();

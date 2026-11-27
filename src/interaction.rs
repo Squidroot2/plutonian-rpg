@@ -561,6 +561,7 @@ mod tests {
         .init_resource::<Keybinds>()
         .init_resource::<PlayerMenu>()
         .init_resource::<ButtonInput<KeyCode>>()
+        .init_resource::<ButtonInput<MouseButton>>()
         .init_resource::<AccumulatedMouseScroll>()
         .add_plugins((
             InteractionPlugin,
