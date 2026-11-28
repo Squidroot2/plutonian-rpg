@@ -16,6 +16,7 @@ from grounding import ground_outpost
 import perimeter
 import crossing
 import village
+import worm_nest
 random.seed(19)
 
 
@@ -688,8 +689,8 @@ def world():
     def solid(o):
         collision.append(o)
         return o
-    # A single gently inclined ice sheet, with a safe central route.
-    floor = solid(box('Ice shelf', (0,52,-.95), (96,160,1.5), ice))
+    # A single gently inclined ice sheet, with a safe central route and western nest shelf.
+    floor = solid(box('Ice shelf', (-12,52,-.95), (120,160,1.5), ice))
     floor.rotation_euler.x = .015
     # Low ramp provides a grounded traversal test along the trail.
     vertices = []
@@ -746,6 +747,8 @@ def world():
     starting_tent()
     village.build()
     perimeter.build()
+    worm_nest.reposition_escarpments()
+    worm_nest.build()
     save_export('outpost')
 
 
@@ -753,7 +756,7 @@ def collision_from_world():
     bpy.ops.wm.open_mainfile(filepath=str(ROOT/'art/outpost.blend'))
     prefixes = ('Ice shelf', 'Trail rise', 'Beacon foundation', 'Beacon spindle',
                 'Ice escarpment', 'Cavern ', 'Core plinth', 'Waystone', TENT_SOLID,
-                perimeter.SOLID_PREFIX, village.SOLID)
+                perimeter.SOLID_PREFIX, village.SOLID, worm_nest.SOLID_PREFIX)
     for o in list(bpy.data.objects):
         if not o.name.startswith(prefixes) or o.name.startswith('Waystone lamp'):
             bpy.data.objects.remove(o, do_unlink=True)
@@ -791,6 +794,29 @@ def rebuild_perimeter():
     perimeter.clear()
     with bpy.data.libraries.load(outpost, link=False) as (source, target):
         target.objects = [name for name in source.objects if name.startswith(perimeter.SOLID_PREFIX)]
+    for obj in target.objects:
+        bpy.context.scene.collection.objects.link(obj)
+    bpy.context.view_layer.update()
+    save_export('collision')
+
+
+def rebuild_worm_nest():
+    """Update the western shelf, nest escarpments, and worm nest props in both outpost scenes."""
+    bpy.context.preferences.filepaths.save_version = 0
+    bpy.context.preferences.filepaths.file_preview_type = 'NONE'
+    outpost = str(ROOT / 'art/outpost.blend')
+    bpy.ops.wm.open_mainfile(filepath=outpost)
+    worm_nest.widen_shelf()
+    worm_nest.reposition_escarpments()
+    worm_nest.build()
+    save_export('outpost')
+
+    bpy.ops.wm.open_mainfile(filepath=str(ROOT / 'art/collision.blend'))
+    worm_nest.widen_shelf()
+    worm_nest.reposition_escarpments()
+    worm_nest.clear()
+    with bpy.data.libraries.load(outpost, link=False) as (source, target):
+        target.objects = [name for name in source.objects if name.startswith(worm_nest.SOLID_PREFIX)]
     for obj in target.objects:
         bpy.context.scene.collection.objects.link(obj)
     bpy.context.view_layer.update()
@@ -1949,6 +1975,7 @@ ASSET_REGISTRY = (
                spear_assets, export_all=False),
     AssetEntry('--build-village', ('outpost', 'collision'), rebuild_village, export_all=False),
     AssetEntry('--build-perimeter', ('outpost', 'collision'), rebuild_perimeter, export_all=False),
+    AssetEntry('--build-worm-nest', ('outpost', 'collision'), rebuild_worm_nest, export_all=False),
     AssetEntry('--build-wagon', ('crossing_wagon',), build_wagon, export_all=False),
     AssetEntry('--shortsword', ('plutonian', SHORTSWORD_NAME), build_shortsword,
                export_selector=True, export_all=False),

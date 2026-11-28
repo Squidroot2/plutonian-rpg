@@ -557,6 +557,7 @@ fn refresh_hud(
             .and_then(|(_, pose)| {
                 crate::crossing::surface_location(pose.translation)
                     .or_else(|| cave::surface_location(pose.translation))
+                    .or_else(|| crate::worm::surface_location(pose.translation))
             })
             .unwrap_or("OUTPOST / NIVALIS"),
         (_, WorldLayout::SmokeArena, Area::Surface) => "SMOKE ARENA",

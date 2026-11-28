@@ -652,3 +652,198 @@ fn shipped_collision_scene_builds_colliders_without_a_renderer() {
         world.query::<&Collider>().iter(world).next().is_some()
     });
 }
+
+#[test]
+fn worm_nest_is_hidden_accessible_grounded_and_swarming() {
+    let mut app = game();
+    step_until(&mut app, 10_000, |world| {
+        *world.resource::<State<GameState>>().get() == GameState::Title
+    });
+    app.world_mut()
+        .resource_mut::<NextState<GameState>>()
+        .set(GameState::Loading);
+    step_until(&mut app, 20_000, |world| {
+        *world.resource::<State<GameState>>().get() == GameState::Playing
+    });
+    step_until(&mut app, 1_000, |world| {
+        world.actor_data::<Player>().grounded
+    });
+
+    assert_worm_nest_layout(app.world_mut());
+    assert_worm_nest_swarm_and_reward(&mut app);
+}
+
+fn assert_worm_nest_layout(world: &mut World) {
+    use bevy::ecs::system::RunSystemOnce;
+
+    const NEST_WORM_COUNT: usize = 10;
+    const NEST_PICKUP_COUNT: usize = 4;
+    const MIN_TRAIL_DISTANCE_M: f32 = 25.0;
+    const TRAIL_HALFWAY_X: f32 = -4.0;
+    const TRAIL_WEST_WAYSTONE_X: f32 = -7.9;
+    const GROUND_TOLERANCE_M: f32 = 0.03;
+
+    world
+        .run_system_once(
+            |spatial: SpatialQuery,
+             actors: Query<
+                Entity,
+                Or<(
+                    With<crate::enemy::Enemy>,
+                    With<Player>,
+                    With<crate::nemi::Nemi>,
+                )>,
+            >,
+             player: Single<(Entity, &Collider), With<Player>>,
+             worms: Query<
+                (Entity, &Transform, &Collider, &EncounterId),
+                With<crate::worm::Worm>,
+            >,
+             pickups: Query<(&Transform, &crate::content::PlacedPickup)>| {
+                let static_filter = SpatialQueryFilter::from_excluded_entities(actors.iter());
+                let nest_worms: Vec<_> = worms
+                    .iter()
+                    .filter(|(_, _, _, id)| id.key().as_str().starts_with("worm_nest_"))
+                    .collect();
+                assert_eq!(nest_worms.len(), NEST_WORM_COUNT);
+                for &(entity, transform, collider, _) in &nest_worms {
+                    assert!(
+                        (transform.translation.x - TRAIL_HALFWAY_X).abs() >= MIN_TRAIL_DISTANCE_M,
+                        "nest worm at {:?} is too close to the core trail",
+                        transform.translation
+                    );
+                    let origin = transform.translation + Vec3::Y;
+                    let support = spatial
+                        .cast_ray(origin, Dir3::NEG_Y, 2.0, true, &static_filter)
+                        .expect("nest worm must rest on walkable shelf");
+                    let offset = support.distance - 1.0;
+                    assert!(
+                        (offset - crate::worm::GROUND_OFFSET).abs() < GROUND_TOLERANCE_M,
+                        "nest worm not grounded at {:?}",
+                        transform.translation
+                    );
+                    let obstacles = spatial.shape_intersections(
+                        collider,
+                        transform.translation,
+                        transform.rotation,
+                        &SpatialQueryFilter::from_excluded_entities([entity, support.entity]),
+                    );
+                    assert!(
+                        obstacles.is_empty(),
+                        "nest worm overlaps collider at {:?}",
+                        transform.translation
+                    );
+                }
+
+                let nest_pickups: Vec<_> = pickups
+                    .iter()
+                    .filter(|(_, placed)| placed.id.as_str().starts_with("worm_nest_"))
+                    .collect();
+                assert_eq!(nest_pickups.len(), NEST_PICKUP_COUNT);
+                for (transform, placed) in nest_pickups {
+                    assert_eq!(
+                        crate::worm::surface_location(transform.translation),
+                        Some("WORM NEST"),
+                        "pickup {} must sit inside the worm nest",
+                        placed.id
+                    );
+                    let support = spatial
+                        .cast_ray(
+                            transform.translation + Vec3::Y,
+                            Dir3::NEG_Y,
+                            3.0,
+                            true,
+                            &static_filter,
+                        )
+                        .expect("nest pickup must rest on the shelf");
+                    assert!(support.distance < 1.5);
+                }
+
+                for trail_x in [TRAIL_HALFWAY_X, TRAIL_WEST_WAYSTONE_X] {
+                    let origin = Vec3::new(trail_x, 0.5, -62.0);
+                    assert_eq!(crate::worm::surface_location(origin), None);
+                    for nest_target in [Vec3::new(-48.0, 0.5, -67.0), Vec3::new(-54.0, 0.5, -66.5)]
+                    {
+                        let delta = nest_target - origin;
+                        let direction = Dir3::new(delta).expect("nonzero sightline");
+                        assert!(
+                            spatial
+                                .cast_ray(origin, direction, delta.length(), true, &static_filter)
+                                .is_some(),
+                            "nest interior must be screened from the core trail at {origin}"
+                        );
+                    }
+                }
+
+                let (_, capsule) = *player;
+                let approach = [
+                    Vec3::new(-14.0, 0.9, -52.0),
+                    Vec3::new(-28.0, 0.9, -52.5),
+                    Vec3::new(-35.5, 0.9, -55.5),
+                    Vec3::new(-39.0, 0.9, -61.0),
+                    Vec3::new(-45.0, 0.9, -64.5),
+                ];
+                for segment in approach.windows(2) {
+                    let delta = segment[1] - segment[0];
+                    let direction = Dir3::new(delta).expect("nonzero approach segment");
+                    assert!(
+                        spatial
+                            .cast_shape(
+                                capsule,
+                                segment[0],
+                                Quat::IDENTITY,
+                                direction,
+                                &ShapeCastConfig::from_max_distance(delta.length()),
+                                &static_filter,
+                            )
+                            .is_none(),
+                        "approach segment {:?} -> {:?} must remain passable",
+                        segment[0],
+                        segment[1]
+                    );
+                }
+            },
+        )
+        .expect("worm nest layout probe must run");
+}
+
+fn assert_worm_nest_swarm_and_reward(app: &mut App) {
+    const MIN_SIMULTANEOUS_PURSUERS: usize = 4;
+
+    let world = app.world_mut();
+    let nest_center = Vec3::new(-45.5, 0.9, -65.5);
+    let player = world.player_entity();
+    world
+        .get_mut::<Transform>(player)
+        .expect("player transform")
+        .translation = nest_center;
+
+    for _ in 0..10 {
+        app.update();
+    }
+
+    let world = app.world_mut();
+    let pursuing = world
+        .query::<(&crate::enemy::MeleePursuit, &EncounterId)>()
+        .iter(world)
+        .filter(|(pursuit, id)| {
+            id.key().as_str().starts_with("worm_nest_")
+                && matches!(
+                    pursuit.phase,
+                    crate::enemy::MeleePhase::Pursuing | crate::enemy::MeleePhase::Windup(_)
+                )
+        })
+        .count();
+    assert!(
+        pursuing >= MIN_SIMULTANEOUS_PURSUERS,
+        "entering the nest must pull a pack of worms (only {pursuing} pursuing)"
+    );
+
+    let pike = ItemKind::parse("survey_pike").expect("authored survey pike");
+    let items = world.resource::<crate::content::Items>().clone();
+    let mut bag = Inventory::default();
+    assert!(bag.add(pike, 1));
+    let mut gear = crate::equipment::Equipment::default();
+    assert!(gear.equip(&mut bag, pike, 5, &items).is_err());
+    assert_eq!(gear.equip(&mut bag, pike, 10, &items), Ok(true));
+}
