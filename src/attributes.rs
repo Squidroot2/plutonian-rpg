@@ -6,7 +6,7 @@ use crate::{
     player::{CharacterProgress, Player, Stamina},
     ui::menu_ui::{MenuTab, PlayerMenu},
 };
-use az::Az;
+use az::{CheckedAs};
 use bevy::prelude::*;
 use strum::VariantArray;
 
@@ -108,6 +108,9 @@ pub(crate) struct MovementCosts {
     pub(crate) dodge: f32,
 }
 
+const BASE_JUMP_MOVEMENT_COST: f32 = 20.0;
+const BASE_DODGE_MOVEMENT_COST: f32 = 25.0;
+
 impl Default for MovementCosts {
     fn default() -> Self {
         Self::for_rank(DEFAULT_RANK)
@@ -116,10 +119,23 @@ impl Default for MovementCosts {
 
 impl MovementCosts {
     fn for_rank(rank: u8) -> Self {
-        let scale = ((105.0 / (f64::from(rank) + 5.0)).ln() / 10.5_f64.ln()).az::<f32>();
+        // Shift all ranks together to make the curve less steep at low ranks.
+        let rank_offset = f64::from(DEFAULT_RANK);
+        let maximum_rank_with_offset = f64::from(MAX_RANK) + rank_offset;
+        let baseline_rank_with_offset = f64::from(DEFAULT_RANK) + rank_offset;
+        let rank_with_offset = f64::from(rank) + rank_offset;
+
+        // The logarithm makes each additional rank save less stamina than the last.
+        // At maximum rank the ratio is 1, so its logarithm is zero.
+        let rank_weight = (maximum_rank_with_offset / rank_with_offset).ln();
+        let baseline_weight = (maximum_rank_with_offset / baseline_rank_with_offset).ln();
+
+        // Normalize the curve so the default rank pays exactly the base costs.
+        let scale = (rank_weight / baseline_weight).checked_as::<f32>()
+            .expect("Scale will always fit within bounds of f32");
         Self {
-            jump: 20.0 * scale,
-            dodge: 25.0 * scale,
+            jump: BASE_JUMP_MOVEMENT_COST * scale,
+            dodge: BASE_DODGE_MOVEMENT_COST * scale,
         }
     }
 }
