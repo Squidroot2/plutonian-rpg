@@ -836,7 +836,7 @@ mod tests {
         /// save created after the title snapshot.
         fn copy_fixture_save(&self, name: &str) {
             let source = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("tests/fixtures/inspector-v15.save");
+                .join("tests/fixtures/inspector-v16.save");
             std::fs::copy(&source, self.0.join(name)).expect("copy fixture save");
         }
     }

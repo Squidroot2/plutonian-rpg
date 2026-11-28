@@ -70,6 +70,7 @@ struct Ranks {
     endurance: u8,
     agility: u8,
     strength: u8,
+    marksmanship: u8,
 }
 
 impl Default for Ranks {
@@ -79,6 +80,7 @@ impl Default for Ranks {
             endurance: DEFAULT_RANK,
             agility: DEFAULT_RANK,
             strength: DEFAULT_RANK,
+            marksmanship: DEFAULT_RANK,
         }
     }
 }
@@ -91,6 +93,7 @@ impl Ranks {
             (AttributeId::Endurance, self.endurance),
             (AttributeId::Agility, self.agility),
             (AttributeId::Strength, self.strength),
+            (AttributeId::Marksmanship, self.marksmanship),
         ] {
             if !(1..=MAX_RANK).contains(&rank) {
                 return Err(format!("{id:?} must be in 1..={MAX_RANK}"));

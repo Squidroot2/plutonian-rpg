@@ -39,6 +39,7 @@ In each formula, `rank` is the rank of the attribute on that row.
 | **Endurance** · Full stamina recovery per second | `25% × maximum stamina` | 21 | 25 | 120 |
 | **Endurance** · Carrying capacity | `55 + rank` kg | 56 kg | 60 kg | 155 kg |
 | **Strength** · Melee weapon damage | `(95 + rank)% × base damage` | 96% | 100% | 195% |
+| **Marksmanship** · Ranged weapon damage | `(95 + rank)% × base damage` | 96% | 100% | 195% |
 
 **Vitality** sets the passive healing rate after the existing five-second wait
 following damage.
@@ -65,6 +66,9 @@ derived limits.
 dual wielding.
   Round to the nearest whole point with halves rounding up, then
 apply the target's defense.
+
+**Marksmanship** derives the same damage multiplier for future ranged weapons.
+It uses the same rounding and saturation as melee damage.
 
 Raising maximum health or stamina preserves the current amount.
   The HUD uses

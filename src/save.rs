@@ -42,7 +42,7 @@ use std::{
 };
 
 // Four magic bytes followed by the little-endian save schema version.
-const HEADER: &[u8; 6] = b"PLUT\x0f\x00";
+const HEADER: &[u8; 6] = b"PLUT\x10\x00";
 const SAVE_FORMAT_VERSION: u16 = u16::from_le_bytes([HEADER[4], HEADER[5]]);
 const MAX_SAVE_BYTES: usize = 1024 * 1024;
 
@@ -1476,7 +1476,7 @@ mod tests {
         let file = dir.path();
         let before = fs::read(&file).expect("read game-written save");
         let data = crate::save_inspector::inspect(Some(&file)).expect("inspect game save");
-        assert_eq!(data["format_version"], 15);
+        assert_eq!(data["format_version"], 16);
         assert_eq!(data["player_name"], "Test Player");
         assert!(data["journal"]["progress"].get("last_light").is_some());
         assert_eq!(data["encounters"]["relay_roach"]["actor"]["health"], 0);
@@ -1508,8 +1508,14 @@ mod tests {
     }
 
     #[test]
-    fn inspector_game_fixture_loads_with_current_catalogs_and_quest_journal() {
+    fn previous_version_inspector_fixture_is_rejected() {
         let file = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/inspector-v15.save");
+        assert!(read_save(&file).is_err());
+    }
+
+    #[test]
+    fn inspector_game_fixture_loads_with_current_catalogs_and_quest_journal() {
+        let file = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/inspector-v16.save");
         let before = fs::read(&file).expect("read fixture");
         crate::save_inspector::inspect(Some(&file)).expect("inspect fixture");
         let mut save = read_save(&file).expect("decode inspected fixture");
