@@ -15,6 +15,7 @@ use crate::level::Level;
 
 pub(crate) const DEFAULT_RANK: u8 = 5;
 pub(crate) const MAX_RANK: u8 = 100;
+const WEAPON_SPEED_PER_AGILITY_RANK: f32 = 0.01;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, VariantArray)]
 pub(crate) enum AttributeId {
@@ -68,7 +69,8 @@ impl Default for AttributeRanks {
 impl AttributeRanks {
     /// Playback rate for weapon actions; durations are divided by this value.
     pub(crate) fn weapon_speed(&self) -> f32 {
-        1.0 + (f32::from(self.rank(AttributeId::Agility)) - f32::from(DEFAULT_RANK)) * 0.01
+        1.0 + (f32::from(self.rank(AttributeId::Agility)) - f32::from(DEFAULT_RANK))
+            * WEAPON_SPEED_PER_AGILITY_RANK
     }
     pub(crate) fn from_array(ranks: [u8; AttributeId::VARIANTS.len()]) -> Self {
         Self(ranks)
