@@ -721,7 +721,9 @@ fn refresh_prompt(
                 **text = notice.into();
                 return;
             }
-            let key = bindings.get(Control::Interact).label();
+            let key = bindings
+                .get(Control::Interact)
+                .map_or_else(|| "None".into(), |binding| binding.label());
             nearby.0.map_or(String::new(), |(entity, target)| {
                 let action: String = match target {
                     InteractionTarget::Talk => {

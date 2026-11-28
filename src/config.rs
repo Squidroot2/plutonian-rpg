@@ -126,7 +126,7 @@ fn parse_keybinds(text: &str) -> Result<Keybinds, String> {
 fn parse_keybinds_entry(
     name: &str,
     value: &toml::Value,
-) -> Result<(Control, Binding, Option<Binding>), String> {
+) -> Result<(Control, Option<Binding>, Option<Binding>), String> {
     let control =
         Control::from_config_key(name).ok_or_else(|| format!("unknown control '{name}'"))?;
     match value {
@@ -142,7 +142,7 @@ fn parse_keybinds_entry(
 fn parse_binding_list(
     control: Control,
     names: &[toml::Value],
-) -> Result<(Control, Binding, Option<Binding>), String> {
+) -> Result<(Control, Option<Binding>, Option<Binding>), String> {
     let mut parsed = Vec::with_capacity(names.len());
     for name in names {
         let Some(name) = name.as_str() else {
@@ -155,7 +155,7 @@ fn parse_binding_list(
     }
     match parsed.as_slice() {
         [primary] => Ok((control, *primary, None)),
-        [primary, secondary] => Ok((control, *primary, Some(*secondary))),
+        [primary, secondary] => Ok((control, *primary, *secondary)),
         _ => Err(format!(
             "invalid binding for control '{}': expected one or two binding strings",
             control.config_key()
@@ -163,8 +163,11 @@ fn parse_binding_list(
     }
 }
 
-fn parse_binding(control: Control, name: &str) -> Result<Binding, String> {
-    Binding::from_config_name(name).ok_or_else(|| {
+fn parse_binding(control: Control, name: &str) -> Result<Option<Binding>, String> {
+    if name == "none" {
+        return Ok(None);
+    }
+    Binding::from_config_name(name).map(Some).ok_or_else(|| {
         format!(
             "unrecognized binding '{name}' for control '{}'",
             control.config_key()
@@ -220,12 +223,15 @@ fn try_save_keybinds(path: &Path, bindings: &Keybinds) -> std::io::Result<()> {
 fn keybinds_table(bindings: &Keybinds) -> toml::Table {
     let mut table = toml::Table::new();
     for control in Control::VARIANTS {
+        let primary = bindings
+            .get(*control)
+            .map_or_else(|| "none".into(), Binding::config_name);
         let value = match bindings.get_secondary(*control) {
             Some(secondary) => toml::Value::Array(vec![
-                toml::Value::String(bindings.get(*control).config_name()),
+                toml::Value::String(primary),
                 toml::Value::String(secondary.config_name()),
             ]),
-            None => toml::Value::String(bindings.get(*control).config_name()),
+            None => toml::Value::String(primary),
         };
         table.insert(control.config_key().to_owned(), value);
     }
@@ -294,6 +300,22 @@ mod tests {
     }
 
     #[test]
+    fn empty_primary_round_trips_with_and_without_secondary() {
+        let dir = TestDirectory::new();
+        let mut bindings = Keybinds::default();
+        bindings.clear_slot(Control::Jump, KeybindSlot::Primary);
+        bindings.clear_slot(Control::MenuUp, KeybindSlot::Primary);
+        save_keybinds(Some(&dir.file()), &bindings);
+        let text = fs::read_to_string(dir.file()).expect("read saved config");
+        assert!(text.contains("jump = \"none\""), "{text}");
+        assert!(text.contains("menu_up = [\"none\", \"ArrowUp\"]"), "{text}");
+        assert_eq!(load_keybinds(Some(&dir.file())), bindings);
+        let parsed = parse_keybinds("[keybinds]\njump = [\"Space\", \"none\"]")
+            .expect("explicit empty secondary parses");
+        assert_eq!(parsed.get_secondary(Control::Jump), None);
+    }
+
+    #[test]
     fn every_control_round_trips_through_save_and_load() {
         let dir = TestDirectory::new();
         let mut bindings = Keybinds::default();
@@ -324,21 +346,21 @@ mod tests {
             if *control == Control::Attack || *control == Control::OffHandAttack {
                 continue;
             }
-            bindings.apply_config(*control, Binding::Key(key), None);
+            bindings.apply_config(*control, Some(Binding::Key(key)), None);
         }
         bindings.apply_config(
             Control::Attack,
-            Binding::Mouse(MouseButton::Middle),
+            Some(Binding::Mouse(MouseButton::Middle)),
             Some(Binding::Mouse(MouseButton::Other(7))),
         );
         bindings.apply_config(
             Control::OffHandAttack,
-            Binding::Mouse(MouseButton::Back),
+            Some(Binding::Mouse(MouseButton::Back)),
             None,
         );
         bindings.apply_config(
             Control::Jump,
-            Binding::Key(KeyCode::KeyJ),
+            Some(Binding::Key(KeyCode::KeyJ)),
             Some(Binding::Key(KeyCode::Numpad0)),
         );
 
@@ -426,7 +448,7 @@ mod tests {
         )
         .expect("write the hand-edited config");
         let loaded = load_keybinds(Some(&dir.file()));
-        assert_eq!(loaded.get(Control::Jump), Binding::Key(KeyCode::KeyJ));
+        assert_eq!(loaded.get(Control::Jump), Some(Binding::Key(KeyCode::KeyJ)));
         assert_eq!(
             loaded.get(Control::Forward),
             Keybinds::default().get(Control::Forward)
@@ -452,7 +474,7 @@ mod tests {
         fs::write(dir.file(), edited).expect("write the hand edit");
         assert_eq!(
             load_keybinds(Some(&dir.file())).get(Control::Jump),
-            Binding::Key(KeyCode::KeyJ)
+            Some(Binding::Key(KeyCode::KeyJ))
         );
     }
 

@@ -351,8 +351,8 @@ fn navigate(
                 }
             });
         if let Some(binding) = binding {
-            if slot == KeybindSlot::Secondary && matches!(binding, Binding::Key(KeyCode::Delete)) {
-                bindings.clear_secondary(control);
+            if matches!(binding, Binding::Key(KeyCode::Delete)) {
+                bindings.clear_slot(control, slot);
                 config.save(&bindings);
                 settings.capture = None;
                 settings.notice.clear();
@@ -511,7 +511,10 @@ fn refresh_labels(
                 Action::ToggleDisplay => "Display mode: Fullscreen".into(),
                 Action::CycleFps => format!("FPS counter: {}", fps.label()),
                 Action::Keybinds => "Keybinds".into(),
-                Action::Rebind(control, KeybindSlot::Primary) => bindings.get(control).label(),
+                Action::Rebind(control, KeybindSlot::Primary) => bindings
+                    .get(control)
+                    .map(|binding| binding.label())
+                    .unwrap_or_else(|| "None".into()),
                 Action::Rebind(control, KeybindSlot::Secondary) => bindings
                     .get_secondary(control)
                     .map(|binding| binding.label())
@@ -685,6 +688,43 @@ mod tests {
     }
 
     #[test]
+    fn delete_clears_primary_capture_and_persists_without_promotion() {
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, StatesPlugin, test_plugin()))
+            .insert_state(GameState::Paused)
+            .init_resource::<ButtonInput<KeyCode>>()
+            .init_resource::<ButtonInput<MouseButton>>();
+        {
+            let mut menu = app.world_mut().resource_mut::<SettingsMenu>();
+            menu.open();
+            menu.keybinds = true;
+            menu.capture = Some((Control::MenuUp, KeybindSlot::Primary));
+            menu.notice = "old notice".into();
+        }
+        app.update();
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .press(KeyCode::Delete);
+        app.update();
+        let bindings = app.world().resource::<Keybinds>();
+        assert_eq!(bindings.get(Control::MenuUp), None);
+        assert_eq!(
+            bindings.get_secondary(Control::MenuUp),
+            Some(Binding::Key(KeyCode::ArrowUp))
+        );
+        let menu = app.world().resource::<SettingsMenu>();
+        assert_eq!(menu.capture, None);
+        assert!(menu.notice.is_empty());
+        let path = app
+            .world()
+            .resource::<ConfigFile>()
+            .0
+            .as_deref()
+            .expect("test config file");
+        assert_eq!(config::load_keybinds(Some(path)), *bindings);
+    }
+
+    #[test]
     fn capture_rejects_a_duplicate_and_applies_an_available_key() {
         let mut app = App::new();
         app.add_plugins((MinimalPlugins, StatesPlugin, test_plugin()))
@@ -712,7 +752,7 @@ mod tests {
         app.update();
         assert!(matches!(
             app.world().resource::<Keybinds>().get(Control::Holster),
-            Binding::Key(KeyCode::KeyR)
+            Some(Binding::Key(KeyCode::KeyR))
         ));
         assert_eq!(app.world().resource::<SettingsMenu>().capture, None);
     }
@@ -786,12 +826,15 @@ mod tests {
         app.update();
         assert!(matches!(
             app.world().resource::<Keybinds>().get(Control::Holster),
-            Binding::Key(KeyCode::KeyR)
+            Some(Binding::Key(KeyCode::KeyR))
         ));
         // The write is synchronous: it is on disk before the next frame,
         // so a forced kill right after the rebind cannot lose it.
         let reloaded = config::load_keybinds(Some(&path));
-        assert_eq!(reloaded.get(Control::Holster), Binding::Key(KeyCode::KeyR));
+        assert_eq!(
+            reloaded.get(Control::Holster),
+            Some(Binding::Key(KeyCode::KeyR))
+        );
 
         // Relaunching with the same directory picks the binding back up.
         let mut relaunched = App::new();
@@ -808,7 +851,7 @@ mod tests {
                 .world()
                 .resource::<Keybinds>()
                 .get(Control::Holster),
-            Binding::Key(KeyCode::KeyR)
+            Some(Binding::Key(KeyCode::KeyR))
         );
 
         // Resetting restores defaults in memory and on disk.
@@ -842,12 +885,48 @@ mod tests {
         );
         assert_eq!(Control::Drop.keybind_category(), KeybindCategory::Menu);
         assert_eq!(Control::MenuRight.keybind_category(), KeybindCategory::Menu);
-        assert_eq!(bindings.get(Control::MenuUp).label(), "W");
-        assert_eq!(bindings.get(Control::MenuDown).label(), "S");
-        assert_eq!(bindings.get(Control::MenuLeft).label(), "A");
-        assert_eq!(bindings.get(Control::MenuRight).label(), "D");
-        assert_eq!(bindings.get(Control::Inventory).label(), "I");
-        assert_eq!(bindings.get(Control::QuestLog).label(), "L");
+        assert_eq!(
+            bindings
+                .get(Control::MenuUp)
+                .expect("default binding")
+                .label(),
+            "W"
+        );
+        assert_eq!(
+            bindings
+                .get(Control::MenuDown)
+                .expect("default binding")
+                .label(),
+            "S"
+        );
+        assert_eq!(
+            bindings
+                .get(Control::MenuLeft)
+                .expect("default binding")
+                .label(),
+            "A"
+        );
+        assert_eq!(
+            bindings
+                .get(Control::MenuRight)
+                .expect("default binding")
+                .label(),
+            "D"
+        );
+        assert_eq!(
+            bindings
+                .get(Control::Inventory)
+                .expect("default binding")
+                .label(),
+            "I"
+        );
+        assert_eq!(
+            bindings
+                .get(Control::QuestLog)
+                .expect("default binding")
+                .label(),
+            "L"
+        );
         assert_eq!(
             bindings
                 .get_secondary(Control::MenuDown)
@@ -870,8 +949,20 @@ mod tests {
         };
         press(&mut app, KeyCode::KeyZ);
         let bindings = app.world().resource::<Keybinds>();
-        assert_eq!(bindings.get(Control::MenuUp).label(), "Z");
-        assert_eq!(bindings.get(Control::Right).label(), "D");
+        assert_eq!(
+            bindings
+                .get(Control::MenuUp)
+                .expect("default binding")
+                .label(),
+            "Z"
+        );
+        assert_eq!(
+            bindings
+                .get(Control::Right)
+                .expect("default binding")
+                .label(),
+            "D"
+        );
 
         app.world_mut()
             .resource_mut::<ButtonInput<KeyCode>>()
@@ -921,6 +1012,7 @@ mod tests {
             app.world()
                 .resource::<Keybinds>()
                 .get(Control::MenuDown)
+                .expect("rebound key")
                 .label(),
             "ArrowDown"
         );

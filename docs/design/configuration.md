@@ -31,6 +31,10 @@ The file is one TOML document, chosen because it is easy to edit by hand.
 Keybinds live in a `[keybinds]` table mapping each `Control` to its binding.
 A control with only a primary binding maps to a single string;
 a control with a secondary maps to an array of two strings.
+The string `none` denotes an empty slot in either position.
+When both slots are empty the value is `"none"`;
+when only the primary is empty the value is `["none", "<secondary>"]`.
+Omitted controls retain their defaults rather than becoming unbound.
 The written file carries a comment header saying it is safe to edit by hand,
 that deleting the file resets everything to defaults,
 and that an invalid file stops the game with an error naming the problem.
@@ -61,7 +65,7 @@ an unknown control name, or a binding string naming no key or mouse button.
 
 When a binding changes through the settings UI,
 a successful `Keybinds::assign` from the capture flow,
-clearing a secondary, or Reset Bindings,
+clearing either slot with Delete, or Reset Bindings,
 the file is rewritten immediately with the full current `[keybinds]` table.
 The write is synchronous, never deferred to exit,
 so a crash right after a rebind cannot lose it.

@@ -1048,7 +1048,7 @@ mod tests {
         };
         assert!(matches!(
             app.world().resource::<Keybinds>().get(Control::Holster),
-            Binding::Key(KeyX)
+            Some(Binding::Key(KeyX))
         ));
         frame(&mut app, Some(KeyX), &[]);
         assert_eq!(stance(&app), Drawn, "empty hands leave stance unchanged");

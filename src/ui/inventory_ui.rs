@@ -1043,7 +1043,12 @@ fn refresh_labels(
                 .selected_item()
                 .map_or_else(String::new, |item| item_detail(&items, item)),
             PanelText::Amount => format!("{}{}", ui.quantity, if ui.editing { "_" } else { "" }),
-            PanelText::DropLabel => format!("Drop [{}]", bindings.get(Control::Drop).label()),
+            PanelText::DropLabel => format!(
+                "Drop [{}]",
+                bindings
+                    .get(Control::Drop)
+                    .map_or_else(|| "None".into(), |binding| binding.label())
+            ),
             PanelText::DropTitle => match ui.selected {
                 Some(row @ InventoryRow::Stack(item)) => format!(
                     "Quantity to drop for {} (up to {})",
