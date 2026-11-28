@@ -114,7 +114,7 @@ pub fn check_repository(
     areas::check(&paths, &models, &mut failures);
     check_enemies(ENEMY_MODELS, &models, &mut failures);
     if let Some(character) = models.get(CHARACTER_MODEL) {
-        rig::check_character(character, &mut failures);
+        rig::check_character(character, &models, &mut failures);
         if let Some(items) = &items {
             rig::check_weapons(character, items, &models, &mut failures);
         }

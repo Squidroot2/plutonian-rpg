@@ -22,7 +22,7 @@ Runtime exports are checked in under `assets/models/`, so Blender is not needed 
 
 | Source / export | Purpose |
 | --- | --- |
-| `plutonian` | Shared skinned character with locomotion, spear and sword carry, two slash actions, `SpearThrust`, and `PlutonianDeath` |
+| `plutonian` | Shared skinned character with locomotion, melee and musket actions, and `PlutonianDeath` |
 | `outpost` | Ice shelf, furnished village huts, waystones, cavern, beacon tower, perimeter cliffs and gate, distant sky details |
 | `collision` | Simplified static geometry, hidden at runtime |
 | `core` | Collectible beacon power core |
@@ -38,6 +38,8 @@ Runtime exports are checked in under `assets/models/`, so Blender is not needed 
 | `field_armor`, `reinforced_armor`, `field_helmet`, `reinforced_helmet` | Equipment sources, each exporting pickup and `_worn` GLBs |
 | `field_spear`, `trident` | Weapons sharing the spear animations, each exporting pickup and `_worn` GLBs |
 | `shortsword` | One-handed weapon with pickup and `_worn` GLBs for either hand |
+| `methane_musket` | Barracks two-handed weapon with pickup and `_worn` GLBs |
+| `methane_slug`, `methane_muzzle_flash` | Musket projectile and animated ignition/exhaust |
 
 To re-export **your edited `.blend` sources** without regenerating them:
 
@@ -102,6 +104,34 @@ Export the pickups flat on the ground using the same sources, and keep the actio
 
 Pass `-- --shortsword` to regenerate the shortsword source, wrist sockets, and sword carry and slash actions.
 The slashes contact at frame 5 and recover at frame 12 (24 fps).
+
+Pass `-- --musket` to regenerate the musket actions on the existing character rig,
+the musket equipment source, and the slug and flash sources.
+Use `-- --export --musket` to re-export the edited sources.
+Frame numbers below are zero-based at 24 fps.
+
+| Action on `plutonian` | Frames | Art contract |
+| --- | ---: | --- |
+| `MusketIdle` | 0–48 (2 s) | Seamless drawn, low-ready hold with both hands on their grips. |
+| `MusketAim` | 0–24 (1 s) | Seamless shouldered aim with the bore level. |
+| `MusketFire` | 0–12 (0.5 s) | Shot and ignition at frame 1, peak recoil at frame 3, back to aim at frame 12. |
+| `MusketReload` | 0–60 (2.5 s) | Left hand fetches the pouch at frame 20, seats it at frame 39, presses the breech at frame 44, returns to the fore-end at frame 54, and completes at frame 60. |
+
+The musket attaches to `musket_grip` when drawn and `musket_holster` when slung across the back.
+Both sockets follow `spine`.
+The worn export uses the trigger grip as its origin and `+Z` downrange,
+so it also fits the existing upright rack mount.
+The flat pickup fits a `0.22 × 0.38 × 1.46 m` (X, Y, Z) clearance.
+Spawn the shot and effect at the worn model's `MusketMuzzle` node
+(`0, 0.165, 1.06 m` relative to the grip in glTF/Bevy coordinates).
+The slug points along `+Z`;
+its tapered wake is part of the model so the silhouette reads at the design's 60 m/s speed.
+Play `MethaneMuzzleFlash` once, starting at the shot:
+teal-blue ignition peaks at frame 1 and is gone by frame 2;
+the cold exhaust expands, rises, and dissipates by frame 10 (0.417 s).
+
+See the [pose comparisons](../design/images/musket-poses.jpg)
+and [rack and shot comparisons](../design/images/musket-rack-and-shot.jpg).
 
 Use `-- --export --plutonian-death` to rebuild the collapse action on the existing shared character rig.
 This mode rewrites `art/plutonian.blend` and exports only `assets/models/plutonian.glb`.

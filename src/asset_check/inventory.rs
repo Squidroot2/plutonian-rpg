@@ -158,33 +158,56 @@ pub(super) fn check_pickups(
         let Some(model) = models.get(path) else {
             continue;
         };
-        if let Ok(bounds) = world_bounds(model).inspect_err(|error| failures.add(path, error)) {
-            let min = Vec3::from_array(bounds.min);
-            let max = Vec3::from_array(bounds.max);
-            failures.require(
-                min.y.abs() < POSITION_TOLERANCE_M,
-                path,
-                "pickup must have a base origin",
-            );
-            let horizontal = min + max;
-            failures.require(
-                horizontal.x.abs() < center_tolerance && horizontal.z.abs() < center_tolerance,
-                path,
-                "pickup must be centered horizontally",
-            );
-            let limit = item.pickup_size() + Vec3::splat(clearance_tolerance);
-            failures.require(
-                (max - min).cmple(limit).all(),
-                path,
-                format!("pickup exceeds {id} drop clearance {limit:?} (bounds {min:?} to {max:?})"),
-            );
-        }
+        check_pickup_bounds(
+            path,
+            model,
+            item.pickup_size() + Vec3::splat(clearance_tolerance),
+            center_tolerance,
+            failures,
+        );
         if let Some((worn_path, worn)) = worn.and_then(|path| Some((path, models.get(path)?))) {
-            failures.require(
-                model.meshes.len() == worn.meshes.len(),
-                path,
-                format!("worn and pickup mesh counts differ ({worn_path})"),
-            );
+            check_equipment_pair((path, model), (worn_path, worn), failures);
         }
     }
+}
+
+pub(super) fn check_pickup_bounds(
+    path: &str,
+    model: &Model,
+    limit: Vec3,
+    center_tolerance: f32,
+    failures: &mut Failures,
+) {
+    if let Ok(bounds) = world_bounds(model).inspect_err(|error| failures.add(path, error)) {
+        let min = Vec3::from_array(bounds.min);
+        let max = Vec3::from_array(bounds.max);
+        failures.require(
+            min.y.abs() < POSITION_TOLERANCE_M,
+            path,
+            "pickup must have a base origin",
+        );
+        let horizontal = min + max;
+        failures.require(
+            horizontal.x.abs() < center_tolerance && horizontal.z.abs() < center_tolerance,
+            path,
+            "pickup must be centered horizontally",
+        );
+        failures.require(
+            (max - min).cmple(limit).all(),
+            path,
+            format!("pickup exceeds drop clearance {limit:?} (bounds {min:?} to {max:?})"),
+        );
+    }
+}
+
+pub(super) fn check_equipment_pair(
+    (path, pickup): (&str, &Model),
+    (worn_path, worn): (&str, &Model),
+    failures: &mut Failures,
+) {
+    failures.require(
+        pickup.meshes.len() == worn.meshes.len(),
+        path,
+        format!("worn and pickup mesh counts differ ({worn_path})"),
+    );
 }

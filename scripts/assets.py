@@ -15,6 +15,7 @@ from asset_helpers import box, cone, export, finish, ico, material, save_export
 from grounding import ground_outpost
 import perimeter
 import crossing
+import musket
 import village
 import worm_nest
 random.seed(19)
@@ -101,6 +102,7 @@ def character():
     add_spear_animations(rig)
     add_sword_animations(rig)
     add_plutonian_death(rig)
+    add_musket_animations(rig)
     save_export('plutonian')
 
 
@@ -461,6 +463,105 @@ def add_spear_animations(rig):
             key_pitch(name, Vector((0, 0, height)), pitch, frame)
 
     reset_character_pose(rig)
+
+
+MUSKET_READY = (-.32, -.43, .91, 14, 14)
+MUSKET_AIM = (*musket.GRIP_REST, 0, 0)
+MUSKET_RELOAD = (-.30, -.43, .99, 12, 18)
+MUSKET_POUCH = (.58, .28, -.15)
+MUSKET_PRESS = (.032, -.094, .202)
+
+
+def add_musket_grip(rig):
+    bpy.context.view_layer.objects.active = rig
+    bpy.ops.object.mode_set(mode='EDIT')
+    bones = rig.data.edit_bones
+    grip = bones.get(musket.GRIP_BONE) or bones.new(musket.GRIP_BONE)
+    grip.parent = bones['spine']
+    grip.head = musket.GRIP_REST
+    grip.tail = grip.head + Vector((0, 0, .15))
+    grip.roll = 0
+    grip.use_deform = False
+
+    # Center the shorter weapon across the back, clear of the mantle and horns.
+    holster = bones.get('musket_holster') or bones.new('musket_holster')
+    holster.parent = bones['spine']
+    holster.head = (0, 0, 0)
+    holster.tail = (0, 0, .15)
+    holster.roll = 0
+    holster.use_deform = False
+    direction = Vector((.62, 0, .78)).normalized()
+    rotation = Vector((0, -1, 0)).rotation_difference(direction).to_matrix().to_4x4()
+    back = Vector((0, .32, 1.15))
+    holster_frame = rotation @ grip.matrix
+    holster_frame.translation = back - .36 * direction
+    holster.matrix = holster_frame
+    bpy.ops.object.mode_set(mode='OBJECT')
+
+
+def key_musket_pose(rig, pose, support, frame):
+    x, y, z, pitch, yaw = pose
+    rear = Vector((x, y, z))
+    rotation = (Matrix.Rotation(math.radians(yaw), 3, 'Z')
+                @ Matrix.Rotation(math.radians(pitch), 3, 'X'))
+    grip = rig.pose.bones[musket.GRIP_BONE]
+    key_pose(grip, rear - Vector(musket.GRIP_REST), rotation, frame)
+    # The shoulders reach forward under the mantle; the support arm crosses the chest.
+    for side, target, shoulder in [
+        (-1, rear, (-.03, -.03, 0)),
+        (1, rear + rotation @ support, (-.16, -.24, -.02)),
+    ]:
+        arm, forearm, _ = bend_arm(rig, side, target, Vector(shoulder))
+        key_arm(arm, forearm, frame)
+
+
+def musket_action(rig, name, keyframes):
+    new_action(rig, name)
+    for (first, pose_from, support_from), (last, pose_to, support_to) in zip(
+        keyframes, keyframes[1:]
+    ):
+        for frame in range(first, last):
+            blend = (frame - first) / (last - first)
+            blend = blend * blend * (3 - 2 * blend)
+            pose = tuple(a + (b - a) * blend for a, b in zip(pose_from, pose_to))
+            support = Vector(support_from).lerp(Vector(support_to), blend)
+            key_musket_pose(rig, pose, support, frame)
+    frame, pose, support = keyframes[-1]
+    key_musket_pose(rig, pose, Vector(support), frame)
+    reset_character_pose(rig)
+
+
+def add_musket_animations(rig):
+    add_musket_grip(rig)
+    hand = musket.SUPPORT
+    musket_action(rig, 'MusketIdle', [
+        (0, MUSKET_READY, hand),
+        (24, (-.32, -.43, .928, 13, 14), hand),
+        (48, MUSKET_READY, hand),
+    ])
+    musket_action(rig, 'MusketAim', [
+        (0, MUSKET_AIM, hand),
+        (12, (-.34, -.38, 1.198, 0, 0), hand),
+        (24, MUSKET_AIM, hand),
+    ])
+    # The muzzle is level when the shot leaves at frame 1, before the recoil peaks.
+    musket_action(rig, 'MusketFire', [
+        (0, MUSKET_AIM, hand), (1, MUSKET_AIM, hand),
+        (3, (-.34, -.321, 1.214, -9, -2), hand),
+        (6, (-.34, -.366, 1.199, -4, -1), hand),
+        (9, (-.34, -.387, 1.183, 1, 0), hand),
+        (12, MUSKET_AIM, hand),
+    ])
+    # The right hand anchors the weapon through the left-hand fetch, seat, and return.
+    musket_action(rig, 'MusketReload', [
+        (0, MUSKET_READY, hand), (8, MUSKET_RELOAD, hand),
+        (15, MUSKET_RELOAD, (.37, .08, .06)),
+        (20, MUSKET_RELOAD, MUSKET_POUCH), (24, MUSKET_RELOAD, MUSKET_POUCH),
+        (32, MUSKET_RELOAD, (.23, -.055, .32)),
+        (39, MUSKET_RELOAD, musket.BREECH), (44, MUSKET_RELOAD, MUSKET_PRESS),
+        (48, MUSKET_RELOAD, (.09, -.21, .14)),
+        (54, MUSKET_READY, hand), (60, MUSKET_READY, hand),
+    ])
 
 
 TENT_SOLID = 'Starting tent solid '
@@ -946,7 +1047,7 @@ def large_boulder():
 SPEAR_NAMES = ['field_spear', 'trident']
 SHORTSWORD_NAME = 'shortsword'
 GEAR_NAMES = ['field_armor', 'reinforced_armor', 'field_helmet', 'reinforced_helmet',
-              *SPEAR_NAMES, SHORTSWORD_NAME]
+              *SPEAR_NAMES, SHORTSWORD_NAME, musket.NAME]
 
 
 def attachment_frames(bones=('spine', 'head', 'spear_grip')):
@@ -982,25 +1083,31 @@ def export_equipment(name):
     """Export bone-local worn geometry and a base-origin pickup from one editable source."""
     export(name + '_worn')
     bpy.context.view_layer.update()
-    objects = [obj for obj in bpy.context.scene.objects if obj.type == 'MESH']
-    matrices = {obj: obj.matrix_world.copy() for obj in objects}
+    roots = [obj for obj in bpy.context.scene.objects
+             if obj.parent is None and obj.type in {'MESH', 'EMPTY'}]
+    matrices = {obj: obj.matrix_world.copy() for obj in roots}
     # Convert the worn mesh to character space before grounding the pickup.
-    if name in SPEAR_NAMES or name == SHORTSWORD_NAME:
-        frame = (attachment_frames()['spear_grip'] if name in SPEAR_NAMES
-                 else sword_attachment_rotation()).inverted()
-        for obj in objects:
+    frame = None
+    if name in SPEAR_NAMES:
+        frame = attachment_frames()['spear_grip'].inverted()
+    elif name == SHORTSWORD_NAME:
+        frame = sword_attachment_rotation().inverted()
+    if frame is not None:
+        for obj in roots:
             obj.matrix_world = frame @ matrices[obj]
         bpy.context.view_layer.update()
-    placement = {obj: obj.matrix_world.copy() for obj in objects}
-    corners = [obj.matrix_world @ Vector(corner) for obj in objects for corner in obj.bound_box]
+    placement = {obj: obj.matrix_world.copy() for obj in roots}
+    corners = [obj.matrix_world @ Vector(corner)
+               for obj in bpy.context.scene.objects if obj.type == 'MESH'
+               for corner in obj.bound_box]
     low = Vector(tuple(min(p[axis] for p in corners) for axis in range(3)))
     high = Vector(tuple(max(p[axis] for p in corners) for axis in range(3)))
     offset = Vector((-(low.x+high.x)/2, -(low.y+high.y)/2, -low.z))
-    for obj in objects:
+    for obj in roots:
         obj.matrix_world = Matrix.Translation(offset) @ placement[obj]
     bpy.context.view_layer.update()
     export(name)
-    for obj in objects:
+    for obj in roots:
         obj.matrix_world = matrices[obj]
     bpy.context.view_layer.update()
 
@@ -1013,6 +1120,9 @@ def equipment():
             continue
         if name == SHORTSWORD_NAME:
             shortsword_model()
+            continue
+        if name == musket.NAME:
+            musket_model()
             continue
         reset()
         reinforced = name.startswith('reinforced')
@@ -1879,6 +1989,35 @@ def build_shortsword():
     shortsword_model()
 
 
+def musket_model():
+    reset()
+    musket.model()
+    # The editable model is already in grip space with the shot along Blender -Y.
+    bpy.context.scene['equipment_bone'] = musket.GRIP_BONE
+    bpy.ops.wm.save_as_mainfile(filepath=str(ROOT / 'art' / f'{musket.NAME}.blend'))
+    export_equipment(musket.NAME)
+
+
+def build_musket_effects():
+    reset()
+    musket.slug()
+    save_export(musket.SLUG)
+    reset()
+    musket.muzzle_flash()
+    save_export(musket.FLASH)
+
+
+def build_musket():
+    bpy.context.preferences.filepaths.save_version = 0
+    bpy.context.preferences.filepaths.file_preview_type = 'NONE'
+    bpy.ops.wm.open_mainfile(filepath=str(ROOT / 'art/plutonian.blend'))
+    rig = next(obj for obj in bpy.context.scene.objects if obj.type == 'ARMATURE')
+    add_musket_animations(rig)
+    save_export('plutonian')
+    musket_model()
+    build_musket_effects()
+
+
 def build_locomotion():
     bpy.context.preferences.filepaths.save_version = 0
     bpy.context.preferences.filepaths.file_preview_type = 'NONE'
@@ -1979,6 +2118,9 @@ ASSET_REGISTRY = (
     AssetEntry('--build-wagon', ('crossing_wagon',), build_wagon, export_all=False),
     AssetEntry('--shortsword', ('plutonian', SHORTSWORD_NAME), build_shortsword,
                export_selector=True, export_all=False),
+    AssetEntry('--musket', ('plutonian', musket.NAME, musket.SLUG, musket.FLASH), build_musket,
+               export_selector=True, export_order=25, rebuild_order=15,
+               rebuild_builder=build_musket_effects),
     AssetEntry('--locomotion', ('plutonian',), build_locomotion, export_all=False),
     AssetEntry('--pillars', ('collision',), add_pillar_collision, export_all=False),
     AssetEntry('--ground', ('outpost', 'collision'), build_grounded_sources, export_all=False),
