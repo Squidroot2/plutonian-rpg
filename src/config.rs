@@ -1,14 +1,14 @@
 //! General configuration file shared by game settings.
 //!
 //! The file is TOML so players can edit it by hand.
-//! Keybinds are its first tenant; later settings get their own
-//! top-level tables in the same document.
+//! Keybinds and top-level settings share the same document.
 //! A missing file is a first run, not an error: loading falls back
 //! to defaults, and saving recreates the file.
 //! A malformed file stops the game at startup with a panic naming
 //! the file, the specific problem, and the delete-to-reset remedy.
 
 use crate::controls::{Binding, Control, Keybinds};
+use az::CheckedAs;
 use bevy::prelude::*;
 use std::{
     fs::{self, OpenOptions},
@@ -20,6 +20,8 @@ use strum::VariantArray;
 
 pub(crate) const CONFIG_FILE_NAME: &str = "config.toml";
 const KEYBINDS_TABLE: &str = "keybinds";
+const MASTER_VOLUME: &str = "master_volume";
+pub(crate) const DEFAULT_MASTER_VOLUME: f32 = 1.0;
 
 const CONFIG_HEADER: &str = "# Plutonian configuration. Safe to edit by hand.\n# Deleting this file resets everything to defaults.\n# An invalid file stops the game at startup with an error naming the problem.\n";
 
@@ -31,6 +33,43 @@ impl ConfigFile {
     pub(crate) fn save(&self, bindings: &Keybinds) {
         save_keybinds(self.0.as_deref(), bindings);
     }
+
+    pub(crate) fn save_master_volume(&self, volume: f32) {
+        save_value(
+            self.0.as_deref(),
+            MASTER_VOLUME,
+            toml::Value::Float(f64::from(volume)),
+        );
+    }
+}
+
+pub(crate) fn load_master_volume(path: Option<&Path>) -> f32 {
+    let Some(path) = path.filter(|path| path.exists()) else {
+        return DEFAULT_MASTER_VOLUME;
+    };
+    let result: Result<f32, String> = (|| {
+        let text = fs::read_to_string(path)
+            .map_err(|error| format!("could not read the file: {error}"))?;
+        let document: toml::Table = text
+            .parse()
+            .map_err(|error| format!("TOML parse error: {error}"))?;
+        let Some(value) = document.get(MASTER_VOLUME) else {
+            return Ok(DEFAULT_MASTER_VOLUME);
+        };
+        let number = value
+            .as_float()
+            .or_else(|| {
+                value
+                    .as_integer()
+                    .map(|value| value.checked_as::<f64>().expect("TOML integers fit in f64"))
+            })
+            .ok_or_else(|| format!("{MASTER_VOLUME} must be a number"))?;
+        Ok(number
+            .clamp(0.0, 1.0)
+            .checked_as::<f32>()
+            .expect("clamped volume fits in f32"))
+    })();
+    result.unwrap_or_else(|problem| broken_config(path, problem))
 }
 
 /// Resolve `$XDG_CONFIG_HOME/plutonian-rpg/config.toml` when
@@ -198,6 +237,24 @@ fn try_save_keybinds(path: &Path, bindings: &Keybinds) -> std::io::Result<()> {
         KEYBINDS_TABLE.to_owned(),
         toml::Value::Table(keybinds_table(bindings)),
     );
+    write_document(path, document)
+}
+
+fn save_value(path: Option<&Path>, key: &str, value: toml::Value) {
+    let Some(path) = path else {
+        return;
+    };
+    let mut document = fs::read_to_string(path)
+        .ok()
+        .and_then(|text| text.parse::<toml::Table>().ok())
+        .unwrap_or_default();
+    document.insert(key.to_owned(), value);
+    if let Err(error) = write_document(path, document) {
+        warn!("Could not save config {}: {error}", path.display());
+    }
+}
+
+fn write_document(path: &Path, document: toml::Table) -> std::io::Result<()> {
     let mut text = String::from(CONFIG_HEADER);
     text.push_str(&toml::to_string(&document).map_err(std::io::Error::other)?);
     let parent = path
@@ -297,6 +354,41 @@ mod tests {
             "a first run without a file must load defaults"
         );
         assert_eq!(load_keybinds(None), Keybinds::default());
+    }
+
+    #[test]
+    fn master_volume_loads_defaults_clamps_and_rejects_non_numbers() {
+        let dir = TestDirectory::new();
+        assert_eq!(load_master_volume(Some(&dir.file())), DEFAULT_MASTER_VOLUME);
+        fs::write(dir.file(), "master_volume = 1.4\n").expect("write out-of-range value");
+        assert_eq!(load_master_volume(Some(&dir.file())), 1.0);
+        fs::write(dir.file(), "master_volume = \"loud\"\n").expect("write invalid value");
+        let message = panic_message(&dir.file(), || {
+            load_master_volume(Some(&dir.file()));
+        });
+        assert!(
+            message.contains(&dir.file().display().to_string()),
+            "{message}"
+        );
+        assert!(
+            message.contains("master_volume must be a number"),
+            "{message}"
+        );
+        assert!(message.contains("delete the file"), "{message}");
+    }
+
+    #[test]
+    fn saving_settings_preserves_each_other() {
+        let dir = TestDirectory::new();
+        let config = ConfigFile(Some(dir.file()));
+        config.save_master_volume(0.4);
+        let mut bindings = Keybinds::default();
+        bindings.apply_config(Control::Jump, Some(Binding::Key(KeyCode::KeyJ)), None);
+        config.save(&bindings);
+        assert_eq!(load_master_volume(config.0.as_deref()), 0.4);
+        config.save_master_volume(0.6);
+        assert_eq!(load_keybinds(config.0.as_deref()), bindings);
+        assert_eq!(load_master_volume(config.0.as_deref()), 0.6);
     }
 
     #[test]
