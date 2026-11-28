@@ -84,6 +84,10 @@ For a hit against an actor with health, resolution rejects it if the damage is z
 `applied damage = max(1, saturating_sub(incoming damage, defense))`
 
 Health is reduced by that amount and saturates at zero.
+  A shield's defense is a conditional contributor to that defense:
+  it counts only while the wearer is blocking,
+  and a blocked hit spends the blocker's stamina.
+  See `shields.md` for the blocking model.
   A hit-protection timer, when present, is reset to its configured duration after damage.
   The player has a 0.75 second protection window.
   Targets without health accept no ordinary hit; the healthless training target is a deliberate exception that confirms contact without damage.
