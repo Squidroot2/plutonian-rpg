@@ -164,3 +164,66 @@ To check foundation contact and matching visual/collision transforms without cha
 ```sh
 blender --background -noaudio --factory-startup --python-exit-code 1 --python scripts/grounding.py
 ```
+
+## In-engine equipment previews
+
+Use `plutonian-art-preview` for an art issue's in-engine screenshots.
+It displays the worn export on the player rig or the Barracks weapon rack
+using the shipped outpost and game lighting.
+It reads GLBs directly,
+so the art can be reviewed before the catalog entry or gameplay integration exists.
+
+Run from the repository root on a desktop:
+
+```sh
+cargo run --locked --features smoke --bin plutonian-art-preview -- \
+  docs/contributing/previews/musket.ron drawn
+```
+
+The preview opens a window,
+saves `/tmp/plutonian-art-drawn.png`,
+and exits.
+Pass a third argument to choose another PNG path with an existing parent directory.
+If the local display needs software Vulkan,
+use the environment and `xvfb-run` prefix from [desktop smoke setups](verification.md#desktop-smoke-setups)
+with the preview command in place of `scripts/smoke.sh`.
+
+The [musket recipe](previews/musket.ron) recreates the review views for #163.
+To capture the comparisons and detail shots:
+
+```sh
+for shot in before-drawn drawn before-aim aim before-holstered holstered \
+  before-rack rack before-shot shot smoke reload; do
+  cargo run --locked --features smoke --bin plutonian-art-preview -- \
+    docs/contributing/previews/musket.ron "$shot" || break
+done
+```
+
+For a new model,
+write a small RON recipe such as:
+
+```ron
+(
+    model: "shortsword_worn",
+    shots: {
+        "in-hand": (mount: Socket("sword_grip_right")),
+        "racked": (mount: Rack),
+    },
+)
+```
+
+- Use the exported registry stem without `.glb`,
+  an asset path such as `models/shortsword_worn.glb` or `assets/models/shortsword_worn.glb`,
+  or a local GLB path relative to the working directory or absolute.
+- `Socket("…")` looks up the named node on `plutonian.glb`.
+  Use the rig's hand, body, helmet, or holster socket that matches the worn export.
+  `Rack` uses the existing first rack slot.
+- Omit `pose` for the rig's rest pose,
+  or use `pose: Some((clip: "SwordMainSlash", frame: 5))` to sample a named clip at a zero-based 24 fps frame.
+  As in the musket recipe,
+  `#![enable(implicit_some)]` lets you omit the `Some(…)` wrapper.
+- The default view is `Hand` for a socket and `Rack` for the rack.
+  Override it with `view: Some(Front)`, `Shoulder`, `Back`, `Wide`, `Detail`, or `Muzzle`.
+- `hide_model: true` captures the same view without the gear for before/after comparisons.
+  Optional `effects` mount other GLBs on named nodes of the worn export,
+  with a socket-local offset in Bevy coordinates and an optional sampled clip.

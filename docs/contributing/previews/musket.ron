@@ -1,0 +1,80 @@
+#![enable(implicit_some)]
+
+(
+    model: "methane_musket_worn",
+    shots: {
+        "before-drawn": (
+            mount: Socket("musket_grip"),
+            hide_model: true,
+            pose: (clip: "Idle", frame: 1),
+        ),
+        "drawn": (
+            mount: Socket("musket_grip"),
+            pose: (clip: "MusketIdle", frame: 0),
+        ),
+        "before-aim": (
+            mount: Socket("musket_grip"),
+            view: Shoulder,
+            hide_model: true,
+            pose: (clip: "Idle", frame: 1),
+        ),
+        "aim": (
+            mount: Socket("musket_grip"),
+            view: Shoulder,
+            pose: (clip: "MusketAim", frame: 0),
+        ),
+        "before-holstered": (
+            mount: Socket("musket_holster"),
+            view: Back,
+            hide_model: true,
+            pose: (clip: "Idle", frame: 1),
+        ),
+        "holstered": (
+            mount: Socket("musket_holster"),
+            view: Back,
+            pose: (clip: "Idle", frame: 1),
+        ),
+        "before-rack": (mount: Rack, hide_model: true),
+        "rack": (mount: Rack),
+        "before-shot": (
+            mount: Socket("musket_grip"),
+            view: Wide,
+            hide_model: true,
+            pose: (clip: "Idle", frame: 1),
+        ),
+        "shot": (
+            mount: Socket("musket_grip"),
+            view: Wide,
+            // Hold the bore on its discharge line while staging the effect one frame later.
+            pose: (clip: "MusketFire", frame: 1),
+            effects: [
+                (
+                    model: "methane_muzzle_flash",
+                    socket: "MusketMuzzle",
+                    pose: (clip: "MethaneMuzzleFlash", frame: 1),
+                ),
+                (
+                    model: "methane_slug",
+                    socket: "MusketMuzzle",
+                    // One frame of travel at 60 m/s and 24 fps.
+                    offset: (0.0, 0.0, 2.5),
+                ),
+            ],
+        ),
+        "smoke": (
+            mount: Socket("musket_grip"),
+            view: Muzzle,
+            pose: (clip: "MusketFire", frame: 6),
+            effects: [(
+                model: "methane_muzzle_flash",
+                socket: "MusketMuzzle",
+                pose: (clip: "MethaneMuzzleFlash", frame: 5),
+            )],
+        ),
+        "reload": (
+            mount: Socket("musket_grip"),
+            view: Detail,
+            pose: (clip: "MusketReload", frame: 39),
+        ),
+    },
+)

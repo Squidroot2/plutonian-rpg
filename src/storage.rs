@@ -187,7 +187,7 @@ pub(crate) struct RackDisplay {
 /// Display transform for a racked weapon, local to the rack entity.
 /// Worn weapons share a grip origin and +Z blade axis. Keep the blade
 /// upright and its broad face toward the aisle.
-fn rack_display_transform(slot: usize) -> Transform {
+pub(crate) fn rack_display_transform(slot: usize) -> Transform {
     Transform::from_translation(RACK_SLOT_BASES[slot] - RACK_POSITION)
         .with_rotation(Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2))
 }

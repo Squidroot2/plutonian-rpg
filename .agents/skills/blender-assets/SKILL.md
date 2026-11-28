@@ -96,6 +96,10 @@ cargo run --locked -p plutonian-assets
 
 It validates GLB structure, resources, skin, animation names and durations, and equipment bounds, and asserts every exported GLB has a matching `.blend` source in `art/`.
 If it fails, fix the cause and rerun — do not hand the user an export that fails it.
+For in-engine equipment screenshots,
+use `cargo run --locked --features smoke --bin plutonian-art-preview -- <recipe.ron> <shot>`.
+It uses the game lighting and can show worn GLBs on the player rig or Barracks rack before catalog or gameplay integration.
+Follow the [preview instructions and musket example](../../../docs/contributing/blender_workflow.md#in-engine-equipment-previews) for before/after shots.
 If the change also touches Rust, run the repo's Rust verification from `AGENTS.md` (`cargo fmt --check`, `cargo clippy --locked --all-targets`, `cargo test --locked`) as well.
 Do not claim a check passed that did not run.
 

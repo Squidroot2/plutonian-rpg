@@ -28,6 +28,11 @@ workspace = true
 default = []
 smoke = []
 
+[[bin]]
+name = "plutonian-art-preview"
+path = "src/bin/plutonian-art-preview.rs"
+required-features = ["smoke"]
+
 [dependencies]
 az = "1"
 bevy = { version = "0.20", default-features = false, features = ["default_app", "std", "bevy_winit", "multi_threaded", "3d_bevy_render", "ui_bevy_render", "ui_picking", "default_font", "png", "bevy_audio", "vorbis", "x11", "wayland"] }
