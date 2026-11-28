@@ -307,7 +307,7 @@ mod tests {
         let mut world = menu_world();
         world.resource_mut::<Keybinds>().apply_config(
             Control::MenuDown,
-            Binding::Key(KeyCode::KeyK),
+            Some(Binding::Key(KeyCode::KeyK)),
             None,
         );
         world

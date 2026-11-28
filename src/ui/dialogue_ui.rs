@@ -125,7 +125,9 @@ fn render(
                             }
                         });
                     if dialogue.text().is_some() {
-                        let key = bindings.get(Control::Interact).label();
+                        let key = bindings
+                            .get(Control::Interact)
+                            .map_or_else(|| "None".into(), |binding| binding.label());
                         spawn_button(
                             panel,
                             &format!("Continue [{key} / Enter]"),
@@ -134,8 +136,12 @@ fn render(
                             false,
                         );
                     } else {
-                        let up = bindings.get(Control::MenuUp).label();
-                        let down = bindings.get(Control::MenuDown).label();
+                        let up = bindings
+                            .get(Control::MenuUp)
+                            .map_or_else(|| "None".into(), |binding| binding.label());
+                        let down = bindings
+                            .get(Control::MenuDown)
+                            .map_or_else(|| "None".into(), |binding| binding.label());
                         panel.spawn((
                             Text::new(format!(
                                 "[{up} / {down}] Move   [Enter] Select   [Esc] Leave"
