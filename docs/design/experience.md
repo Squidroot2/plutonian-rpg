@@ -27,7 +27,8 @@ early route are enough to unlock the first attribute upgrades.
   The trail and Old Relay encounters total 210 XP,
   reaching level 3 with 20 XP toward level 4.
   The optional Hushcap Caverns encounters add 480 XP,
-  bringing the total from hostile encounters to 690 XP.
+  and the ten ice worms in the northwestern worm nest add 350 XP,
+  bringing the total from hostile encounters to 1,040 XP.
 
 The two beacon routes pay the same XP.
   Completing one route and Old Relay

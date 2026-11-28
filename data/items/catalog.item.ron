@@ -151,4 +151,18 @@
             stats: (damage: 30, reach_m: 2.5, contact_radius_m: 0.12),
         ),
     ),
+    (
+        id: "survey_pike",
+        name: "Survey pike",
+        description: "A long-shafted survey pike lost in the worm nest. Aim with the camera to thrust.",
+        weight_kg: 4,
+        pickup_model: "models/trident.glb",
+        pickup_size_m: (0.58, 0.23, 2.3),
+        kind: Weapon(
+            profile: Spear,
+            minimum_strength: 10,
+            worn_model: "models/trident_worn.glb",
+            stats: (damage: 18, reach_m: 2.7, contact_radius_m: 0.14),
+        ),
+    ),
 ]

@@ -124,11 +124,12 @@ Racked weapons are included in bed saves.
 
 Equipment slots start empty.
 Find field armor and a field helmet in the tent chests,
-and reinforced armor and a reinforced helmet in the cavern.
+reinforced armor and a reinforced helmet in the cavern,
+and a survey pike guarded by a pack of worms in the hidden nest west of the core trail.
 The Equipment tab shows each slot and its defense.
 Choose **Equip** beside an empty slot and select compatible gear,
 or double-click a gear row in Inventory.
-Reinforced Helmet, Trident, and Reinforced Armor require Strength ranks 7, 8, and 10.
+Reinforced Helmet, Trident, Reinforced Armor, and Survey Pike require Strength ranks 7, 8, 10, and 10.
 If Strength is too low, the game displays a warning.
 Equipping one copy returns displaced gear to your bag.
 Choose **Unequip** to put equipped gear back in your bag before storing or dropping it.
@@ -152,7 +153,9 @@ Rebind this action in **Settings → Keybinds → Gameplay → Holster / Draw We
 
 ## Enemies and recovery
 
-Ice worms roam beside the trail and near the cavern entrance.
+Ice worms roam beside the trail,
+swarm a hidden nest west of the core trail's midpoint,
+and guard the cavern entrance.
 Watch for a worm to rear up, move out of its bite, then attack during its recovery.
 A worm bite deals 20 damage before armor; three spear or trident thrusts defeat one.
 After five seconds without taking damage, you recover 10% of maximum health per second.

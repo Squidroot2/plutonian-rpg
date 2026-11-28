@@ -40,7 +40,15 @@ The ranged implementation lives in `src/enemy/ranged.rs`, with the model and col
 
 ## Encounter design
 
-Surface worms shelter toward the ice escarpments, leaving the marked waystone route clear in keeping with Orren's description of a safe path.
+Surface worms shelter toward the ice escarpments,
+leaving the marked waystone route clear in keeping with Orren's description of a safe path.
+West of the trail's midpoint,
+ten ice worms gather around five burrow mounds and a lost scout cache.
+A faceted ice ridge hides the worms' glowing mouths and the cache from Nivalis,
+including from the zoomed-out camera.
+Explorers can head west from the waystones beyond the ridge and follow the bend around the escarpment into the nest.
+Its pack density overwhelms low-level explorers,
+while a prepared player can pull worms around cover to claim the Survey pike and salvage supplies.
 Old Relay contains a worm at the junction, a roach, and a Hushcap beside the archive conduit.
 The archive Hushcap replaced a worm, but defeating it is not required to reach the survey log.
 Hushcap Caverns combines rooted firing positions with worms and roaches across three chambers; rocks provide cover from spit.

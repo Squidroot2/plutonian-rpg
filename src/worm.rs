@@ -6,12 +6,32 @@ use crate::{
     dungeon::Area,
     enemy::{self, EnemyAnimations, EnemyClip, EnemyModel},
     loading::EnemyVisuals,
+    world::{SessionEntity, SpawnWorld, WorldLayout},
 };
 use avian3d::prelude::Collider;
 use bevy::{
     animation::graph::AnimationNodeType, app::AnimationSystems, asset::AssetEventSystems,
     color::Mix, gltf::GltfMaterialName, prelude::*, world_serialization::WorldInstanceReady,
 };
+
+const NEST_MIN_X: f32 = -63.5;
+const NEST_MAX_X: f32 = -35.0;
+const NEST_MIN_Z: f32 = -79.5;
+const NEST_MAX_Z: f32 = -55.5;
+const NEST_FILL_LIGHT_POS: Vec3 = Vec3::new(-47.0, 4.5, -66.5);
+const NEST_FILL_LIGHT_COLOR: Color = Color::srgb(0.28, 0.48, 0.74);
+const NEST_FILL_LIGHT_LUMENS: f32 = 35_000.0;
+const NEST_FILL_LIGHT_RANGE_M: f32 = 24.0;
+const NEST_LANTERN_POS: Vec3 = Vec3::new(-54.85, 0.85, -67.25);
+const NEST_LANTERN_COLOR: Color = Color::srgb(1.0, 0.52, 0.20);
+const NEST_LANTERN_LUMENS: f32 = 8_000.0;
+const NEST_LANTERN_RANGE_M: f32 = 7.0;
+
+pub(crate) fn surface_location(position: Vec3) -> Option<&'static str> {
+    ((NEST_MIN_X..=NEST_MAX_X).contains(&position.x)
+        && (NEST_MIN_Z..=NEST_MAX_Z).contains(&position.z))
+    .then_some("WORM NEST")
+}
 
 pub(crate) const MODEL: EnemyModel = EnemyModel {
     path: "models/ice_worm.glb",
@@ -59,13 +79,49 @@ pub(crate) struct WormPlugin;
 
 impl Plugin for WormPlugin {
     fn build(&self, app: &mut App) {
-        app.add_observer(bind_mouth).add_systems(
-            PostUpdate,
-            fade_mouths
-                .after(AnimationSystems)
-                .before(AssetEventSystems)
-                .run_if(in_state(GameState::Playing)),
-        );
+        app.add_observer(bind_mouth)
+            .add_observer(spawn_nest_lights)
+            .add_systems(
+                PostUpdate,
+                fade_mouths
+                    .after(AnimationSystems)
+                    .before(AssetEventSystems)
+                    .run_if(in_state(GameState::Playing)),
+            );
+    }
+}
+
+fn spawn_nest_lights(_: On<SpawnWorld>, layout: Res<WorldLayout>, mut commands: Commands) {
+    if *layout != WorldLayout::Outpost {
+        return;
+    }
+    for (name, position, color, intensity, range) in [
+        (
+            "Worm nest fill light",
+            NEST_FILL_LIGHT_POS,
+            NEST_FILL_LIGHT_COLOR,
+            NEST_FILL_LIGHT_LUMENS,
+            NEST_FILL_LIGHT_RANGE_M,
+        ),
+        (
+            "Worm nest scout lantern",
+            NEST_LANTERN_POS,
+            NEST_LANTERN_COLOR,
+            NEST_LANTERN_LUMENS,
+            NEST_LANTERN_RANGE_M,
+        ),
+    ] {
+        commands.spawn((
+            SessionEntity,
+            Name::new(name),
+            PointLight {
+                color,
+                intensity,
+                range,
+                ..default()
+            },
+            Transform::from_translation(position),
+        ));
     }
 }
 
@@ -210,6 +266,38 @@ pub(crate) fn spawn(
 mod tests {
     use super::*;
     use bevy::ecs::system::RunSystemOnce;
+
+    #[test]
+    fn surface_location_identifies_only_the_worm_nest_hollow() {
+        assert_eq!(
+            surface_location(Vec3::new(-47.0, 0.0, -66.5)),
+            Some("WORM NEST")
+        );
+        assert_eq!(
+            surface_location(Vec3::new(-54.0, 0.0, -67.0)),
+            Some("WORM NEST")
+        );
+        assert_eq!(surface_location(Vec3::new(-4.0, 0.0, -62.0)), None);
+        assert_eq!(surface_location(Vec3::new(0.0, 0.0, 0.0)), None);
+    }
+
+    #[test]
+    fn nest_lights_illuminate_the_hollow_and_scout_lantern_only_in_outpost() {
+        for (layout, expected) in [(WorldLayout::Outpost, 2), (WorldLayout::SmokeArena, 0)] {
+            let mut world = World::new();
+            world.insert_resource(layout);
+            world.add_observer(spawn_nest_lights);
+            world.trigger(SpawnWorld);
+            world.flush();
+            assert_eq!(
+                world
+                    .query::<(&PointLight, &Transform)>()
+                    .iter(&world)
+                    .count(),
+                expected
+            );
+        }
+    }
 
     #[test]
     fn the_mouth_fades_with_death_playback_only_for_the_defeated_worm() {
