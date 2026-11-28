@@ -80,9 +80,18 @@ impl From<Gait> for usize {
 }
 
 impl Gait {
-    pub(super) fn for_player(player: &Player) -> Self {
+    pub(super) fn for_player(player: &Player, face_travel: bool) -> Self {
         if !player.grounded {
             return Self::Jump;
+        }
+        if face_travel {
+            return if player.movement_direction == Vec2::ZERO {
+                Self::Idle
+            } else if player.pace == Pace::Walk {
+                Self::Walk
+            } else {
+                Self::Run
+            };
         }
         // The normalized keyboard axes are each zero, ±1, or ±1/√2.
         match (
@@ -306,8 +315,15 @@ pub(super) fn animate(
         let Ok((equipment, stance, attack, player, npc_gait)) = actors.get(actor.owner) else {
             continue;
         };
+        let carry = if *stance == WeaponStance::Drawn {
+            equipment
+                .weapon(EquipmentSlot::MainHand, &items)
+                .or_else(|| equipment.weapon(EquipmentSlot::OffHand, &items))
+        } else {
+            None
+        };
         let (gait, speed, dodging) = if let Some((player, dodge)) = player {
-            let gait = Gait::for_player(player);
+            let gait = Gait::for_player(player, carry.is_none());
             (gait, gait.playback_speed(player.pace), dodge.active())
         } else {
             let (gait, speed) = npc_gait.copied().unwrap_or_default().playback();
@@ -324,13 +340,6 @@ pub(super) fn animate(
             .current(Hand::Main)
             .filter(|swing| swing.weapon == WeaponKind::Spear);
         let thrusting = thrust.is_some();
-        let carry = if *stance == WeaponStance::Drawn {
-            equipment
-                .weapon(EquipmentSlot::MainHand, &items)
-                .or_else(|| equipment.weapon(EquipmentSlot::OffHand, &items))
-        } else {
-            None
-        };
         let start = match carry {
             Some(WeaponKind::Spear) => SPEAR_LOCOMOTION_START,
             Some(WeaponKind::Shortsword) => SWORD_LOCOMOTION_START,
