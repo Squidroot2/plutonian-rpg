@@ -72,6 +72,15 @@ the new maximum immediately, and regular recovery fills the additional capacity.
 
 ### Agility
 
+Weapon action playback runs at `1 + (rank - 5) × 0.01` times its base speed.
+Thus rank 5 preserves existing timing,
+and rank 100 attacks at 1.95 times that speed.
+Impact and recovery occur at their normal animation frames,
+so their real-time durations both shrink by the same multiplier.
+This derivation applies to any actor with attribute ranks;
+actors without them use normal speed.
+Ranged weapons will share the same multiplier.
+
 Use `base cost × ln(105 / (rank + 5)) / ln(10.5)`, with base costs of **20
 stamina for a jump** and **25 for a dodge**.
   The curve gives larger stamina

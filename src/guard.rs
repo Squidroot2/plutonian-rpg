@@ -316,6 +316,7 @@ fn strike(
             &Transform,
             &Equipment,
             &MeleeDamageMultiplier,
+            Option<&crate::attributes::AttributeRanks>,
             &mut GuardAction,
             &mut WeaponAttack,
         ),
@@ -326,7 +327,7 @@ fn strike(
     let target = player.single().ok().filter(|(_, player, pose)| {
         !dialogue.is_open() && security.defends(player.area, pose.translation)
     });
-    for (entity, pose, equipment, melee, mut action, mut attack) in &mut guards {
+    for (entity, pose, equipment, melee, ranks, mut action, mut attack) in &mut guards {
         let Some((player, _, _)) = target else {
             attack.cancel();
             action.ready = None;
@@ -337,7 +338,8 @@ fn strike(
                 if let Some(hit) = attack.strike(
                     hand,
                     equipment,
-                    time.delta_secs(),
+                    time.delta_secs()
+                        * ranks.map_or(1.0, crate::attributes::AttributeRanks::weapon_speed),
                     *melee,
                     &spatial,
                     entity,

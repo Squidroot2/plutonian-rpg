@@ -15,6 +15,7 @@ use crate::level::Level;
 
 pub(crate) const DEFAULT_RANK: u8 = 5;
 pub(crate) const MAX_RANK: u8 = 100;
+const WEAPON_SPEED_PER_AGILITY_RANK: f32 = 0.01;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, VariantArray)]
 pub(crate) enum AttributeId {
@@ -66,6 +67,11 @@ impl Default for AttributeRanks {
 }
 
 impl AttributeRanks {
+    /// Playback rate for weapon actions; durations are divided by this value.
+    pub(crate) fn weapon_speed(&self) -> f32 {
+        1.0 + (f32::from(self.rank(AttributeId::Agility)) - f32::from(DEFAULT_RANK))
+            * WEAPON_SPEED_PER_AGILITY_RANK
+    }
     pub(crate) fn from_array(ranks: [u8; AttributeId::VARIANTS.len()]) -> Self {
         Self(ranks)
     }
@@ -202,6 +208,7 @@ pub(crate) struct AttributeEffects {
     costs: MovementCosts,
     carry: CarryLimits,
     melee: MeleeDamageMultiplier,
+    weapon_speed: f32,
 }
 
 impl From<&AttributeRanks> for AttributeEffects {
@@ -217,6 +224,7 @@ impl From<&AttributeRanks> for AttributeEffects {
             costs: MovementCosts::for_rank(ranks.rank(AttributeId::Agility)),
             carry: CarryLimits::for_rank(ranks.rank(AttributeId::Endurance)),
             melee: MeleeDamageMultiplier::for_rank(ranks.rank(AttributeId::Strength)),
+            weapon_speed: ranks.weapon_speed(),
         }
     }
 }
@@ -232,8 +240,10 @@ impl AttributeEffects {
                 self.stamina, self.stamina_per_second, self.carry.capacity_kg
             ),
             AttributeId::Agility => format!(
-                "{:.2} jump, {:.2} dodge stamina",
-                self.costs.jump, self.costs.dodge
+                "{:.2} jump, {:.2} dodge stamina, {:.0}% weapon speed",
+                self.costs.jump,
+                self.costs.dodge,
+                self.weapon_speed * 100.0
             ),
             AttributeId::Strength => format!("{}% melee damage", self.melee.0),
         }

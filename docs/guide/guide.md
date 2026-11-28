@@ -68,6 +68,8 @@ Tovan examines the samples and returns them.
 The Character tab shows your name, Vitality, Endurance, Agility, Strength,
 your level, and progress toward the next level.
 New characters start at rank 5; attribute ranks cap at 100.
+Endurance increases stamina and carrying capacity.
+Agility reduces jump and dodge stamina costs and speeds up weapon attacks.
 Spend available attribute points with **+**.
 Each level gained awards three points.
 You earn experience for completing quests and defeating enemies.
