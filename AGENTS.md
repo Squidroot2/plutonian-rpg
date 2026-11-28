@@ -31,6 +31,9 @@ Run these commands from the repository root with Rust 1.97.1 or newer.
 Run `cargo test --locked` after every change.
   Before handing off Rust changes, run `cargo fmt --check` and `cargo clippy --locked --all-targets`.
   Fix any failures and rerun the relevant checks.
+  Coverage collection is optional;
+  run it only when coverage statistics are requested.
+  See `docs/contributing/verification.md` for coverage commands.
 
 ## Coding Style & Naming Conventions
 
@@ -104,4 +107,3 @@ Run the relevant desktop smoke scenarios for movement, combat, UI, loading, and 
 Export edited `.blend` sources with the README's `--export` command.
   Running `scripts/assets.py` without `--export` overwrites source art.
   Align collision geometry separately and preserve animation names.
-

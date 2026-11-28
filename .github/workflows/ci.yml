@@ -88,3 +88,61 @@ jobs:
       # Desktop smoke scenarios run on the nightly/release workflow; see smoke.yml.
       - name: Clippy
         run: cargo clippy --locked --all-targets
+
+  coverage:
+    name: Coverage
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          lfs: true
+          persist-credentials: false
+
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y \
+            build-essential pkg-config libx11-dev libwayland-dev \
+            libxkbcommon-dev libxkbcommon-x11-0 libasound2-dev
+
+      - name: Install Rust 1.100.0
+        id: rust
+        run: |
+          rustup toolchain install 1.100.0 --profile minimal --component llvm-tools-preview
+          rustup default 1.100.0
+          echo "version=$(rustc --version)" >> "$GITHUB_OUTPUT"
+
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
+
+      - name: Cache Cargo dependencies and coverage artifacts
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-coverage-${{ steps.rust.outputs.version }}-${{ hashFiles('Cargo.toml', 'Cargo.lock') }}
+
+      - name: Collect coverage
+        run: cargo llvm-cov --workspace --locked --no-report
+
+      - name: Generate LCOV report
+        run: cargo llvm-cov report --lcov --output-path lcov.info
+
+      - name: Generate HTML and summary reports
+        run: |
+          cargo llvm-cov report --html
+          cargo llvm-cov report
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-report
+          path: |
+            lcov.info
+            target/llvm-cov/html
+          retention-days: 30

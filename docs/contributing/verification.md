@@ -28,6 +28,26 @@ the spike's Ubuntu 24.04 dependency set, Vulkan llvmpipe probe,
 incremental compilation. Smoke scenarios use fixed 20 ms virtual-time steps.
 See the [repository guidelines](../../AGENTS.md) for development and verification standards.
 
+## Coverage
+
+Install `cargo-llvm-cov` with `cargo install cargo-llvm-cov`
+and add the required Rust component with `rustup component add llvm-tools-preview`.
+Use a separate target directory to keep instrumented artifacts out of the everyday `target/`:
+
+```sh
+export CARGO_TARGET_DIR=/tmp/plutonian-coverage
+cargo llvm-cov --workspace
+cargo llvm-cov --workspace --html
+```
+
+The first command prints a per-file summary;
+the second generates a browsable report at `/tmp/plutonian-coverage/llvm-cov/html/index.html`.
+On pushes to `master`,
+CI uploads LCOV and HTML reports as the `coverage-report` artifact.
+Coverage is informational and has no threshold gate.
+
+## Headless and desktop checks
+
 Write new scenario logic checks headless-first in the crate's test modules.
 Use `src/headless.rs` to boot the needed game plugins without a window or renderer,
 and advance the app with its fixed 20 ms step and bounded condition helper.
