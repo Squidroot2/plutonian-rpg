@@ -1,7 +1,7 @@
 //! Probe the perimeter in isolation so existing terrain cannot hide a gap.
 use crate::player::Player;
 use avian3d::prelude::*;
-use az::Az;
+use az::CheckedAs;
 use bevy::prelude::*;
 
 // Follow the inward faces through the main shelf, the shoulder and South Basin.
@@ -73,9 +73,21 @@ pub(super) fn check_geometry(
             let edge = end - start;
             let outward = Dir3::new(Vec3::new(edge.y, 0.0, -edge.x))
                 .expect("perimeter segments have positive length");
-            let steps = edge.length().ceil().az::<u32>();
+            let steps = edge
+                .length()
+                .ceil()
+                .checked_as::<u32>()
+                .expect("perimeter edges are finite and tens of metres long");
             for step in 0..=steps {
-                let point = start.lerp(end, step.az::<f32>() / steps.az::<f32>());
+                // CheckedAs checks range, not precision; edge step counts are below 2^24.
+                let point = start.lerp(
+                    end,
+                    step.checked_as::<f32>()
+                        .expect("perimeter step is bounded by the short edge length")
+                        / steps
+                            .checked_as::<f32>()
+                            .expect("perimeter step count is the short edge length"),
+                );
                 for y in [-1.5, 2.0, 4.5] {
                     assert_blocked(
                         &spatial,
@@ -106,7 +118,14 @@ pub(super) fn check_geometry(
                 &spatial,
                 capsule,
                 &filter,
-                Vec3::new(x.az::<f32>() * 0.5, y, 27.0),
+                // CheckedAs checks range, not precision; -75..=-45 is exactly representable.
+                Vec3::new(
+                    x.checked_as::<f32>()
+                        .expect("perimeter sample x is between -75 and -45")
+                        * 0.5,
+                    y,
+                    27.0,
+                ),
                 Dir3::Z,
             );
         }

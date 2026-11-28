@@ -1,1 +1,11 @@
 too-many-lines-threshold = 150
+disallowed-methods = [
+    { path = "az::Az::az", reason = "plain .az wraps silently in release, like `as`; use checked_as::<T>().expect(\"<why it fits>\") or a total variant (saturating_as / wrapping_as)" },
+    { path = "az::Cast::cast", reason = "same unchecked semantics as .az; use checked_as + expect" },
+    { path = "az::CastFrom::cast_from", reason = "same unchecked semantics as .az; use checked_as + expect" },
+    { path = "az::cast", reason = "same unchecked semantics as .az; use checked_as + expect" },
+    { path = "az::StrictAs::strict_as", reason = "panics without a site justification; use checked_as + expect so the reason is written down" },
+    { path = "az::StrictCast::strict_cast", reason = "panics without a site justification; use checked_as + expect so the reason is written down" },
+    { path = "az::UnwrappedAs::unwrapped_as", reason = "panics without a site justification; use checked_as + expect so the reason is written down" },
+    { path = "az::UnwrappedCast::unwrapped_cast", reason = "panics without a site justification; use checked_as + expect so the reason is written down" },
+]

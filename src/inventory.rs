@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use avian3d::prelude::*;
-use az::Az;
+use az::CheckedAs;
 use bevy::{gltf::Gltf, prelude::*};
 
 use crate::{
@@ -231,7 +231,13 @@ fn spawn_loot(
                 let position = Vec3::new(
                     side * 2.0,
                     2.0,
-                    region_z - index.az::<f32>() * 4.0 - if side > 0.0 { 1.5 } else { 0.0 },
+                    // CheckedAs checks range, not precision; region loot counts are below 2^24.
+                    region_z
+                        - index
+                            .checked_as::<f32>()
+                            .expect("loot index is small within a region")
+                            * 4.0
+                        - if side > 0.0 { 1.5 } else { 0.0 },
                 );
                 spawn_initial_pickup(&items, &mut commands, &assets, &gltfs, item, position);
             }

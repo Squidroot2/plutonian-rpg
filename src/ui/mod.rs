@@ -28,7 +28,7 @@ use crate::{
     ui::{settings::SettingsMenu, title::picker::SavePicker},
     world::WorldLayout,
 };
-use az::Az;
+use az::CheckedAs;
 use bevy::{app::AppExit, asset::AssetId, picking::hover::PickingInteraction, prelude::*};
 
 pub struct GameUiPlugin;
@@ -598,8 +598,16 @@ fn camera_bearing(yaw: f32) -> (u16, &'static str) {
     const DIRECTIONS: [&str; 8] = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
     // At zero yaw the camera looks toward -Z. Positive orbit yaw turns west.
     let bearing = (-yaw).to_degrees().rem_euclid(360.0);
-    let degrees = bearing.round().az::<u16>() % 360;
-    let direction = (f32::from(degrees) / 45.0).round().az::<usize>() % DIRECTIONS.len();
+    let degrees = bearing
+        .round()
+        .checked_as::<u16>()
+        .expect("normalized bearing rounds to 0..=360")
+        % 360;
+    let direction = (f32::from(degrees) / 45.0)
+        .round()
+        .checked_as::<usize>()
+        .expect("bearing divided by 45 rounds to 0..=8")
+        % DIRECTIONS.len();
     (degrees, DIRECTIONS[direction])
 }
 

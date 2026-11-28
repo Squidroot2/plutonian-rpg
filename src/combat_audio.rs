@@ -1,4 +1,4 @@
-use az::Az;
+use az::CheckedAs;
 use std::{
     f32::consts::TAU,
     num::{NonZeroU16, NonZeroU32},
@@ -127,14 +127,30 @@ impl Iterator for Samples {
         if self.index >= self.length {
             return None;
         }
-        let progress = self.index.az::<f32>() / self.length.az::<f32>();
-        let seconds = self.index.az::<f32>() / RATE.az::<f32>();
+        // CheckedAs checks range, not precision; these counts are below 2^24.
+        let progress = self
+            .index
+            .checked_as::<f32>()
+            .expect("sample index is below 9,600")
+            / self
+                .length
+                .checked_as::<f32>()
+                .expect("effect length is at most 9,600 samples");
+        let seconds = self
+            .index
+            .checked_as::<f32>()
+            .expect("sample index is below 9,600")
+            / RATE.checked_as::<f32>().expect("sample rate is below 2^24");
         self.index += 1;
         self.noise = self
             .noise
             .wrapping_mul(1_664_525)
             .wrapping_add(1_013_904_223);
-        let noise = (self.noise >> 8).az::<f32>() / 8_388_608.0 - 1.0;
+        let noise = (self.noise >> 8)
+            .checked_as::<f32>()
+            .expect("shifted noise has at most 24 bits")
+            / 8_388_608.0
+            - 1.0;
         self.filtered += 0.16 * (noise - self.filtered);
         let sweep = |start: f32, drop: f32| (TAU * seconds * (start - drop * progress * 0.5)).sin();
         let tail = 1.0 - progress;
@@ -166,7 +182,12 @@ impl Source for Samples {
 
     fn total_duration(&self) -> Option<Duration> {
         Some(Duration::from_secs_f64(
-            self.length.az::<f64>() / RATE.az::<f64>(),
+            self.length
+                .checked_as::<f64>()
+                .expect("effect length is at most 9,600 samples")
+                / RATE
+                    .checked_as::<f64>()
+                    .expect("sample rate is a small fixed integer"),
         ))
     }
 }

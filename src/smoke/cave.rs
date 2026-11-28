@@ -21,7 +21,7 @@ use crate::{
     world::WorldLayout,
 };
 use avian3d::prelude::*;
-use az::Az;
+use az::CheckedAs;
 use bevy::{app::AppExit, prelude::*, render::view::screenshot::Screenshot};
 
 const OUTBOUND: [(f32, f32); 14] = [
@@ -238,9 +238,20 @@ pub(super) fn check_route(
     for pair in route.windows(2) {
         let a = Vec2::from(pair[0]);
         let b = Vec2::from(pair[1]);
-        let steps = (a.distance(b) / 0.45).ceil().az::<u32>();
+        let steps = (a.distance(b) / 0.45)
+            .ceil()
+            .checked_as::<u32>()
+            .expect("cave segment length yields a small nonnegative step count");
         for i in 0..=steps {
-            let p = a.lerp(b, i.az::<f32>() / steps.az::<f32>());
+            // CheckedAs checks range, not precision; cave step counts are below 2^24.
+            let p = a.lerp(
+                b,
+                i.checked_as::<f32>()
+                    .expect("cave step is bounded by the short segment count")
+                    / steps
+                        .checked_as::<f32>()
+                        .expect("cave segment needs only a small number of steps"),
+            );
             let origin = Vec3::new(p.x, expected_floor + 2.5, p.y);
             let feet = walkable_height(spatial, filter, origin, 4.0, 0.0)
                 .unwrap_or_else(|| panic!("missing floor below {origin}"));
