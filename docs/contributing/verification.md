@@ -42,6 +42,7 @@ cargo llvm-cov --workspace --html
 
 The first command prints a per-file summary;
 the second generates a browsable report at `/tmp/plutonian-coverage/llvm-cov/html/index.html`.
+On pushes to `master`,
 CI uploads LCOV and HTML reports as the `coverage-report` artifact.
 Coverage is informational and has no threshold gate.
 
