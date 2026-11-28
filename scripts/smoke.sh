@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Run one desktop smoke scenario: scripts/smoke.sh <test|world|nemi|cave|crossing>
+# Run one desktop smoke scenario: scripts/smoke.sh <test|world|nemi|cave|crossing> [game arguments...]
 #
 # The scenarios render the real game and need the GPU. Agent sandboxes
 # (Codex's bubblewrap sandbox, for one) present a synthetic /dev without
@@ -14,7 +14,7 @@ scenario="${1:-}"
 case "$scenario" in
     test | world | nemi | cave | crossing) ;;
     *)
-        echo "usage: scripts/smoke.sh <test|world|nemi|cave|crossing>" >&2
+        echo "usage: scripts/smoke.sh <test|world|nemi|cave|crossing> [game arguments...]" >&2
         exit 2
         ;;
 esac
@@ -27,5 +27,6 @@ if [ ! -e /dev/dri ]; then
     exit 1
 fi
 
+shift
 cd "$(dirname -- "$0")/.."
-exec cargo run --locked --features smoke -- --smoke-"$scenario"
+exec cargo run --locked --features smoke -- --smoke-"$scenario" "$@"

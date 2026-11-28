@@ -5,27 +5,17 @@ cargo fmt --check
 cargo check --locked
 cargo clippy --locked --all-targets
 cargo test --locked
-cargo run --locked --features smoke -- --smoke-test
-cargo run --locked --features smoke -- --smoke-world
-cargo run --locked --features smoke -- --smoke-nemi
-cargo run --locked --features smoke -- --smoke-cave
-cargo run --locked --features smoke -- --smoke-crossing
+scripts/smoke.sh test
+scripts/smoke.sh world
+scripts/smoke.sh nemi
+scripts/smoke.sh cave
+scripts/smoke.sh crossing
 cargo run --locked -p plutonian-assets
 ```
 
 Clippy enforces a 150-line function limit, including smoke drivers.
 GitHub Actions builds, tests, and runs Clippy for pushes and pull requests to `master`.
-The separate desktop smoke workflow runs nightly at 07:00 UTC, when a release
-is published, and on manual dispatch. It builds once and runs all five
-scenarios sequentially under Xvfb with lavapipe: arena, world, Nemi, cave, and
-crossing. The run summary reports each result.
-CI passes `--no-screenshots`, so workflow runs produce no
-screenshots. To run the same scenarios locally with screenshots enabled, use
-`scripts/smoke.sh test`, `scripts/smoke.sh world`, `scripts/smoke.sh nemi`,
-`scripts/smoke.sh cave`, and `scripts/smoke.sh crossing`. The workflow keeps
-the spike's Ubuntu 24.04 dependency set, Vulkan llvmpipe probe,
-`WGPU_BACKEND=vulkan`, reduced Cargo debug information, and disabled
-incremental compilation. Smoke scenarios use fixed 20 ms virtual-time steps.
+For desktop smoke, choose one of the [setups below](#desktop-smoke-setups).
 See the [repository guidelines](../../AGENTS.md) for development and verification standards.
 
 ## Coverage
@@ -65,13 +55,73 @@ Enemy clips and durations come from the runtime model registry.
 New area collision companions pair by the `_collision.glb` suffix.
 Declare bodies that must exist in both halves of a pair in `src/asset_check/expectations.rs`.
 
-Run one smoke scenario at a time on an idle graphical desktop without supplying mouse or keyboard input.
-Add `--windowed` to a smoke command to run it in a window.
-Add `--no-screenshots` to a smoke command to skip PNG captures and their wait gates.
-The scheduled desktop smoke workflow uses this flag.
-Scenarios are run through `scripts/smoke.sh <scenario>`, which checks for GPU devices before launching.
-Agent sandboxes (Codex's, for example) present a synthetic `/dev` without `/dev/dri`, so a sandboxed run fails with "could not detect a GPU" even on a host with a working GPU.
-The script must run outside the sandbox (the execpolicy rules allow it in exactly this form), and that error from inside a sandbox must never be reported as the host being unable to run the scenarios.
+### Desktop smoke setups
+
+#### Native desktop
+
+Use this setup when an idle X11 or Wayland desktop is available,
+especially when you need screenshots.
+Run one scenario at a time from the repository root without supplying mouse or keyboard input:
+
+```sh
+scripts/smoke.sh world
+scripts/smoke.sh world --windowed --no-screenshots
+```
+
+The wrapper forwards game arguments after the scenario name.
+Use `--windowed` to run in a window
+and `--no-screenshots` to skip PNG captures and their wait gates.
+Without these flags the game uses its default window mode and saves screenshots.
+
+Run the wrapper outside the agent sandbox.
+It checks for `/dev/dri` before launching, even for a software Vulkan run.
+Sandboxes that hide those devices can cause a missing-GPU error on a working host;
+rerun outside the sandbox before diagnosing the host.
+
+#### Xvfb with software Vulkan
+
+Use this setup when no native desktop is available
+or when `/dev/dri` is visible but hardware Vulkan cannot present under Xvfb.
+In that case the game may log `No DRI3 support detected - required for presentation`
+and Bevy may panic with `Fallback system failed to choose present mode`.
+Select Mesa's software Vulkan driver, lavapipe, to present to Xvfb.
+
+Install Xvfb, `xauth`, Mesa's software Vulkan driver, and `vulkaninfo`
+(on Ubuntu: `xvfb`, `xauth`, `mesa-vulkan-drivers`, and `vulkan-tools`).
+Locate the installed `lvp_icd*.json` manifest under `/usr/share/vulkan/icd.d/`
+and substitute its absolute path below:
+
+```sh
+lavapipe_icd=/usr/share/vulkan/icd.d/lvp_icd.json
+VK_DRIVER_FILES="$lavapipe_icd" vulkaninfo --summary
+env -u WAYLAND_DISPLAY VK_DRIVER_FILES="$lavapipe_icd" WGPU_BACKEND=vulkan \
+  xvfb-run -a -s '-screen 0 1280x800x24' \
+  scripts/smoke.sh test --windowed --no-screenshots
+```
+
+`vulkaninfo` and the game's adapter log should identify `llvmpipe`.
+`SMOKE TIMING` confirms the scenario is advancing;
+look for the scenario's `SMOKE PASS` line to confirm completion.
+Software rendering is slower than a native desktop,
+especially for World, Cave, and Crossing.
+
+#### GitHub Actions fallback
+
+If the local display is unreliable or software rendering takes too long,
+push your branch and dispatch the **Smoke** workflow on that branch:
+
+```sh
+gh workflow run smoke-spike.yml --ref "$(git branch --show-current)"
+```
+
+You can also choose the branch under **Actions → Smoke → Run workflow**.
+The workflow runs nightly at 07:00 UTC and on release as well.
+It builds once and runs all five scenarios sequentially under Xvfb with lavapipe,
+with `--windowed` and `--no-screenshots`.
+Read the run summary for each scenario's result.
+
+### Scenario behavior
+
 Each scenario uses a temporary save slot.
 Smoke scenarios advance virtual time in 20 ms steps so input and waits use the same pacing on desktop and in CI.
 The virtual time budget counts these steps.
