@@ -6,6 +6,7 @@ use crate::{
     save::{RunSave, SaveSlot},
     ui::settings::SettingsMenu,
 };
+use az::Az;
 use bevy::{
     app::AppExit,
     asset::uuid_handle,
@@ -398,12 +399,12 @@ fn next_action(current: MenuAction, direction: isize, slot: &SaveSlot) -> MenuAc
         .iter()
         .position(|&action| action == current)
         .expect("menu action is listed");
-    let index = isize::try_from(index).expect("menu action count fits in isize");
-    let len = isize::try_from(actions.len()).expect("menu action count fits in isize");
+    let index = index.az::<isize>();
+    let len = actions.len().az::<isize>();
     (1..=len)
         .map(|step| {
             let index = (index + direction * step).rem_euclid(len);
-            actions[usize::try_from(index).expect("remainder is non-negative")]
+            actions[index.az::<usize>()]
         })
         .find(|&action| action.enabled(slot))
         .expect("there is at least one enabled menu action")

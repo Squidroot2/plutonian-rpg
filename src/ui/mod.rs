@@ -384,10 +384,10 @@ fn next_action(current: Action, direction: isize) -> Action {
         .iter()
         .position(|&action| action == current)
         .expect("pause action is listed");
-    let index = isize::try_from(index).expect("pause action count fits in isize");
-    let len = isize::try_from(Action::ALL.len()).expect("pause action count fits in isize");
+    let index = index.az::<isize>();
+    let len = Action::ALL.len().az::<isize>();
     let index = (index + direction).rem_euclid(len);
-    Action::ALL[usize::try_from(index).expect("remainder is non-negative")]
+    Action::ALL[index.az::<usize>()]
 }
 
 pub(crate) fn pause(

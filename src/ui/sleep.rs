@@ -4,6 +4,7 @@ use crate::{
     controls::Keybinds,
     save::{Bed, SaveAtBed, SleepWithoutSaving},
 };
+use az::Az;
 use bevy::{picking::hover::PickingInteraction, prelude::*};
 
 const FADE_OUT_SECONDS: f32 = 0.8;
@@ -153,10 +154,10 @@ fn adjacent(current: SleepAction, direction: isize) -> SleepAction {
         .iter()
         .position(|&action| action == current)
         .expect("sleep action is listed");
-    let index = isize::try_from(index).expect("sleep action count fits in isize");
-    let len = isize::try_from(SleepAction::ALL.len()).expect("sleep action count fits in isize");
+    let index = index.az::<isize>();
+    let len = SleepAction::ALL.len().az::<isize>();
     let index = (index + direction).rem_euclid(len);
-    SleepAction::ALL[usize::try_from(index).expect("remainder is non-negative")]
+    SleepAction::ALL[index.az::<usize>()]
 }
 
 fn click(
