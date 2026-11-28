@@ -23,6 +23,7 @@ pub(crate) enum AttributeId {
     Endurance,
     Agility,
     Strength,
+    Marksmanship,
 }
 
 impl From<AttributeId> for usize {
@@ -32,6 +33,7 @@ impl From<AttributeId> for usize {
             AttributeId::Endurance => 1,
             AttributeId::Agility => 2,
             AttributeId::Strength => 3,
+            AttributeId::Marksmanship => 4,
         }
     }
 }
@@ -44,6 +46,7 @@ impl AttributeId {
             Self::Endurance => "endurance",
             Self::Agility => "agility",
             Self::Strength => "strength",
+            Self::Marksmanship => "marksmanship",
         }
     }
 
@@ -53,6 +56,7 @@ impl AttributeId {
             Self::Endurance => "Endurance",
             Self::Agility => "Agility",
             Self::Strength => "Strength",
+            Self::Marksmanship => "Marksmanship",
         }
     }
 }
@@ -100,6 +104,7 @@ impl AttributeRanks {
             effects.costs,
             effects.carry,
             effects.melee,
+            effects.ranged,
         )
     }
 
@@ -180,7 +185,26 @@ impl CarryLimits {
 }
 
 #[derive(Component, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct MeleeDamageMultiplier(u16);
+pub(crate) struct MeleeDamageMultiplier(DamageSkillMultiplier);
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+struct DamageSkillMultiplier(u16);
+
+impl DamageSkillMultiplier {
+    fn for_rank(rank: u8) -> Self {
+        Self(95 + u16::from(rank))
+    }
+
+    fn percent(self) -> u16 {
+        self.0
+    }
+
+    fn scale(self, damage: u16) -> u16 {
+        let scaled = (u32::from(damage) * u32::from(self.0) + 50) / 100;
+        u16::try_from(scaled.min(u32::from(u16::MAX)))
+            .expect("scaled damage is clamped to u16::MAX")
+    }
+}
 
 impl Default for MeleeDamageMultiplier {
     fn default() -> Self {
@@ -190,13 +214,31 @@ impl Default for MeleeDamageMultiplier {
 
 impl MeleeDamageMultiplier {
     fn for_rank(rank: u8) -> Self {
-        Self(95 + u16::from(rank))
+        Self(DamageSkillMultiplier::for_rank(rank))
     }
 
     pub(crate) fn scale(self, damage: u16) -> u16 {
-        let scaled = (u32::from(damage) * u32::from(self.0) + 50) / 100;
-        u16::try_from(scaled.min(u32::from(u16::MAX)))
-            .expect("scaled damage is clamped to u16::MAX")
+        self.0.scale(damage)
+    }
+}
+
+#[derive(Component, Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) struct RangedDamageMultiplier(DamageSkillMultiplier);
+
+impl Default for RangedDamageMultiplier {
+    fn default() -> Self {
+        Self::for_rank(DEFAULT_RANK)
+    }
+}
+
+impl RangedDamageMultiplier {
+    fn for_rank(rank: u8) -> Self {
+        Self(DamageSkillMultiplier::for_rank(rank))
+    }
+
+    #[allow(dead_code, reason = "Used by future ranged weapons")]
+    pub(crate) fn scale(self, damage: u16) -> u16 {
+        self.0.scale(damage)
     }
 }
 
@@ -208,6 +250,7 @@ pub(crate) struct AttributeEffects {
     costs: MovementCosts,
     carry: CarryLimits,
     melee: MeleeDamageMultiplier,
+    ranged: RangedDamageMultiplier,
     weapon_speed: f32,
 }
 
@@ -224,6 +267,7 @@ impl From<&AttributeRanks> for AttributeEffects {
             costs: MovementCosts::for_rank(ranks.rank(AttributeId::Agility)),
             carry: CarryLimits::for_rank(ranks.rank(AttributeId::Endurance)),
             melee: MeleeDamageMultiplier::for_rank(ranks.rank(AttributeId::Strength)),
+            ranged: RangedDamageMultiplier::for_rank(ranks.rank(AttributeId::Marksmanship)),
             weapon_speed: ranks.weapon_speed(),
         }
     }
@@ -245,7 +289,8 @@ impl AttributeEffects {
                 self.costs.dodge,
                 self.weapon_speed * 100.0
             ),
-            AttributeId::Strength => format!("{}% melee damage", self.melee.0),
+            AttributeId::Strength => format!("{}% melee damage", self.melee.0.percent()),
+            AttributeId::Marksmanship => format!("{}% ranged damage", self.ranged.0.percent()),
         }
     }
 }
@@ -316,12 +361,21 @@ fn sync_capabilities(
             &mut MovementCosts,
             &mut CarryLimits,
             &mut MeleeDamageMultiplier,
+            &mut RangedDamageMultiplier,
         ),
         Changed<AttributeRanks>,
     >,
 ) {
-    for (ranks, mut health, mut recovery, mut stamina, mut costs, mut carry, mut melee) in
-        &mut actors
+    for (
+        ranks,
+        mut health,
+        mut recovery,
+        mut stamina,
+        mut costs,
+        mut carry,
+        mut melee,
+        mut ranged,
+    ) in &mut actors
     {
         let effect = ranks.effects();
         if health.maximum() != effect.health {
@@ -336,6 +390,7 @@ fn sync_capabilities(
         costs.set_if_neq(effect.costs);
         carry.set_if_neq(effect.carry);
         melee.set_if_neq(effect.melee);
+        ranged.set_if_neq(effect.ranged);
     }
 }
 
@@ -542,6 +597,25 @@ mod tests {
     use super::*;
     use crate::interaction::pointer_click;
     use bevy::state::app::StatesPlugin;
+
+    #[test]
+    fn marksmanship_uses_the_melee_damage_curve() {
+        let ranks = AttributeRanks::default();
+        assert_eq!(ranks.rank(AttributeId::Marksmanship), DEFAULT_RANK);
+        assert_eq!(
+            ranks.effects().describe(AttributeId::Marksmanship),
+            "100% ranged damage"
+        );
+        for (rank, percent) in [(1, 96), (5, 100), (45, 140), (100, 195)] {
+            let multiplier = RangedDamageMultiplier::for_rank(rank);
+            assert_eq!(multiplier.0.percent(), percent);
+            assert_eq!(multiplier.scale(100), percent);
+            assert_eq!(
+                multiplier.scale(7),
+                MeleeDamageMultiplier::for_rank(rank).scale(7)
+            );
+        }
+    }
 
     #[test]
     fn derived_values_match_baselines_and_caps() {

@@ -3,7 +3,9 @@ pub(crate) use progression::{CharacterProgress, SavedProgress};
 
 use crate::{
     GameState,
-    attributes::{AttributeRanks, CarryLimits, MeleeDamageMultiplier, MovementCosts},
+    attributes::{
+        AttributeRanks, CarryLimits, MeleeDamageMultiplier, MovementCosts, RangedDamageMultiplier,
+    },
     combat::{CombatSystems, Defense, Health, HealthRecovery},
     content::Items,
     dungeon::Area,
@@ -104,7 +106,8 @@ pub(crate) struct NewPlayerName(pub(crate) String);
     crate::experience::Experience,
     CarryLimits,
     MovementCosts,
-    MeleeDamageMultiplier
+    MeleeDamageMultiplier,
+    RangedDamageMultiplier
 )]
 #[require(
     Stamina,

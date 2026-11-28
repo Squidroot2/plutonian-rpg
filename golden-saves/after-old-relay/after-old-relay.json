@@ -369,7 +369,7 @@
     "npc_contributions": [],
     "player": 70
   },
-  "format_version": 15,
+  "format_version": 16,
   "inventory": {
     "battery": 1,
     "mycelium": 1,
@@ -712,6 +712,7 @@
     "ranks": {
       "agility": 5,
       "endurance": 5,
+      "marksmanship": 5,
       "strength": 5,
       "vitality": 7
     }
@@ -721,9 +722,9 @@
     null
   ],
   "world": {
-    "guards_hostile": false,
     "day": 0,
-    "surface_last_kill": null,
-    "relay_last_kill": null
+    "guards_hostile": false,
+    "relay_last_kill": null,
+    "surface_last_kill": null
   }
 }
