@@ -61,6 +61,11 @@ movement.
   Movement, attack input, and the inventory display use the same
 derived limits.
 
+Blocking spends stamina per blocked hit,
+reduced by a Strength multiplier,
+and stamina does not recover while the block is held.
+  See `shields.md` for the cost model.
+
 **Strength** scales each connecting melee weapon hit, including each hand when
 dual wielding.
   Round to the nearest whole point with halves rounding up, then
