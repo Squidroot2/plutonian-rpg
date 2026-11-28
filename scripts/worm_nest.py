@@ -8,6 +8,7 @@ import bpy
 from mathutils import Vector
 
 from asset_helpers import box, cone, ico
+from perimeter import mesh
 
 SOLID_PREFIX = 'Worm nest solid '
 TRIM_PREFIX = 'Worm nest trim '
@@ -32,6 +33,19 @@ BURROW_SITES = (
 CENTRAL_ROCK_SITE = (-47.5, -66.5)
 SCOUT_CRATE_SITE = (-55.5, -66.5)
 SCOUT_LANTERN_SITE = (-54.85, -67.25)
+
+# West to east in Bevy coordinates: x, south foot z, crest z, north foot z, crest y.
+# The eastern tip lets explorers round the ridge on the way west from the core trail.
+SOUTH_RIDGE_PROFILES = (
+    (-47.0, -43.0, -46.0, -48.0, 4.5),
+    (-42.0, -42.0, -46.5, -49.0, 7.0),
+    (-36.0, -41.0, -46.0, -49.0, 6.2),
+    (-30.0, -40.5, -44.0, -48.0, 7.4),
+    (-24.0, -41.5, -45.0, -48.5, 5.5),
+    (-19.0, -43.0, -46.0, -49.0, 5.7),
+    (-15.0, -45.0, -46.5, -48.0, 4.5),
+    (-12.5, -46.0, -47.0, -47.5, 0.6),
+)
 
 
 def is_worm_nest(name):
@@ -70,6 +84,32 @@ def _shelf_height(shelf, inv, down, x, y):
     if not hit:
         raise RuntimeError(f'Worm nest point ({x:.2f}, {y:.2f}) missed Ice shelf')
     return (shelf.matrix_world @ loc).z
+
+
+def _south_ridge(materials):
+    """Screen the nest from settlement cameras with a continuous faceted ridge."""
+    vertices = []
+    for x, south, crest, north, height in SOUTH_RIDGE_PROFILES:
+        vertices.extend([
+            (x, -.8, south),
+            (x, height * .58, south + (crest - south) * .40),
+            (x, height, crest),
+            (x, height * .73, north + (crest - north) * .50),
+            (x, -.8, north),
+        ])
+
+    width = 5
+    faces = [tuple(range(width))]
+    for start in range(0, len(vertices) - width, width):
+        for side in range(width):
+            a = start + side
+            b = start + (side + 1) % width
+            faces.extend([(a, a + width, b), (b, a + width, b + width)])
+    faces.append(tuple(reversed(range(len(vertices) - width, len(vertices)))))
+    ridge = mesh(f'{SOLID_PREFIX}south ridge', vertices, faces, materials)
+    for face in ridge.data.polygons[1:-1]:
+        segment, facet = divmod(face.index - 1, width * 2)
+        face.material_index = (facet // 2 + segment % 2) % len(materials)
 
 
 def _burrow_mound(name, cx, cy, gz, radius, height, yaw_deg, materials, rng):
@@ -143,6 +183,8 @@ def build():
     stripe_mat = bpy.data.materials['Shelter aisle edging']
     amber = bpy.data.materials['Amber habitation']
     rng = random.Random(310)
+
+    _south_ridge((basalt, ice, frost))
 
     for index, (bx, bz, radius, height, yaw_deg) in enumerate(BURROW_SITES, start=1):
         cx, cy = bx, -bz
