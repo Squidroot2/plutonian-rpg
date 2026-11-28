@@ -5,6 +5,9 @@ edition = "2024"
 rust-version = "1.100.0"
 license = "MIT"
 
+[lints]
+workspace = true
+
 [dependencies]
 gltf = { version = "1.4", default-features = false, features = ["names", "utils"] }
 plutonian-rpg = { path = "../.." }

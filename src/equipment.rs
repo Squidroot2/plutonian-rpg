@@ -119,7 +119,9 @@ impl Equipment {
         self.0
             .values()
             .filter(|&&equipped| equipped == item)
-            .count() as u32
+            .count()
+            .try_into()
+            .expect("equipment slot count fits in u32")
     }
     pub(crate) fn weight(&self, items: &Items) -> u64 {
         self.0.values().map(|item| items[*item].weight()).sum()

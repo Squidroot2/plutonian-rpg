@@ -1,9 +1,3 @@
-#![allow(clippy::type_complexity)]
-#![allow(clippy::too_many_arguments)]
-#![allow(clippy::collapsible_if)]
-#![deny(clippy::perf)]
-#![deny(clippy::too_many_lines)]
-#![deny(clippy::unwrap_used)]
 /// Headless validation rules for checked-in models.
 pub mod asset_check;
 mod attributes;

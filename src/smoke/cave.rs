@@ -21,6 +21,7 @@ use crate::{
     world::WorldLayout,
 };
 use avian3d::prelude::*;
+use az::Az;
 use bevy::{app::AppExit, prelude::*, render::view::screenshot::Screenshot};
 
 const OUTBOUND: [(f32, f32); 14] = [
@@ -237,9 +238,9 @@ pub(super) fn check_route(
     for pair in route.windows(2) {
         let a = Vec2::from(pair[0]);
         let b = Vec2::from(pair[1]);
-        let steps = (a.distance(b) / 0.45).ceil() as u32;
+        let steps = (a.distance(b) / 0.45).ceil().az::<u32>();
         for i in 0..=steps {
-            let p = a.lerp(b, i as f32 / steps as f32);
+            let p = a.lerp(b, i.az::<f32>() / steps.az::<f32>());
             let origin = Vec3::new(p.x, expected_floor + 2.5, p.y);
             let feet = walkable_height(spatial, filter, origin, 4.0, 0.0)
                 .unwrap_or_else(|| panic!("missing floor below {origin}"));
@@ -397,7 +398,7 @@ pub(super) fn drive(
             *phase = CaveCheck::ApproachCorpse;
         }
         CaveCheck::ApproachCorpse if dead => {
-            assert_eq!(xp.0, u64::from(super::SHIPPED_HUSHCAP_XP));
+            assert_eq!(xp.0, super::SHIPPED_HUSHCAP_XP);
             assert_eq!(corpse.stack.expect("Hushcap loot").item, ItemKind::Mycelium);
             if nearby.0 == Some((cap, InteractionTarget::Corpse)) {
                 keys.press(KeyCode::KeyE);

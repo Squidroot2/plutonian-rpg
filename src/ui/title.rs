@@ -397,9 +397,14 @@ fn next_action(current: MenuAction, direction: isize, slot: &SaveSlot) -> MenuAc
     let index = actions
         .iter()
         .position(|&action| action == current)
-        .expect("menu action is listed") as isize;
-    (1..=actions.len() as isize)
-        .map(|step| actions[(index + direction * step).rem_euclid(actions.len() as isize) as usize])
+        .expect("menu action is listed");
+    let index = isize::try_from(index).expect("menu action count fits in isize");
+    let len = isize::try_from(actions.len()).expect("menu action count fits in isize");
+    (1..=len)
+        .map(|step| {
+            let index = (index + direction * step).rem_euclid(len);
+            actions[usize::try_from(index).expect("remainder is non-negative")]
+        })
         .find(|&action| action.enabled(slot))
         .expect("there is at least one enabled menu action")
 }

@@ -24,6 +24,32 @@ pub(crate) enum Control {
     Holster,
 }
 
+impl From<Control> for usize {
+    fn from(control: Control) -> Self {
+        match control {
+            Control::Forward => 0,
+            Control::Backward => 1,
+            Control::Left => 2,
+            Control::Right => 3,
+            Control::ToggleRun => 4,
+            Control::Sprint => 5,
+            Control::Jump => 6,
+            Control::Dodge => 7,
+            Control::Interact => 8,
+            Control::Inventory => 9,
+            Control::QuestLog => 10,
+            Control::Drop => 11,
+            Control::MenuUp => 12,
+            Control::MenuDown => 13,
+            Control::MenuLeft => 14,
+            Control::MenuRight => 15,
+            Control::Attack => 16,
+            Control::OffHandAttack => 17,
+            Control::Holster => 18,
+        }
+    }
+}
+
 impl Control {
     const MENU: [Self; 5] = [
         Self::MenuUp,
@@ -462,7 +488,7 @@ impl Keybinds {
         primary: Binding,
         secondary: Option<Binding>,
     ) {
-        self.0[control as usize] = (primary, secondary);
+        self.0[usize::from(control)] = (primary, secondary);
     }
 }
 
@@ -493,31 +519,31 @@ impl Default for Keybinds {
             (Control::Holster, KeyX),
         ];
         for (control, key) in keys {
-            bindings[control as usize] = (Binding::Key(key), None);
+            bindings[usize::from(control)] = (Binding::Key(key), None);
         }
-        bindings[Control::Attack as usize] = (Binding::Mouse(MouseButton::Left), None);
-        bindings[Control::OffHandAttack as usize] = (Binding::Mouse(MouseButton::Right), None);
-        bindings[Control::MenuUp as usize].1 = Some(Binding::Key(ArrowUp));
-        bindings[Control::MenuDown as usize].1 = Some(Binding::Key(ArrowDown));
-        bindings[Control::MenuLeft as usize].1 = Some(Binding::Key(ArrowLeft));
-        bindings[Control::MenuRight as usize].1 = Some(Binding::Key(ArrowRight));
+        bindings[usize::from(Control::Attack)] = (Binding::Mouse(MouseButton::Left), None);
+        bindings[usize::from(Control::OffHandAttack)] = (Binding::Mouse(MouseButton::Right), None);
+        bindings[usize::from(Control::MenuUp)].1 = Some(Binding::Key(ArrowUp));
+        bindings[usize::from(Control::MenuDown)].1 = Some(Binding::Key(ArrowDown));
+        bindings[usize::from(Control::MenuLeft)].1 = Some(Binding::Key(ArrowLeft));
+        bindings[usize::from(Control::MenuRight)].1 = Some(Binding::Key(ArrowRight));
         Self(bindings)
     }
 }
 
 impl Keybinds {
     pub(crate) fn get(&self, control: Control) -> Binding {
-        self.0[control as usize].0
+        self.0[usize::from(control)].0
     }
 
     pub(crate) fn get_secondary(&self, control: Control) -> Option<Binding> {
-        self.0[control as usize].1
+        self.0[usize::from(control)].1
     }
 
     /// Every binding held by a control: its primary followed by its
     /// secondary when one is set.
     pub(crate) fn bindings(&self, control: Control) -> impl Iterator<Item = Binding> {
-        let (primary, secondary) = self.0[control as usize];
+        let (primary, secondary) = self.0[usize::from(control)];
         [Some(primary), secondary].into_iter().flatten()
     }
 
@@ -555,7 +581,7 @@ impl Keybinds {
     }
 
     pub(crate) fn clear_secondary(&mut self, control: Control) {
-        self.0[control as usize].1 = None;
+        self.0[usize::from(control)].1 = None;
     }
 
     pub(crate) fn assign(
@@ -589,7 +615,7 @@ impl Keybinds {
         }) {
             return Err(format!("Already assigned to {}.", other.label()));
         }
-        let (primary, secondary) = self.0[control as usize];
+        let (primary, secondary) = self.0[usize::from(control)];
         let other_slot = match slot {
             KeybindSlot::Primary => secondary,
             KeybindSlot::Secondary => Some(primary),
@@ -598,8 +624,8 @@ impl Keybinds {
             return Err(format!("Already assigned to {}.", control.label()));
         }
         match slot {
-            KeybindSlot::Primary => self.0[control as usize].0 = binding,
-            KeybindSlot::Secondary => self.0[control as usize].1 = Some(binding),
+            KeybindSlot::Primary => self.0[usize::from(control)].0 = binding,
+            KeybindSlot::Secondary => self.0[usize::from(control)].1 = Some(binding),
         }
         Ok(())
     }

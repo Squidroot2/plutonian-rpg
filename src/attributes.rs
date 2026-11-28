@@ -6,6 +6,7 @@ use crate::{
     player::{CharacterProgress, Player, Stamina},
     ui::menu_ui::{MenuTab, PlayerMenu},
 };
+use az::Az;
 use bevy::prelude::*;
 use strum::VariantArray;
 
@@ -21,6 +22,17 @@ pub(crate) enum AttributeId {
     Endurance,
     Agility,
     Strength,
+}
+
+impl From<AttributeId> for usize {
+    fn from(id: AttributeId) -> Self {
+        match id {
+            AttributeId::Vitality => 0,
+            AttributeId::Endurance => 1,
+            AttributeId::Agility => 2,
+            AttributeId::Strength => 3,
+        }
+    }
 }
 
 impl AttributeId {
@@ -59,7 +71,7 @@ impl AttributeRanks {
     }
 
     pub(crate) fn rank(&self, id: AttributeId) -> u8 {
-        self.0[id as usize]
+        self.0[usize::from(id)]
     }
 
     pub(crate) fn with_rank(mut self, id: AttributeId, rank: u8) -> Self {
@@ -67,7 +79,7 @@ impl AttributeRanks {
             (1..=MAX_RANK).contains(&rank),
             "starting rank must be valid"
         );
-        self.0[id as usize] = rank;
+        self.0[usize::from(id)] = rank;
         self
     }
 
@@ -104,7 +116,7 @@ impl Default for MovementCosts {
 
 impl MovementCosts {
     fn for_rank(rank: u8) -> Self {
-        let scale = ((105.0 / (f64::from(rank) + 5.0)).ln() / 10.5_f64.ln()) as f32;
+        let scale = ((105.0 / (f64::from(rank) + 5.0)).ln() / 10.5_f64.ln()).az::<f32>();
         Self {
             jump: 20.0 * scale,
             dodge: 25.0 * scale,
@@ -160,7 +172,8 @@ impl MeleeDamageMultiplier {
 
     pub(crate) fn scale(self, damage: u16) -> u16 {
         let scaled = (u32::from(damage) * u32::from(self.0) + 50) / 100;
-        scaled.min(u32::from(u16::MAX)) as u16
+        u16::try_from(scaled.min(u32::from(u16::MAX)))
+            .expect("scaled damage is clamped to u16::MAX")
     }
 }
 
@@ -260,7 +273,7 @@ fn apply_spends(
     for spend in spends.read().filter(|spend| spend.player == player) {
         let rank = ranks.rank(spend.id);
         if progress.unspent > 0 && rank < MAX_RANK {
-            ranks.0[spend.id as usize] = rank + 1;
+            ranks.0[usize::from(spend.id)] = rank + 1;
             progress.unspent -= 1;
         }
     }
@@ -404,7 +417,7 @@ fn show_rank_up_details(
             let enabled = progress.unspent > 0 && rank < MAX_RANK;
             let value = if enabled {
                 let mut next = (*ranks).clone();
-                next.0[id as usize] += 1;
+                next.0[usize::from(id)] += 1;
                 format!("Next rank: {}", next.effects().describe(id))
             } else if rank >= MAX_RANK {
                 "Maximum rank".to_string()

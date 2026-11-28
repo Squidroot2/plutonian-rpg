@@ -1,3 +1,4 @@
+use az::Az;
 use std::{
     f32::consts::TAU,
     num::{NonZeroU16, NonZeroU32},
@@ -126,14 +127,14 @@ impl Iterator for Samples {
         if self.index >= self.length {
             return None;
         }
-        let progress = self.index as f32 / self.length as f32;
-        let seconds = self.index as f32 / RATE as f32;
+        let progress = self.index.az::<f32>() / self.length.az::<f32>();
+        let seconds = self.index.az::<f32>() / RATE.az::<f32>();
         self.index += 1;
         self.noise = self
             .noise
             .wrapping_mul(1_664_525)
             .wrapping_add(1_013_904_223);
-        let noise = (self.noise >> 8) as f32 / 8_388_608.0 - 1.0;
+        let noise = (self.noise >> 8).az::<f32>() / 8_388_608.0 - 1.0;
         self.filtered += 0.16 * (noise - self.filtered);
         let sweep = |start: f32, drop: f32| (TAU * seconds * (start - drop * progress * 0.5)).sin();
         let tail = 1.0 - progress;
@@ -164,6 +165,8 @@ impl Source for Samples {
     }
 
     fn total_duration(&self) -> Option<Duration> {
-        Some(Duration::from_secs_f64(self.length as f64 / RATE as f64))
+        Some(Duration::from_secs_f64(
+            self.length.az::<f64>() / RATE.az::<f64>(),
+        ))
     }
 }

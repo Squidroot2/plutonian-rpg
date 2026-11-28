@@ -1,6 +1,7 @@
 //! Shared damage and death processing. Attack detection and presentation live in their own systems.
 use crate::{GameState, dialogue::Dialogue};
 use avian3d::prelude::Collider;
+use az::SaturatingAs;
 use bevy::prelude::*;
 use std::time::Duration;
 
@@ -261,7 +262,9 @@ fn recover_health(
         let points = recovery.accrued.floor();
         recovery.accrued -= points;
         if points > 0.0 {
-            health.current += (points as u16).min(health.maximum - health.current);
+            health.current += points
+                .saturating_as::<u16>()
+                .min(health.maximum - health.current);
         }
     }
 }
