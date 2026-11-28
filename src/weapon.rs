@@ -5,7 +5,7 @@ use bevy::prelude::*;
 
 use crate::{
     GameState,
-    attributes::{CarryLimits, MeleeDamageMultiplier, MovementCosts},
+    attributes::{AttributeRanks, CarryLimits, MeleeDamageMultiplier, MovementCosts},
     combat::{CombatSystems, Contact, Hit},
     content::{Items, WeaponStats},
     controls::{Control, Keybinds},
@@ -212,6 +212,7 @@ fn attack(
         &MovementCosts,
         &CarryLimits,
         &MeleeDamageMultiplier,
+        Option<&AttributeRanks>,
         &Transform,
         &mut WeaponStance,
         &mut WeaponAttack,
@@ -228,6 +229,7 @@ fn attack(
         costs,
         limits,
         melee,
+        ranks,
         transform,
         mut stance,
         mut swing,
@@ -272,7 +274,7 @@ fn attack(
             if let Some(hit) = swing.strike(
                 hand,
                 &equipment,
-                time.delta_secs(),
+                time.delta_secs() * ranks.map_or(1.0, AttributeRanks::weapon_speed),
                 *melee,
                 &spatial,
                 entity,
@@ -393,6 +395,58 @@ mod tests {
             position,
             facing,
         )
+    }
+
+    #[test]
+    fn agility_accelerates_impact_and_recovery_for_both_weapons() {
+        use crate::attributes::{AttributeId, AttributeRanks};
+        for (weapon, item) in [
+            (WeaponKind::Spear, ItemKind::FieldSpear),
+            (WeaponKind::Shortsword, ItemKind::Shortsword),
+        ] {
+            let speed = AttributeRanks::default()
+                .with_rank(AttributeId::Agility, 100)
+                .weapon_speed();
+            let mut attack = WeaponAttack::default();
+            attack.swings[0] = Some(Swing {
+                weapon,
+                item,
+                stats: test_stats(item),
+                elapsed: 0.0,
+            });
+            let (impact, recovery) = weapon.timing();
+            let impact_seconds = impact / speed;
+            let recovery_seconds = recovery / speed;
+            assert!(
+                attack
+                    .advance(Hand::Main, impact_seconds * 0.99 * speed)
+                    .is_none()
+            );
+            assert!(
+                attack
+                    .advance(Hand::Main, impact_seconds * 0.02 * speed)
+                    .is_some()
+            );
+            assert!(attack.active());
+            assert!(
+                attack
+                    .advance(
+                        Hand::Main,
+                        (recovery_seconds - impact_seconds) * 0.98 * speed
+                    )
+                    .is_none()
+            );
+            assert!(attack.active());
+            assert!(
+                attack
+                    .advance(Hand::Main, recovery_seconds * 0.02 * speed)
+                    .is_none()
+            );
+            assert!(!attack.active());
+            assert!(speed > 1.0);
+            assert!(impact_seconds < impact);
+            assert!(recovery_seconds < recovery);
+        }
     }
 
     #[test]

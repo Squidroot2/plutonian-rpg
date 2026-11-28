@@ -320,9 +320,10 @@ pub(super) fn animate(
                 .map(|swing| swing.elapsed)
         });
         let swinging_swords = sword_times.iter().any(Option::is_some);
-        let thrusting = attack
+        let thrust = attack
             .current(Hand::Main)
-            .is_some_and(|swing| swing.weapon == WeaponKind::Spear);
+            .filter(|swing| swing.weapon == WeaponKind::Spear);
+        let thrusting = thrust.is_some();
         let carry = if *stance == WeaponStance::Drawn {
             equipment
                 .weapon(EquipmentSlot::MainHand, &items)
@@ -387,7 +388,11 @@ pub(super) fn animate(
             }
             actor.current = Some(index);
         }
-        if !thrusting {
+        if let Some(swing) = thrust {
+            if let Some(clip) = animation.animation_mut(library.nodes[index]) {
+                clip.pause().set_seek_time(swing.elapsed);
+            }
+        } else {
             if let Some(clip) = animation.animation_mut(library.nodes[index])
                 && clip.speed() != speed
             {
