@@ -80,13 +80,13 @@ Use rustfmt, four-space indentation, `snake_case` functions and modules, and `Pa
 Design documents are stored in `./docs/design`.
   Design documents should include the high level decisions, the reasoning behind those decisions, and how those features are implemented 
 
-Documentation for players is put in markdown files inside of `./docs/guide`
+Documentation for players is put in Markdown files inside of `./docs/guide`
 
-Instruction for developers is put in markdown files inside of `./docs/contributing`
+Instruction for developers is put in Markdown files inside of `./docs/contributing`
 
 Make sure all documentation is kept up to date as changes are made.
 
-Use semantic line breaks (one clause per line) when writing markdown files
+Use semantic line breaks (one clause per line) when writing Markdown files
 
 ## Testing Guidelines
 
