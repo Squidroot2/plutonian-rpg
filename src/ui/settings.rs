@@ -8,6 +8,7 @@ use crate::{
 };
 use az::CheckedAs;
 use bevy::{
+    audio::{GlobalVolume, Volume},
     diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin},
     input::InputSystems,
     picking::hover::PickingInteraction,
@@ -18,6 +19,9 @@ use strum::VariantArray;
 
 pub(crate) const FULLSCREEN_MODE: WindowMode =
     WindowMode::BorderlessFullscreen(MonitorSelection::Primary);
+
+#[derive(Resource, Clone, Copy, PartialEq)]
+struct MasterVolume(f32);
 
 pub(crate) struct SettingsPlugin {
     /// Use an isolated temporary config file instead of the player's real one.
@@ -117,10 +121,13 @@ impl Plugin for SettingsPlugin {
         // configured bindings from the first frame.
         let path = config::select_config_file(self.smoke, self.directory.clone());
         let bindings = config::load_keybinds(path.as_deref());
+        let master_volume = MasterVolume(config::load_master_volume(path.as_deref()));
         app.add_plugins(FrameTimeDiagnosticsPlugin::default())
             .insert_resource(FpsPosition::default())
             .insert_resource(SettingsMenu::default())
             .insert_resource(ConfigFile(path))
+            .insert_resource(master_volume)
+            .insert_resource(GlobalVolume::default())
             .insert_resource(bindings)
             .add_systems(Startup, setup)
             .add_systems(
@@ -137,8 +144,16 @@ impl Plugin for SettingsPlugin {
                     refresh_labels,
                     refresh_button_colors,
                     refresh_fps,
+                    apply_master_volume,
+                    refresh_volume,
                 ),
             );
+    }
+}
+
+fn apply_master_volume(volume: Res<MasterVolume>, mut global: ResMut<GlobalVolume>) {
+    if volume.is_changed() {
+        global.volume = Volume::Linear(volume.0);
     }
 }
 
@@ -182,6 +197,7 @@ fn setup(mut commands: Commands) {
             panel
                 .spawn((Section::General, section_layout()))
                 .with_children(|menu| {
+                    spawn_volume_row(menu);
                     for action in [
                         Action::ToggleDisplay,
                         Action::CycleFps,
@@ -240,6 +256,142 @@ fn setup(mut commands: Commands) {
                     menu.spawn((Text::new("Esc to cancel"), ui::text_style(16.0)));
                 });
         });
+}
+
+#[derive(Component)]
+struct VolumeLabel;
+#[derive(Component)]
+struct VolumeTrack;
+#[derive(Component)]
+struct VolumeFill;
+
+fn volume_fraction(pointer_x: f32, track_center_x: f32, track_width: f32) -> f32 {
+    ((pointer_x - (track_center_x - track_width / 2.0)) / track_width).clamp(0.0, 1.0)
+}
+
+fn volume_click(
+    event: On<PointerClick>,
+    tracks: Query<(&ComputedNode, &UiGlobalTransform), With<VolumeTrack>>,
+    window: Query<&Window, With<PrimaryWindow>>,
+    mut volume: ResMut<MasterVolume>,
+    config: Res<ConfigFile>,
+) {
+    if event.button != PointerButton::Primary {
+        return;
+    }
+    set_volume_from_pointer(event.pointer.position.x, &tracks, &window, &mut volume);
+    config.save_master_volume(volume.0);
+}
+
+fn volume_drag(
+    event: On<PointerDrag>,
+    tracks: Query<(&ComputedNode, &UiGlobalTransform), With<VolumeTrack>>,
+    window: Query<&Window, With<PrimaryWindow>>,
+    mut volume: ResMut<MasterVolume>,
+) {
+    if event.button == PointerButton::Primary {
+        set_volume_from_pointer(event.pointer.position.x, &tracks, &window, &mut volume);
+    }
+}
+
+fn volume_drag_end(event: On<PointerDragEnd>, volume: Res<MasterVolume>, config: Res<ConfigFile>) {
+    if event.button == PointerButton::Primary {
+        config.save_master_volume(volume.0);
+    }
+}
+
+fn set_volume_from_pointer(
+    pointer_x: f32,
+    tracks: &Query<(&ComputedNode, &UiGlobalTransform), With<VolumeTrack>>,
+    window: &Query<&Window, With<PrimaryWindow>>,
+    volume: &mut MasterVolume,
+) {
+    let Ok((node, transform)) = tracks.single() else {
+        return;
+    };
+    let Ok(window) = window.single() else {
+        return;
+    };
+    let width = window
+        .resolution
+        .physical_width()
+        .checked_as::<f32>()
+        .expect("window width fits in f32");
+    let pointer_x = pointer_x - width / 2.0;
+    let center_x = transform.to_scale_angle_translation().2.x;
+    volume.0 = volume_fraction(pointer_x, center_x, node.size.x);
+}
+
+fn spawn_volume_row(parent: &mut ChildSpawnerCommands) {
+    parent
+        .spawn(Node {
+            width: percent(100),
+            min_height: px(36),
+            flex_direction: FlexDirection::Row,
+            align_items: AlignItems::Center,
+            justify_content: JustifyContent::SpaceBetween,
+            ..default()
+        })
+        .with_children(|row| {
+            row.spawn((
+                Text::new("Master volume"),
+                ui::text_style(16.0),
+                Pickable::IGNORE,
+            ));
+            row.spawn((
+                VolumeLabel,
+                Text::new("100%"),
+                ui::text_style(16.0),
+                Pickable::IGNORE,
+            ));
+            row.spawn((
+                VolumeTrack,
+                BackgroundColor(Color::srgb(0.05, 0.13, 0.17)),
+                Node {
+                    width: px(240),
+                    height: px(12),
+                    ..default()
+                },
+            ))
+            .observe(volume_click)
+            .observe(volume_drag)
+            .observe(volume_drag_end)
+            .with_children(|track| {
+                track.spawn((
+                    VolumeFill,
+                    BackgroundColor(Color::srgb(0.18, 0.58, 0.72)),
+                    Node {
+                        width: percent(100),
+                        height: percent(100),
+                        ..default()
+                    },
+                ));
+            });
+        });
+}
+
+fn refresh_volume(
+    volume: Res<MasterVolume>,
+    mut labels: Query<&mut Text, With<VolumeLabel>>,
+    mut fills: Query<&mut Node, With<VolumeFill>>,
+) {
+    if !volume.is_changed() {
+        return;
+    }
+    let percentage = (volume.0 * 100.0)
+        .round()
+        .checked_as::<u32>()
+        .expect("master volume percentage is between zero and one hundred");
+    for mut label in &mut labels {
+        label.set_if_neq(Text::new(format!("{percentage}%")));
+    }
+    for mut node in &mut fills {
+        node.width = percent(
+            percentage
+                .checked_as::<f32>()
+                .expect("master volume percentage fits in f32"),
+        );
+    }
 }
 
 fn section_layout() -> Node {
@@ -617,6 +769,15 @@ mod tests {
             assert_eq!(position.label(), label);
             position = position.next();
         }
+    }
+
+    #[test]
+    fn volume_fraction_clamps_at_both_track_ends() {
+        assert_eq!(volume_fraction(10.0, 50.0, 80.0), 0.0);
+        assert_eq!(volume_fraction(90.0, 50.0, 80.0), 1.0);
+        assert_eq!(volume_fraction(-20.0, 50.0, 80.0), 0.0);
+        assert_eq!(volume_fraction(120.0, 50.0, 80.0), 1.0);
+        assert_eq!(volume_fraction(50.0, 50.0, 80.0), 0.5);
     }
 
     #[test]

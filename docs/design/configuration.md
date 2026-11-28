@@ -2,8 +2,7 @@
 
 This document describes the general configuration file owned by `src/config.rs`,
 its location rule, its TOML format, and its failure contract.
-Keybinds are the file's first tenant;
-later settings get their own top-level tables in the same document.
+Keybinds and master volume share the same document.
 
 ## Location
 
@@ -28,6 +27,8 @@ just as smoke save runs ignore the player's save directory.
 ## Format
 
 The file is one TOML document, chosen because it is easy to edit by hand.
+The top-level `master_volume` number is a linear level from `0.0` (mute)
+to `1.0` (full volume), defaulting to `1.0` when absent.
 Keybinds live in a `[keybinds]` table mapping each `Control` to its binding.
 A control with only a primary binding maps to a single string;
 a control with a secondary maps to an array of two strings.
@@ -55,6 +56,8 @@ so every consumer reads the configured bindings from the first frame.
 A missing file is a first run, not an error, and loads defaults.
 A `[keybinds]` table missing a control leaves that control on its default,
 so hand edits and future controls stay forgiving.
+An out-of-range master volume is clamped to `0.0`–`1.0`.
+An entry that is not a number is a broken config.
 Unknown top-level tables are ignored:
 sections this build does not know are not this build's business.
 Anything else is a broken config and panics:
@@ -69,7 +72,7 @@ clearing either slot with Delete, or Reset Bindings,
 the file is rewritten immediately with the full current `[keybinds]` table.
 The write is synchronous, never deferred to exit,
 so a crash right after a rebind cannot lose it.
-Rewriting preserves any other top-level tables already in the file,
+Rewriting either setting preserves the other setting and any other top-level tables,
 and writes through a temporary file plus rename like game saves.
 Code paths that build `Keybinds` directly in tests and headless runs
 never touch the file.
