@@ -242,6 +242,17 @@ fn spawn_outpost(
     );
     commands.spawn((
         SessionEntity,
+        Bed,
+        Name::new("Starting tent bed"),
+        // The interaction point sits just above the mattress on its aisle side.
+        Transform::from_xyz(9.45, -0.12, -4.40),
+    ));
+    spawn_outpost_lights(commands);
+}
+
+pub(crate) fn spawn_outpost_lights(commands: &mut Commands) {
+    commands.spawn((
+        SessionEntity,
         Name::new("Starting tent lantern"),
         PointLight {
             color: Color::srgb(1.0, 0.57, 0.28),
@@ -250,13 +261,6 @@ fn spawn_outpost(
             ..default()
         },
         Transform::from_xyz(7.82, 0.32, -4.50),
-    ));
-    commands.spawn((
-        SessionEntity,
-        Bed,
-        Name::new("Starting tent bed"),
-        // The interaction point sits just above the mattress on its aisle side.
-        Transform::from_xyz(9.45, -0.12, -4.40),
     ));
     crate::crossing::village::light_homes(commands);
     for x in [-36.55, -23.45] {
@@ -437,7 +441,7 @@ fn spawn_beacon(
         ));
 }
 
-fn spawn_lights(commands: &mut Commands, layout: WorldLayout) {
+pub(crate) fn spawn_lights(commands: &mut Commands, layout: WorldLayout) {
     commands.spawn((
         SessionEntity,
         DirectionalLight {
@@ -489,7 +493,7 @@ fn spawn_lights(commands: &mut Commands, layout: WorldLayout) {
 }
 
 /// Charon stays visible beyond the terrain fog, including from the Flats overlook.
-fn configure_sky_meshes(
+pub(crate) fn configure_sky_meshes(
     mut commands: Commands,
     meshes: Query<
         (

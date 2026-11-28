@@ -1,3 +1,6 @@
+/// Desktop screenshots of equipment before it is registered in the item catalog.
+#[cfg(feature = "smoke")]
+pub mod art_preview;
 /// Headless validation rules for checked-in models.
 pub mod asset_check;
 mod attributes;
@@ -41,7 +44,7 @@ mod weapon;
 mod world;
 mod worm;
 use bevy::window::WindowMode;
-use bevy::{asset::io::AssetSourceBuilder, prelude::*};
+use bevy::{asset::io::AssetSourceBuilder, prelude::*, render::RenderPlugin};
 
 #[derive(States, Default, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum GameState {
@@ -96,23 +99,18 @@ pub fn run(options: Options) {
     };
 
     let mut app = App::new();
-    app.register_asset_source("data", AssetSourceBuilder::platform_default("data", None))
-        .insert_resource(ClearColor(Color::srgb(0.008, 0.014, 0.027)))
-        .insert_resource(GlobalAmbientLight {
-            color: Color::srgb(0.28, 0.38, 0.55),
-            brightness: 80.0,
+    app.register_asset_source("data", AssetSourceBuilder::platform_default("data", None));
+    add_desktop_rendering(
+        &mut app,
+        Window {
+            title: "The Plutonian".into(),
+            resolution: (1280, 800).into(),
+            mode,
             ..default()
-        })
-        .add_plugins(DefaultPlugins.set(WindowPlugin {
-            primary_window: Some(Window {
-                title: "The Plutonian".into(),
-                resolution: (1280, 800).into(),
-                mode,
-                ..default()
-            }),
-            ..default()
-        }))
-        .insert_state(GameState::Boot);
+        },
+        RenderPlugin::default(),
+    );
+    app.insert_state(GameState::Boot);
     add_game_plugins(
         &mut app,
         save::SavePlugin {
@@ -133,6 +131,23 @@ pub fn run(options: Options) {
         });
     }
     app.run();
+}
+
+fn add_desktop_rendering(app: &mut App, window: Window, render: RenderPlugin) {
+    app.insert_resource(ClearColor(Color::srgb(0.008, 0.014, 0.027)))
+        .insert_resource(GlobalAmbientLight {
+            color: Color::srgb(0.28, 0.38, 0.55),
+            brightness: 80.0,
+            ..default()
+        })
+        .add_plugins(
+            DefaultPlugins
+                .set(WindowPlugin {
+                    primary_window: Some(window),
+                    ..default()
+                })
+                .set(render),
+        );
 }
 
 /// Register the game features in the same order for desktop and headless apps.

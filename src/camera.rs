@@ -49,8 +49,14 @@ impl Plugin for FollowCameraPlugin {
 fn setup(mut commands: Commands) {
     commands.spawn((
         FollowCamera,
-        Camera3d::default(),
+        world_camera(),
         Transform::from_xyz(0.0, 2.5, 10.5).looking_at(Vec3::ZERO, Vec3::Y),
+    ));
+}
+
+pub(crate) fn world_camera() -> (Camera3d, Bloom, DistanceFog) {
+    (
+        Camera3d::default(),
         Bloom {
             intensity: 0.12,
             ..Bloom::NATURAL
@@ -63,7 +69,7 @@ fn setup(mut commands: Commands) {
             },
             ..default()
         },
-    ));
+    )
 }
 fn look(
     motion: Res<AccumulatedMouseMotion>,
