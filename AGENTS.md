@@ -53,6 +53,9 @@ Use rustfmt, four-space indentation, `snake_case` functions and modules, and `Pa
   save-format behavior for the current save version only.
   Do not add save migrations or legacy save decoders without an explicit request.
   Preserve frame and schedule ordering when extracting systems or helpers.
+- Avoid Magic numbers. Numeric literals should have well-named constants with units, if applicable. 
+  There are reasonable exceptions to this like -1, 0, 1, an 2 for halving. Do not restate the value
+  (e.g. `const THOUSAND: u64 = 1000;`) for the sake of following this rule
 
 ## ECS Design
 
