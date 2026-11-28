@@ -600,7 +600,7 @@ mod tests {
                     .abs_diff_eq((heading.normalize() * meters).xz(), 0.003)
             );
             assert!((end.rotation * Vec3::Z).abs_diff_eq(Vec3::NEG_X, 0.001));
-            assert_eq!(Gait::for_player(controller), gait);
+            assert_eq!(Gait::for_player(controller, false), gait);
             assert_eq!(controller.pace, pace);
             app.world_mut()
                 .resource_mut::<ButtonInput<KeyCode>>()
@@ -619,6 +619,67 @@ mod tests {
             RUN_SPEED / WALK_SPEED
         );
         assert_eq!(Gait::WalkForwardRight.playback_speed(Pace::Walk), 1.0);
+    }
+
+    #[test]
+    fn face_travel_movement_uses_forward_gaits_in_every_direction() {
+        for armed in [false, true] {
+            let (mut app, player) = test_app();
+            if armed {
+                equip_spear(&mut app);
+                app.world_mut()
+                    .entity_mut(player)
+                    .insert(WeaponStance::Holstered);
+            }
+            app.world_mut().resource_mut::<Orbit>().yaw = std::f32::consts::FRAC_PI_2;
+            let cases: &[(&[KeyCode], Vec3)] = &[
+                (&[KeyCode::KeyW], Vec3::NEG_X),
+                (&[KeyCode::KeyS], Vec3::X),
+                (&[KeyCode::KeyA], Vec3::Z),
+                (&[KeyCode::KeyD], Vec3::NEG_Z),
+                (&[KeyCode::KeyW, KeyCode::KeyA], Vec3::NEG_X + Vec3::Z),
+                (&[KeyCode::KeyW, KeyCode::KeyD], Vec3::NEG_X + Vec3::NEG_Z),
+                (&[KeyCode::KeyS, KeyCode::KeyA], Vec3::X + Vec3::Z),
+                (&[KeyCode::KeyS, KeyCode::KeyD], Vec3::X + Vec3::NEG_Z),
+            ];
+            for &(keys, heading) in cases {
+                press(&mut app, keys);
+                tick(&mut app, 3);
+                let controller = app
+                    .world()
+                    .get::<Player>(player)
+                    .expect("player controller");
+                assert_eq!(Gait::for_player(controller, true), Gait::Walk);
+                assert!(
+                    (transform(&app, player).rotation * Vec3::Z)
+                        .abs_diff_eq(heading.normalize(), 0.05)
+                );
+                app.world_mut()
+                    .get_mut::<Player>(player)
+                    .expect("player controller")
+                    .pace = Pace::Sprint;
+                assert_eq!(
+                    Gait::for_player(
+                        app.world()
+                            .get::<Player>(player)
+                            .expect("player controller"),
+                        true
+                    ),
+                    Gait::Run
+                );
+                app.world_mut()
+                    .resource_mut::<ButtonInput<KeyCode>>()
+                    .reset_all();
+            }
+            tick(&mut app, 3);
+            let mut controller = app
+                .world_mut()
+                .get_mut::<Player>(player)
+                .expect("player controller");
+            assert_eq!(Gait::for_player(&controller, true), Gait::Idle);
+            controller.grounded = false;
+            assert_eq!(Gait::for_player(&controller, true), Gait::Jump);
+        }
     }
 
     #[test]
