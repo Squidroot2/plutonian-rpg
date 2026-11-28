@@ -6,7 +6,7 @@ use crate::{
     player::{CharacterProgress, Player, Stamina},
     ui::menu_ui::{MenuTab, PlayerMenu},
 };
-use az::{CheckedAs};
+use az::CheckedAs;
 use bevy::prelude::*;
 use strum::VariantArray;
 
@@ -131,7 +131,8 @@ impl MovementCosts {
         let baseline_weight = (maximum_rank_with_offset / baseline_rank_with_offset).ln();
 
         // Normalize the curve so the default rank pays exactly the base costs.
-        let scale = (rank_weight / baseline_weight).checked_as::<f32>()
+        let scale = (rank_weight / baseline_weight)
+            .checked_as::<f32>()
             .expect("Scale will always fit within bounds of f32");
         Self {
             jump: BASE_JUMP_MOVEMENT_COST * scale,
