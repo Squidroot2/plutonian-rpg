@@ -19,6 +19,7 @@ perf = { level = "deny", priority = -1 }
 too_many_lines = "deny"
 unwrap_used = "deny"
 as_conversions = "deny"
+disallowed_methods = "deny"
 
 [lints]
 workspace = true

@@ -12,7 +12,7 @@ use crate::{
     player::Player,
     weapon::{Hand, WeaponAttack, WeaponStance},
 };
-use az::Az;
+use az::CheckedAs;
 use bevy::{animation::AnimationTargetId, prelude::*, world_serialization::WorldInstanceReady};
 use std::time::Duration;
 
@@ -86,8 +86,18 @@ impl Gait {
         }
         // The normalized keyboard axes are each zero, ±1, or ±1/√2.
         match (
-            player.movement_direction.x.round().az::<i8>(),
-            player.movement_direction.y.round().az::<i8>(),
+            player
+                .movement_direction
+                .x
+                .round()
+                .checked_as::<i8>()
+                .expect("normalized movement x rounds to -1, 0, or 1"),
+            player
+                .movement_direction
+                .y
+                .round()
+                .checked_as::<i8>()
+                .expect("normalized movement y rounds to -1, 0, or 1"),
         ) {
             (0, 1) if player.pace != Pace::Walk => Self::Run,
             (0, 1) => Self::Walk,

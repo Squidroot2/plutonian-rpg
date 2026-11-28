@@ -1,5 +1,5 @@
 mod spear;
-use az::Az;
+use az::CheckedAs;
 
 use super::{
     Animation, Failures, Model, Property, Transform, check_clip_names, check_duration,
@@ -206,7 +206,10 @@ fn attack_frames(kind: WeaponKind) -> (u32, u32) {
 }
 
 fn sample_frame(seconds: f32) -> u32 {
-    (seconds * ATTACK_CLIP_FPS).round().az::<u32>()
+    (seconds * ATTACK_CLIP_FPS)
+        .round()
+        .checked_as::<u32>()
+        .expect("attack clip seconds times FPS is a small nonnegative frame number")
 }
 
 struct PoseTracks<'a> {

@@ -6,7 +6,7 @@ use crate::{
     ui::menu_ui::set_display,
     ui::title::TitleInput,
 };
-use az::Az;
+use az::CheckedAs;
 use bevy::{
     diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin},
     input::InputSystems,
@@ -573,7 +573,11 @@ fn refresh_fps(
         .get(&FrameTimeDiagnosticsPlugin::FPS)
         .and_then(|diagnostic| diagnostic.smoothed())
         .filter(|fps| fps.is_finite())
-        .map(|fps| fps.round().az::<u32>());
+        .map(|fps| {
+            fps.round()
+                .checked_as::<u32>()
+                .expect("FPS is filtered finite and frame rates fit in u32")
+        });
     if *last_fps != fps {
         **text = fps.map_or_else(|| "FPS: --".into(), |fps| format!("FPS: {fps}"));
         *last_fps = fps;

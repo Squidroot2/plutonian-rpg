@@ -6,7 +6,7 @@ use crate::{
     save::{RunSave, SaveSlot},
     ui::menu_ui::{modal_overlay, scroll_hovered},
 };
-use az::Az;
+use az::CheckedAs;
 use bevy::{
     input::{InputSystems, mouse::AccumulatedMouseScroll},
     prelude::*,
@@ -214,7 +214,12 @@ fn render(
                             PickerPane,
                             ScrollPosition(Vec2::new(
                                 0.0,
-                                picker.selected.az::<f32>() * SAVE_ROW_HEIGHT_PX,
+                                // CheckedAs checks range, not precision; save slot counts are below 2^24.
+                                picker
+                                    .selected
+                                    .checked_as::<f32>()
+                                    .expect("selected row is within the small save slot list")
+                                    * SAVE_ROW_HEIGHT_PX,
                             )),
                             RelativeCursorPosition::default(),
                             Node {
