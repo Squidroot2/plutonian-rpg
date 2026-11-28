@@ -185,7 +185,26 @@ impl CarryLimits {
 }
 
 #[derive(Component, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct MeleeDamageMultiplier(u16);
+pub(crate) struct MeleeDamageMultiplier(DamageSkillMultiplier);
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+struct DamageSkillMultiplier(u16);
+
+impl DamageSkillMultiplier {
+    fn for_rank(rank: u8) -> Self {
+        Self(95 + u16::from(rank))
+    }
+
+    fn percent(self) -> u16 {
+        self.0
+    }
+
+    fn scale(self, damage: u16) -> u16 {
+        let scaled = (u32::from(damage) * u32::from(self.0) + 50) / 100;
+        u16::try_from(scaled.min(u32::from(u16::MAX)))
+            .expect("scaled damage is clamped to u16::MAX")
+    }
+}
 
 impl Default for MeleeDamageMultiplier {
     fn default() -> Self {
@@ -195,18 +214,16 @@ impl Default for MeleeDamageMultiplier {
 
 impl MeleeDamageMultiplier {
     fn for_rank(rank: u8) -> Self {
-        Self(95 + u16::from(rank))
+        Self(DamageSkillMultiplier::for_rank(rank))
     }
 
     pub(crate) fn scale(self, damage: u16) -> u16 {
-        let scaled = (u32::from(damage) * u32::from(self.0) + 50) / 100;
-        u16::try_from(scaled.min(u32::from(u16::MAX)))
-            .expect("scaled damage is clamped to u16::MAX")
+        self.0.scale(damage)
     }
 }
 
 #[derive(Component, Clone, Copy, PartialEq, Eq, Debug)]
-pub(crate) struct RangedDamageMultiplier(u16);
+pub(crate) struct RangedDamageMultiplier(DamageSkillMultiplier);
 
 impl Default for RangedDamageMultiplier {
     fn default() -> Self {
@@ -216,12 +233,12 @@ impl Default for RangedDamageMultiplier {
 
 impl RangedDamageMultiplier {
     fn for_rank(rank: u8) -> Self {
-        Self(MeleeDamageMultiplier::for_rank(rank).0)
+        Self(DamageSkillMultiplier::for_rank(rank))
     }
 
     #[allow(dead_code, reason = "Used by future ranged weapons")]
     pub(crate) fn scale(self, damage: u16) -> u16 {
-        MeleeDamageMultiplier(self.0).scale(damage)
+        self.0.scale(damage)
     }
 }
 
@@ -272,8 +289,8 @@ impl AttributeEffects {
                 self.costs.dodge,
                 self.weapon_speed * 100.0
             ),
-            AttributeId::Strength => format!("{}% melee damage", self.melee.0),
-            AttributeId::Marksmanship => format!("{}% ranged damage", self.ranged.0),
+            AttributeId::Strength => format!("{}% melee damage", self.melee.0.percent()),
+            AttributeId::Marksmanship => format!("{}% ranged damage", self.ranged.0.percent()),
         }
     }
 }
@@ -591,7 +608,7 @@ mod tests {
         );
         for (rank, percent) in [(1, 96), (5, 100), (45, 140), (100, 195)] {
             let multiplier = RangedDamageMultiplier::for_rank(rank);
-            assert_eq!(multiplier.0, percent);
+            assert_eq!(multiplier.0.percent(), percent);
             assert_eq!(multiplier.scale(100), percent);
             assert_eq!(
                 multiplier.scale(7),
