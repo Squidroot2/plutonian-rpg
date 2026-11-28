@@ -1,3 +1,4 @@
+mod musket;
 mod spear;
 use az::CheckedAs;
 
@@ -18,8 +19,17 @@ use crate::{
 use bevy::math::{Mat4, Vec3, Vec4};
 use std::collections::{BTreeMap, BTreeSet};
 
-pub(super) fn check_character(model: &Model, failures: &mut Failures) {
-    check_clip_names(CHARACTER_MODEL, model, CLIPS, failures);
+pub(super) fn check_character(
+    model: &Model,
+    models: &BTreeMap<String, Model>,
+    failures: &mut Failures,
+) {
+    check_clip_names(
+        CHARACTER_MODEL,
+        model,
+        CLIPS.into_iter().chain(musket::CLIPS.map(|(name, _)| name)),
+        failures,
+    );
     let spear = socket(EquipmentSlot::MainHand, Handedness::TwoHanded);
     require_node(model, CHARACTER_MODEL, spear, failures);
     check_duration(
@@ -46,6 +56,7 @@ pub(super) fn check_character(model: &Model, failures: &mut Failures) {
         );
     }
     check_directional_walks(model, failures);
+    musket::check(model, models, failures);
 }
 
 fn check_directional_walks(model: &Model, failures: &mut Failures) {
