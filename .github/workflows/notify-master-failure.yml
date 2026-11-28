@@ -4,7 +4,7 @@ name: Master failure watcher
 
 on:
   workflow_run:
-    workflows: ["Rust CI", "Smoke"]
+    workflows: ["Rust CI", "Smoke", "Coverage"]
     branches: [master]
     types: [completed]
 
